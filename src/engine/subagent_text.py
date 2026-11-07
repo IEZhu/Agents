@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from collections.abc import Callable
+from dataclasses import dataclass
 import re
 
 from src.schemas.subagent import PROTOCOL, TaskContract
@@ -44,8 +45,27 @@ LIST_SECTIONS = ("checks", "artifacts", "limitations", "remaining_work")
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 CHECK_STATES = ("passed", "failed", "not_run")
 _REFERENCE = re.compile(r"\[\^([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})\]")
-_EM_SEPARATOR = re.compile(r"\s+—\s+")
-_SEPARATOR = re.compile(r"\s+(?:—|--)\s+")
+@dataclass(frozen=True)
+class Separator:
+    """One accepted spelling of the separator between the two parts of a line."""
+    spelling: str
+    pattern: re.Pattern
+    write_it: bool
+    note: str
+
+
+# The one source of the separator rule. ``_split`` matches these in order against the copy
+# whose code spans are masked, so this tuple is the precedence, and `render_result_format`
+# generates the rule and its examples from it. Three review rounds of #595 each corrected
+# one of several hand-written statements of this rule and left another contradicting the
+# parser; a spelling now reaches the worker's text and the diagnostics from here (#596).
+SEPARATORS = (
+    Separator(" — ", re.compile(r"\s+—\s+"), write_it=True,
+              note="one space, an em dash (U+2014) and one space"),
+    Separator(" -- ", re.compile(r"\s+--\s+"), write_it=False,
+              note="the spelling accepted before this contract named one"),
+)
+WRITE_SEPARATOR = next(s for s in SEPARATORS if s.write_it)
 _HEADING = re.compile(r"##\s+([A-Za-z_]+)\s*")
 _HEADER = re.compile(r"([a-z_]+):[ \t]*(.*)")
 _EVIDENCE = re.compile(r"\[\^([^\]]*)\]:[ \t]*(.*)")
@@ -117,6 +137,42 @@ _PAYLOAD_TEMPLATES = {
 }
 
 
+# Every labelled example below is executed by tests/test_subagent_exchange.py against the
+# parser it illustrates, so a claim in this text cannot drift from the code without a test
+# failing. Generation covers the spellings, which come from SEPARATORS; execution covers the
+# conditions, which live in _split's control flow and cannot be read off a pattern (#596).
+EXAMPLE_LABEL = re.compile(r" {2}(right|wrong) \(([^)]*)\): (.*)")
+
+
+def _separator_rules() -> list[str]:
+    """The separator rule and its examples, generated from ``SEPARATORS``."""
+    tolerated = [s for s in SEPARATORS if not s.write_it]
+    write = WRITE_SEPARATOR.spelling
+    lines = ["### The separator",
+             f"Where the form shows '{write}', write exactly that: {WRITE_SEPARATOR.note}. "
+             "Not a plain hyphen, not an en dash '–', not nothing at all. It has to stand in "
+             "the line's own text, outside any `code span`, because that is where it is "
+             "looked for. Every evidence line, finding, changes item and artifacts item "
+             "needs one."]
+    for separator in tolerated:
+        lines.append(
+            f"'{separator.spelling}' ({separator.note}) still separates a line where no "
+            f"'{write}' appears outside a code span, but do not write it.")
+    lines.append("A line where none of them appears outside a code span is reported as "
+                 "separator_required. These examples are the two parts of one line:")
+    lines += [f"  right ('{write}' outside a code span): src/app.py:12{write}The token is logged."]
+    lines += [f"  right ('{s.spelling}' outside a code span, with no '{write}' there): "
+              f"src/app.py:12{s.spelling}The token is logged." for s in tolerated]
+    lines += [f"  right (the em dash sits inside a span, so '{s.spelling}' decides): "
+              f"`a — b`{s.spelling}The token is logged." for s in tolerated]
+    lines += [f"  right (the em dash has no spaces, so '{s.spelling}' decides): "
+              f"a—b{s.spelling}The token is logged." for s in tolerated]
+    lines += ["  wrong (no separator at all): src/app.py:12 The token is logged.",
+              "  wrong (the only spaced em dash is inside a span): "
+              "`src/app.py:12 — the header` is logged."]
+    return lines
+
+
 # Two line shapes cost most of the discarded worker runs of #526: a findings or evidence
 # line without the separator, and a finding whose 'fix:' line is missing or empty. Both are
 # stated here with a counter-example, because that is what a worker reads before replying.
@@ -126,9 +182,11 @@ _PAYLOAD_RULES = {"findings": [
     "Every finding carries its own 'fix:' line, indented by two spaces, with a non-empty "
     "recommendation on it. A finding that only confirms something takes one too, saying "
     "what to keep; a missing or empty 'fix:' rejects the finding.",
-    "  right: - info src/app.py:40 — The guard is correct.[^e2]",
+    "  right (a confirming finding names what to keep): "
+    "- info src/app.py:40 — The guard is correct.[^e2]",
     "         fix: Keep the guard as it is.",
-    "  wrong: - info src/app.py:40 — The guard is correct.[^e2]",
+    "  wrong (the fix: line has no recommendation on it): "
+    "- info src/app.py:40 — The guard is correct.[^e2]",
     "         fix:",
 ]}
 
@@ -177,19 +235,11 @@ def render_result_format(contract: dict) -> str:
         "completed: no remaining_work, no question. partial: remaining_work. failed: a "
         "limitation saying why. input_required: question.",
         "",
-        "### The separator",
-        "Where the form shows ' — ', write exactly that: one space, an em dash (U+2014, "
-        "'—') and one space. Not a plain hyphen, not an en dash '–', not nothing at all; "
-        "' -- ' still parses on a line that holds no em dash, for older workers, but do not "
-        "write it. The separator has to stand in the line's own text, outside any `code "
-        "span`, because that is where it is looked for. Every evidence line, finding, "
-        "changes item and artifacts item needs one.",
-        "  right: - high src/app.py:12 — The token is logged.[^e1]",
-        "  wrong: - high src/app.py:12 The token is logged.[^e1]   (no separator: rejected)",
-        "  wrong: - high `src/app.py:12 — the header` is logged.   (only inside a span: rejected)",
+        *_separator_rules(),
         *_PAYLOAD_RULES.get(payload, []),
         "",
-        "Before replying, check every ' — '" + (" and every 'fix:' line" if payload == "findings" else "")
+        f"Before replying, check every '{WRITE_SEPARATOR.spelling}'"
+        + (" and every 'fix:' line" if payload == "findings" else "")
         + " the form shows and the 4000-character limit.",
     ])
 
@@ -245,17 +295,18 @@ def _outside_code_spans(text: str) -> str:
 
 
 def _split(text: str, path: str, shape: str, line: str = "") -> tuple[str, str]:
-    # A reference may itself contain ' -- ', as `git log --oneline -- path` does, so the
-    # documented separator decides wherever it appears; ' -- ' stays accepted without it.
-    # Both are looked for outside code spans: a worker who writes a location or a command in
-    # backticks means one part, and splitting inside it would report neither of them (#526).
+    # The spellings of ``SEPARATORS`` are tried in order, so the one to write wins wherever
+    # it appears and the older one decides only without it. A reference may itself contain
+    # ' -- ', as `git log --oneline -- path` does, which is why the order matters.
+    # All of them are looked for outside code spans: a worker who writes a location or a
+    # command in backticks means one part, and splitting inside it would report neither.
     outside = _outside_code_spans(text)
-    pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(outside) else _SEPARATOR
-    found = pattern.search(outside)
+    found = next((match for separator in SEPARATORS
+                  if (match := separator.pattern.search(outside))), None)
     if not found:
         raise TextFormatError("separator_required",
-                              f"Expected '{shape}', with ' — ' between the two parts.",
-                              path, line or text)
+                              f"Expected '{shape}', with '{WRITE_SEPARATOR.spelling}' "
+                              "between the two parts.", path, line or text)
     return text[:found.start()].strip(), text[found.end():].strip()
 
 
