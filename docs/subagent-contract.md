@@ -183,14 +183,16 @@ space, and it is required throughout: every `## evidence` line needs it, and so 
 outside code spans, so an em dash inside backticks belongs to that side of the line
 instead of separating it, and a line whose only spaced em dash sits inside a code span is
 reported as `separator_required` rather than split there. A code span is a run of
-backticks closed by a run of the same length, the rule Markdown itself uses, so a
-``-delimited span may hold a single backtick and a run nothing closes is literal text.
-For workers written before this contract named one spelling, a spaced ` -- ` still
-separates a line in which no em dash appears outside a code span; the rendered format
-records that while telling the worker to write ` — `. A finding whose `fix:` line is
-missing or empty is rejected as `recommendation_required`, and so is one that merely
-confirms something: the typed payload keeps `recommendation` required, so a parent is
-never handed a review item whose recommendation it has to chase. Evidence IDs
+backticks closed by a run of the same length, the rule Markdown itself uses, so a span
+opened with two backticks may hold a single backtick, and a run that nothing closes is
+literal text. For workers written before this contract named one spelling, a spaced
+` -- ` still separates a line in which no spaced em dash appears outside a code span: an
+em dash inside a span, or one written without spaces around it, leaves that fallback in
+place. The rendered format records this while telling the worker to write ` — `. A
+finding whose `fix:` line is missing or empty is rejected as `recommendation_required`,
+and a finding that merely confirms something needs one too, saying what to keep: the
+typed payload keeps `recommendation` required, so a parent is never handed a review item
+whose recommendation it has to chase. Evidence IDs
 are unique; in a text result a repeated citation of one ID inside a single item counts
 once, including a finding's explanation and its `fix:` line together, and does not fail
 validation. A JSON result keeps the stricter rule and reports
