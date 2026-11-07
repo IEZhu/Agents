@@ -29,7 +29,8 @@ request that the source rests on what a browser read.
 Exit status is 1 only for a URL that is positively wrong: a 404 or 410, or a
 not-found page served under a 200. A refusal page under a 200 is a refusal, not
 a wrong URL, and does not fail the run. ``--strict`` fails on anything not
-served.
+served, refusals included: it asks for everything to be verified, so it suits a
+machine where every publisher answers and not one that a host turns away.
 
     python scripts/check_skill_sources.py
     python scripts/check_skill_sources.py --strict --skill skill-labor-cy
@@ -131,7 +132,14 @@ def main() -> int:
     parser.add_argument("--skill", action="append", help="limit to this skill, repeatable")
     parser.add_argument("--timeout", type=int, default=40, help="seconds per attempt")
     parser.add_argument("--jobs", type=int, default=6, help="concurrent fetches")
-    parser.add_argument("--strict", action="store_true", help="fail on anything not served")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "fail on anything not served, refusals included — for a machine where every "
+            "publisher is reachable, not for one a host turns away"
+        ),
+    )
     args = parser.parse_args()
 
     paths = sorted(
