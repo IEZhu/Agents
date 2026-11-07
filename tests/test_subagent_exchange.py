@@ -449,6 +449,30 @@ def test_a_code_span_does_not_move_the_separator_that_is_outside_it(worker_tree)
     assert finding["explanation"] == "`a — b` is logged."
 
 
+@pytest.mark.parametrize("location", ["``src/app.py:12 ` — the header``",
+                                      "```src/app.py:12 — the header```"])
+def test_a_code_span_is_closed_by_a_run_of_its_own_length(worker_tree, location):
+    """A ``-delimited span may hold a single backtick, so masking cannot stop at one."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload=f"## findings\n- high {location} is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], response.errors
+
+
+def test_a_run_longer_than_its_closer_opens_no_span(worker_tree):
+    """Three backticks are not closed by one, so that text is literal and splits normally."""
+    from src.engine.subagent_text import parse_result
+
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high ```src/app.py — a` is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
+    finding = parse_result(text, package.contract)[0]["result"]["findings"][0]
+    assert finding["location"] == "```src/app.py"
+
+
 def test_an_unclosed_backtick_masks_nothing(worker_tree):
     """An unclosed span must not swallow the rest of the line and hide the separator."""
     package = prepared(result_type="review")

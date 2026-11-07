@@ -29,6 +29,7 @@ A result looks like this (the payload section depends on the result type)::
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Callable
 import re
 
@@ -48,7 +49,7 @@ _SEPARATOR = re.compile(r"\s+(?:—|--)\s+")
 _HEADING = re.compile(r"##\s+([A-Za-z_]+)\s*")
 _HEADER = re.compile(r"([a-z_]+):[ \t]*(.*)")
 _EVIDENCE = re.compile(r"\[\^([^\]]*)\]:[ \t]*(.*)")
-_CODE_SPAN = re.compile(r"`+[^`]*`+")
+_BACKTICK_RUN = re.compile(r"`+")
 EXCERPT_CHARS = 120  # enough of a line to find it, short enough for a 240-character diagnostic
 
 
@@ -215,10 +216,32 @@ def _references(text: str) -> tuple[str, list[str]]:
 def _outside_code_spans(text: str) -> str:
     """``text`` with every code span's characters replaced, so none of them can match.
 
-    Lengths are preserved, so a match in the result indexes the original text. An unclosed
-    backtick masks nothing, because it must not swallow the rest of the line.
+    A span is a run of backticks closed by a run of the same length, the rule Markdown
+    itself uses, so a ``-delimited span may hold a single backtick and still be one part of
+    the line. Lengths are preserved, so a match in the result indexes the original text,
+    and a run with no closer masks nothing, because it must not swallow the rest of the
+    line. The runs are indexed once and each closer is found by bisection, so a result full
+    of stray backticks cannot make this quadratic.
     """
-    return _CODE_SPAN.sub(lambda span: "\x00" * len(span.group()), text)
+    runs = [match.span() for match in _BACKTICK_RUN.finditer(text)]
+    if not runs:
+        return text
+    by_length: dict[int, list[int]] = {}
+    for index, (start, end) in enumerate(runs):
+        by_length.setdefault(end - start, []).append(index)
+    masked = list(text)
+    index = 0
+    while index < len(runs):
+        start, end = runs[index]
+        same_length = by_length[end - start]
+        candidate = bisect_right(same_length, index)
+        if candidate == len(same_length):
+            index += 1  # a run that nothing closes is literal text, not a span
+            continue
+        closer = same_length[candidate]
+        masked[start:runs[closer][1]] = "\x00" * (runs[closer][1] - start)
+        index = closer + 1  # runs inside the span are its content, not openers
+    return "".join(masked)
 
 
 def _split(text: str, path: str, shape: str, line: str = "") -> tuple[str, str]:
