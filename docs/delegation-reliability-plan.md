@@ -238,9 +238,16 @@ articles against 44 % in registered reports.
 What is missing is the normative sentence that makes use of it: **the parent must
 not revise acceptance criteria after reading a result.** Reinterpreting a
 criterion so that the returned work satisfies it is the delegation-level form of
-hypothesising after the result is known, and the fingerprint already makes it
-detectable — the revised criterion cannot be the one the result was produced
-against.
+hypothesising after the result is known. The fingerprint helps less than it
+looks: it fixes the criterion's *text*, so a rewritten criterion is visibly a
+different contract, while a criterion read differently against the same words
+leaves no trace in it at all. Nor does anything today tie the parent's
+acceptance to the revision it was taken against. Making the rule bite therefore
+needs the acceptance to cite that `contract_revision`, so that accepting against
+another one is a visible mismatch rather than an invisible reinterpretation —
+and even then the reading of unchanged words stays beyond the mechanism, which
+is why this layer's weight rests on the stated norm and on `Criterion.falsifier`
+below, not on the fingerprint.
 
 The same applies to the acceptance rule. Conformity assessment requires the
 decision rule to be agreed *before* the measurements are taken
@@ -412,9 +419,13 @@ preparation put it. Preparation marked the `inherit` claim `unverifiable` and
 the attempt route-different-unverified, and that receipt stays exactly as
 issued — it records what was knowable at preparation, and rewriting it would
 destroy the only fixed point the check has. The decision is taken afterwards,
-on both attempts' bound identities: two attested identities that differ promote
-the claim to model-different on attestation, two that match refute it, and a
-pair where either side is still `unknown` stays unverified. The promoted or
+on both attempts' bound identities — and what matters is that each side is
+bound, not where it came from. A `resolved` identity on one side and a
+`host_attested` one on the other compare exactly as two of either kind do:
+differing identities promote the claim to model-different, matching ones refute
+it, and only an `unknown` on either side leaves it unverified. The trust the
+verdict carries is the weaker of the two sources, so a comparison resting on an
+attestation is recorded as such. The promoted or
 refuted verdict is recorded beside the receipt with the attestations it rests
 on, so a reader can always see which of the two the conclusion came from, and
 an attestation that arrives for only one side of a comparison settles
@@ -949,8 +960,11 @@ layer 6's condition for any refutation rate — turns the bound into an estimate
 and what it estimates is the population the sample came from, which has to be
 said each time: drawn from the recorded `routine` claims it estimates that
 cohort's false-accept rate, and drawn from all `routine` claims, recorded or
-not, it estimates the field rate for `routine`. The second needs a frame that
-reaches the unrecorded ones, which the ledger by definition does not provide.
+not, it estimates the field rate for `routine`. Both draws have to be of
+*accepted* claims, since a false-accept rate has accepted claims as its
+denominator, and a sample that sweeps in rejected ones measures a different
+quantity. The second draw also needs a frame that reaches the unrecorded
+claims, which the ledger by definition does not provide.
 Neither draw measures the drift or names the claims rated too low. So the Campbell hazard of finding 13 stays
 unmeasured by construction here, and the honest report says that instead of
 claiming the drift would surface.
