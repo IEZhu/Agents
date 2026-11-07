@@ -381,10 +381,18 @@ known, because preparation fingerprints the contract before the worker is
 launched and cannot receive what the host learns at launch: `resolved` where the
 tier fixed the model, so preparation binds it into the contract itself;
 `host_attested` where the host reports the model it actually launched *after*
-preparation, which therefore cannot enter the fingerprint and binds to the
-attempt the only other way available — recorded against that `attempt_id` on the
-result and in the ledger, carrying the host's word and not the server's; and
-`unknown` otherwise. A `resolved` identity supports a `model` claim as contract
+preparation; and `unknown` otherwise. That attested identity needs a channel of
+its own, and naming the wrong one would make the claim worse than absent. It
+cannot enter the fingerprint, which is sealed before launch. It cannot live in
+the worker's result: the worker authors that and the parent validates it
+unchanged, so a field there is the worker's word about the host, not the host's
+own. And it cannot rest on the ledger, which is opt-in — a claim may not depend
+on a record the installation can switch off. What it requires is a host-origin
+attestation the host writes against the task, the `attempt_id` and the
+`contract_revision`, which the parent reads beside the result instead of inside
+it and which leaves the result's bytes untouched. Designing that channel is part
+of this layer's work; until it exists, no attempt has a `host_attested` route to
+record, and tier `inherit` stays `unverifiable` in practice. A `resolved` identity supports a `model` claim as contract
 evidence, a `host_attested` one only as an attestation whose trust is the host's,
 and `unknown` leaves the claim `unverifiable` however the tier was requested.
 Tier `inherit` is therefore never checkable from the contract, and checkable
@@ -486,8 +494,18 @@ without ground truth:
   cite the same `evidence[].reference` strings for the same claim share
   evidence, which is not the same as sharing an information set: two workers can
   cite one source while holding different pinned manifests or extra materials,
-  so whether the routes differ on `information_set` is settled by comparing the
-  recorded `information_set` values, not their citations. Overlap is a
+  so whether the routes differ on `information_set` is settled by comparing what
+  each route pinned — and not by comparing manifest ids, which would be a second
+  mistake of the same kind: `artifact_manifest_create` mints
+  `manifest_<uuid4>` on every call (`src/artifacts/store.py:699`) and hashes the
+  whole manifest including that id and its timestamps, so two manifests over
+  identical entries differ in both. The comparison is over the pinned artifact
+  identities, each entry's `artifact_id` and `sha256`, together with any other
+  recorded materials. That makes two separately created manifests of the same
+  artifacts equal, as they should be, and keeps genuinely different input sets
+  distinct — which matters because this same test decides the route-different
+  check that `load_bearing` requires, and an id comparison would hand it a pass
+  for free. Overlap is a
   shared-evidence signal and nothing more — it says a dependence estimate is
   worth buying, and never supplies one, since two analysts can read one public
   source and still be conditionally independent. The envelope already carries
