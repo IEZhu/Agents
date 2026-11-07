@@ -104,3 +104,50 @@ def test_declared_facts_are_not_past_review(path):
         f"on {due} ({field}). Re-check the figures against the listed sources, then bump "
         "as_of and review_on. flows/legal-reference-refresh.md is the procedure."
     )
+
+
+# The parametrized tests above exercise `_due_date` only through the files in
+# skills/, and every one of those is currently inside both windows. The branch
+# that matters most — a pinned calendar date that falls due while the rolling
+# window is still open — is therefore never reached by them. These unit cases
+# pin the arithmetic itself, with fixed dates, so they do not rot.
+@pytest.mark.parametrize(
+    ("fm", "due", "field"),
+    [
+        # no review_on: the rolling window decides
+        ({"as_of": "2026-11-06", "review_after_days": 180}, dt.date(2027, 5, 5), "review_after_days"),
+        # review_on earlier than the rolling window: review_on decides
+        (
+            {"as_of": "2026-11-06", "review_after_days": 180, "review_on": "2027-02-15"},
+            dt.date(2027, 2, 15),
+            "review_on",
+        ),
+        # review_on later than the rolling window: the window still decides
+        (
+            {"as_of": "2026-11-06", "review_after_days": 180, "review_on": "2027-12-31"},
+            dt.date(2027, 5, 5),
+            "review_after_days",
+        ),
+        # review_after_days omitted: the 180-day default applies
+        ({"as_of": "2026-11-06", "review_on": "2027-02-15"}, dt.date(2027, 2, 15), "review_on"),
+        # a YAML date object and a stringified count are both accepted
+        ({"as_of": dt.date(2026, 11, 6), "review_after_days": "180"}, dt.date(2027, 5, 5), "review_after_days"),
+    ],
+)
+def test_due_date_takes_the_earlier_of_the_two_dates(fm, due, field):
+    assert _due_date(fm) == (due, field)
+
+
+def test_a_past_review_on_falls_due_while_the_rolling_window_is_still_open():
+    """The scenario review_on exists for: without it the figures age silently."""
+    fm = {"as_of": "2026-06-01", "review_after_days": 180, "review_on": "2026-11-01"}
+    due, field = _due_date(fm)
+    rolling = _parse_date(fm["as_of"]) + dt.timedelta(days=fm["review_after_days"])
+    assert field == "review_on"
+    assert due == dt.date(2026, 11, 1)
+    assert rolling > due, "the rolling window must still be open, or the case proves nothing"
+
+
+def test_review_on_equal_to_the_rolling_window_keeps_the_window_as_the_reason():
+    fm = {"as_of": "2026-11-06", "review_after_days": 180, "review_on": "2027-05-05"}
+    assert _due_date(fm) == (dt.date(2027, 5, 5), "review_after_days")

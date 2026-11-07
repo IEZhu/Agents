@@ -61,6 +61,8 @@ steps, and each element removes one specific failure mode:
 | An explicit limits section, never a silent drop | Unverifiable claims quietly becoming assertions |
 | `validate_subagent_result` before reading any result as evidence | Accepting output that does not even match its contract |
 | A dated freshness contract enforced by a test | Everything above decaying again without anyone noticing |
+| A post-integration audit of the file that actually shipped | The integrator's own edits: 145 corrections typed by hand after every line had finished |
+| Seeded defects in a control copy, to measure the method's own sensitivity | "No errors found" being read as "no errors present" |
 
 None of this makes a claim true. It makes an unsupported claim visible.
 
@@ -74,6 +76,12 @@ returned or revised output; require `valid: true` before reading the result as
 evidence, and then judge the evidence yourself. Structural validity is not
 correctness, and a `partial` result with named gaps is a usable result — an
 invented complete one is not.
+
+Record each artifact's validation outcome beside it — the attempt id, `valid` or
+not, and where the accepted result was filed. A directory of results is not a
+record of acceptance: on the 2026-11 run the accepted Kazakhstan result was
+never copied into the accepted-results folder, and its absence read for a while
+as a rejection that had not happened.
 
 Give each worker one slice. Do not let a research worker verify its own output:
 the refutation line must not know what the research line concluded beyond the
@@ -207,7 +215,70 @@ with an English gloss, English prose everywhere else.
 `tests/test_skill_freshness.py` enforces the earlier of the two dates. A skill
 that cannot be verified now gets an honest short `review_on`, not a long one.
 
-### 8. Checks and hand-over
+### 8. Audit what shipped
+
+This runs before the pull request is opened, not after it. Steps 2 to 5 verify
+the **drafts**. Step 6 then puts the corrections in by hand,
+and nothing has checked that. This step audits the file as committed. Write the
+protocol down **before** running any of it — sampling frame, seed, strata,
+thresholds and the decision rule — in a file the results cannot change, and
+record any later deviation as a deviation.
+
+**Traceability.** One worker per three files, no network. Classify every figure,
+deadline, article number and named instrument in the shipped file as supported by
+a confirmed ledger row, supported by an accepted finding, raised by the gap
+critic, present only in a detail file whose envelope was rejected, orphaned, or
+contradicting its own record. An orphan that states a number is a defect of the
+integration step whether or not it happens to be true.
+
+**Blind replication.** One worker per jurisdiction, each given the committed file
+and a pre-registered sample of about ten assertions, and **nothing else** — no
+ledger, no findings, no verdicts. It must be able to disagree. Draw the sample
+from every body line carrying a numeral or a citation, stratified: the round's
+own high-impact corrections first, as a mandatory stratum, then at least two
+money lines and two deadline lines, then random fill. Report the exact binomial
+one-sided 95% upper bound on the residual error rate; at zero errors in ninety
+items that bound is about 3.3%, which is the honest ceiling, not a clean bill.
+
+**Positive control.** Seed six plausible defects into a copy of one or two files
+whose publishers are reachable, of the same classes the real defects were — a
+stale figure, a wrong subsection, a reversed negation, a merged deadline, a
+repealed instrument, a wrong multiplicand — record them before starting, and set
+a refutation line on the copy without telling it anything was seeded.
+Sensitivity is detected over seeded. Below three quarters, the clean results of
+the other checks carry little weight and the report says so instead of reporting
+them as clean.
+
+**Mutate the guard.** A guard is only a guard if it fails when it should. Against
+a copy of one volatile skill, with the tree restored after each run: `as_of`
+moved past the rolling window must fail; `review_on` set to a past date while the
+rolling window is still open must fail, which is the whole reason `review_on`
+exists; `review_on` removed with `as_of` fresh must pass; `as_of` removed must
+fail; `sources` removed must fail; `review_on` equal to `as_of` must fail. The
+unit cases at the end of `tests/test_skill_freshness.py` hold the date
+arithmetic permanently, because the files in `skills/` are all inside both
+windows and never exercise that branch.
+
+**Cross-file consistency.** One worker over all the files at once. Two of our own
+files disagreeing on a supranational rule is a defect even where neither is
+refuted alone.
+
+**Mechanical invariants**, in the parent, no worker: every source `https` where
+the host serves it, no placeholder text, no mixed-script words, no zero-width or
+non-breaking spaces, balanced emphasis, no ragged tables, zero keyword
+collisions with each neighbouring country skill, every future date marked as not
+yet in force, and the count of `(unconfirmed)` markers that ship. Report a check
+that found nothing to examine as vacuous rather than as passed.
+
+**Decision rule.** Fix it in advance and let it be able to fail: a ceiling on
+substantive refutations in the sample, zero in the mandatory stratum, zero in the
+catastrophic class — a limitation period, a challenge deadline, a non-waivability
+rule — zero orphans that state a number, the sensitivity floor, and every mutant
+behaving as specified. Failing the rule does not mean discarding the work. It
+means the pull request names the failing check and does not claim the conclusions
+are verified.
+
+### 9. Checks and hand-over
 
 Run, from the worktree:
 
@@ -239,6 +310,9 @@ Write the report in the language of the invocation. It contains:
 4. **Limits of verification** — every blocked host, captcha, paywall,
    translation-only source and unopened full text, and every claim still
    unconfirmed. This section is not optional and is never empty in practice.
-5. The branch, the pull request and the commands that were run.
+5. The post-integration audit: the sample size and how it was drawn, the error-rate
+   upper bound, the measured sensitivity of the method, the orphan count, and every
+   mutant's behaviour. A bound and a sensitivity figure, not an adjective.
+6. The branch, the pull request and the commands that were run.
 
 A refresh that reports no limits has not looked hard enough at its own evidence.
