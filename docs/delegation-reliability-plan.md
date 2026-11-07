@@ -349,7 +349,7 @@ with the contract.
 ```
 Route {
   model:           the resolved model, or null when none is bound
-  model_source:    resolved | host_reported | unknown
+  model_source:    resolved | host_attested | unknown
   lineage:         the model family, where the server can resolve it
   decomposition:   a short parent-assigned id for the framing or split used
   information_set: the pinned manifest id, or an id for the named materials
@@ -879,16 +879,19 @@ on a claim, whether a wrong value can be undone cheaply, and whether it will be
 reused are facts about the parent's intended use, and no contract field carries
 them — so the rating is a recorded parent attestation, not a derivation, and
 nothing stops a parent rating down to buy less verification. The defence is measurement rather than
-derivation, and it is a weak one: the ledger stores the rating beside the
-outcome, so the refutation rate of `routine`-rated claims is at least visible.
-But `routine` requires no validation, and an unvalidated wrong claim is usually
-never refuted, so the ledger can sit unchanged while ratings drift down. The
-observed rate is a lower bound on the drift, not a detector of it, and it
-becomes a measurement only under the same condition layer 6 states for the
-refutation rate in general: follow-up drawn at random from `routine` claims and
-labelled reliably. Without that sampling the Campbell hazard of finding 13
-stands unmeasured, and the honest report says so rather than claiming the drift
-would surface.
+derivation, and it is a weak one that measures something narrower than the
+hazard: the ledger stores the rating beside the outcome, so the refutation rate
+of `routine`-rated claims is at least visible, and that rate is a lower bound on
+the false-accept rate among `routine` claims. It is not a bound on rating drift.
+Those are different quantities, and the gap between them is the whole problem:
+`routine` requires no validation, an unvalidated wrong claim is usually never
+refuted, and the ledger therefore sits unchanged whether the ratings are honest
+or sliding. Follow-up drawn at random from `routine` claims and labelled
+reliably — layer 6's condition for any refutation rate — turns the bound into an
+estimate of that false-accept rate, and still neither measures the drift nor
+names the claims rated too low. So the Campbell hazard of finding 13 stays
+unmeasured by construction here, and the honest report says that instead of
+claiming the drift would surface.
 
 Three levels are enough, and the trigger list already exists: `no-fabrication`
 names the claim types in scope — API and method names and signatures, versions,
