@@ -257,3 +257,48 @@ or an error page under a 200; a host that refuses the client is reported and
 does not fail the run, because that is a limitation of where the check ran.
 Its docstring says plainly that the client is not to be disguised to get past
 such a block.
+
+## What external review added, and what it got wrong
+
+Two review bots then read the branch and filed 41 comments, of which 21 carried
+a testable claim. Every legal claim among them was put through the same
+treatment as the audit's own: a prepared line, a primary source opened, and a
+verdict free to go against the reviewer. Nineteen were tested that way across
+nine lines; two were mechanical and settled by reading the code.
+
+| Outcome | Count |
+|---|---|
+| Reviewer right, file wrong | 11 |
+| Reviewer right in part | 5 |
+| Reviewer wrong, file right | 3 |
+| Reviewer withdrew the claim on checking | 1 |
+
+Three results matter more than the arithmetic.
+
+**The review found a class the audit could not see.** A Georgian routing alias
+carried a Cyrillic "sha" where the Georgian letter belongs, so the alias could
+never match. The invariant test covered the skills and not the agent prompts.
+Extending it then showed the mixed-script check was narrower than its name — it
+compared Latin with Cyrillic, and this defect was Cyrillic with Georgian, no
+Latin letter in the word at all. It compares any two of seven scripts now, and
+it reads frontmatter keywords, which a later comment pointed out it still did
+not.
+
+**One of the audit's own checks was self-defeating.** The invisible-character
+class was built out of invisible characters rather than escapes, so an editor
+or a linter autofix could have emptied it with every file still passing. It is
+escapes now, and a case asserts the five code points it names.
+
+**Three reviewer claims were wrong, and one bot said so itself.** Rule
+506(b)(2)(i) does impose a 90-calendar-day window, in terms. The asserted
+contradiction in the Georgian immigration scope is not there. The Serbian line
+on čl. 186 said what the statute says, though it was misreadable enough that a
+reviewer misread it, so it was reworded anyway. And the CRLF defect reported in
+the source script never existed: `Path.read_text` normalises newlines, the
+reviewer withdrew the finding, and the commit message that had claimed a bug was
+corrected in the record.
+
+That last one cuts both ways and belongs here. A reviewer's citation is a claim,
+not a finding — and so is mine. The method that caught the bots' three errors is
+the same one that caught my invented CRLF bug: open the source, and let the
+verdict go against whoever is asserting.
