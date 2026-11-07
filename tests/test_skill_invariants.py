@@ -201,9 +201,16 @@ def test_no_placeholders_or_invisible_characters(path):
 
 
 @pytest.mark.parametrize("path", _skill_paths(), ids=os.path.basename)
-def test_no_word_mixes_latin_and_cyrillic(path):
+def test_no_word_mixes_two_scripts(path):
     fm, body = _parts(path)
-    words = mixed_script_words(body + "\n" + str(fm.get("compiled", "")))
+    # The keywords are matched literally by the router, so a wrong letter there
+    # kills a query outright — and they live in the frontmatter, which an earlier
+    # version of this case did not read. Review caught that.
+    scanned = "\n".join(
+        [body, str(fm.get("compiled", "")), str(fm.get("description", ""))]
+        + [str(k) for k in (fm.get("keywords") or [])]
+    )
+    words = mixed_script_words(scanned)
     assert not words, (
         f"{os.path.basename(path)}: {words} draw letters from more than one script in one word. "
         "Write the term in one script; a mixed one matches nothing."

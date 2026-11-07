@@ -26,8 +26,10 @@ check runs rather than a defect in the file. No attempt is made to disguise the
 client to get past such a block: the right response is to say in the pull
 request that the source rests on what a browser read.
 
-Exit status is 1 only for a URL that is positively wrong: a 404 or 410, or an
-error page served under a 200. ``--strict`` fails on anything not served.
+Exit status is 1 only for a URL that is positively wrong: a 404 or 410, or a
+not-found page served under a 200. A refusal page under a 200 is a refusal, not
+a wrong URL, and does not fail the run. ``--strict`` fails on anything not
+served.
 
     python scripts/check_skill_sources.py
     python scripts/check_skill_sources.py --strict --skill skill-labor-cy
@@ -54,19 +56,25 @@ from src.utils.prompt_loader import split_frontmatter  # noqa: E402 - needs REPO
 VOLATILE_PREFIXES = ("skill-jurisdiction-", "skill-labor-", "skill-investment-")
 ACCEPT = "application/xml, application/json, text/html, */*"
 STUB_BYTES = 500
-ERROR_BODY = re.compile(
-    r"Access Denied|could not be accessed|Something went wrong|Error 404|Page not found",
-    re.I,
-)
+# Two different things arrive under a status of 200, and they must not share a
+# verdict. A refusal page means the host turned this client away, which is a
+# limitation of where the check ran. A not-found page under a 200 — a soft 404 —
+# means the URL is wrong, which is a defect in the file. Lumping them together
+# made the run fail for valid URLs on a host that refuses curl, contradicting
+# the policy stated above; review caught that.
+REFUSAL_BODY = re.compile(r"Access Denied|could not be accessed|Something went wrong|Forbidden", re.I)
+NOTFOUND_BODY = re.compile(r"Error 404|Page not found|No se encontr|\bnot found\b", re.I)
 
 OK = "served"
 STUB = "body too short to be the document"
-ERROR_PAGE = "error page under status 200"
 REFUSED = "host refused this client"
+REFUSED_200 = "host refused this client, under status 200"
 MISSING = "not found at this URL"
+MISSING_200 = "not found, under status 200"
 UNREACHABLE = "host did not answer"
 
-FAILING = {ERROR_PAGE, MISSING}
+# Only a positively wrong URL fails the run.
+FAILING = {MISSING, MISSING_200}
 
 
 def declared_sources(path: Path) -> list[str]:
@@ -91,8 +99,10 @@ def probe(url: str, timeout: int, _retry: bool = True) -> tuple[str, int, int, s
             body = response.read()
             code = response.getcode()
         head = body[:4000].decode("utf-8", "replace")
-        if ERROR_BODY.search(head):
-            verdict = ERROR_PAGE
+        if NOTFOUND_BODY.search(head):
+            verdict = MISSING_200
+        elif REFUSAL_BODY.search(head):
+            verdict = REFUSED_200
         elif len(body) < STUB_BYTES:
             verdict = STUB
         else:
