@@ -18,12 +18,12 @@ as_of: "2026-11-06"
 review_after_days: 180
 review_on: "2027-02-15"
 sources:
-  - http://www.cylaw.org/nomoi/enop/non-ind/1967_1_24/full.html
-  - http://www.cylaw.org/nomoi/enop/non-ind/1967_1_8/full.html
-  - http://www.cylaw.org/nomoi/enop/non-ind/2023_1_25/full.html
-  - http://www.cylaw.org/nomoi/enop/non-ind/2010_1_59/full.html
-  - http://www.cylaw.org/nomoi/enop/non-ind/2002_1_63/full.html
-  - http://www.cylaw.org/nomoi/enop/non-ind/0_105/full.html
+  - https://www.cylaw.org/nomoi/enop/non-ind/1967_1_24/full.html
+  - https://www.cylaw.org/nomoi/enop/non-ind/1967_1_8/full.html
+  - https://www.cylaw.org/nomoi/enop/non-ind/2023_1_25/full.html
+  - https://www.cylaw.org/nomoi/enop/non-ind/2010_1_59/full.html
+  - https://www.cylaw.org/nomoi/enop/non-ind/2002_1_63/full.html
+  - https://www.cylaw.org/nomoi/enop/non-ind/0_105/full.html
   - https://www.mlsi.gov.cy/mlsi/sdg/sdg.nsf/0/0b8b0cbd94a99ee1c2258638003a7799?OpenDocument=
   - https://www.mlsi.gov.cy/mlsi/dlr/dlr.nsf/All/7A695D399DCC511CC22586DC0020D68D?OpenDocument=
   - https://www.businessincyprus.gov.cy/social-insurance-registration-and-contributions/
