@@ -179,15 +179,20 @@ list item starts with `- `, continuation lines are indented, a finding's recomme
 follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry. The
 ` — ` separator between the two parts of a line is one space, an em dash (U+2014) and one
 space, and it is required throughout: every `## evidence` line needs it, and so does every
-`## changes` item, every `## artifacts` item and every finding. It is read outside code
-spans only, so an em dash inside backticks is part of that side of the line and not the
-separator; a line whose only spaced em dash sits inside a code span is reported as
-`separator_required` rather than split there. For workers written before this contract
-named one spelling, ` -- ` still separates a line that holds no em dash outside a code
-span, and the rendered format says so while telling the worker to write ` — `. A finding whose `fix:` line is missing or empty is
-rejected as `recommendation_required`, a finding that only confirms something included:
-the typed payload keeps `recommendation` required, so a parent never integrates a review
-item it then has to chase a recommendation for. Evidence IDs
+`## changes` item, every `## artifacts` item and every finding. The separator is read
+outside code spans, so an em dash inside backticks belongs to that side of the line
+instead of separating it, and a line where neither ` — ` nor ` -- ` appears outside a
+code span is reported as `separator_required`. A code span is a run of
+backticks closed by a run of the same length, the rule Markdown itself uses, so a span
+opened with two backticks may hold a single backtick, and a run that nothing closes is
+literal text. For workers written before this contract named one spelling, a spaced
+` -- ` still separates a line in which no spaced em dash appears outside a code span: an
+em dash inside a span, or one written without spaces around it, leaves that fallback in
+place. The rendered format records this while telling the worker to write ` — `. A
+finding whose `fix:` line is missing or empty is rejected as `recommendation_required`,
+and one that merely confirms something needs that line too, saying what to keep: the
+typed payload keeps `recommendation` required, so a parent is never handed a review item
+whose recommendation it has to chase. Evidence IDs
 are unique; in a text result a repeated citation of one ID inside a single item counts
 once, including a finding's explanation and its `fix:` line together, and does not fail
 validation. A JSON result keeps the stricter rule and reports
@@ -378,9 +383,10 @@ resolution in v1: JSON Schemas come only from the fixed built-in result models.
 One validation of a text result reports every per-line format error it found instead of
 stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
 `invalid_severity`, `invalid_check` and `recommendation_required` are collected across the
-whole result, within the same limit of 20 diagnostics. A line whose error was collected is skipped rather than
-guessed — the result is invalid either way, and nothing is repaired — and its diagnostic
-keeps that line's own position, such as `$.result.result.changes[2]`. A run of consecutive
+whole result, within the same limit of 20 diagnostics. A line whose error was collected is
+skipped rather than guessed — the result is invalid either way, and nothing is repaired —
+and its diagnostic keeps that line's own position, such as `$.result.result.changes[2]`.
+A run of consecutive
 lines that belong to no item and to no evidence entry is one diagnostic, because it is one
 problem, and such a line takes no position of its own; a second malformed `[^id]:` line is
 its own diagnostic. Schema and size errors join the same response whenever the text can
@@ -394,9 +400,9 @@ because they leave the result's structure or identity uninterpretable: `unknown_
 `duplicate_section`, `invalid_header`, `duplicate_header`, `header_required` and
 `identity_mismatch`. A `separator_required` diagnostic names the shape that was expected,
 not the sections it covers, because the quoted line now says which one it is. Every
-diagnostic about one line also quotes that line, collapsed onto
-one line and shortened to 120 characters, so a correction needs no guess about which of a
-long result's lines failed; a schema or size error on a list item quotes its line too.
+diagnostic about one line also quotes that line, collapsed onto one line and shortened to
+120 characters, so a correction needs no guess about which of a long result's lines
+failed; a schema or size error on a list item quotes its line too.
 Quoting is all that happens to it: a reference inside the line stays a reference and is
 never read, so validation stays structural.
 
