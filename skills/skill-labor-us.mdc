@@ -41,11 +41,11 @@ Assumes `skill-jurisdiction-us`.
 | Statute | Threshold | Norm |
 |---|---|---|
 | Title VII | 15+, 20+ calendar weeks | 42 U.S.C. 2000e(b) |
-| ADA title I | 15+, 20+ weeks | 42 U.S.C. 12111(5) |
+| ADA title I | 15+, 20+ weeks | 42 U.S.C. 12111(5)(A) |
 | ADEA | 20+, 20+ weeks; age 40+ | 29 U.S.C. 630(b); 631(a) |
 | FMLA | 50+; 50 within 75 miles | 29 U.S.C. 2611(4)(A)(i), 2611(2)(B)(ii) |
 | WARN | 100+ | 29 U.S.C. 2101(a)(1); 20 C.F.R. 639.3(a) |
-| PWFA | 15+ | 42 U.S.C. 2000gg(2) |
+| PWFA | 15+ | 42 U.S.C. 2000gg(2)(B)(i) |
 | sec. 7 / sec. 1981 | no headcount threshold | 29 U.S.C. 157; 42 U.S.C. 1981 |
 
 "No threshold" is not "everyone": 29 U.S.C. 152(3) writes agricultural labourers, domestic workers, independent contractors, supervisors and employees of Railway Labor Act carriers out of "employee" altogether.
@@ -92,14 +92,14 @@ Assumes `skill-jurisdiction-us`.
 ## Termination: Grounds, Procedure, Severance
 - At-will: either side may end it any time, no cause, no notice; no federal notice period or severance.
 - At-will exceptions are state-made — public policy, implied contract, implied covenant; which apply varies **(unconfirmed)**.
-- Montana is the one general good-cause regime, Mont. Code Ann. 39-2-904(1), whose (1)(a) also covers discharge for **reporting a violation of public policy**; remedy capped at 4 years' lost wages, no emotional-distress damages, 39-2-905, and punitive damages only for a 39-2-904(1)(a) discharge, 39-2-905(3).
-- **No statutory severance** (DOL: the FLSA has no severance requirement; it is a matter of agreement). A severance plan can be an ERISA welfare plan, 29 U.S.C. 1002(1) with 29 C.F.R. 2510.3-2(a)-(b), which changes the claims procedure and the forum.
+- Montana is the one general good-cause regime, Mont. Code Ann. 39-2-904(1), whose (1)(a) also covers discharge for **reporting a violation of public policy**; remedy capped at 4 years' lost wages **39-2-905(1)**, no emotional-distress damages **39-2-905(4)**, and punitive damages only for a 39-2-904(1)(a) discharge, 39-2-905(3).
+- **No statutory severance** (DOL: the FLSA has no severance requirement; it is a matter of agreement). A severance plan can be an ERISA welfare plan, 29 U.S.C. 1002(1)(A)–(B) and 1002(2)(B) with 29 C.F.R. 2510.3-2(b)(1)(i)–(iii) — which reach severance only by negative implication from a closed list, so argue it, do not assert it — which changes the claims procedure and the forum.
 - WARN (1988): **60 days'** written notice of a plant closing or mass layoff to employees or their representative and state and local officials, 29 U.S.C. 2102(a); closing = 50+ losses at one site in 30 days, mass layoff = 33% and 50+, or 500+, 2101(a)(2)-(3).
 - WARN liability: back pay and benefits per day of violation, 29 U.S.C. 2104(a)(1), plus **up to** $500/day to local government, which is waived if the employer pays the employees in full within **3 weeks** of the closing or layoff, 2104(a)(3).
 - **Ask the state about a mini-WARN.** Many states have none, and those that do are not uniformly stricter — do not assume either way.
 
 ## Collective Bargaining & Employee Representation
-- NLRA sec. 7, 29 U.S.C. 157: employees may engage in "concerted activities for the purpose of collective bargaining or other mutual aid or protection" — **non-union workers included**; interference breaches 158(a)(1).
+- NLRA sec. 7, 29 U.S.C. 157: employees may engage in "**other** concerted activities for the purpose of collective bargaining or other mutual aid or protection" — **non-union workers included**; interference breaches 158(a)(1).
 - Two employees comparing pay, or one acting for others, is protected: a ULP route, not a discrimination claim, **6 months** to charge, 160(b).
 - Union route: exhaust the CBA grievance and arbitration machinery first, *Republic Steel Corp. v. Maddox*, 379 U.S. 650 (1965); a wrongful refusal can breach the duty of fair representation, *Vaca v. Sipes*, 386 U.S. 171 (1967).
 - A CBA sends statutory claims to arbitration only clearly and unmistakably, *14 Penn Plaza LLC v. Pyett*, 556 U.S. 247 (2009).
@@ -130,7 +130,7 @@ Assumes `skill-jurisdiction-us`.
 - **A foreign forum or governing-law clause is the question this section would otherwise leave open.** FLSA and Title VII rights are not waivable by private agreement, and the federal statutes apply to work performed in the United States, so a pre-dispute clause sending the dispute abroad does not remove them; the authority defeating such a clause, and how a court treats it alongside 9 U.S.C. 2, is **(unconfirmed)** here. Establish it before advising on a contract pointing abroad.
 - Arbitration clauses are "valid, irrevocable, and enforceable", 9 U.S.C. 2, and class waivers enforceable, *Epic Systems Corp. v. Lewis*, 584 U.S. 497 (2018). Carve-out: at the claimant's election neither binds in a sexual-harassment or sexual-assault dispute, 9 U.S.C. 402(a).
 - Caps on Title VII/ADA compensatory plus punitive damages: $50,000 (15-100 employees), $100,000 (101-200), $200,000 (201-500), $300,000 (501+), 42 U.S.C. 1981a(b)(3) — 1991 figures, never indexed.
-- Outside the caps: back pay, which cannot accrue more than 2 years before the charge, 42 U.S.C. 2000e-5(g)(1), and front pay, which 2000e-5(g)(1) does not name: *Pollard v. E. I. du Pont de Nemours & Co.*, 532 U.S. 843 (2001) holds it is not an element of compensatory damages under 42 U.S.C. 1981a and so is **not subject to the 1981a(b)(2) cap**. FLSA doubles unpaid wages as liquidated damages, 29 U.S.C. 216(b); ADEA liquidates only willful violations, 626(b); fees, 2000e-5(k), 216(b).
+- Outside the caps: back pay, which cannot accrue more than 2 years before the charge, 42 U.S.C. 2000e-5(g)(1), and front pay, which 2000e-5(g)(1) does not name: *Pollard v. E. I. du Pont de Nemours & Co.*, 532 U.S. 843 (2001) holds it is not an element of compensatory damages under 42 U.S.C. 1981a and so is **not subject to the 1981a(b)(3) cap**. FLSA doubles unpaid wages as liquidated damages, 29 U.S.C. 216(b); ADEA liquidates only willful violations, 626(b); fees, 2000e-5(k), 216(b).
 
 ## Non-Waivable Rights & Void Clauses
 - **Not prospectively waivable:** FLSA minimum wage and overtime (only via DOL-supervised payment, 29 U.S.C. 216(c)); FMLA rights, 29 C.F.R. 825.220(d); and, **for an ADEA waiver specifically**, the right to file an EEOC charge or assist its investigation, 29 C.F.R. 1625.22(i)(2)-(3) with 29 U.S.C. 626(f)(4). Do not generalise that rule beyond the ADEA, and do not assert that a release still waives personal recovery: nothing opened here supports it.
