@@ -343,8 +343,17 @@ is convergent validation across independent methods (Campbell and Fiske's
 multitrait-multimethod matrix); the classical name for its absence is
 common-mode failure.
 
-Proposal: a bounded `route` descriptor, recorded per attempt and fingerprinted
-with the contract.
+Proposal: a bounded `route` descriptor, recorded per attempt. Most of it is
+fixed before launch and is fingerprinted with the contract: `decomposition`,
+`information_set`, `stance`, `blinded`, `lineage`, and a `model` the tier
+resolved. One field cannot be, and saying otherwise would leave the independence
+check without an integrity boundary: a model the host only attests after launch
+arrives too late for a contract already sealed, so `model_source:
+host_attested` and the identity it names live in the host-origin attestation
+described below — read beside the contract, never inside it. The boundary is
+therefore explicit. The fingerprint covers the route the parent asked for, the
+attestation covers what the host says it actually ran, and a `model`
+independence claim has to say which of the two it rests on.
 
 ```
 Route {
@@ -1022,7 +1031,7 @@ not a candidate.
 | `Route` with `blinded`, plus `verifies` and `independence`; same-model refusal at preparation | 2 | `src/schemas/subagent.py`, `src/engine/subagent.py`, `src/engine/model_tiers.py` | schema |
 | Evidence overlap and the rank-one dependence test; effective-verdict count | 3 | parent procedure, documented | procedure |
 | `Acceptance {accept_costs, check_cost, stopping, max_attempts, dependence_threshold}`; escalation driven by it | 4 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
-| `Route.model_source` plus a host-reported resolved model bound to the attempt; without it an `inherit` claim stays `unverifiable` | 2 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
+| `Route.model_source` plus a host-origin attestation of the model actually launched, bound to the task, attempt and contract revision; without that channel an `inherit` claim stays `unverifiable` | 2 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
 | Ledger outcomes, per-route sensitivity, ρ estimates, control chart, debiased calibration | 6 | `src/engine/subagent_ledger.py`, `scripts/subagent_tiers_report.py` | subsystem |
 | Known-answer control set, re-run on every model or prompt change | 6 | `evals/` (generalising #567) | evaluation |
 | Parent-attested `importance` from the three fixed questions; `ValidatedFact` store, append-only, expiring, parent-only, granted to workers only as pinned artifacts | 7 | new module beside `src/artifacts/` and `src/memory/`; `src/user_sync/scope.py` for opt-in sync | subsystem |
