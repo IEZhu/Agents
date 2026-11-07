@@ -268,7 +268,7 @@ nine lines; two were mechanical and settled by reading the code.
 
 | Outcome | Count |
 |---|---|
-| Reviewer right, file wrong | 11 |
+| Reviewer right, file wrong | 12 |
 | Reviewer right in part | 5 |
 | Reviewer wrong, file right | 3 |
 | Reviewer withdrew the claim on checking | 1 |
@@ -302,3 +302,24 @@ That last one cuts both ways and belongs here. A reviewer's citation is a claim,
 not a finding — and so is mine. The method that caught the bots' three errors is
 the same one that caught my invented CRLF bug: open the source, and let the
 verdict go against whoever is asserting.
+
+**The sharpest episode of the whole audit came last, and it was a loss.** A
+reviewer said the Cypriot recreation-centre holiday premium is 1:2 and pointed
+at the Department's own consolidated PDF. A worker had reported that file
+unreadable; I fetched it, my stream-level extractor returned binary, and I wrote
+that it had "no extractable text layer". I then read the consolidated statute on
+the public legal database, found no holiday provision and no 1:2, and recorded a
+confident negative with its reasons.
+
+Both halves were wrong. `pypdf` reads all eighteen pages. Regulation 3(6), as
+amended by Κ.Δ.Π. 398/2009, grants fifteen paid holidays and pays a worker who
+works one of them "not less than a ratio of 1 : 2" — which my own search had
+missed because the text writes the ratio with spaces. And the public database's
+page is an *older consolidation*: it still caps under-18s at 48 hours where the
+ministry text says 38, and it carries no Reg. 3(6) at all.
+
+Three lessons the rest of this record should be read against. A tool's failure
+is not a document's absence. A negative drawn from one publisher is only as
+current as that publisher's consolidation. And a search string that finds
+nothing has to be tested against something it should find before its silence
+counts as evidence.
