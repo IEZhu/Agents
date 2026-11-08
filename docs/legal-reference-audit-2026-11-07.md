@@ -219,12 +219,16 @@ rejection on envelope formatting and not one of them integrated.
 Two of the checks this audit improvised are now part of the repository, so the
 next refresh does not have to invent them.
 
-`tests/test_skill_invariants.py` — 118 cases over the 18 volatile skills,
-offline and deterministic, so CI enforces them: every source over `https`, no
-placeholder in prose, no invisible character anywhere, no word mixing Latin and
-Cyrillic, balanced emphasis, square tables, a future date that says it is not
-yet in force, and no literal keyword shared with a sibling skill for the same
-country.
+`tests/test_skill_invariants.py` — 165 cases, offline and deterministic, so
+CI enforces them rather than someone's memory. 118 run over the 18 volatile
+skills: every source over `https`, no placeholder in prose, no invisible
+character anywhere, no word mixing two scripts, balanced emphasis, square
+tables, a future date that says it is not yet in force, and no literal keyword
+shared with a sibling skill for the same country. 46 run over the routing
+keywords of every agent prompt, which review found uncovered after a Georgian
+alias turned out to carry a Cyrillic letter that could never match. The last
+one guards the invisible-character class against itself: it is written out of
+the characters it names, so an edit that emptied it would make every file pass.
 
 It was mutation-tested before being committed, to the same standard the
 freshness guard was held to. Seven mutants, one per defect class, each applied
