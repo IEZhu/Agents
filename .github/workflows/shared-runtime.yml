@@ -51,6 +51,9 @@ on:
       - tests/test_user_sync_blocked.py
       - tests/test_daemon.py
       - tests/test_history_ui.py
+      - src/daemon/memory_ui.py
+      - src/daemon/client_dirs.py
+      - tests/test_memory_ui.py
       - rules/subagents/**
       - tests/test_artifact*.py
       - tests/test_cooperation*.py
@@ -130,6 +133,9 @@ on:
       - tests/test_user_sync_blocked.py
       - tests/test_daemon.py
       - tests/test_history_ui.py
+      - src/daemon/memory_ui.py
+      - src/daemon/client_dirs.py
+      - tests/test_memory_ui.py
       - rules/subagents/**
       - tests/test_artifact*.py
       - tests/test_cooperation*.py
@@ -209,7 +215,7 @@ jobs:
           tests/test_mcp_secrets.py tests/test_mcp_upstreams.py tests/test_mcp_stdio.py tests/test_mcp_exposure.py
           tests/test_mcp_cli.py tests/test_mcp_sync.py tests/test_mcp_ui.py
           tests/test_user_sync_blocked.py tests/test_sync_ui_blocked.py
-          tests/test_daemon.py tests/test_history_ui.py
+          tests/test_daemon.py tests/test_history_ui.py tests/test_memory_ui.py
           tests/test_daemon_update.py tests/test_daemon_update_dependencies.py tests/test_environments.py
           tests/test_version.py
           -q -p no:cacheprovider

@@ -121,7 +121,7 @@ def test_only_the_list_and_the_detail_pane_scroll():
 
 # The open item's controls, moved from the row beside its title into the header (issue #163).
 ITEM_CONTROLS = ("e-seg", "e-toc", "history", "toggle-upstream", "copy-user", "copy-repo", "delete", "save",
-                 "c-seg", "c-toc", "c-toggle", "h-seg", "h-toc", "h-file")
+                 "c-seg", "c-toc", "c-toggle", "h-seg", "h-toc", "h-file", "m-seg", "m-toc", "m-store", "m-new")
 
 
 def test_the_open_items_controls_sit_in_the_header_between_the_version_and_the_tabs():
@@ -187,7 +187,7 @@ def test_the_header_gives_each_place_its_layout():
     assert {"flex": "1 1 0", "min-width": "0", "justify-content": "flex-end"}.items() <= top["#item-actions"].items()
     assert top["#history"] == {"width": "8em"}
     assert top["#tabs"] == {"flex-wrap": "wrap"}
-    assert top["#e-actions, #c-actions, #h-actions"]["flex-wrap"] == "nowrap"  # measured on one line
+    assert top["#e-actions, #c-actions, #h-actions, #m-actions"]["flex-wrap"] == "nowrap"  # measured on one line
     # Labels never wrap, so the group cannot shrink below the width it needs while it is measured.
     assert top["#item-actions button, #item-actions select"] == {"padding": "4px 6px", "white-space": "nowrap"}
     # In its own row a tab starts right of the pane's rounded corner and of its own joint: on the
@@ -206,7 +206,8 @@ def test_the_header_gives_each_place_its_layout():
     joints = ", ".join(f"{place(name)} > div::{side}" for name in ("inline", "stack") for side in ("before", "after"))
     assert top[f'{joints}, {place("row")} > div::after'] == {"display": "none"}
     # In its own row the tab continues the pane's right edge.
-    assert top['#main[data-place="row"] > #editor, #main[data-place="row"] > #component, #main[data-place="row"] > #hist'] == {
+    assert top['#main[data-place="row"] > #editor, #main[data-place="row"] > #component, #main[data-place="row"] > #hist, '
+               '#main[data-place="row"] > #mem'] == {
         "border-top-right-radius": "0"}
 
 
@@ -215,7 +216,7 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     css = css_rules(page_parts()[2])
     top = css[""]
     assert top["#item-actions:not(.hidden) + #tabs"] == {"border-left": "1px solid var(--line)", "padding-left": "8px"}
-    tab = top["#e-actions, #c-actions, #h-actions"]
+    tab = top["#e-actions, #c-actions, #h-actions, #m-actions"]
     assert {"justify-content": "flex-end", "background": "var(--tint)",
             "border-radius": "var(--r-tab) var(--r-tab) 0 0"}.items() <= tab.items()
     # The tab's padding matches the other header items' margins: it reaches down to the pane where they
@@ -226,10 +227,12 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     # New flow, the list, the welcome pane and the sign-in screen keep the normal colors.
     tinted = {selector for media in css.values() for selector, rule in media.items()
               if any("var(--tint)" in value for value in rule.values())}
-    assert tinted == {"#e-actions, #c-actions, #h-actions", "#e-actions::before, #c-actions::before, #h-actions::before",
-                      "#e-actions::after, #c-actions::after, #h-actions::after", "#editor, #component, #hist"}
+    assert tinted == {"#e-actions, #c-actions, #h-actions, #m-actions",
+                      "#e-actions::before, #c-actions::before, #h-actions::before, #m-actions::before",
+                      "#e-actions::after, #c-actions::after, #h-actions::after, #m-actions::after",
+                      "#editor, #component, #hist, #mem"}
     # Forced colors replace the tint and the bars; an outline keeps the shapes.
-    assert top["nav, main > section, #e-actions, #c-actions, #h-actions, .list-tabs button.active::after"] == {
+    assert top["nav, main > section, #e-actions, #c-actions, #h-actions, #m-actions, .list-tabs button.active::after"] == {
         "outline": "1px solid transparent", "outline-offset": "-1px"}
     # In the narrow layout the list sits between the header and the pane, and wrapped header rows
     # stay close; the "stack" place shapes the tab.
@@ -718,7 +721,7 @@ def test_the_agents_tab_comes_right_after_flows():
     html, _, _ = page_parts()
     assert re.findall(r'<button data-tab="([a-z]+)"[^>]*>([A-Za-z]+)</button>', html) == [
         ("flows", "Flows"), ("agents", "Agents"), ("rules", "Rules"), ("skills", "Skills"), ("implants", "Implants"),
-        ("history", "History")]
+        ("history", "History"), ("memory", "Memory")]
 
 
 def test_the_agents_tab_lists_display_names_with_their_roles_in_id_order(agents):
@@ -805,11 +808,11 @@ def test_the_chip_opens_the_sync_page_in_place_of_the_list_and_a_tab_leaves_it()
     result = run_sync("sync_chip")
     opened = result["opened"]
     assert opened["page_shown"] and opened["main_hidden"] and opened["chip"]["pressed"] == "true"
-    assert opened["tabs"] == ["false"] * 6 and opened["title_focused"] == 1
+    assert opened["tabs"] == ["false"] * 7 and opened["title_focused"] == 1
     assert result["closed"] == {"chip": {**opened["chip"], "pressed": "false"}, "page_hidden": True, "main_hidden": False,
-                                "tabs": ["true", "false", "false", "false", "false", "false"]}
+                                "tabs": ["true", "false", "false", "false", "false", "false", "false"]}
     assert result["tab"] == {"page_hidden": True, "main_hidden": False,
-                             "tabs": ["false", "false", "true", "false", "false", "false"]}
+                             "tabs": ["false", "false", "true", "false", "false", "false", "false"]}
 
 
 def test_the_status_is_polled_every_30_seconds_only_while_the_tab_is_visible():
@@ -1244,7 +1247,7 @@ def test_the_page_polls_the_statistics_and_reads_the_overview_when_it_opens(land
 @pytest.mark.parametrize("scenario", ["landing", "landing_stored_off"])
 def test_every_tab_leaves_the_landing_page_and_the_version_opens_it_again(scenario):
     tabs = run(scenario)["tabs"]
-    assert [entry["tab"] for entry in tabs] == ["flows", "agents", "rules", "skills", "implants", "history"]
+    assert [entry["tab"] for entry in tabs] == ["flows", "agents", "rules", "skills", "implants", "history", "memory"]
     assert all(entry["left"] and entry["back"] for entry in tabs), tabs
 
 
@@ -1456,10 +1459,10 @@ DEFAULT_FORM = {"times": "02:17, 13:47", "catch_up": "120", "hours": "08:00-23:0
 
 def test_the_autodev_chip_opens_the_page_in_place_of_the_list(autodev):
     assert autodev["opened"] == {"shown": True, "main_hidden": True, "chip": "true", "title_focused": 1,
-                                 "tabs": ["false"] * 6, "gets": 1}
+                                 "tabs": ["false"] * 7, "gets": 1}
     assert autodev["left"] == {"shown": False, "main_hidden": False, "chip": "false"}
     assert autodev["tab"] == {"shown": False, "main_hidden": False, "chip": "false",
-                              "tabs": ["false", "true", "false", "false", "false", "false"]}
+                              "tabs": ["false", "true", "false", "false", "false", "false", "false"]}
 
 
 def test_the_autodev_page_renders_the_defaults(autodev):
@@ -1692,3 +1695,142 @@ def test_the_autodev_page_keeps_the_header_budget():
     assert css["#chips"]["display"] == "flex" and css["#autodev-page"]["overflow-y"] == "auto"
     # Every request goes through api() to the page's own origin.
     assert '"/ui/api/autodev"' in script and "/ui/api/autodev/enable" in script
+
+
+# --- Memory (#297) --------------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def memory():
+    return run("memory")
+
+
+def test_the_memory_tab_lists_projects_with_their_directories_and_notes(memory):
+    assert memory["list"] == {"list": ["Memory (2)", "agents", "Outside projects", "Codex: no memory files.",
+                                       "Cursor keeps no memory in files."], "count": "", "query": ""}
+    assert memory["chips"] == [["2m", ".claude 3", ".claude-work 1"], ["1d", ".claude 1"]]
+
+
+def test_a_project_opens_its_newest_directory_with_the_others_in_the_select(memory):
+    pane = memory["pane"]
+    assert pane == {**pane, "mem": True, "welcome": False, "actions": True, "group_pane": "mem", "title": "agents",
+                    "store": "/home/me/.claude", "seg": ["true", "false"]}
+    assert pane["meta"] == "/home/me/code/agents · /home/me/.claude/projects/-home-me-code-agents/memory · 3 items"
+    assert pane["stores"] == [["~/.claude · 3", "/home/me/.claude"], ["~/.claude-work · 1", "/home/me/.claude-work"]]
+    assert pane["notice"] == {"text": "MEMORY.md links to missing files: gone.md", "kind": "notice", "buttons": []}
+
+
+def test_items_follow_the_index_and_contents_name_its_problems(memory):
+    assert memory["sections"] == ["workflow", "zsh", "loose.md", "MEMORY.md"]
+    assert memory["toc"] == ["md-toc-item md-l1 m-group:In MEMORY.md", "md-toc-item md-l2:workflow", "md-toc-item md-l2:zsh",
+                             "md-toc-item md-l1 m-group:Not in MEMORY.md", "md-toc-item md-l2:loose.md",
+                             "md-toc-item md-l1 m-group:Broken links", "md-toc-item md-l2:Gone → gone.md",
+                             "md-toc-item md-l1:MEMORY.md"]
+    workflow = memory["workflow"]
+    assert workflow["chips"] == ["feedback"]  # the type badge
+    assert re.fullmatch(r"feedbackworkflow\.md · modified \d{4}-\d\d-\d\d \d\d:\d\d · 120 B", workflow["meta"])
+    assert workflow["description"] == "restate first"
+    assert workflow["buttons"] == ["Edit", "Copy to ~/.claude-work", "Move to ~/.claude-work", "Delete"]
+    assert memory["loose_buttons"] == ["Edit", "Add to MEMORY.md", "Copy to ~/.claude-work", "Move to ~/.claude-work",
+                                       "Delete"]
+    assert memory["index_buttons"] == ["Edit"]
+
+
+def test_a_known_name_in_double_brackets_links_its_item(memory):
+    assert memory["named_link"] == {"anchors": [["#memory:Issue%20%28x%29%20*workflow*", "Issue (x) *workflow*"]],
+                                    "text": "See Issue (x) *workflow* and [[nobody]]."}
+    assert memory["workflow"]["links"] == ["#memory:zsh"]
+    assert "See zsh and [[nobody]]." in memory["workflow"]["text"]
+    assert memory["link_scrolled"] == 1
+
+
+def test_source_shows_each_file_as_it_is(memory):
+    assert memory["source"] == ["---\nname: zsh\ndescription: \"arrays start at 1\"\nmetadata:\n  type: reference\n---\n\n"
+                                "Body of zsh.\n"]
+
+
+def test_a_save_sends_the_version_shown_and_a_conflict_keeps_the_text_and_offers_a_reload(memory):
+    assert memory["editor"]["buttons"] == ["Save", "Cancel"] and memory["editor"]["value"].startswith("---\nname: zsh")
+    conflict = memory["conflict"]
+    assert conflict["editing"] and conflict["notice"]["kind"] == "notice error" and conflict["notice"]["buttons"] == ["Reload"]
+    assert conflict["notice"]["text"].startswith("file_changed: zsh.md changed since it was shown. Your text stays in the editor")
+    method, path, body = conflict["put"]
+    assert (method, path) == ("PUT", "/ui/api/memory/file") and body["sha256"].startswith("zshmd") and body["file"] == "zsh.md"
+    saved = memory["saved"]
+    assert not saved["editing"] and saved["notice"] == {"text": "Saved zsh.md.", "kind": "notice ok", "buttons": []}
+    assert saved["put"][2]["text"] == "new zsh text\n" and "new zsh text" in saved["text"]
+    assert not memory["reloaded"]["editing"] and "new zsh text" in memory["reloaded"]["text"]
+
+
+def test_copy_shows_both_versions_when_the_target_has_the_file_and_replace_names_it(memory):
+    compare = memory["compare"]
+    assert compare["pres"] == ["new zsh text\n", "Older zsh.\n"]
+    assert compare["buttons"] == ["Replace in ~/.claude-work", "Cancel"]
+    assert compare["call"][2] == {"store": "/home/me/.claude", "project": "-home-me-code-agents", "file": "zsh.md",
+                                  "sha256": compare["call"][2]["sha256"], "to_store": "/home/me/.claude-work", "move": False}
+    replaced = memory["replaced"]
+    assert replaced["call"][2]["replace_sha256"] == "t" * 64
+    assert replaced["notice"]["text"] == "Copied zsh.md to ~/.claude-work, with its MEMORY.md line."
+    assert replaced["buttons"][0] == "Edit"  # the comparison is gone
+
+
+def test_move_and_delete_ask_first_and_say_where_the_file_went(memory):
+    moved = memory["moved"]
+    assert moved["confirm"] == ("Move zsh.md from ~/.claude to ~/.claude-work? It leaves ~/.claude, and a copy goes to "
+                                "the service's memory trash.")
+    assert moved["call"][2]["move"] is True and moved["sections"] == ["workflow", "loose.md", "MEMORY.md"]
+    assert moved["notice"]["text"] == ("Moved zsh.md to ~/.claude-work, with its MEMORY.md line. Its line stays in this "
+                                       "directory's MEMORY.md (file_changed: MEMORY.md changed since it was shown).")
+    deleted = memory["deleted"]
+    assert deleted["confirm"] == ("Delete loose.md from ~/.claude? The file moves to the service's memory trash, and its "
+                                  "MEMORY.md line is removed.")
+    assert deleted["call"][1:] == ["/ui/api/memory/delete", {"store": "/home/me/.claude", "project": "-home-me-code-agents",
+                                                            "file": "loose.md", "sha256": deleted["call"][2]["sha256"]}]
+    assert deleted["notice"]["text"] == ("Deleted loose.md. A copy is kept in "
+                                         "/state/memory-trash/x/claude/-home-me-code-agents/loose.md.")
+
+
+def test_an_item_outside_the_index_joins_it_with_its_name_and_description(memory):
+    method, path, body = memory["indexed"]["call"]
+    assert (method, path, body["file"], body["sha256"]) == ("PUT", "/ui/api/memory/file", "MEMORY.md", "i" * 64)
+    assert body["text"].endswith("- [Gone](gone.md) — deleted\n- [loose](loose.md)\n")
+    assert memory["indexed"]["notice"]["text"] == "Added loose.md to MEMORY.md."
+    assert "Add to MEMORY.md" not in memory["indexed"]["buttons"]
+
+
+def test_a_new_item_asks_for_a_file_name_and_a_type_and_joins_the_index(memory):
+    assert memory["draft"] == {"first": "New item", "file": "new-item.md", "type": "feedback",
+                               "types": ["user", "feedback", "project", "reference"], "index": True,
+                               "buttons": ["Save", "Cancel"]}
+    assert "\n  type: project\n" in memory["draft_type"]  # the select writes metadata.type
+    assert memory["bad_name"]["notice"]["kind"] == "notice error" and memory["bad_name"]["calls"] == 8  # nothing sent
+    method, path, body = memory["created"]["call"]
+    assert (method, path, body["file"], body["sha256"], body["index"]) == ("PUT", "/ui/api/memory/file", "fresh.md", None, True)
+    assert body["text"].startswith("---\nname: new-item\n") and "  type: project\n" in body["text"]
+    assert memory["created"]["notice"]["text"] == "Created fresh.md."
+
+
+def test_the_select_opens_the_project_in_another_directory(memory):
+    other = memory["other_store"]
+    assert other["read"] == "/ui/api/memory?store=%2Fhome%2Fme%2F.claude-work&project=-home-me-code-agents"
+    assert other["sections"] == ["zsh", "MEMORY.md"]
+    assert other["buttons"] == ["Edit", "Add to MEMORY.md", "Copy to ~/.claude", "Move to ~/.claude", "Delete"]
+
+
+def test_the_memory_search_matches_names_here_and_item_text_on_the_server(memory):
+    assert memory["search_pending"]["list"] == ["Memory (2)", "Searching…"]
+    assert memory["search_text"] == {"list": ["Memory (2)", "Outside projects [in text]"], "count": "1 of 2", "query": "needle"}
+
+
+def test_leaving_the_tab_asks_about_unsaved_text_and_then_lets_the_page_close(memory):
+    assert memory["leave"] == {"guarded": True, "asks": 1, "asked": "Discard unsaved changes?", "guarded_after": False}
+
+
+def test_codex_memory_is_plain_text_and_a_new_file_starts_empty():
+    codex = run("memory_codex")
+    assert codex["sections"] == ["facts.md"] and codex["pre"] == ["# not *rendered*\n"] and codex["headings"] == 1
+    assert codex["toc"] == ["facts.md"]  # no index groups, no MEMORY.md entry
+    assert codex["buttons"] == ["Edit", "Delete"]  # no copy targets, no Add to MEMORY.md
+    assert codex["draft"] == {"first": "New item", "selects": 0, "inputs": 1, "file": "new-note.md", "text": ""}
+    method, path, body = codex["created"]
+    assert (method, path, body["file"], body["text"], body["sha256"], body["index"]) == (
+        "PUT", "/ui/api/memory/file", "facts.txt", "", None, False)
