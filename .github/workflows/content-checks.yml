@@ -1,0 +1,76 @@
+name: Content checks
+
+# The checks over the content library: the mechanical invariants of a volatile
+# skill, the calendar freshness of its figures, and the one decision in the
+# source-liveness script that needs no network. They were committed without a
+# workflow that runs them (#608), so for a while they were green on one
+# machine and never in CI.
+#
+# The schedule is not a convenience. The freshness check fails on the earlier
+# of a skill's rolling window and its pinned `review_on` date, so its failure
+# is caused by the calendar rather than by a change: the file nobody touches is
+# exactly the one it exists to catch, and a paths filter alone would never run
+# it. GitHub runs a scheduled workflow from the default branch, so this arm
+# only guards what has reached `main`.
+#
+# `scripts/check_skill_sources.py` is deliberately absent: it needs the network
+# and says so in its own docstring. Only its body classifier is tested here.
+
+on:
+  pull_request:
+    paths:
+      - skills/**
+      - agents/*/system_prompt.mdc
+      - scripts/check_skill_sources.py
+      - tests/test_skill_freshness.py
+      - tests/test_skill_invariants.py
+      - tests/test_source_check_classification.py
+      - tests/conftest.py
+      - .github/workflows/content-checks.yml
+  push:
+    branches: [main, dev]
+    paths:
+      - skills/**
+      - agents/*/system_prompt.mdc
+      - scripts/check_skill_sources.py
+      - tests/test_skill_freshness.py
+      - tests/test_skill_invariants.py
+      - tests/test_source_check_classification.py
+      - tests/conftest.py
+      - .github/workflows/content-checks.yml
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: content-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LANGFUSE_TRACING_ENABLED: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install check dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check skill invariants, calendar freshness and the source-check classifier
+        run: >-
+          python -B -m pytest
+          tests/test_skill_freshness.py
+          tests/test_skill_invariants.py
+          tests/test_source_check_classification.py
+          -q -p no:cacheprovider
