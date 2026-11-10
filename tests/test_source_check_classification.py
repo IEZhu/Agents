@@ -5,6 +5,9 @@ the one decision in it that does not: which verdict a body earns. Review found
 that decision ordered the wrong way round, so it is held here rather than in
 someone's memory.
 """
+import gzip
+import zlib
+
 from scripts.check_skill_sources import (
     MISSING_200,
     NOTFOUND_BODY,
@@ -14,6 +17,7 @@ from scripts.check_skill_sources import (
     STUB,
     STUB_BYTES,
     classify,
+    inflate,
 )
 
 # The newline matters. Without it the filler runs straight into the last word,
@@ -54,3 +58,49 @@ def test_a_single_article_payload_is_not_a_stub():
     """About a kilobyte is the whole document for the BOE article API."""
     assert len(FILLER) > STUB_BYTES
     assert classify(b"<documento><texto>" + FILLER + b"</texto></documento>") == OK
+
+
+# The eCFR versioner API answers 406 "This endpoint requires response
+# compression" to a client that offers no Accept-Encoding. The check used to
+# send none, so five live sources were filed as refusals and the pull request
+# blamed the publisher. Asking for compression means being able to read it.
+
+ARTICLE = b"Limitation on amount of securities sold. " * 40
+
+
+def test_a_gzip_body_is_inflated():
+    assert inflate(gzip.compress(ARTICLE), "gzip") == ARTICLE
+
+
+def test_a_deflate_body_is_inflated():
+    assert inflate(zlib.compress(ARTICLE), "deflate") == ARTICLE
+
+
+def test_raw_deflate_without_the_zlib_wrapper_is_inflated():
+    """Some servers send raw deflate; the fallback in inflate() is for them."""
+    c = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    raw = c.compress(ARTICLE) + c.flush()
+    assert inflate(raw, "deflate") == ARTICLE
+
+
+def test_an_uncompressed_body_passes_through():
+    """A server may ignore the request, and then nothing must be undone."""
+    assert inflate(ARTICLE, "") == ARTICLE
+    assert inflate(ARTICLE, "identity") == ARTICLE
+
+
+def test_the_header_is_read_case_and_space_insensitively():
+    assert inflate(gzip.compress(ARTICLE), " GZIP ") == ARTICLE
+
+
+def test_a_compressed_document_is_judged_after_inflation_not_before():
+    """Compressed, a real document can fall under the stub floor.
+
+    This is why probe() inflates before classify() sees the body: the Rule 144
+    payload compresses well, and judging the compressed bytes would call a
+    served statute a stub.
+    """
+    compressed = gzip.compress(ARTICLE)
+    assert len(compressed) < STUB_BYTES, "pick a body that actually compresses under the floor"
+    assert classify(compressed) == STUB
+    assert classify(inflate(compressed, "gzip")) == OK

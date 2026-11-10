@@ -17,6 +17,13 @@ What it checks, and why the obvious version of it does not work:
 * **Some APIs require a header.** The Spanish BOE consolidated-legislation API
   answers 400 to a bare request and returns the article XML once the ``Accept``
   header it documents is sent. That is an API contract, not a defect.
+* **One of them requires compression.** The eCFR versioner API answers 406 with
+  a body reading "This endpoint requires response compression" to a client that
+  offers no ``Accept-Encoding``. For a while this check sent none, so it filed
+  five live eCFR sources as refusals and the pull request blamed the publisher.
+  Offering ``gzip`` is declaring a capability this client has, which is the
+  opposite of disguising it; the body of a 406 says which capability is wanted,
+  so it is worth reading before calling a host hostile.
 * **A short body can be the whole document.** A single-article XML payload runs
   to about a kilobyte, so only a few hundred bytes counts as a stub.
 
@@ -39,10 +46,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as futures
+import gzip
 import re
 import sys
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 
 import yaml
@@ -56,6 +65,7 @@ from src.utils.prompt_loader import split_frontmatter  # noqa: E402 - needs REPO
 
 VOLATILE_PREFIXES = ("skill-jurisdiction-", "skill-labor-", "skill-investment-")
 ACCEPT = "application/xml, application/json, text/html, */*"
+ACCEPT_ENCODING = "gzip, deflate"
 STUB_BYTES = 500
 # Two different things arrive under a status of 200, and they must not share a
 # verdict. A refusal page means the host turned this client away, which is a
@@ -104,6 +114,25 @@ def declared_sources(path: Path) -> list[str]:
     return [str(s) for s in (data.get("sources") or [])]
 
 
+def inflate(body: bytes, content_encoding: str) -> bytes:
+    """Undo whatever content coding the response declares.
+
+    Needed because this client now asks for compression, and a client that asks
+    must be able to read what it gets. An unknown or absent coding passes
+    through, so a server that ignores the request still works.
+    """
+    coding = (content_encoding or "").strip().lower()
+    if coding == "gzip":
+        return gzip.decompress(body)
+    if coding == "deflate":
+        try:
+            return zlib.decompress(body)
+        except zlib.error:
+            # Some servers send raw deflate without the zlib wrapper.
+            return zlib.decompress(body, -zlib.MAX_WBITS)
+    return body
+
+
 def classify(body: bytes) -> str:
     """Judge a body that arrived under a status of 200.
 
@@ -122,11 +151,14 @@ def classify(body: bytes) -> str:
 
 def probe(url: str, timeout: int, _retry: bool = True) -> tuple[str, int, int, str]:
     """Fetch one URL and judge the body, not only the status."""
-    request = urllib.request.Request(url, headers={"Accept": ACCEPT})
+    request = urllib.request.Request(
+        url, headers={"Accept": ACCEPT, "Accept-Encoding": ACCEPT_ENCODING}
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read()
+            raw = response.read()
             code = response.getcode()
+            body = inflate(raw, response.headers.get("Content-Encoding", ""))
         verdict = classify(body)
     except urllib.error.HTTPError as exc:
         code, body = exc.code, b""
