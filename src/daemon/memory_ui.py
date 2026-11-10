@@ -280,6 +280,22 @@ def _replace(path: Path, data: bytes, expected: str | None) -> None:
             os.unlink(temporary)
 
 
+def _utf8(raw: bytes, name: str) -> str:
+    """The text of a file about to be rewritten; text that is not UTF-8 would lose its bytes."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise MemoryRefused("not_utf8", f"{name} is not valid UTF-8: shown, not edited") from None
+
+
+def _editable(raw: bytes) -> bool:
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return len(raw) <= MAX_EDIT
+
+
 def _undo_create(path: Path, data: bytes) -> None:
     """Removes a file this request just created, unless something changed it since."""
     try:
@@ -532,11 +548,11 @@ class MemoryUI:
                 items.append(self._item(memory / name))
             except (OSError, MemoryRefused):  # gone or turned into a link since it was listed
                 items.append({"file": name, "unreadable": True})
-        index = {"exists": False, "sha256": None, "text": None, "links": []}
+        index = {"exists": False, "sha256": None, "text": None, "links": [], "editable": True}
         if _index(place, memory):
             raw = _read(memory / INDEX)
             text = raw.decode("utf-8", errors="replace")
-            index = {"exists": True, "sha256": _sha(raw), "text": text, "links": links(text)}
+            index = {"exists": True, "sha256": _sha(raw), "text": text, "links": links(text), "editable": _editable(raw)}
         linked = {link["file"] for link in index["links"]}
         present = {item["file"] for item in items}
         others = [candidate for candidate in self.stores() if candidate != place]
@@ -568,7 +584,7 @@ class MemoryUI:
             raise MemoryRefused("file_not_found", f"{file} does not exist here", 404)
         raw = _read(path)
         return {"store": place.id, "project": project, "file": file, "text": raw.decode("utf-8", errors="replace"),
-                "sha256": _sha(raw), "editable": len(raw) <= MAX_EDIT}
+                "sha256": _sha(raw), "editable": _editable(raw)}
 
     def search(self, query: str) -> dict:
         """``GET /ui/api/memory/search``: per project, the items whose name or text holds every term."""
@@ -623,8 +639,10 @@ class MemoryUI:
             path = self._dir(place, project) / INDEX if _is_index(place, file) else self._file(place, project, file)
             if not path.parent.is_dir():
                 raise MemoryRefused("project_not_found", "this memory directory does not exist", 404)
-            if not creating and not is_link(path) and path.is_file() and os.lstat(path).st_size > MAX_EDIT:
-                raise MemoryRefused("file_too_large", f"{path.name} is over {MAX_EDIT // 1024} KB: shown, not edited")
+            if not creating and not is_link(path) and path.is_file():
+                if os.lstat(path).st_size > MAX_EDIT:
+                    raise MemoryRefused("file_too_large", f"{path.name} is over {MAX_EDIT // 1024} KB: shown, not edited")
+                _utf8(_read(path), path.name)
             index = creating and body.get("index") is True and place.client == "claude" and not _is_index(place, file)
             if index and is_link(path.parent / INDEX):
                 raise MemoryRefused("symlink_refused", f"{INDEX} is a symlink")
@@ -648,7 +666,7 @@ class MemoryUI:
             raw = _read(index)
         except FileNotFoundError:
             raw = None
-        text = raw.decode("utf-8", errors="replace") if raw is not None else ""
+        text = _utf8(raw, INDEX) if raw is not None else ""
         if any(link["file"] == file for link in links(text)):
             return False
         _replace(index, _with_line(text, line).encode("utf-8"), _sha(raw) if raw is not None else None)
@@ -659,7 +677,7 @@ class MemoryUI:
         if is_link(index) or not index.is_file():
             return False
         raw = _read(index)
-        text = raw.decode("utf-8", errors="replace")
+        text = _utf8(raw, INDEX)
         changed = _without_links(text, file)
         if changed == text:
             return False
@@ -695,8 +713,12 @@ class MemoryUI:
             self._put_back(place, project, aside, path)
             raise
         aside.unlink()
-        unindexed = self._index_remove(path.parent, path.name)
-        return {"trash": str(kept), "unindexed": unindexed}
+        result = {"trash": str(kept), "unindexed": False}
+        try:
+            result["unindexed"] = self._index_remove(path.parent, path.name)
+        except MemoryRefused as error:  # the delete is done: say why MEMORY.md still links the file
+            result["index_warning"] = f"{error.code}: {error}"
+        return result
 
     def _put_back(self, place: Store, project: str, aside: Path, path: Path) -> None:
         """Returns a file renamed aside to its name, unless a newer file took the name meanwhile: then
@@ -763,14 +785,26 @@ class MemoryUI:
                 index_text = _read(source_index).decode("utf-8", errors="replace")
                 line = next((raw for raw in index_text.splitlines()
                              if (match := LINK.match(raw)) and match.group("file") == file), None)
+            result = {"status": "copied", "store": source.id, "project": project, "file": file,
+                      "to_store": target.id, "indexed": False, "replaced": existing is not None}
             try:
-                indexed = self._index_add(destination.parent, file, line or _index_line(file, text))
+                result["indexed"] = self._index_add(destination.parent, file, line or _index_line(file, text))
+            except MemoryRefused as error:
+                if existing is None:  # a new item that cannot join the index is not left behind
+                    _undo_create(destination, data)
+                    raise
+                result["index_warning"] = f"{error.code}: {error}"  # the replacement is done
             except BaseException:
                 if existing is None:
-                    _undo_create(destination, data)  # a refused copy leaves no unindexed item behind
+                    _undo_create(destination, data)
                 raise
-            result = {"status": "moved" if move else "copied", "store": source.id, "project": project, "file": file,
-                      "to_store": target.id, "indexed": indexed, "replaced": existing is not None}
             if move:
-                result.update(self._remove(source, project, path, expected))
+                try:
+                    removed = self._remove(source, project, path, expected)
+                except MemoryRefused as error:  # the copy is done; the source stays where it was
+                    result["move_warning"] = f"{error.code}: {error}"
+                else:
+                    if "index_warning" in removed:  # about the source's MEMORY.md, not the target's
+                        removed["source_index_warning"] = removed.pop("index_warning")
+                    result.update(removed, status="moved")
         return result

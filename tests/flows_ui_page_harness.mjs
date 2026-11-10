@@ -378,7 +378,8 @@ function memoryData(path, init) {
                      target: { store: MEM_WORK, label: "~/.claude-work", sha256: "t".repeat(64), text: "Older zsh.\n" } }];
     }
     if (body.move) MEMORY_ITEMS.splice(MEMORY_ITEMS.findIndex((item) => item.file === body.file), 1);
-    return [200, { status: body.move ? "moved" : "copied", indexed: true, trash: body.move ? "/state/memory-trash/y" : undefined }];
+    return [200, { status: body.move ? "moved" : "copied", indexed: true, trash: body.move ? "/state/memory-trash/y" : undefined,
+                   source_index_warning: body.move ? "file_changed: MEMORY.md changed since it was shown" : undefined }];
   }
   return uiData(path, init);
 }

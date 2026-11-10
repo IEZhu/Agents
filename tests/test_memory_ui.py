@@ -576,3 +576,51 @@ async def test_a_create_or_copy_that_cannot_join_the_index_leaves_no_item(daemon
     response = await http.put("/ui/api/memory/file", json=body, headers=UI)
     assert response.status_code == 400 and response.json()["error"].startswith("symlink_refused")
     assert not (env["main"] / "unindexed.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_text_that_is_not_utf8_is_shown_but_never_rewritten(daemon):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    broken = env["main"] / "broken.md"
+    broken.write_bytes(b"---\nname: broken\n---\n\xff\xfe bytes\n")
+    data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
+    item = next(item for item in data["items"] if item["file"] == "broken.md")
+    assert not item["editable"] and data["index"]["editable"]
+    body = {"store": main, "project": env["name"], "file": "broken.md", "text": "clean\n", "sha256": sha(broken)}
+    refused = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert refused.status_code == 400 and refused.json()["error"].startswith("not_utf8")
+    assert broken.read_bytes() == b"---\nname: broken\n---\n\xff\xfe bytes\n"
+    # An index that is not UTF-8 is not rewritten either: no edit, no new line, and a delete says so.
+    index = env["main"] / "MEMORY.md"
+    index.write_bytes(index.read_bytes() + b"\xff\n")
+    data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
+    assert not data["index"]["editable"]
+    create = {"store": main, "project": env["name"], "file": "new.md", "text": "x\n", "sha256": None, "index": True}
+    refused = await http.put("/ui/api/memory/file", json=create, headers=UI)
+    assert refused.status_code == 400 and refused.json()["error"].startswith("not_utf8")
+    assert not (env["main"] / "new.md").exists()
+    before = index.read_bytes()
+    deleted = await http.post("/ui/api/memory/delete", json={"store": main, "project": env["name"], "file": "zsh.md",
+                                                             "sha256": sha(env["main"] / "zsh.md")}, headers=UI)
+    assert deleted.status_code == 200 and not deleted.json()["unindexed"]
+    assert deleted.json()["index_warning"].startswith("not_utf8") and index.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_a_move_whose_source_cannot_go_reports_the_copy(daemon, monkeypatch):
+    http, env = daemon
+    await login(http)
+    main, work = stores(env)
+
+    def changed(self, place, project, path, expected):
+        raise memory_ui.MemoryRefused("file_changed", f"{path.name} changed since it was shown", 409)
+
+    monkeypatch.setattr(memory_ui.MemoryUI, "_remove", changed)
+    body = {"store": main, "project": env["name"], "file": "zsh.md", "sha256": sha(env["main"] / "zsh.md"),
+            "to_store": work, "move": True}
+    response = await http.post("/ui/api/memory/copy", json=body, headers=UI)
+    assert response.status_code == 200 and response.json()["status"] == "copied"
+    assert response.json()["move_warning"].startswith("file_changed")
+    assert (env["main"] / "zsh.md").exists() and (env["other"] / "zsh.md").exists()

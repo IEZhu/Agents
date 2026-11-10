@@ -1776,6 +1776,8 @@ def test_move_and_delete_ask_first_and_say_where_the_file_went(memory):
     assert moved["confirm"] == ("Move zsh.md from ~/.claude to ~/.claude-work? It leaves ~/.claude, and a copy goes to "
                                 "the service's memory trash.")
     assert moved["call"][2]["move"] is True and moved["sections"] == ["workflow", "loose.md", "MEMORY.md"]
+    assert moved["notice"]["text"] == ("Moved zsh.md to ~/.claude-work, with its MEMORY.md line. Its line stays in this "
+                                       "directory's MEMORY.md (file_changed: MEMORY.md changed since it was shown).")
     deleted = memory["deleted"]
     assert deleted["confirm"] == ("Delete loose.md from ~/.claude? The file moves to the service's memory trash, and its "
                                   "MEMORY.md line is removed.")

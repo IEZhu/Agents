@@ -952,7 +952,11 @@ seconds while the browser tab is visible (see
     project's directory there when needed, and append the item's index line unless
     the target's index already links it. A file of the same name there is shown
     beside the item, and **Replace** overwrites it only as shown. A move is a copy
-    followed by a Delete of the source and stops when the copy fails.
+    followed by a Delete of the source and stops when the copy fails. When the
+    change itself is done but `MEMORY.md` cannot be updated, or a move's source
+    cannot be removed, the answer carries `index_warning`,
+    `source_index_warning` or `move_warning` and the page shows it; a new item
+    that cannot join the index is removed again instead.
   - *Concurrency.* Claude Code writes memory without a lock, and the page takes
     none. Every write carries the SHA-256 of the version shown, and the daemon
     refuses with 409 `file_changed` when the file differs right before its atomic
@@ -984,8 +988,10 @@ seconds while the browser tab is visible (see
     routes, never the item routes (copy, delete). In Codex's `memories/` any name
     matching `[A-Za-z0-9][A-Za-z0-9._-]*` is a plain file, `MEMORY.md` included,
     with no index. Symlinks and Windows junctions are refused, and the resolved
-    path must stay inside the memory directory. Files over 256 KB are shown but
-    cannot be edited, and files over 1 MB are listed without their text.
+    path must stay inside the memory directory. Files over 256 KB or not valid
+    UTF-8, `MEMORY.md` included, are shown but the daemon refuses to rewrite them
+    (`file_too_large`, `not_utf8`), since saving would lose their bytes; files over
+    1 MB are listed without their text.
     `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev

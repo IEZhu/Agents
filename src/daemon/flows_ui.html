@@ -2618,7 +2618,7 @@ function renderMemoryItem(view, data, item, names) {
   if (compare && compare.file === item.file) return memoryComparison(host, data, item, compare);
   const row = mdEl("div", "m-buttons", host);
   if (item.editable) memoryButton(row, "Edit", () => startMemoryEdit(item.file, item.text, item.sha256));
-  if (data.client === "claude" && data.not_indexed.includes(item.file) && item.sha256) {
+  if (data.client === "claude" && data.not_indexed.includes(item.file) && item.sha256 && data.index.editable !== false) {
     memoryButton(row, "Add to MEMORY.md", () => indexMemoryItem(item));
   }
   for (const target of data.targets) {
@@ -2638,10 +2638,19 @@ function renderMemoryIndex(view, data) {
   if (edit) return memoryEditor(host, edit, () => saveMemoryFile("MEMORY.md"), () => closeMemoryEdit("MEMORY.md"));
   if (index.exists && memoryState.view === "source") mdText(index.text, mdEl("pre", "", host));
   else if (index.exists) renderMarkdown(index.text, mdEl("div", "", host));
+  if (index.exists && index.editable === false) {  // not UTF-8 or over 256 KB: saving it would lose bytes
+    mdText("MEMORY.md is shown but cannot be edited here.", mdEl("p", "meta", host));
+    return;
+  }
   const row = mdEl("div", "m-buttons", host);
   memoryButton(row, index.exists ? "Edit" : "Create MEMORY.md",
     () => startMemoryEdit("MEMORY.md", index.exists ? index.text : "", index.exists ? index.sha256 : null));
 }
+
+// A change that is done can still fail to update MEMORY.md or, for a move, to remove the source.
+const memoryWarnings = (result) => [result.index_warning && "MEMORY.md was not updated (" + result.index_warning + ").",
+  result.source_index_warning && "Its line stays in this directory's MEMORY.md (" + result.source_index_warning + ").",
+  result.move_warning && "The item stays here as well (" + result.move_warning + ")."].filter(Boolean).join(" ");
 
 // An editor in an item's place: Save writes it, Cancel closes it.
 function memoryEditor(host, edit, save, cancel) {
@@ -2788,7 +2797,8 @@ async function deleteMemoryItem(item) {
     return;
   }
   memoryState.edits.delete(item.file);
-  await reloadMemory("Deleted " + item.file + ". A copy is kept in " + result.trash + ".");
+  await reloadMemory(["Deleted " + item.file + ". A copy is kept in " + result.trash + ".", memoryWarnings(result)]
+    .filter(Boolean).join(" "));
 }
 
 // Copies or moves an item into the same project of another configuration directory. A file of the same
@@ -2815,8 +2825,8 @@ async function copyMemoryItem(item, target, move, replace) {
     return;
   }
   memoryState.compare = null;
-  await reloadMemory((move ? "Moved " : "Copied ") + item.file + " to " + target.label
-    + (result.indexed ? ", with its MEMORY.md line." : "."));
+  await reloadMemory([(result.status === "moved" ? "Moved " : "Copied ") + item.file + " to " + target.label
+    + (result.indexed ? ", with its MEMORY.md line." : "."), memoryWarnings(result)].filter(Boolean).join(" "));
 }
 
 function memoryComparison(host, data, item, compare) {
