@@ -624,3 +624,91 @@ async def test_a_move_whose_source_cannot_go_reports_the_copy(daemon, monkeypatc
     assert response.status_code == 200 and response.json()["status"] == "copied"
     assert response.json()["move_warning"].startswith("file_changed")
     assert (env["main"] / "zsh.md").exists() and (env["other"] / "zsh.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_the_index_name_is_reserved_in_any_case(daemon):
+    http, env = daemon
+    await login(http)
+    main, work = stores(env)
+    index = env["main"] / "MEMORY.md"
+    body = {"store": main, "project": env["name"], "file": "memory.md", "sha256": sha(index)}
+    for path, extra in (("/ui/api/memory/delete", {}), ("/ui/api/memory/copy", {"to_store": work})):
+        response = await http.post(path, json={**body, **extra}, headers=UI)
+        assert response.status_code == 400 and response.json()["error"].startswith("file_invalid"), path
+    read = (await http.get(f"/ui/api/memory/file?store={main}&project={env['name']}&file=memory.md", headers=UI)).json()
+    assert read["text"] == index.read_text(encoding="utf-8")  # the file routes reach the index itself
+
+
+@pytest.mark.asyncio
+async def test_a_link_swapped_in_past_the_checks_is_refused_by_where_it_leads(daemon, monkeypatch):
+    http, env = daemon
+    outside = env["tmp"] / "elsewhere"
+    (outside / "memory").mkdir(parents=True)
+    write(outside / "memory" / "secret.md", "secret\n")
+    try:
+        (env["home"] / ".claude" / "projects" / "-swapped").symlink_to(outside, target_is_directory=True)
+    except OSError as error:  # Windows without the privilege to create symlinks
+        pytest.skip(f"symlinks cannot be created here: {error}")
+    monkeypatch.setattr(memory_ui, "is_link", lambda path: False)  # as if the link appeared after each check
+    await login(http)
+    main, _ = stores(env)
+    for path in (f"/ui/api/memory?store={main}&project=-swapped",
+                 f"/ui/api/memory/file?store={main}&project=-swapped&file=secret.md"):
+        response = await http.get(path, headers=UI)
+        assert response.status_code == 400 and response.json()["error"].startswith("symlink_refused"), path
+        assert "secret" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_nothing_shown_as_not_editable_is_rewritten_by_an_index_update_or_a_replace(daemon):
+    http, env = daemon
+    await login(http)
+    main, work = stores(env)
+    index = env["main"] / "MEMORY.md"
+    write(index, "- [zsh](zsh.md) — arrays\n" + "x" * (256 * 1024) + "\n")
+    before = index.read_bytes()
+    create = {"store": main, "project": env["name"], "file": "new.md", "text": "x\n", "sha256": None, "index": True}
+    refused = await http.put("/ui/api/memory/file", json=create, headers=UI)
+    assert refused.status_code == 400 and refused.json()["error"].startswith("file_too_large")
+    assert not (env["main"] / "new.md").exists() and index.read_bytes() == before
+    deleted = await http.post("/ui/api/memory/delete", json={"store": main, "project": env["name"], "file": "zsh.md",
+                                                             "sha256": sha(env["main"] / "zsh.md")}, headers=UI)
+    assert deleted.status_code == 200 and deleted.json()["index_warning"].startswith("file_too_large")
+    assert index.read_bytes() == before
+    # A Replace would rewrite a target that is not UTF-8; the copy of such a source keeps its bytes.
+    target = env["other"] / "issue-workflow.md"
+    target.write_bytes(b"\xff\xfe old\n")
+    copy = {"store": main, "project": env["name"], "file": "issue-workflow.md", "to_store": work,
+            "sha256": sha(env["main"] / "issue-workflow.md"), "replace_sha256": sha(target)}
+    refused = await http.post("/ui/api/memory/copy", json=copy, headers=UI)
+    assert refused.status_code == 400 and refused.json()["error"].startswith("not_utf8")
+    assert target.read_bytes() == b"\xff\xfe old\n"
+
+
+@pytest.mark.asyncio
+async def test_a_large_items_frontmatter_still_gives_its_time_and_fields(daemon):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    big = env["main"] / "big.md"
+    write(big, note("big", "project", "a long one", "y" * (1024 * 1024), "2026-12-01T09:00:00Z"))
+    data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
+    item = next(item for item in data["items"] if item["file"] == "big.md")
+    assert item["text"] is None and (item["name"], item["type"]) == ("big", "project")
+    assert item["changed"] == "2026-12-01T09:00:00+00:00" and item["sha256"] == sha(big)
+    rows = (await http.get("/ui/api/memory/projects", headers=UI)).json()["projects"]
+    assert rows[0]["newest"] == "2026-12-01T09:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_valid_utf8_that_holds_the_replacement_character_is_editable(daemon):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    path = env["main"] / "glyph.md"
+    write(path, "a literal \ufffd here\n")
+    data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
+    assert next(item for item in data["items"] if item["file"] == "glyph.md")["editable"]
+    body = {"store": main, "project": env["name"], "file": "glyph.md", "text": "edited\n", "sha256": sha(path)}
+    assert (await http.put("/ui/api/memory/file", json=body, headers=UI)).status_code == 200

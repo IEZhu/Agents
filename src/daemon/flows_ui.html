@@ -2514,9 +2514,13 @@ function setMemoryView(view) {
 
 const rerenderMemory = () => { if (memoryState.data) memoryView.show(memoryState.data); };
 
-// `[[name]]` links another item of the directory by its name; an unknown name stays as written.
+// `[[name]]` links another item of the directory by its frontmatter name, whatever it holds; an unknown
+// name stays as written. The label is escaped for Markdown and the target for the link's URL.
+const MD_SPECIAL = /[\\`*_{}\[\]()#+\-.!<>|~]/g;
 function memoryLinks(text, names) {
-  return text.replace(/\[\[([A-Za-z0-9_.-]+)\]\]/g, (whole, name) => (names.has(name) ? "[" + name + "](#memory:" + name + ")" : whole));
+  return text.replace(/\[\[([^\[\]\n]+)\]\]/g, (whole, name) => (!names.has(name) ? whole
+    : "[" + name.replace(MD_SPECIAL, "\\$&") + "](#memory:"
+      + encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase()) + ")"));
 }
 
 function memoryAnchor(names) {

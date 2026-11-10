@@ -1736,6 +1736,8 @@ def test_items_follow_the_index_and_contents_name_its_problems(memory):
 
 
 def test_a_known_name_in_double_brackets_links_its_item(memory):
+    assert memory["named_link"] == {"anchors": [["#memory:Issue%20%28x%29%20*workflow*", "Issue (x) *workflow*"]],
+                                    "text": "See Issue (x) *workflow* and [[nobody]]."}
     assert memory["workflow"]["links"] == ["#memory:zsh"]
     assert "See zsh and [[nobody]]." in memory["workflow"]["text"]
     assert memory["link_scrolled"] == 1

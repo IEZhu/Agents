@@ -2245,6 +2245,12 @@ if (scenario === "memory") {
   out.workflow = { chips: findAll(workflow.children[1], hasClass("chip")).map(textOf), meta: textOf(workflow.children[1]),
                    description: textOf(workflow.children[2]), links: tagged(workflow, "a").map((link) => link.attrs.href),
                    text: textOf(workflow), buttons: labels(workflow) };
+  // A name with spaces and brackets links too, escaped; an unknown one stays as written.
+  const named = element();
+  context.renderMarkdown(context.memoryLinks("See [[Issue (x) *workflow*]] and [[nobody]].",
+    new Map([["Issue (x) *workflow*", "issue.md"]])), named);
+  out.named_link = { anchors: findAll(named, (node) => node.tag === "a").map((a) => [a.attrs.href, textOf(a)]),
+                     text: textOf(named) };
   out.loose_buttons = labels(section("loose.md"));
   out.index_buttons = labels(section("MEMORY.md"));
   fire(tagged(workflow, "a")[0], "click", { preventDefault() {} });

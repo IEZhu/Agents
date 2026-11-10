@@ -73,6 +73,7 @@ INDEX = "MEMORY.md"
 TRASH = "memory-trash"
 MAX_EDIT = 256 * 1024  # larger files are shown, not edited
 MAX_SHOW = 1024 * 1024  # larger files are listed without their text
+HEAD = 64 * 1024  # what is read of a larger file for its frontmatter
 MAX_BODY = 4 * MAX_EDIT  # a JSON body escapes the text
 FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}")  # 255 characters, the usual file name limit
 PROJECT = re.compile(r"[A-Za-z0-9._-]{1,255}")
@@ -136,7 +137,7 @@ def _iso(timestamp: float) -> str:
 def _item_name(store: Store, name: str) -> bool:
     """A plain file name; Claude Code's items are Markdown files other than its index."""
     return (isinstance(name, str) and FILE.fullmatch(name) is not None and name not in (".", "..")
-            and (store.client != "claude" or (name.endswith(".md") and name != INDEX)))
+            and (store.client != "claude" or (name.endswith(".md") and not _is_index(store, name))))
 
 
 def _index(store: Store, memory: Path) -> Path | None:
@@ -146,7 +147,17 @@ def _index(store: Store, memory: Path) -> Path | None:
 
 
 def _is_index(store: Store, file) -> bool:
-    return store.client == "claude" and file == INDEX
+    """Claude Code's index name in any case: Windows and macOS file systems usually ignore case, so
+    ``memory.md`` would reach ``MEMORY.md``."""
+    return store.client == "claude" and isinstance(file, str) and file.lower() == INDEX.lower()
+
+
+def _inside(store: Store, path: Path) -> None:
+    """Refuses a path that resolves outside its store, as one through a link swapped in after the
+    per-step checks would; operations on the path still follow a swap made after this check."""
+    resolved = path.resolve()
+    if resolved != store.path and not resolved.is_relative_to(store.path):
+        raise MemoryRefused("symlink_refused", f"{path.name} resolves outside {store.label}")
 
 
 def _frontmatter(text: str) -> tuple[dict, bool]:
@@ -296,6 +307,20 @@ def _editable(raw: bytes) -> bool:
     return len(raw) <= MAX_EDIT
 
 
+def _rewritable(raw: bytes, name: str) -> str:
+    """The text of a file about to be rewritten; a file shown but not editable is refused."""
+    if len(raw) > MAX_EDIT:
+        raise MemoryRefused("file_too_large", f"{name} is over {MAX_EDIT // 1024} KB: shown, not edited")
+    return _utf8(raw, name)
+
+
+def _fields(meta: dict) -> dict:
+    metadata = _metadata(meta)
+    return {"name": _field(meta.get("name")), "description": _field(meta.get("description")),
+            "type": _field(metadata.get("type", meta.get("type"))),
+            "modified": _field(metadata.get("modified", meta.get("modified")))}
+
+
 def _undo_create(path: Path, data: bytes) -> None:
     """Removes a file this request just created, unless something changed it since."""
     try:
@@ -398,7 +423,16 @@ class MemoryUI:
         if project and not create and not memory.parent.is_dir():
             raise MemoryRefused("project_not_found", "no such project in this configuration directory", 404)
         if create:
-            memory.mkdir(parents=True, exist_ok=True)
+            # One step at a time: mkdir never creates through a link, and a link that took a step's
+            # name since the check above makes it fail.
+            for step in steps:
+                try:
+                    os.mkdir(step)
+                except FileExistsError:
+                    pass
+                if is_link(step) or not step.is_dir():
+                    raise MemoryRefused("symlink_refused", f"{step.name} is a symlink")
+        _inside(store, memory)
         return memory
 
     def _file(self, store: Store, project: str, file: str, create_dir: bool = False) -> Path:
@@ -411,6 +445,7 @@ class MemoryUI:
             raise MemoryRefused("symlink_refused", f"{file} is a symlink")
         if path.resolve().parent != memory.resolve():
             raise MemoryRefused("file_invalid", f"{file} is outside the memory directory")
+        _inside(store, path)
         return path
 
     @staticmethod
@@ -481,9 +516,9 @@ class MemoryUI:
         cached = self._times.get(str(path))
         if cached and cached[:2] == (stat.st_mtime_ns, stat.st_size):
             return cached[2]
-        meta = {}
-        if stat.st_size <= MAX_SHOW:
-            meta, _ = _frontmatter(_read(path).decode("utf-8", errors="replace"))
+        with _open(path) as stream:
+            head = stream.read(HEAD if stat.st_size > MAX_SHOW else -1)
+        meta, _ = _frontmatter(head.decode("utf-8", errors="replace"))
         return self._remember(path, stat, meta)
 
     # --- reads ------------------------------------------------------------------------
@@ -520,22 +555,20 @@ class MemoryUI:
             item = {"file": path.name, "bytes": stat.st_size, "mtime": _iso(stat.st_mtime), "changed": None,
                     "editable": stat.st_size <= MAX_EDIT, "text": None, "sha256": None, "name": None,
                     "description": None, "type": None, "modified": None, "frontmatter": True}
-            if stat.st_size > MAX_SHOW:  # listed and deletable, not shown
-                digest = hashlib.sha256()
+            if stat.st_size > MAX_SHOW:  # listed and deletable, not shown; its frontmatter still counts
+                head = stream.read(HEAD)
+                digest = hashlib.sha256(head)
                 for chunk in iter(lambda: stream.read(1 << 20), b""):
                     digest.update(chunk)
-                item.update(sha256=digest.hexdigest(), changed=_iso(self._remember(path, stat, {})))
+                meta, _ = _frontmatter(head.decode("utf-8", errors="replace"))
+                item.update(sha256=digest.hexdigest(), changed=_iso(self._remember(path, stat, meta)), **_fields(meta))
                 return item
             raw = stream.read()
         text = raw.decode("utf-8", errors="replace")
         meta, parsed = _frontmatter(text)
-        metadata = _metadata(meta)
+        # Strictly decoded: a file that holds U+FFFD as text is still valid UTF-8 and editable.
         item.update(text=text, sha256=_sha(raw), frontmatter=parsed, changed=_iso(self._remember(path, stat, meta)),
-                    name=_field(meta.get("name")),
-                    description=_field(meta.get("description")),
-                    type=_field(metadata.get("type", meta.get("type"))),
-                    modified=_field(metadata.get("modified", meta.get("modified"))))
-        item["editable"] = item["editable"] and "�" not in text  # saving would lose the bytes
+                    editable=_editable(raw), **_fields(meta))
         return item
 
     def read(self, store: str, project: str) -> dict:
@@ -642,7 +675,7 @@ class MemoryUI:
             if not creating and not is_link(path) and path.is_file():
                 if os.lstat(path).st_size > MAX_EDIT:
                     raise MemoryRefused("file_too_large", f"{path.name} is over {MAX_EDIT // 1024} KB: shown, not edited")
-                _utf8(_read(path), path.name)
+                _rewritable(_read(path), path.name)
             index = creating and body.get("index") is True and place.client == "claude" and not _is_index(place, file)
             if index and is_link(path.parent / INDEX):
                 raise MemoryRefused("symlink_refused", f"{INDEX} is a symlink")
@@ -666,7 +699,7 @@ class MemoryUI:
             raw = _read(index)
         except FileNotFoundError:
             raw = None
-        text = _utf8(raw, INDEX) if raw is not None else ""
+        text = _rewritable(raw, INDEX) if raw is not None else ""
         if any(link["file"] == file for link in links(text)):
             return False
         _replace(index, _with_line(text, line).encode("utf-8"), _sha(raw) if raw is not None else None)
@@ -677,7 +710,7 @@ class MemoryUI:
         if is_link(index) or not index.is_file():
             return False
         raw = _read(index)
-        text = _utf8(raw, INDEX)
+        text = _rewritable(raw, INDEX)
         changed = _without_links(text, file)
         if changed == text:
             return False
@@ -777,6 +810,8 @@ class MemoryUI:
                                             "text": existing.decode("utf-8", errors="replace")})
             if existing is None and replace is not None:
                 raise MemoryRefused("target_changed", f"{file} is no longer in {target.label}", 409)
+            if existing is not None:  # Replace rewrites the target; the copy itself keeps its bytes
+                _rewritable(existing, f"{file} in {target.label}")
             _replace(destination, data, replace)
             text = data.decode("utf-8", errors="replace")
             source_index = _index(source, path.parent)

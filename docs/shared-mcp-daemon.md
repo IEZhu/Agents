@@ -936,8 +936,8 @@ seconds while the browser tab is visible (see
     recently changed one first; a select switches to the others that hold its
     memory. *Rendered* shows each item under its name, with a badge for its type,
     its file, modified time and description, then the body as Markdown; a
-    `[[name]]` link opens another item of the directory, and an unknown name stays
-    as written. *Source* shows the files as they are. "Contents" lists the items in
+    `[[name]]` link opens the item of the directory whose `name` that is, whatever
+    characters it holds, and an unknown name stays as written. *Source* shows the files as they are. "Contents" lists the items in
     `MEMORY.md` order, then "Not in MEMORY.md" and "Broken links" (index lines that
     point to missing files); `MEMORY.md` itself comes last.
   - *Changing it.* **Edit** opens the whole file, frontmatter included, and
@@ -971,7 +971,11 @@ seconds while the browser tab is visible (see
     that handle writes into the file being deleted, and those writes are lost, so
     delete an item only while no session is writing it. Files are read without
     following a symlink that replaced them after they were listed (`O_NOFOLLOW`; on
-    Windows, a check right before opening).
+    Windows, a check right before opening). Directories are checked step by step,
+    created one step at a time, and must resolve inside the configuration directory;
+    a directory a session replaces with a link between that check and the next
+    system call is still followed, since only directory-anchored calls, which
+    Windows lacks, would close that window.
   - *Requests.* The page reads `GET /ui/api/memory/projects`,
     `GET /ui/api/memory?store=&project=`, `GET /ui/api/memory/file?store=&project=&file=`
     and `GET /ui/api/memory/search?q=`, and writes with
@@ -984,14 +988,17 @@ seconds while the browser tab is visible (see
     request names only a discovered configuration directory, an existing project
     directory under its `projects/` (or the top-level `memory/`) and a plain file
     name of at most 255 characters. In a Claude Code directory the name matches
-    `[A-Za-z0-9][A-Za-z0-9._-]*\.md`, and `MEMORY.md` is the index: it has the file
-    routes, never the item routes (copy, delete). In Codex's `memories/` any name
+    `[A-Za-z0-9][A-Za-z0-9._-]*\.md`, and `MEMORY.md`, in any case, since Windows and
+    macOS usually ignore it, is the index: it has the file routes, never the item
+    routes (copy, delete). In Codex's `memories/` any name
     matching `[A-Za-z0-9][A-Za-z0-9._-]*` is a plain file, `MEMORY.md` included,
     with no index. Symlinks and Windows junctions are refused, and the resolved
     path must stay inside the memory directory. Files over 256 KB or not valid
-    UTF-8, `MEMORY.md` included, are shown but the daemon refuses to rewrite them
-    (`file_too_large`, `not_utf8`), since saving would lose their bytes; files over
-    1 MB are listed without their text.
+    UTF-8, `MEMORY.md` and a Replace's target included, are shown but the daemon
+    refuses to rewrite them (`file_too_large`, `not_utf8`), since saving would lose
+    their bytes; a copy keeps the source's bytes as they are. Files over 1 MB are
+    listed without their text, though their frontmatter still gives their name,
+    type and time.
     `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev
