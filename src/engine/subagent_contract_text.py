@@ -105,9 +105,22 @@ def managed_document(text: str) -> str:
     return before + BEGIN_MARKER + "\n" + separator_block() + "\n" + END_MARKER + after
 
 
+def _document_text() -> str:
+    """The document's text, refusing a symbolic link before anything reads it.
+
+    The guard inside ``_replace`` is not enough on its own: both callers read first, and
+    ``--write`` returns early when the block is already current, so a link whose target is
+    in step would never reach the write. ``--check`` would then validate another file and
+    report nothing stale, which is the opposite of what it promises.
+    """
+    if DOCUMENT.is_symlink():
+        raise ContractTextError(f"refusing to read the symbolic link {DOCUMENT}")
+    return DOCUMENT.read_text(encoding="utf-8")
+
+
 def stale_files() -> list[Path]:
     """The generated documents whose committed text is not the render."""
-    current = DOCUMENT.read_text(encoding="utf-8")
+    current = _document_text()
     return [] if managed_document(current) == current else [DOCUMENT]
 
 
@@ -143,7 +156,7 @@ def _replace(path: Path, text: str) -> None:
 
 def write_generated() -> list[Path]:
     """Regenerate the block; return the documents written, which is none when it was current."""
-    current = DOCUMENT.read_text(encoding="utf-8")
+    current = _document_text()
     rendered = managed_document(current)
     if rendered == current:
         return []

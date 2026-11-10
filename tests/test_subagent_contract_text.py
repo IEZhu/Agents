@@ -140,6 +140,24 @@ def test_a_symbolic_link_is_refused_rather_than_followed(moved_source, tmp_path,
         contract_text.write_generated()
 
 
+def test_a_link_to_a_current_document_is_refused_rather_than_validated(tmp_path, monkeypatch):
+    """The refusal cannot live in the writer alone: a write returns before it when the
+    block is already current, and a check never writes at all, so a link would have the
+    command validate another file and report nothing stale."""
+    document = tmp_path / "subagent-contract.md"
+    document.write_text(f"{contract_text.BEGIN_MARKER}\n{contract_text.separator_block()}\n"
+                        f"{contract_text.END_MARKER}\n", encoding="utf-8")
+    link = tmp_path / "link.md"
+    link.symlink_to(document)
+    monkeypatch.setattr(contract_text, "DOCUMENT", link)
+    with pytest.raises(contract_text.ContractTextError, match="symbolic link"):
+        contract_text.write_generated()
+    with pytest.raises(contract_text.ContractTextError, match="symbolic link"):
+        contract_text.stale_files()
+    monkeypatch.setattr(contract_text, "ROOT", tmp_path)
+    assert contract_text.main(["--check"]) == 2
+
+
 def test_a_document_without_a_marker_pair_is_refused(tmp_path, monkeypatch):
     document = tmp_path / "subagent-contract.md"
     document.write_text(f"{contract_text.BEGIN_MARKER}\nno end marker\n", encoding="utf-8")
