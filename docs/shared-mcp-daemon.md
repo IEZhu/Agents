@@ -909,6 +909,71 @@ seconds while the browser tab is visible (see
   refuses with 409 `entry_changed` when the entry is no longer there as shown.
   With [user library sync](user-sync.md#repository-history) the entry also leaves
   what this machine shared, though the library's git history keeps it.
+- **Memory** ([#297](https://github.com/IEZhu/Agents/issues/297)) shows the AI
+  clients' file-based memory and changes it.
+  - *Where it looks.* Claude Code keeps one Markdown file per item in
+    `<config dir>/projects/<project>/memory/`, with YAML frontmatter (`name`,
+    `description`, `metadata.type`, `metadata.modified`), and the index `MEMORY.md`,
+    one `- [Title](file.md) — hook` line per item, which a session loads at its
+    start. `<project>` is the project's path with every character but letters and
+    digits replaced by `-`. The configuration directories are the daemon's own
+    (`CLAUDE_CONFIG_DIR` or `~/.claude`), `~/.claude` and every directory a `claude`
+    or `claude-deny-desktop` record of `client-configs.json` names: a
+    `.claude.json` lies in its directory, except `~/.claude.json`, which belongs to
+    `~/.claude`, and a `settings.json` lies in its directory. Only directories that
+    exist count, each once (`src/daemon/client_dirs.py`, which the planned
+    Integrations tab, #298, is to share).
+  - *Other places and clients.* The top-level `<config dir>/memory/`, where the
+    installer puts the routing reminder, is listed as "Outside projects". Codex's
+    `$CODEX_HOME/memories/` is listed when it holds files, as plain text until a
+    real store has been seen. Cursor keeps no memory in files, and the list says so.
+  - *The list.* One row per project, merged across configuration directories: the
+    registered workspace's name and path when one matches, a chip per configuration
+    directory with its item count, and the age of the newest item (its
+    `metadata.modified`, or the file's time without one), the most recent first. The
+    search matches names here and item text on the server.
+  - *An open project.* It shows one configuration directory at a time, the most
+    recently changed one first; a select switches to the others that hold its
+    memory. *Rendered* shows each item under its name, with a badge for its type,
+    its file, modified time and description, then the body as Markdown; a
+    `[[name]]` link opens another item of the directory, and an unknown name stays
+    as written. *Source* shows the files as they are. "Contents" lists the items in
+    `MEMORY.md` order, then "Not in MEMORY.md" and "Broken links" (index lines that
+    point to missing files); `MEMORY.md` itself comes last.
+  - *Changing it.* **Edit** opens the whole file, frontmatter included, and
+    `MEMORY.md` is edited the same way. **New item** asks for a file name and a type
+    and starts from a frontmatter template, optionally adding its line to
+    `MEMORY.md`, which is created when missing; **Add to MEMORY.md** does the same
+    for an item the index does not link. **Delete** asks for a confirmation that
+    names the file, moves it to `memory-trash/<UTC time>/<config dir>/<project>/` in
+    the state directory, from where it can be restored by hand, and removes the
+    index lines that link to it. **Copy to** and **Move to** put the item into the
+    same project of another Claude Code configuration directory, creating the
+    project's directory there when needed, and append the item's index line unless
+    the target's index already links it. A file of the same name there is shown
+    beside the item, and **Replace** overwrites it only as shown. A move is a copy
+    followed by a Delete of the source and stops when the copy fails.
+  - *Concurrency.* Claude Code writes memory without a lock, and the page takes
+    none. Every write carries the SHA-256 of the version shown, and the daemon
+    refuses with 409 `file_changed` when the file differs right before its atomic
+    rename (a temporary file in the same directory, keeping the file's mode); the
+    page keeps the text and offers to reload. Only a session writing in that very
+    instant can still win or lose.
+  - *Requests.* The page reads `GET /ui/api/memory/projects`,
+    `GET /ui/api/memory?store=&project=`, `GET /ui/api/memory/file?store=&project=&file=`
+    and `GET /ui/api/memory/search?q=`, and writes with
+    `PUT /ui/api/memory/file {store, project, file, text, sha256, index?}`
+    (`sha256: null` creates the file and refuses an existing one),
+    `POST /ui/api/memory/delete {store, project, file, sha256}` and
+    `POST /ui/api/memory/copy {store, project, file, sha256, to_store, move?, replace_sha256?}`
+    (`memory_ui.py`).
+  - *Limits.* The reads need the page's `X-Agents-UI` header, as History's do. A
+    request names only a discovered configuration directory, an existing project
+    directory under its `projects/` (or the top-level `memory/`) and a plain file
+    name matching `[A-Za-z0-9][A-Za-z0-9._-]*\.md`; symlinks are refused, and the
+    resolved path must stay inside the memory directory. Files over 256 KB are shown
+    but cannot be edited, and files over 1 MB are listed without their text.
+    `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev
 schedule's settings ([#348](https://github.com/IEZhu/Agents/issues/348)) in the place
@@ -931,8 +996,9 @@ Autodev chip, the controls of the open item, the tabs and, on Flows, "New flow".
 the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
 "Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
 "Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its
-switch, an agent the same without a switch, and a history *Rendered / Source*,
-"Contents" and its file select. With nothing open the header
+switch, an agent the same without a switch, a history *Rendered / Source*,
+"Contents" and its file select, and a project's memory *Rendered / Source*,
+"Contents", its configuration-directory select and "New item". With nothing open the header
 shows none. The controls end at the divider before the tabs and form the tab of
 the open item's pane: the two share one tint and join like a folder and its tab,
 and the list and the item are rounded panels. The page measures where the
@@ -946,7 +1012,7 @@ it). Matching is case-insensitive and every whitespace-separated term must
 appear. Items whose name (ID, title, short name; an agent's ID and display name)
 matches are listed first, then items that match only in their text (description
 and body; flow content; an agent's role, routing keywords and prompt body), marked
-"in text" (on Flows, a group heading, such as Personal or a repository, is repeated for its text-only matches; on History the entry text is searched on the server). While a query is active the box shows "N of M" for the visible
+"in text" (on Flows, a group heading, such as Personal or a repository, is repeated for its text-only matches; on History and Memory the entry and item text is searched on the server). While a query is active the box shows "N of M" for the visible
 category, the query is kept per tab, and the open item stays open when the query
 hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
 `content` field to every flow, including repository flows, and
