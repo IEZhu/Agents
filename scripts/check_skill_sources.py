@@ -63,6 +63,13 @@ STUB_BYTES = 500
 # means the URL is wrong, which is a defect in the file. Lumping them together
 # made the run fail for valid URLs on a host that refuses curl, contradicting
 # the policy stated above; review caught that.
+#
+# A body can match both, and then the refusal wins. Review caught this too: the
+# not-found pattern has to be loose enough to catch a soft 404 in four
+# languages, so "not found" turns up in the boilerplate of refusal pages that
+# have nothing wrong with the URL. The asymmetry decides it. A wrong MISSING
+# fails the run for a URL that is fine; a wrong REFUSED only shows under
+# --strict. When the two signals disagree, take the one that does not fail.
 REFUSAL_BODY = re.compile(r"Access Denied|could not be accessed|Something went wrong|Forbidden", re.I)
 NOTFOUND_BODY = re.compile(r"Error 404|Page not found|No se encontr|\bnot found\b", re.I)
 
@@ -97,6 +104,22 @@ def declared_sources(path: Path) -> list[str]:
     return [str(s) for s in (data.get("sources") or [])]
 
 
+def classify(body: bytes) -> str:
+    """Judge a body that arrived under a status of 200.
+
+    Separate from the fetch so the precedence above can be tested without a
+    network, which is the whole reason the rule is written down twice.
+    """
+    head = body[:4000].decode("utf-8", "replace")
+    if REFUSAL_BODY.search(head):
+        return REFUSED_200
+    if NOTFOUND_BODY.search(head):
+        return MISSING_200
+    if len(body) < STUB_BYTES:
+        return STUB
+    return OK
+
+
 def probe(url: str, timeout: int, _retry: bool = True) -> tuple[str, int, int, str]:
     """Fetch one URL and judge the body, not only the status."""
     request = urllib.request.Request(url, headers={"Accept": ACCEPT})
@@ -104,15 +127,7 @@ def probe(url: str, timeout: int, _retry: bool = True) -> tuple[str, int, int, s
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read()
             code = response.getcode()
-        head = body[:4000].decode("utf-8", "replace")
-        if NOTFOUND_BODY.search(head):
-            verdict = MISSING_200
-        elif REFUSAL_BODY.search(head):
-            verdict = REFUSED_200
-        elif len(body) < STUB_BYTES:
-            verdict = STUB
-        else:
-            verdict = OK
+        verdict = classify(body)
     except urllib.error.HTTPError as exc:
         code, body = exc.code, b""
         verdict = MISSING if exc.code in (404, 410) else REFUSED
