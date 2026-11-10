@@ -65,8 +65,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.11'
+      # Not requirements.txt: these three read Markdown frontmatter and one
+      # regex table, and nothing here imports the embedding stack. Installing
+      # onnxruntime for a two-second suite costs minutes per content change.
+      # Measured: 246 cases pass on exactly these three packages.
       - name: Install check dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install pytest python-dotenv pyyaml
       - name: Check skill invariants, calendar freshness and the source-check classifier
         run: >-
           python -B -m pytest
