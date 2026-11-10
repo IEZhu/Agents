@@ -93,6 +93,53 @@ def test_writing_is_idempotent_and_reports_only_a_real_change(moved_source, tmp_
     assert f"'{moved_source.spelling}'" in text and "stale" not in text
 
 
+def test_the_write_keeps_line_feeds_and_the_document_mode(moved_source, tmp_path, monkeypatch):
+    """A plain write translates newlines, so on Windows the document would gain CRLF while
+    every check still passed: reading it back translates them away again.
+
+    This one cannot fail on POSIX, where the translation is a no-op. It earns its place on
+    the Windows job of the matrix, and it is recorded here as a guard rather than claimed
+    as a check that holds everywhere.
+    """
+    document = tmp_path / "subagent-contract.md"
+    document.write_text(f"before\n{contract_text.BEGIN_MARKER}\nstale\n"
+                        f"{contract_text.END_MARKER}\nafter\n", encoding="utf-8")
+    mode = document.stat().st_mode
+    monkeypatch.setattr(contract_text, "DOCUMENT", document)
+    contract_text.write_generated()
+    assert b"\r\n" not in document.read_bytes()
+    assert document.stat().st_mode == mode
+
+
+def test_a_failed_write_leaves_the_document_and_no_temporary(moved_source, tmp_path, monkeypatch):
+    """The command repairs the document, so an interrupted run must not half-write it."""
+    document = tmp_path / "subagent-contract.md"
+    before = (f"before\n{contract_text.BEGIN_MARKER}\nstale\n"
+              f"{contract_text.END_MARKER}\nafter\n")
+    document.write_text(before, encoding="utf-8")
+    monkeypatch.setattr(contract_text, "DOCUMENT", document)
+
+    def refuse(*_args, **_kwargs):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(contract_text.os, "replace", refuse)
+    with pytest.raises(OSError, match="no space"):
+        contract_text.write_generated()
+    assert document.read_text(encoding="utf-8") == before
+    assert [path.name for path in tmp_path.iterdir()] == [document.name]
+
+
+def test_a_symbolic_link_is_refused_rather_than_followed(moved_source, tmp_path, monkeypatch):
+    document = tmp_path / "subagent-contract.md"
+    document.write_text(f"{contract_text.BEGIN_MARKER}\n{contract_text.END_MARKER}\n",
+                        encoding="utf-8")
+    link = tmp_path / "link.md"
+    link.symlink_to(document)
+    monkeypatch.setattr(contract_text, "DOCUMENT", link)
+    with pytest.raises(contract_text.ContractTextError, match="symbolic link"):
+        contract_text.write_generated()
+
+
 def test_a_document_without_a_marker_pair_is_refused(tmp_path, monkeypatch):
     document = tmp_path / "subagent-contract.md"
     document.write_text(f"{contract_text.BEGIN_MARKER}\nno end marker\n", encoding="utf-8")

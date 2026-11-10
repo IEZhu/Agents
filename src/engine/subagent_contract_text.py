@@ -22,8 +22,11 @@ exactly that one place and has nothing to drift from.
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import shutil
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -108,15 +111,43 @@ def stale_files() -> list[Path]:
     return [] if managed_document(current) == current else [DOCUMENT]
 
 
+def _replace(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` through a temporary file in the same directory.
+
+    A command whose job is to repair the document must not be able to leave it half
+    written, so the new text is complete before it replaces the old, and the file keeps its
+    mode. ``newline="\n"`` is load-bearing: a plain write translates newlines, so on
+    Windows the committed document would gain CRLF while every check still passed, because
+    reading it back translates them away again.
+
+    Replacing rather than writing also settles the symbolic link: ``os.replace`` replaces
+    the link itself instead of following it, so the refusal below is an explicit choice
+    rather than the only thing standing between a link and its target.
+
+    ``protocol_text._replace`` is the other generated-file writer. Each module in this tree
+    keeps its own, as ``model_migration``, ``user_library`` and ``environments`` do.
+    """
+    if path.is_symlink():
+        raise ContractTextError(f"refusing to replace the symbolic link {path}")
+    handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text)
+        if path.exists() and os.name == "posix":
+            shutil.copymode(path, temporary)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
 def write_generated() -> list[Path]:
     """Regenerate the block; return the documents written, which is none when it was current."""
-    if DOCUMENT.is_symlink():
-        raise ContractTextError(f"refusing to replace the symbolic link {DOCUMENT}")
     current = DOCUMENT.read_text(encoding="utf-8")
     rendered = managed_document(current)
     if rendered == current:
         return []
-    DOCUMENT.write_text(rendered, encoding="utf-8")
+    _replace(DOCUMENT, rendered)
     return [DOCUMENT]
 
 
