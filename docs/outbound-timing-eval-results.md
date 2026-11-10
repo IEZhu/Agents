@@ -36,8 +36,10 @@ and every `with` context differs from run 02's by exactly the 87 characters of t
 run 03 against run 02 is a per-case comparison of one change.
 
 Answers and blind pairwise judging in both orders by Claude Code agents on the session
-model (Opus 5), no model pinned. 145 answers and 146 verdicts in total, none missing in any
-run. An adversarial checker reviewed each case set before any judging.
+model (Opus 5), no model pinned. 73 pairs in total, so 146 answer files, two per case, and
+146 verdict files, two per pair because each pair is judged in both orders: 42 and 42 in run
+01, 52 and 52 in each of runs 02 and 03, with none missing in any run. An adversarial checker
+reviewed each case set before any judging.
 
 The case set of runs 02 and 03 is
 [`outbound_timing_cases.json`](../evals/datasets/outbound_timing_cases.json). The rule texts,
@@ -128,7 +130,7 @@ so the earlier reports quoted this measure more confidently than it deserved.
 
 ## Conclusion
 
-Do not propose a built-in rule. Across three runs, 145 answers and 146 verdicts, the
+Do not propose a built-in rule. Across three runs, 146 answers and 146 verdicts, the
 behaviour the rule was written to produce is not established, two of its own clauses are
 violated reproducibly by the arm that carries it, and the only robust effects are a carve-out
 that prevents a harm the baseline does not commit anyway and silence where the rule does not
