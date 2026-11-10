@@ -23,7 +23,34 @@ from scripts.check_skill_sources import (
 # The newline matters. Without it the filler runs straight into the last word,
 # and `\bnot found\b` stops matching — which made the both-signals case below
 # vacuous on its first draft, and a mutant that flipped the precedence passed.
+#
+# FILLER is deliberately threshold-relative: the cases that use it only need a
+# body over the floor, whatever the floor is. The one case that is *about* the
+# floor uses ARTICLE instead, a fixed payload, so raising STUB_BYTES past the
+# size of a real article breaks the test. Review caught that: with a relative
+# payload that case could not fail, which is the whole defect it exists to
+# catch.
 FILLER = b"\n" + b"x" * (STUB_BYTES + 100)
+
+# A single-article payload from the BOE consolidated-legislation API, the real
+# shape that an earlier 2,000-byte floor wrongly called a stub. Fixed size on
+# purpose; do not rewrite it in terms of STUB_BYTES. Named SINGLE_ARTICLE and not
+# ARTICLE because ARTICLE is already the compression fixture further down -- on
+# the first draft the later binding shadowed this one and the case below silently
+# measured the wrong bytes.
+SINGLE_ARTICLE = (
+    b'<?xml version="1.0" encoding="UTF-8"?>\n<response><data><bloque id="a56">'
+    b"<titulo>Art\xc3\xadculo 56. Despido improcedente.</titulo><p>1. Cuando el "
+    b"despido sea declarado improcedente, el empresario, en el plazo de cinco "
+    b"d\xc3\xadas desde la notificaci\xc3\xb3n de la sentencia, podr\xc3\xa1 optar entre la "
+    b"readmisi\xc3\xb3n del trabajador o el abono de una indemnizaci\xc3\xb3n equivalente "
+    b"a treinta y tres d\xc3\xadas de salario por a\xc3\xb1o de servicio, "
+    b"prorrate\xc3\xa1ndose por meses los periodos de tiempo inferiores a un a\xc3\xb1o, "
+    b"hasta un m\xc3\xa1ximo de veinticuatro mensualidades. La opci\xc3\xb3n por la "
+    b"indemnizaci\xc3\xb3n determinar\xc3\xa1 la extinci\xc3\xb3n del contrato de trabajo, que se "
+    b"entender\xc3\xa1 producida en la fecha del cese efectivo en el trabajo.</p>"
+    b"</bloque></data></response>"
+)
 
 
 def test_a_refusal_page_is_a_refusal():
@@ -55,9 +82,16 @@ def test_an_ordinary_document_is_served():
 
 
 def test_a_single_article_payload_is_not_a_stub():
-    """About a kilobyte is the whole document for the BOE article API."""
-    assert len(FILLER) > STUB_BYTES
-    assert classify(b"<documento><texto>" + FILLER + b"</texto></documento>") == OK
+    """A single article is the whole document, and it is small.
+
+    This one is 715 bytes -- under a kilobyte, which is why the floor sits at
+    500 and why the earlier 2,000 called two valid BOE articles stubs. The
+    bounds below are the point of the case: raise STUB_BYTES past a real
+    article and this fails. The first draft padded to STUB_BYTES + 100 instead,
+    so it could not fail at any floor, which is the defect it exists to catch.
+    """
+    assert 600 < len(SINGLE_ARTICLE) < 1400, "keep this the size of a real single-article payload"
+    assert classify(SINGLE_ARTICLE) == OK
 
 
 # The eCFR versioner API answers 406 "This endpoint requires response
