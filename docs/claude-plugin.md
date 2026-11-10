@@ -1,7 +1,8 @@
 # Claude plugin
 
 `plugins/agents-core` is the Claude plugin submitted to Anthropic's plugin directory (#362).
-The owner's last recorded portal evidence (2026-10-13) showed **In review**, not a published listing.
+The owner's last recorded portal evidence (2026-11-08) showed **Needs changes**, not a published
+listing: an automatic check stopped version `26.10.28.1144` on 2026-10-28.
 See the [submission ledger](distribution.md#submitted-destinations) for dates, evidence and follow-up links. The
 Connectors Directory takes only remote `https://` MCP servers and no longer takes MCPB
 extensions, so a local server like Agents-Core can be listed only inside a plugin.
@@ -123,21 +124,32 @@ LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest -q tests/test_tool_ann
 
 `claude plugin validate` checks only that the files are well-formed. The developer portal's
 **Validate** runs the directory's checks ([pre-submission
-checklist](https://claude.com/docs/plugins/pre-submission-checklist)). Expected results for this
-plugin:
+checklist](https://claude.com/docs/plugins/pre-submission-checklist)). Results for this plugin,
+expected and observed:
 
 - **Blocking checks**: none expected. The folder has `.claude-plugin/plugin.json`, a README of
   more than 40 words, a `LICENSE`, a lowercase ASCII name, regular files only (no symlinks,
   `.DS_Store` or binaries other than the icon), and every path in its manifest and `.mcp.json` stays inside the
   plugin folder, written from `${CLAUDE_PLUGIN_ROOT}`.
-- **Policy hold, expected**: *Scripts the validator couldn't follow*. The plugin folder is a
-  subfolder of the repository, and `start-server.sh` reads `AGENTS_HOME` and `HOME` and runs a
-  file outside the plugin (the installed server). That is inherent to a local server that is
-  not bundled; a reviewer reads the script. It downloads nothing and has no package launcher.
-  Say so in the submission notes: the plugin is a launcher for a separately installed local
-  server, and the README's Setup section installs it. A reviewer may still decline it under the
-  "everything inside the plugin folder" rule; then the server stays available through
-  `install.sh` and `scripts/init_repo.sh`, which register it with Claude Code directly.
+- **Blocked on 2026-10-28**, the check of `26.10.28.1144` at `5f59fdb`, read in the portal on
+  2026-11-08: *Directory policy failed* with `LOCAL_CODE_NOT_CHECKED`, "the scan of this version
+  didn't confirm that it read the whole plugin". The version stays unpublished and the submission
+  sits at **Needs changes**. The portal's own remedy is another check: a pushed commit is checked
+  when it arrives, and **Check for new commits** re-checks the newest commit even when nothing
+  changed. The same check asked that a script the plugin runs be shipped inside the plugin, so the
+  setup hint of `scripts/start-server.sh` names the README's Setup section instead of printing an
+  installer command line; the `curl ... install.sh | bash` left in the plugin README is
+  documentation, which that finding exempts. It also reported that `.claude-plugin/icon.png` was
+  let through without being read as code.
+- **Starting the installed server was not a policy failure.** That check listed "The plugin starts
+  an MCP server ... as a program on the user's machine", and the local stdio transport, for
+  information only, so the "everything inside the plugin folder" rule did not stop this version.
+  The launcher does run a file outside the plugin (`$installation/.venv/bin/python` on
+  `$installation/src/server.py`), which is inherent to a local server that is not bundled; a
+  reviewer reads the script. Say so in the submission notes: the plugin is a launcher for a
+  separately installed local server, and the README's Setup section installs it. A reviewer may
+  still decline it under that rule; then the server stays available through `install.sh` and
+  `scripts/init_repo.sh`, which register it with Claude Code directly.
 - **Not met, by design**: claude.ai chat does not start local MCP servers, so the plugin adds
   nothing there; on Windows the shell start script does not run (the README sends Windows users
   to `scripts\init_repo.bat`).
@@ -192,6 +204,8 @@ baseline fallback and validation details.
 The directory's next scan and review/publication settings still determine when
 that version becomes visible there; see
 [updating a published plugin](https://claude.com/docs/plugins/submit#update-a-published-plugin).
+When a check stopped the newest commit, **Check for new commits** in the portal
+asks for another check of it, even when nothing has changed.
 
 ## What the owner submits
 
