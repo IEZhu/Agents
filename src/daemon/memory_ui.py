@@ -321,6 +321,13 @@ def _fields(meta: dict) -> dict:
             "modified": _field(metadata.get("modified", meta.get("modified")))}
 
 
+def _warning(error: Exception) -> str:
+    """A refusal or storage error that came after the change itself was done, for the answer."""
+    if isinstance(error, MemoryRefused):
+        return f"{error.code}: {error}"
+    return f"storage_error: {getattr(error, 'strerror', None) or error}"
+
+
 def _undo_create(path: Path, data: bytes) -> None:
     """Removes a file this request just created, unless something changed it since."""
     try:
@@ -749,8 +756,8 @@ class MemoryUI:
         result = {"trash": str(kept), "unindexed": False}
         try:
             result["unindexed"] = self._index_remove(path.parent, path.name)
-        except MemoryRefused as error:  # the delete is done: say why MEMORY.md still links the file
-            result["index_warning"] = f"{error.code}: {error}"
+        except (MemoryRefused, OSError) as error:  # the delete is done: say why MEMORY.md still links the file
+            result["index_warning"] = _warning(error)
         return result
 
     def _put_back(self, place: Store, project: str, aside: Path, path: Path) -> None:
@@ -812,23 +819,24 @@ class MemoryUI:
                 raise MemoryRefused("target_changed", f"{file} is no longer in {target.label}", 409)
             if existing is not None:  # Replace rewrites the target; the copy itself keeps its bytes
                 _rewritable(existing, f"{file} in {target.label}")
-            _replace(destination, data, replace)
-            text = data.decode("utf-8", errors="replace")
+            # The source's index line is read before anything is written: a failure here changes nothing.
             source_index = _index(source, path.parent)
             line = None
             if source_index:
                 index_text = _read(source_index).decode("utf-8", errors="replace")
                 line = next((raw for raw in index_text.splitlines()
                              if (match := LINK.match(raw)) and match.group("file") == file), None)
+            _replace(destination, data, replace)
+            text = data.decode("utf-8", errors="replace")
             result = {"status": "copied", "store": source.id, "project": project, "file": file,
                       "to_store": target.id, "indexed": False, "replaced": existing is not None}
             try:
                 result["indexed"] = self._index_add(destination.parent, file, line or _index_line(file, text))
-            except MemoryRefused as error:
+            except (MemoryRefused, OSError) as error:
                 if existing is None:  # a new item that cannot join the index is not left behind
                     _undo_create(destination, data)
                     raise
-                result["index_warning"] = f"{error.code}: {error}"  # the replacement is done
+                result["index_warning"] = _warning(error)  # the replacement is done
             except BaseException:
                 if existing is None:
                     _undo_create(destination, data)
@@ -836,8 +844,8 @@ class MemoryUI:
             if move:
                 try:
                     removed = self._remove(source, project, path, expected)
-                except MemoryRefused as error:  # the copy is done; the source stays where it was
-                    result["move_warning"] = f"{error.code}: {error}"
+                except (MemoryRefused, OSError) as error:  # the copy is done; the source stays where it was
+                    result["move_warning"] = _warning(error)
                 else:
                     if "index_warning" in removed:  # about the source's MEMORY.md, not the target's
                         removed["source_index_warning"] = removed.pop("index_warning")

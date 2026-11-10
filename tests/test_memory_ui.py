@@ -712,3 +712,33 @@ async def test_valid_utf8_that_holds_the_replacement_character_is_editable(daemo
     assert next(item for item in data["items"] if item["file"] == "glyph.md")["editable"]
     body = {"store": main, "project": env["name"], "file": "glyph.md", "text": "edited\n", "sha256": sha(path)}
     assert (await http.put("/ui/api/memory/file", json=body, headers=UI)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_storage_error_after_the_change_is_a_warning_and_one_before_it_changes_nothing(daemon, monkeypatch):
+    http, env = daemon
+    await login(http)
+    main, work = stores(env)
+
+    def disk_full(self, memory, file):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(memory_ui.MemoryUI, "_index_remove", disk_full)
+    body = {"store": main, "project": env["name"], "file": "zsh.md", "sha256": sha(env["main"] / "zsh.md")}
+    deleted = await http.post("/ui/api/memory/delete", json=body, headers=UI)
+    assert deleted.status_code == 200 and not (env["main"] / "zsh.md").exists()
+    assert deleted.json()["index_warning"] == "storage_error: No space left on device"
+    # A source index that cannot be read stops a copy before the target is written.
+    read = memory_ui._read
+
+    def unreadable_index(path):
+        if Path(path) == env["main"] / "MEMORY.md":
+            raise PermissionError(13, "Permission denied")
+        return read(path)
+
+    monkeypatch.setattr(memory_ui, "_read", unreadable_index)
+    copy = {"store": main, "project": env["name"], "file": "loose.md", "sha256": sha(env["main"] / "loose.md"),
+            "to_store": work}
+    response = await http.post("/ui/api/memory/copy", json=copy, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert not (env["other"] / "loose.md").exists()
