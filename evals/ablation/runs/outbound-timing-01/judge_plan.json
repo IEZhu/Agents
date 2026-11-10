@@ -1,0 +1,254 @@
+{
+ "f38cf9ac86__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-agent-build-to-test",
+  "A": "without",
+  "B": "with"
+ },
+ "f38cf9ac86__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-agent-build-to-test",
+  "A": "with",
+  "B": "without"
+ },
+ "ea641df1a4__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-code-webhook-post",
+  "A": "with",
+  "B": "without"
+ },
+ "ea641df1a4__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-code-webhook-post",
+  "A": "without",
+  "B": "with"
+ },
+ "265a1a4d56__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-commit-message-rename",
+  "A": "with",
+  "B": "without"
+ },
+ "265a1a4d56__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-commit-message-rename",
+  "A": "without",
+  "B": "with"
+ },
+ "32f0c1d581__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-edge-shorten-after-note",
+  "A": "with",
+  "B": "without"
+ },
+ "32f0c1d581__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-edge-shorten-after-note",
+  "A": "without",
+  "B": "with"
+ },
+ "f5da839d6c__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-ordinary-cc-bcc",
+  "A": "with",
+  "B": "without"
+ },
+ "f5da839d6c__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-ordinary-cc-bcc",
+  "A": "without",
+  "B": "with"
+ },
+ "d3903ab485__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-review-off-by-one",
+  "A": "without",
+  "B": "with"
+ },
+ "d3903ab485__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-review-off-by-one",
+  "A": "with",
+  "B": "without"
+ },
+ "1c0dc1c27b__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-self-note-packing",
+  "A": "with",
+  "B": "without"
+ },
+ "1c0dc1c27b__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-self-note-packing",
+  "A": "without",
+  "B": "with"
+ },
+ "7bba7c8f91__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-summarize-incoming",
+  "A": "with",
+  "B": "without"
+ },
+ "7bba7c8f91__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-summarize-incoming",
+  "A": "without",
+  "B": "with"
+ },
+ "7c4b3f3be9__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-thanks-no-signal",
+  "A": "without",
+  "B": "with"
+ },
+ "7c4b3f3be9__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-thanks-no-signal",
+  "A": "with",
+  "B": "without"
+ },
+ "6aa989a0db__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-tone-check-draft",
+  "A": "without",
+  "B": "with"
+ },
+ "6aa989a0db__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-tone-check-draft",
+  "A": "with",
+  "B": "without"
+ },
+ "111f6586cd__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-key-leak-warning",
+  "A": "without",
+  "B": "with"
+ },
+ "111f6586cd__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-key-leak-warning",
+  "A": "with",
+  "B": "without"
+ },
+ "e8c7794644__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-lease-notice-deadline",
+  "A": "with",
+  "B": "without"
+ },
+ "e8c7794644__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-lease-notice-deadline",
+  "A": "without",
+  "B": "with"
+ },
+ "b944bea330__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-recipient-asked",
+  "A": "with",
+  "B": "without"
+ },
+ "b944bea330__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-recipient-asked",
+  "A": "without",
+  "B": "with"
+ },
+ "5e5d740995__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-water-leak-3am",
+  "A": "without",
+  "B": "with"
+ },
+ "5e5d740995__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-water-leak-3am",
+  "A": "with",
+  "B": "without"
+ },
+ "bd93f6a9cb__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-written-record-of-call",
+  "A": "with",
+  "B": "without"
+ },
+ "bd93f6a9cb__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-written-record-of-call",
+  "A": "without",
+  "B": "with"
+ },
+ "e51046946c__o1": {
+  "component": "rule-outbound-timing",
+  "case": "wait-apology-after-fight",
+  "A": "with",
+  "B": "without"
+ },
+ "e51046946c__o2": {
+  "component": "rule-outbound-timing",
+  "case": "wait-apology-after-fight",
+  "A": "without",
+  "B": "with"
+ },
+ "a169c2195f__o1": {
+  "component": "rule-outbound-timing",
+  "case": "wait-contractor-midnight-dm",
+  "A": "without",
+  "B": "with"
+ },
+ "a169c2195f__o2": {
+  "component": "rule-outbound-timing",
+  "case": "wait-contractor-midnight-dm",
+  "A": "with",
+  "B": "without"
+ },
+ "50e44e5972__o1": {
+  "component": "rule-outbound-timing",
+  "case": "wait-landlord-night",
+  "A": "with",
+  "B": "without"
+ },
+ "50e44e5972__o2": {
+  "component": "rule-outbound-timing",
+  "case": "wait-landlord-night",
+  "A": "without",
+  "B": "with"
+ },
+ "daeac5e814__o1": {
+  "component": "rule-outbound-timing",
+  "case": "wait-price-announcement",
+  "A": "without",
+  "B": "with"
+ },
+ "daeac5e814__o2": {
+  "component": "rule-outbound-timing",
+  "case": "wait-price-announcement",
+  "A": "with",
+  "B": "without"
+ },
+ "54f7345555__o1": {
+  "component": "rule-outbound-timing",
+  "case": "wait-raise-request",
+  "A": "with",
+  "B": "without"
+ },
+ "54f7345555__o2": {
+  "component": "rule-outbound-timing",
+  "case": "wait-raise-request",
+  "A": "without",
+  "B": "with"
+ },
+ "f7083000b0__o1": {
+  "component": "rule-outbound-timing",
+  "case": "wait-report-friday",
+  "A": "without",
+  "B": "with"
+ },
+ "f7083000b0__o2": {
+  "component": "rule-outbound-timing",
+  "case": "wait-report-friday",
+  "A": "with",
+  "B": "without"
+ }
+}

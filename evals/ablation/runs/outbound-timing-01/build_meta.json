@@ -1,0 +1,25 @@
+{
+ "skills": [
+  "skill-content-structure",
+  "skill-decision-frameworks",
+  "skill-dense-summarization",
+  "skill-reasoning-logic"
+ ],
+ "implants": [
+  "SelfDiscover",
+  "StepBack",
+  "DecompPrompt"
+ ],
+ "rules": [
+  "no-fabrication",
+  "serve-the-request",
+  "honest-uncertainty",
+  "anti-sycophancy",
+  "outbound-timing",
+  "agent-cooperation",
+  "thread-status",
+  "language-match",
+  "answer-timestamp"
+ ],
+ "tier": "standard"
+}

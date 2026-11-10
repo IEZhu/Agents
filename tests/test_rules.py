@@ -30,6 +30,7 @@ _EXPECTED_RULE_NAMES = {
     "anti-sycophancy",
     "language-match",
     "serve-the-request",
+    "outbound-timing",
 }
 
 

@@ -1,0 +1,1670 @@
+{
+ "f2b9064c5d77": {
+  "component": "rule-outbound-timing",
+  "case": "own-resignation-flat",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19137,
+  "ctx_sha256": "5c3e92de10738fc6efbce70e56735f3ee6e51296eae904d35943368571a97505",
+  "conversation_sha256": "7a599faa36e4b72afcea5382cdbc7132fc8fe155758787088d74943bd15459b7",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-reasoning-logic",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "e6c5256f7b58": {
+  "component": "rule-outbound-timing",
+  "case": "own-resignation-flat",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18195,
+  "ctx_sha256": "5716671ae3585b348bbf28590bcd326f82486ecff7453371409ecaa3db3e26a8",
+  "conversation_sha256": "7a599faa36e4b72afcea5382cdbc7132fc8fe155758787088d74943bd15459b7",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-reasoning-logic",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "0fa1b5df07bb": {
+  "component": "rule-outbound-timing",
+  "case": "own-no-discount-friday",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19137,
+  "ctx_sha256": "17b52a55f8b85512c4ef5c044d48a74c33926d650cd25b49c4fb4919599fcfec",
+  "conversation_sha256": "892f91489a6cf57389fcd8bdd5800e7027e11d173d1e4d70ff86565638d1fa16",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "8912f0ab1557": {
+  "component": "rule-outbound-timing",
+  "case": "own-no-discount-friday",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18195,
+  "ctx_sha256": "feef0744c57e52712f1d689d70a6916e7e73623907688fd4838894ba330e6eb5",
+  "conversation_sha256": "892f91489a6cf57389fcd8bdd5800e7027e11d173d1e4d70ff86565638d1fa16",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "533758228cf3": {
+  "component": "rule-outbound-timing",
+  "case": "own-slip-before-review",
+  "arm": "with",
+  "agent": "product_manager",
+  "chars": 38412,
+  "ctx_sha256": "08bc79928ebc8b15ac77534a2a1dc67ad6d1f005309dfa21fc165bc99a0db0b1",
+  "conversation_sha256": "e0fd0b1736b8e156f8398a8e05dbdce09e8b532a0a87971641cfbd068cdb01ed",
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "a93a1d01e0ed": {
+  "component": "rule-outbound-timing",
+  "case": "own-slip-before-review",
+  "arm": "without",
+  "agent": "product_manager",
+  "chars": 37470,
+  "ctx_sha256": "face8768e47a721667d2ac9300b034de97ba0f93f48c6179693bb991757f78c0",
+  "conversation_sha256": "e0fd0b1736b8e156f8398a8e05dbdce09e8b532a0a87971641cfbd068cdb01ed",
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "fae048cbd5d8": {
+  "component": "rule-outbound-timing",
+  "case": "own-loan-refusal-birthday",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19137,
+  "ctx_sha256": "756f8d65c6563652aae7fbbbe8c6177beb5476e743bb5beff6813f9a2d414a12",
+  "conversation_sha256": "7f48fa4201a697cef02c188976e998b04fcc8cc13b88ea69499a417bf3720e7f",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "301f7b26ce06": {
+  "component": "rule-outbound-timing",
+  "case": "own-loan-refusal-birthday",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18195,
+  "ctx_sha256": "48820df04038cc053308c21b6fe643116e66af449b191d3fd51688ab03346866",
+  "conversation_sha256": "7f48fa4201a697cef02c188976e998b04fcc8cc13b88ea69499a417bf3720e7f",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "aa79278f20cf": {
+  "component": "rule-outbound-timing",
+  "case": "own-doc-reject-vacation",
+  "arm": "with",
+  "agent": "engineering_manager",
+  "chars": 38507,
+  "ctx_sha256": "f2f47963b0fd9926ef3a218fb453fde44b33e5b49d881fad1cf823f42cfc1975",
+  "conversation_sha256": "d4a193eed0feb03a955ea9e4b03d4a9c887eab88ddb02b9e8c28f9dc36820032",
+  "skills": [
+   "skill-content-structure",
+   "skill-engineering-management",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-psy-nvc",
+   "skill-delivery-performance"
+  ],
+  "implants": [
+   "SecondOrder",
+   "SteelMan",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "fe48a358927d": {
+  "component": "rule-outbound-timing",
+  "case": "own-doc-reject-vacation",
+  "arm": "without",
+  "agent": "engineering_manager",
+  "chars": 37565,
+  "ctx_sha256": "d9461e864c7167d2e7ab3cef80379d4887b849ce93596ef42a881064eb5f67cc",
+  "conversation_sha256": "d4a193eed0feb03a955ea9e4b03d4a9c887eab88ddb02b9e8c28f9dc36820032",
+  "skills": [
+   "skill-content-structure",
+   "skill-engineering-management",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-psy-nvc",
+   "skill-delivery-performance"
+  ],
+  "implants": [
+   "SecondOrder",
+   "SteelMan",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "f2f4544cc12c": {
+  "component": "rule-outbound-timing",
+  "case": "own-insurance-newyear",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 25334,
+  "ctx_sha256": "3f88a990d6eb75cda2a9efa3db3e75977196a52e5f1ce1dc4f4ff1d00fc6f5e9",
+  "conversation_sha256": "38a8f2071f526a456dca18810e3519364388c4bec1a0c76a65913a224d46b742",
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "4990e43f18b8": {
+  "component": "rule-outbound-timing",
+  "case": "own-insurance-newyear",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 24392,
+  "ctx_sha256": "e9c943f26123fd3dcef479fb621107dc31aa2cc9bd10ee6f6caf934fedff009e",
+  "conversation_sha256": "38a8f2071f526a456dca18810e3519364388c4bec1a0c76a65913a224d46b742",
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "b3a2294ba105": {
+  "component": "rule-outbound-timing",
+  "case": "own-user-overrode-advice",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19101,
+  "ctx_sha256": "ebca3a5fbc7614771d048b44c1434ce6c87a532f80488ef7a5a220afff3e97df",
+  "conversation_sha256": "e8f1f4c4d1f0e60ed08c9a7fe5c93c8e73026c3f810ad2af41ce5680209ec8a0",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-reasoning-logic",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "d4f237d51f9a": {
+  "component": "rule-outbound-timing",
+  "case": "own-user-overrode-advice",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18159,
+  "ctx_sha256": "ccd7ad21fc755073f7d92714baf29f672a435fd0206c61e2498dad18dfb9948a",
+  "conversation_sha256": "e8f1f4c4d1f0e60ed08c9a7fe5c93c8e73026c3f810ad2af41ce5680209ec8a0",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-reasoning-logic",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "e3b235dbc07c": {
+  "component": "rule-outbound-timing",
+  "case": "own-after-choice-supplier",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "25882b58b6644c0168c3252fbd6ff96f42795c3ade69d7cdedfed4a1e9c62f2b",
+  "conversation_sha256": "930f4f7f3b099b813e0a2defc7fa86d2ece717f4662196cd8d5e0ca3476975e1",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "1bbab2bcaf5b": {
+  "component": "rule-outbound-timing",
+  "case": "own-after-choice-supplier",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "201a28565718614692dbf350de5f049d23829143624363802fe5dd1d47033e48",
+  "conversation_sha256": "930f4f7f3b099b813e0a2defc7fa86d2ece717f4662196cd8d5e0ca3476975e1",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "dcf15c497e6e": {
+  "component": "rule-outbound-timing",
+  "case": "now-notice-last-day",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "d6129e263b8cf29b64db9a707b6997a3d1960a35588fee8145dc378ef7c63f4e",
+  "conversation_sha256": "76831c1f7ceaee77c338790d669eeed756aedd9a3996712d0335c3070e0e9978",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "be4000daceea": {
+  "component": "rule-outbound-timing",
+  "case": "now-notice-last-day",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "981541534f58fb3ed785520320afca2d0a5dbd1ec5b057e1d8a8456f049fee05",
+  "conversation_sha256": "76831c1f7ceaee77c338790d669eeed756aedd9a3996712d0335c3070e0e9978",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "237a13c875f9": {
+  "component": "rule-outbound-timing",
+  "case": "now-nina-asked",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "c729c067cd649e3732dc207f4b853325a3412b36df309fcde2949170c2be0837",
+  "conversation_sha256": "9c8020646633d61d78b6b79f0220f24ebdd1604e807566033fd9c6aa2c57489e",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "1d67595851d6": {
+  "component": "rule-outbound-timing",
+  "case": "now-nina-asked",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "bd0fd9c5f149de62877410a89d544a009abf2eb400711182398a88121e955256",
+  "conversation_sha256": "9c8020646633d61d78b6b79f0220f24ebdd1604e807566033fd9c6aa2c57489e",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "a453c06cb01f": {
+  "component": "rule-outbound-timing",
+  "case": "now-list-leak",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "be01f18ee657ca2c1f0b3ff8e392c1596c3aa4dbbb19a90b740ec9e936117152",
+  "conversation_sha256": "0cb7457795ca0031c27ac8827407d773fe145fe5ee53f65acc1ecceb6ed37fba",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "7e15e246bd36": {
+  "component": "rule-outbound-timing",
+  "case": "now-list-leak",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "ffe7d9cef0f5f5d23d98fbce936fbe7430493e113e55889f8b7ac0a8994ef85d",
+  "conversation_sha256": "0cb7457795ca0031c27ac8827407d773fe145fe5ee53f65acc1ecceb6ed37fba",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "145a7e3baffc": {
+  "component": "rule-outbound-timing",
+  "case": "now-investor-after-call",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "3a859d63b184b0a82e780afca2a7f879860fdbdd9b06c154fad0a892b7bdd89a",
+  "conversation_sha256": "63800a1e877339f87d3885faf9d237fafcb5cd0619b05a0673c5195160bc3d6f",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "f01669f3bff8": {
+  "component": "rule-outbound-timing",
+  "case": "now-investor-after-call",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "659436d3e9e15b92a75721c8a78724970cdce3980754f0ae9f054c52fffdfa8d",
+  "conversation_sha256": "63800a1e877339f87d3885faf9d237fafcb5cd0619b05a0673c5195160bc3d6f",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "cc31b0f55c47": {
+  "component": "rule-outbound-timing",
+  "case": "now-movers-damage",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "418af2bd62fb01b2ed687872a4f14be35c36c99b7fd84138d811104cc0bb8f66",
+  "conversation_sha256": "af1f2b7b24133fcc5d940509aac9e457dde874f94467de94d8f956deedd2f179",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "a79a67e9d59c": {
+  "component": "rule-outbound-timing",
+  "case": "now-movers-damage",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "47b0a36f5a04ebdd5a1681c2a081bccc83a905ef827b55dd6230c303e0c26edc",
+  "conversation_sha256": "af1f2b7b24133fcc5d940509aac9e457dde874f94467de94d8f956deedd2f179",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "760b107c1aa1": {
+  "component": "rule-outbound-timing",
+  "case": "now-candidate-withdrew",
+  "arm": "with",
+  "agent": "engineering_manager",
+  "chars": 21790,
+  "ctx_sha256": "f1d1bf80e37fcd2745844ee96b0c0fe8598fa5d8592c9d3b44ad40a3fe4d1a61",
+  "conversation_sha256": "a2d98471c7d1689f8a944a405eb62b1b7230a4c9f577e08f2c0087025e9b8c75",
+  "skills": [
+   "skill-content-structure",
+   "skill-engineering-management",
+   "skill-consultative-intake",
+   "skill-psy-nvc"
+  ],
+  "implants": [
+   "SecondOrder",
+   "SteelMan",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "415fe176bae6": {
+  "component": "rule-outbound-timing",
+  "case": "now-candidate-withdrew",
+  "arm": "without",
+  "agent": "engineering_manager",
+  "chars": 20848,
+  "ctx_sha256": "c1ba780f86b3341ce3f29c44346d2e18240e1f228f94fb014db7041331608283",
+  "conversation_sha256": "a2d98471c7d1689f8a944a405eb62b1b7230a4c9f577e08f2c0087025e9b8c75",
+  "skills": [
+   "skill-content-structure",
+   "skill-engineering-management",
+   "skill-consultative-intake",
+   "skill-psy-nvc"
+  ],
+  "implants": [
+   "SecondOrder",
+   "SteelMan",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "645b45c49faa": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-chunk-function",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 28683,
+  "ctx_sha256": "3b236675264dad8ec8ee071dd4d94758d9999aea369d49d4b2651e250876c494",
+  "conversation_sha256": "e984d449428dbec26611f65a12553b3fda1899c31a108379502a3a1df23c01f0",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-error-recovery",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "fffe583b19ae": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-chunk-function",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 27741,
+  "ctx_sha256": "da6ea60516185050f349a1cd2fbe3f5ef0ef2849741b07d7dd6f487514e4db53",
+  "conversation_sha256": "e984d449428dbec26611f65a12553b3fda1899c31a108379502a3a1df23c01f0",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-error-recovery",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "18dea9e0d69d": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-mutable-default",
+  "arm": "with",
+  "agent": "code_reviewer",
+  "chars": 25969,
+  "ctx_sha256": "46a7014b219c8c8cb4a81c93f5ce7ef88ebcc8056fad1d75fdd0c52b29118b19",
+  "conversation_sha256": "aaa470c0b93ca0e3ba5e6a7bb87560e0556c6ca29ec0164afd21ec5b855bc356",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-caveman-tokenomics",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "CoV",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "f1ce3ca76206": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-mutable-default",
+  "arm": "without",
+  "agent": "code_reviewer",
+  "chars": 25027,
+  "ctx_sha256": "bb977c6f1fc2f0e8acc458c713f20b5823ebe0e36362821cd3319f70b7c51508",
+  "conversation_sha256": "aaa470c0b93ca0e3ba5e6a7bb87560e0556c6ca29ec0164afd21ec5b855bc356",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-caveman-tokenomics",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "CoV",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "2cd657a965fd": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-ladder-note",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19137,
+  "ctx_sha256": "923a9b35bb23c911f39391076fb067bce26c7709f53f7d4d1e53244888edb400",
+  "conversation_sha256": "57043bd416ba06c4f67886deb96b04bb7d7f77466802975db9a2d73c367fa2fb",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "354994ccbc3c": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-ladder-note",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18195,
+  "ctx_sha256": "b35931380f78361a3c8b4a3903b87a533a63e337bec517e4d98e90dc1b25c889",
+  "conversation_sha256": "57043bd416ba06c4f67886deb96b04bb7d7f77466802975db9a2d73c367fa2fb",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "f2fb29faa7ab": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-oleg-template",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19110,
+  "ctx_sha256": "9efe70ac341bb3a4a06f08ffbe1d1c4ab6c49d78623f288f2c685d5283c3d45c",
+  "conversation_sha256": "bfec4e88c9c6e75c6eda8187ee81bf08cf962829f0eca8fc2a7bda0b9952a591",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "b4f204d16728": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-oleg-template",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18168,
+  "ctx_sha256": "c55215e5d31ec19714fe1dcd7cc8cd3a85cc72daeac93bf96ce222172625a853",
+  "conversation_sha256": "bfec4e88c9c6e75c6eda8187ee81bf08cf962829f0eca8fc2a7bda0b9952a591",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "990a4c953c19": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-coach-boots",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19101,
+  "ctx_sha256": "012b334da58933ff7225f1d7040ff2ed5b752149afd8682bb13c1f3c885f0fd2",
+  "conversation_sha256": "fce7ed7a792046acc01f20244e83cb989280de45f17800180e039aee294abc34",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "6ab762db5a6f": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-coach-boots",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18159,
+  "ctx_sha256": "75860ff7b506fdbd2eb8d420a07f9788797f3cd2475b6135ffb5b8098f02e419",
+  "conversation_sha256": "fce7ed7a792046acc01f20244e83cb989280de45f17800180e039aee294abc34",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "824d2bbd03a4": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-rewrite-token-para",
+  "arm": "with",
+  "agent": "tech_writer",
+  "chars": 29241,
+  "ctx_sha256": "b14158fbce1472b8de33fff9e6804efe4570642716de92741e663288cc419c0a",
+  "conversation_sha256": "d66603cdbd0ef0e2685f9116113a7de832b1a51b8555b00db6792247ea4f5c3d",
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-git-conventions",
+   "skill-structured-output",
+   "skill-dense-summarization",
+   "skill-mermaid-best-practices"
+  ],
+  "implants": [
+   "SoT",
+   "CoV",
+   "ReverseCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "5d028fb4fbee": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-rewrite-token-para",
+  "arm": "without",
+  "agent": "tech_writer",
+  "chars": 28299,
+  "ctx_sha256": "9c2085b2f8bb46b465e24eab72bb022ead3ff47e3c49c233ced2cda704e62329",
+  "conversation_sha256": "d66603cdbd0ef0e2685f9116113a7de832b1a51b8555b00db6792247ea4f5c3d",
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-git-conventions",
+   "skill-structured-output",
+   "skill-dense-summarization",
+   "skill-mermaid-best-practices"
+  ],
+  "implants": [
+   "SoT",
+   "CoV",
+   "ReverseCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "e583ab35083a": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-subject-line-choice",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 19137,
+  "ctx_sha256": "2701702da2495239deb7f2ab4e91632fdeceee409b9a5de0b4ab56c3060c4128",
+  "conversation_sha256": "3d6f5ffa66de91a145daf06bbfbc817f01fc00d9d61984b65071c8950e92d07c",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "c46f14dfa029": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-subject-line-choice",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18195,
+  "ctx_sha256": "1f4b6b82a8cf1b8b61648d20b98deba30fda62b01661a38eba6c21c2c7a76bfa",
+  "conversation_sha256": "3d6f5ffa66de91a145daf06bbfbc817f01fc00d9d61984b65071c8950e92d07c",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "9541c24de4bc": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-agent-handover",
+  "arm": "with",
+  "agent": "agent_builder",
+  "chars": 28188,
+  "ctx_sha256": "679a19b880b7f9784c191e7e18c80134cd3a7536e5e60383806c84fcf45458a5",
+  "conversation_sha256": "9d6e4bd1bbb50a22c4e06b21a3776f8b653b4c08985e17cf0628dead9e2484e8",
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-git-conventions",
+   "skill-dense-summarization",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "PlanSolvePlus",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "5183046a2824": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-agent-handover",
+  "arm": "without",
+  "agent": "agent_builder",
+  "chars": 27246,
+  "ctx_sha256": "de5d90662bdac8e1dbac17dba202d409ecbab5fbd88423f00ec729d68ec08461",
+  "conversation_sha256": "9d6e4bd1bbb50a22c4e06b21a3776f8b653b4c08985e17cf0628dead9e2484e8",
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-git-conventions",
+   "skill-dense-summarization",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "PlanSolvePlus",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "a45e90746109": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-actions-schedule",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 21342,
+  "ctx_sha256": "347ed66ad51b3acc043bf6291f38a2c9b0745603744e9f5f7912b2113c7452c7",
+  "conversation_sha256": "651b30dd5e2770c967beb17d9cbec16c7d5e72d9a08ea4dad1fb63f88176f13f",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-delivery-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "PromptChaining"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "41f3d0d1e34c": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-actions-schedule",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 20400,
+  "ctx_sha256": "242265d385dfb88279e05d467ac920c0141357fde93ce22bf3e49225a0ee9486",
+  "conversation_sha256": "651b30dd5e2770c967beb17d9cbec16c7d5e72d9a08ea4dad1fb63f88176f13f",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-delivery-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "PromptChaining"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "738a13c2f1ba": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-back-dumbbells",
+  "arm": "with",
+  "agent": "fitness_coach",
+  "chars": 21361,
+  "ctx_sha256": "2a05a7f7f933a9b7ad7a2c73b40ab62bd92f6de1b377a3654e5a6dd03ffe0474",
+  "conversation_sha256": "0840c38884dc9c340c044dd9854a9ac9cdcc8818d6d2d7f49dcd48486efb9207",
+  "skills": [
+   "skill-fitness-programming",
+   "skill-bio-protocols",
+   "skill-bio-mechanism"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "8b3d01bf2d59": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-back-dumbbells",
+  "arm": "without",
+  "agent": "fitness_coach",
+  "chars": 20419,
+  "ctx_sha256": "1a4ddaa65aa586e07c9d0a38c6c476df042f53dde0bd6c79cf834e73f97e6592",
+  "conversation_sha256": "0840c38884dc9c340c044dd9854a9ac9cdcc8818d6d2d7f49dcd48486efb9207",
+  "skills": [
+   "skill-fitness-programming",
+   "skill-bio-protocols",
+   "skill-bio-mechanism"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "93cf36c1d1e7": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-sql-dormant-customers",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 27286,
+  "ctx_sha256": "23f71b403236b1c20454ad82694f762110ee5f0074b3497e019cecb73682501f",
+  "conversation_sha256": "c8a92920494a346de4ca7cb29800d95300be9ee4c4c18985d1e87c709726ce75",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-data-consistency",
+   "skill-storage-engines"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "f850b0a5b86a": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-sql-dormant-customers",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 26344,
+  "ctx_sha256": "c17bfe921507225ef339d604d252d2ac8a9e234556151635c0d029fad4bd6e7d",
+  "conversation_sha256": "c8a92920494a346de4ca7cb29800d95300be9ee4c4c18985d1e87c709726ce75",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-data-consistency",
+   "skill-storage-engines"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "9866977a55af": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-billing-presentation-open",
+  "arm": "with",
+  "agent": "presentation_coach",
+  "chars": 24491,
+  "ctx_sha256": "7284b2e675cf1bd11250dfbc9431f6ee4d769bdf10df852c75749e2c44615f97",
+  "conversation_sha256": "9e191ab9332a1ecf42cdde5fb661aca3fa33fe965738bb42d8956e45c96d1438",
+  "skills": [
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-creative-craft"
+  ],
+  "implants": [
+   "SoT",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "919530a5ae64": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-billing-presentation-open",
+  "arm": "without",
+  "agent": "presentation_coach",
+  "chars": 23549,
+  "ctx_sha256": "b3a238851a09b983560abd8778b949ec6a6150b392e60f407448e171fba26c47",
+  "conversation_sha256": "9e191ab9332a1ecf42cdde5fb661aca3fa33fe965738bb42d8956e45c96d1438",
+  "skills": [
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-creative-craft"
+  ],
+  "implants": [
+   "SoT",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "outbound-timing",
+   "agent-cooperation",
+   "thread-status",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ }
+}

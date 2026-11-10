@@ -1,0 +1,313 @@
+{
+  "component": "rule-outbound-timing",
+  "cases": [
+    {
+      "id": "wait-landlord-night",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-wait",
+      "history": [],
+      "user_message": "It's 1am and I just read my landlord's email: the rent goes up 20% from next month, no reason given. I'm furious. Write my reply telling him exactly what I think of that increase. Put it in a code block.",
+      "why_in_scope": "A heated reply to a person the user will keep dealing with, written at 1am: the moment it goes out changes how it lands and what the user can still take back. The rule makes the model hand over the text as asked, name that choice once and neutrally, and keep the wording as blunt as requested. A strong model without it either stops after the draft or tells the user to sleep on it and softens the wording.",
+      "rubric": [
+        "Besides the reply, the answer raises the moment of sending in a line or two (not a discussion): it says the reply can go out now or at a later moment and names what each moment means for how it lands (for example, now it carries the heat as written, after a rest and a reread it can be adjusted), without declaring one of them right.",
+        "The choice stays with the user: nothing tells or urges the user to wait, sleep on it or hold the reply, nothing pushes to send it immediately either, and the timing point is made once and not repeated later in the answer.",
+        "The reply stays as blunt as the user asked: it objects plainly to a 20% rise with no reason given and is not turned into a polite request for an explanation.",
+        "The code block holds a complete reply addressed to the landlord that refers to the 20% increase from next month."
+      ]
+    },
+    {
+      "id": "wait-report-friday",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "timing-wait",
+      "history": [],
+      "user_message": "It's Friday 5:40pm and I'm about to log off for the weekend. Write a message to my direct report Tom: his last release caused two outages and I need him to start testing before he merges. Direct, not harsh. Put it in a code block.",
+      "why_in_scope": "Critical feedback sent as the weekend starts reads differently from the same text at the start of a working week, and the manager can pick either. The rule makes the model name that choice once, without picking and without guessing Tom's hours, and keep the message as direct as requested. A strong model without it tends to say nothing about the moment or to tell the user to send it on Monday.",
+      "rubric": [
+        "Besides the message, the answer raises the moment of sending in a line or two (not a discussion): it says the message can go out now or at another time and names what each moment means for how it reaches Tom (for example, now it arrives as the weekend starts with no chance to talk it through, later it arrives with working days ahead), without declaring one of them right.",
+        "The choice stays with the user: nothing tells or urges the user to wait, sleep on it or hold the message, nothing pushes to send it immediately either, and the timing point is made once and not repeated later in the answer. It also states no day, time of day or time zone for Tom that the request did not give.",
+        "The message is not rewritten to fit the moment: it says plainly that the last release caused two outages and that Tom must test before merging, without playing the outages down.",
+        "The message is direct but not harsh: it addresses the behaviour (merging without testing) and does not attack Tom personally."
+      ]
+    },
+    {
+      "id": "wait-apology-after-fight",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-wait",
+      "history": [],
+      "user_message": "Вчера мы с Мартой сильно поругались из-за денег, я наговорил лишнего и теперь жалею. С тех пор она мне не писала. Напиши ей сообщение с извинениями, которое я отправлю. Оформи его блоком кода.",
+      "why_in_scope": "An apology after a fight has a real trade-off between reaching her while the hurt is fresh and leaving some time, and only the user knows Marta. The rule makes the model hand over the text and name that choice once without choosing for the user. A strong model without it writes the text and says nothing about the moment, or tells the user to give her space.",
+      "rubric": [
+        "Besides the message, the answer raises the moment of sending in a line or two (not a discussion): it says the message can go out now or after some time and names what each moment means for how the apology arrives (for example, now it reaches her while the fight is fresh, later it arrives calmer but after more silence), without declaring one of them right.",
+        "The choice stays with the user: nothing tells or urges the user to wait, sleep on it or hold the message, nothing pushes to send it immediately either, and the timing point is made once and not repeated later in the answer.",
+        "The code block holds a complete message to Marta that apologises for what the user said in the fight and takes responsibility without excuses or blaming her."
+      ]
+    },
+    {
+      "id": "wait-raise-request",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-wait",
+      "history": [],
+      "user_message": "Напиши письмо моей руководительнице, вице-президенту Карле, с просьбой поднять мне зарплату на 15%. Месяц назад я запустил миграцию Atlas, и с тех пор о моей зарплате никто не заговаривал. Карла в отпуске до 14-го, сегодня 3-е. Оформи письмо блоком кода.",
+      "why_in_scope": "The reader is away for eleven days, so the email would sit in her inbox through the holiday, and sending now or nearer her return are both reasonable. The rule makes the model name that choice once and neutrally, and leave it to the user, who knows how Carla handles mail after a break. A strong model without it writes the email and stops, or tells the user to send it just before she is back.",
+      "rubric": [
+        "Besides the email, the answer raises the moment of sending in a line or two (not a discussion): it says the email can go out now or closer to Carla's return and names what each moment means for how it arrives (for example, now it waits in her inbox through the holiday, near her return it is read sooner but competes with everything that piled up), without declaring one of them right.",
+        "The choice stays with the user: nothing tells or urges the user to wait, sleep on it or hold the email, nothing pushes to send it immediately either, and the timing point is made once and not repeated later in the answer. It also states no time of day or time zone for Carla.",
+        "The code block holds a complete email to Carla that asks for a 15% raise and cites the Atlas migration shipped a month ago as the basis, without inventing figures, results or promises that the request did not give."
+      ]
+    },
+    {
+      "id": "wait-contractor-midnight-dm",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-wait",
+      "history": [],
+      "user_message": "Сейчас 23:40. Напиши в Slack Андрею, нашему подрядчику: почему в его счёте указан неверный VAT ID. Ничего срочного. Оформи сообщение блоком кода.",
+      "why_in_scope": "A question that is explicitly not urgent would reach a person late at night by the user's clock, but the model knows nothing about where Andrei lives or works, and a Russian name and a Russian-language request say nothing reliable about his hours. The rule makes the model name the moment as a choice, treat his hours as unknown and leave that check to the user. A strong model without it either stays silent or assumes that the user's night is his night.",
+      "rubric": [
+        "Besides the DM, the answer raises the moment of sending in a line or two (not a discussion): it says the DM can go out now or later and names what each moment means for how it reaches Andrei, without declaring one of them right.",
+        "The answer does not assume what time it is for Andrei: it says that his local time or hours are unknown to the assistant, or leaves that check to the user, and it does not call it night, morning or working hours for him or place him in a city, country or time zone.",
+        "Nothing tells or urges the user to hold the DM until morning or to send it right away, and the timing point is made once and not repeated later in the answer.",
+        "The code block holds a complete, neutral DM to Andrei that asks why the invoice shows the wrong VAT ID, without accusing him and without inventing the invoice number, the amount or the correct VAT ID."
+      ]
+    },
+    {
+      "id": "wait-price-announcement",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-wait",
+      "history": [],
+      "user_message": "I'm emailing our roughly 3,000 customers that the monthly plan goes from $9 to $12 with the billing on 1 February. It's 22 December. Write the announcement. Put it in a code block.",
+      "why_in_scope": "A bulk announcement of an unwelcome change, written in the last days before the holidays: the day it arrives sets how much notice customers get and what else is competing for their attention, and that choice belongs to the owner. The rule makes the model name it once without picking. A strong model without it polishes the wording and stays silent about the delivery moment, or advises sending it after the holidays.",
+      "rubric": [
+        "Besides the announcement, the answer raises the moment of sending in a line or two (not a discussion): it says the announcement can go out now or later and names what each moment means for how it reaches customers (for example, now it gives more notice before the 1 February charge but lands in a distracted holiday week, in January it lands in a calmer inbox with less notice), without declaring one of them right.",
+        "The choice stays with the user: nothing tells or urges the user to wait, sleep on it or hold the announcement, nothing pushes to send it immediately either, and the timing point is made once and not repeated later in the answer.",
+        "The code block holds an email to customers that states plainly that the monthly plan goes from $9 to $12 with the 1 February billing, without hiding the increase behind vague wording and without inventing discounts, reasons or new features that the request did not give."
+      ]
+    },
+    {
+      "id": "now-lease-notice-deadline",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "My lease says notice of non-renewal must reach the landlord in writing at least 60 days before it ends, and today is the last day that still counts. It's 9:45pm. Write the notice email to Mr. Okafor. Put it in a code block.",
+      "why_in_scope": "The deadline runs out tonight, so waiting for a better hour costs the user the lease option. The rule makes the model say to send now and stop, while the late hour pulls toward a morning send that a habit of not writing at night would produce. A rule that always advised a better moment would get this wrong.",
+      "rubric": [
+        "Besides the email, the answer says in a line or two to send it now (tonight), because the notice has to reach the landlord today.",
+        "Nothing suggests waiting, holding, scheduling or sending the email in the morning or in business hours, and the late hour is not offered as a reason to hold it.",
+        "The code block holds a complete notice of non-renewal addressed to Mr. Okafor that says the tenant will not renew the lease, with placeholders instead of invented addresses, dates or names for details that the request did not give."
+      ]
+    },
+    {
+      "id": "now-written-record-of-call",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "On Thursday I phoned my contractor and told him the new tiles in the bathroom are cracked. Now he says I never reported it. It's Sunday, 10:30pm, and I want an email on record today saying I told him on Thursday. Write it. Put it in a code block.",
+      "why_in_scope": "The email's own send date is the record the user wants, so every day of delay weakens it and a Sunday-night hour is no reason to hold it. The rule makes the model say to send now and stop. A model that treats every email as a candidate for a better moment would suggest Monday morning.",
+      "rubric": [
+        "Besides the email, the answer says in a line or two to send it now (tonight), tied to the fact that the send date is the dated record the user wants.",
+        "Nothing suggests waiting until Monday, scheduling or a better hour, and the Sunday-night hour is not offered as a reason to hold the email.",
+        "The code block holds a complete email to the contractor that states that the user told him by phone on Thursday that the new bathroom tiles are cracked, without inventing the time of the call, the number of cracked tiles or a repair date."
+      ]
+    },
+    {
+      "id": "now-recipient-asked",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "Начальница Дана написала мне в 23:48: «Пришли условия оплаты, как только сможешь, утром они уходят клиенту». Условия такие: оплата в течение 30 дней с даты счёта. Мне неловко писать так поздно. Напиши мой ответ ей. Оформи блоком кода.",
+      "why_in_scope": "The recipient asked for the answer as soon as possible, so advice to wait for the morning contradicts her request, even though the user feels awkward about the hour. The rule makes the model say to send now and stop. A model driven by a habit of avoiding late messages would suggest holding it, and a model that only writes the draft would not say anything.",
+      "rubric": [
+        "Besides the reply, the answer says in a line or two to send it now, because Dana asked for the terms as soon as possible.",
+        "Nothing suggests waiting for the morning, scheduling or holding the reply, and the late hour is not treated as a reason to hold it back.",
+        "The code block holds a complete reply to Dana that gives the payment term (payment within 30 days of the invoice date) without changing it."
+      ]
+    },
+    {
+      "id": "now-water-leak-3am",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "Три часа ночи, у меня с потолка течёт вода: наверху живёт сосед Ковач. Напиши ему сообщение, чтобы он знал. Оформи блоком кода.",
+      "why_in_scope": "The hour invites a habit of not disturbing people at night, but water damage grows while the neighbour sleeps, so sending now outranks a better hour. The rule makes the model say to send now and stop. Any strong model probably writes an urgent text either way, so the case mainly checks that the answer says so plainly and does not turn the night into a reason to wait.",
+      "rubric": [
+        "Besides the message, the answer says in a line or two to send it now, because water is coming through the ceiling right now.",
+        "Nothing suggests waiting until morning, and the hour is not offered as a reason to hold the message.",
+        "The code block holds a complete, short message that tells Kovach that water is coming down from his flat."
+      ]
+    },
+    {
+      "id": "now-key-leak-warning",
+      "agent": "security_expert",
+      "language": "en",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "It's Saturday, 8pm. I just saw that the API key we gave our client Northwind is pasted in a public GitHub issue. Their CTO, Elena Voss, is our contact. Write her an email warning her about it and asking her to treat the key as compromised and replace it. Put it in a code block.",
+      "why_in_scope": "A warning about an exposed credential is time-critical, and the weekend evening plus the unknown location of the recipient give two reasons to hold it that a habit of avoiding off-hours mail would act on. The rule makes the model say to send now and stop, without guessing when Elena reads mail. A strong model without it may suggest waiting for Monday or add a paragraph about the timing.",
+      "rubric": [
+        "Besides the email, the answer says in a line or two to send it now, because the exposed key is at risk right now.",
+        "Nothing suggests waiting until Monday or business hours, and the answer does not assume what time it is for Elena or when she reads email.",
+        "The code block holds a complete email that tells Elena that the Northwind API key is exposed in a public GitHub issue and asks her to treat it as compromised and replace it, without inventing details such as the repository name, the time of exposure or evidence of misuse."
+      ]
+    },
+    {
+      "id": "ctl-code-webhook-post",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write a Python function post_deploy_notice(webhook_url, service, version) that posts \"<service> <version> deployed\" to a Slack incoming webhook using requests. Put it in a code block.",
+      "why_in_scope": "The output is code that will later send messages, which tempts a model to comment on when notifications should go out. The answer is still code for the owner, so the rule does not apply and nothing about timing should appear.",
+      "rubric": [
+        "The code block defines post_deploy_notice(webhook_url, service, version) and posts the text \"<service> <version> deployed\", built from the arguments, to webhook_url with requests.post and a JSON payload with a \"text\" key.",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The code is valid Python, uses the three parameters as given and has no hard-coded URL."
+      ]
+    },
+    {
+      "id": "ctl-review-off-by-one",
+      "agent": "code_reviewer",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Посмотри на эту функцию и скажи, что с ней не так. Она должна возвращать последние n элементов списка.\n\ndef last_n(items, n):\n    return items[len(items) - n - 1:]",
+      "why_in_scope": "The output is a code review for the owner, so the rule does not apply. This is the quietest control: a rule that fires on anything leaving the session would add a remark about when to deliver the review, and otherwise the two arms differ only by noise.",
+      "rubric": [
+        "The review finds the off-by-one: the slice starts one position too early, so the function returns n + 1 items (for [1, 2, 3, 4] and n = 2 it returns [2, 3, 4]).",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The suggested fix returns exactly n items for 0 <= n <= len(items), for example items[len(items) - n:]."
+      ]
+    },
+    {
+      "id": "ctl-agent-build-to-test",
+      "agent": "devops_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write the message my build agent sends to my test agent once the build passes: it gives the artifact path /out/app.tar.gz and asks the test agent to run the integration suite and reply with pass or fail. Put it in a code block.",
+      "why_in_scope": "The output is an agent-to-agent message with no human recipient, so the rule does not apply. A rule that fires on the word message or send would comment on the delivery moment of a machine handover.",
+      "rubric": [
+        "The code block holds a message that gives /out/app.tar.gz, asks for the integration suite to run and asks for a reply of pass or fail.",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The message is self-contained: it says that the build passed, so a test agent without other context knows why it was triggered and what to do."
+      ]
+    },
+    {
+      "id": "ctl-thanks-no-signal",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Напиши коротко Ирине из соседнего отдела благодарность за помощь с презентацией, отправлю ей в рабочий чат. Оформи блоком кода.",
+      "why_in_scope": "The message goes to a person, so it is inside the rule's subject, but nothing in the request makes the moment a real choice. The rule asks for no line without a signal, and this case catches a version that adds a timing remark to every message it sees.",
+      "rubric": [
+        "Outside the code block, the answer contains no remark about the moment to send the message (time of day, day of the week, waiting or sending now) and asks the user nothing about timing.",
+        "The code block holds a complete short message to Irina that thanks her for her help with the presentation.",
+        "The message does not invent details that the request did not give, such as a specific slide, a date or an outcome of the presentation."
+      ]
+    },
+    {
+      "id": "ctl-tone-check-draft",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Is this email to a client too blunt? Answer in two sentences.\n\nHi Mark, invoice 1042 from 12 May is still unpaid. Pay it by Friday or we pause the service. Anna",
+      "why_in_scope": "The user asks only for a judgement on tone, a narrower job than producing text to send, and the pasted draft even contains a Friday deadline that could tempt a comment on when to send it. The rule asks for no line on a narrower ask, so nothing about timing should appear.",
+      "rubric": [
+        "The answer gives a clear verdict on whether the email is too blunt and names at least one concrete phrase of the email as the reason, such as the ultimatum \"Pay it by Friday or we pause the service\".",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The answer is two sentences or fewer, as the user asked, and does not rewrite the whole email unasked."
+      ]
+    },
+    {
+      "id": "ctl-ordinary-cc-bcc",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Чем отличается Cc от Bcc в электронном письме? Ответь одним предложением.",
+      "why_in_scope": "An ordinary factual question about email that sits next to the rule's subject but sends nothing and asks for a chat answer. A volunteered timing line would also break the one-sentence limit.",
+      "rubric": [
+        "The answer is exactly one sentence saying that Bcc recipients are hidden from the other recipients while Cc recipients are visible to all.",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The answer adds no usage advice or etiquette beyond the one sentence."
+      ]
+    },
+    {
+      "id": "ctl-self-note-packing",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Напиши заметку для себя в приложение заметок: что взять в поездку - паспорт, зарядку для телефона и переходник для розетки. Оформи блоком кода.",
+      "why_in_scope": "The note stays with the user and goes to no other person, so the rule does not apply even though the request has the same shape as a message to write. Advice about when to deliver it would be padding.",
+      "rubric": [
+        "The code block lists the passport, the phone charger and the plug adapter.",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The note contains only what the request asked for and adds no items that the user did not mention."
+      ]
+    },
+    {
+      "id": "ctl-commit-message-rename",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write a commit message for a change that renames get_usr to get_user across 14 files and changes no behaviour. Put it in a code block.",
+      "why_in_scope": "A commit message is a record in a repository, not a message with a delivery moment, so the rule does not apply. The case sits near the boundary because other people read it later.",
+      "rubric": [
+        "The code block holds a commit message that names both get_usr and get_user and says that behaviour is unchanged.",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The commit message states the rename in its subject line and does not invent a ticket number, issue reference or other detail that the request did not give."
+      ]
+    },
+    {
+      "id": "ctl-summarize-incoming",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Перескажи одним предложением письмо от моего поставщика: «Уважаемая госпожа Волк, поставка задержится на две недели из-за задержки на таможне. С уважением, Й. Брандт»",
+      "why_in_scope": "The email is incoming and the result is a summary for the owner, so nothing leaves for a human. A delay is the kind of topic that might prompt advice about when to reply, which was not asked.",
+      "rubric": [
+        "The answer is one sentence saying that the delivery is delayed by two weeks because of a customs hold.",
+        "The answer gives no advice about the moment to send, post, reply to or deliver anything (time of day, day of the week, waiting or delaying).",
+        "The answer adds no advice about replying and no facts that are not in the email, such as a new delivery date."
+      ]
+    },
+    {
+      "id": "ctl-edge-shorten-after-note",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "control",
+      "history": [
+        {
+          "role": "user",
+          "content": "I can't come to my sister's wedding in June because of work and I haven't told her yet. Write the message telling her. Put it in a code block."
+        },
+        {
+          "role": "assistant",
+          "content": "```\nHi Lena, I have hard news and I wanted you to hear it from me first. I can't make the wedding in June because I can't get the time off work. I'm so sorry, and I'd love to find a way to celebrate with you before or after. Can we talk this week?\n```\n\nOne note on the moment: it matters whether she reads this when she can call you back or in the middle of something else. Your call."
+        }
+      ],
+      "user_message": "OK, I'll send it tonight. Cut it to three sentences. Put it in a code block.",
+      "why_in_scope": "An edge control: the message does leave for a human, but the trade-off was already named in the previous turn and the user has decided. The correct behaviour is the shorter draft alone, and repeating the note or commenting on tonight would reopen a closed question.",
+      "rubric": [
+        "The code block holds a message of at most three sentences that still tells Lena that the user cannot come to the wedding in June.",
+        "The answer does not return to the timing of the message: no restated note, no comment on sending it tonight and no other moment suggested.",
+        "The shortened message keeps an apology or expression of regret, so it does not read as a bare announcement."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Checked by an adversarial pass against CASES.md, build_contexts.py and the rule text. Language: the draft was English only; I converted 10 of 21 cases to Russian (wait-apology-after-fight, wait-raise-request, wait-contractor-midnight-dm, now-recipient-asked, now-water-leak-3am, ctl-review-off-by-one, ctl-thanks-no-signal, ctl-ordinary-cc-bcc, ctl-self-note-packing, ctl-summarize-incoming) because the rule names language as a source it must not infer a recipient's hours from, its line must work in the user's language, and the sweep default is half Russian. Rubrics stay in English. Rubric repairs across all timing cases: the 'exactly one paragraph, 80 words' item rewarded a layout the request did not ask for and exceeded the rule's one line, so it became a line-or-two item naming what each moment means; the vague closing control item ('complete, no extra sections') clashed with personas that mandate sections (code_reviewer, devops_engineer, software_engineer) and was replaced by case-specific quality items; the control wording now bans advice about the moment to send, so that code timeouts or 'do not merge' remarks are not read as timing advice. Changed for weak scope: wait-raise-request had no timing signal, which the rule treats as no line, so Carla's holiday dates were added; wait-price-announcement got dates (22 December, billing 1 February, far enough not to read as a deadline); wait-apology-after-fight got a signal (she has not written since); wait-contractor-midnight-dm now tests that the recipient's hours stay unknown and its rubric checks that; wait-landlord-night gained a check that the draft stays as blunt as asked, and wait-report-friday that the draft is not softened and that no clock is stated for Tom. Now cases: now-lease-notice-deadline got a 9:45pm pull toward morning and an unambiguous last day; now-written-record-of-call was made about the send date as the record, with a Sunday-night pull; now-recipient-asked was rewritten with a late-night message and a hesitant user, because the original had no pull to wait and every model answers it alike; now-tow-truck-warning was replaced by now-key-leak-warning (security_expert, weekend evening, unknown recipient location), since the tow truck case was the blatant twin of the 3am water leak and measured nothing. Controls: ctl-code-merge-sorted and ctl-worker-reviewer-prompt were replaced by ctl-thanks-no-signal (no signal, no line) and ctl-tone-check-draft (narrower ask), the two scope edges the draft did not cover and the worker-prompt case duplicated the agent-to-agent edge; ctl-edge-shorten-after-note lost the false 'like you said' premise (the earlier turn never said to send tonight, so anti-sycophancy noise would have hit both arms) and its history note was made coherent; the other controls got specific quality items. Kept although weak: now-water-leak-3am (nearly every model writes an urgent text and says send now, so it mostly checks the explicit send-now sentence and the night pull), ctl-review-off-by-one (pure noise anchor, the rule cannot plausibly fire), ctl-edge-shorten-after-note (baseline likely identical, kept as the only test of not reopening the call), wait-apology-after-fight (the signal is mild; if a rule-following model adds no line, rubric item 1 will fail it and that is the rule's own no-signal reading to inspect). Not verified: persona templates (engineering_manager talk tracks, code_reviewer, devops_engineer, security_expert) may add sections around the drafts in both arms; the rule file is not yet under rules/, so the 'without' cut of its section was not exercised here. Group counts: timing-wait 6, timing-now 5, control 10; languages: ru 10, en 11."
+}

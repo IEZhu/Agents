@@ -1,0 +1,314 @@
+{
+ "4bb49ee19d__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-actions-schedule",
+  "A": "without",
+  "B": "with"
+ },
+ "4bb49ee19d__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-actions-schedule",
+  "A": "with",
+  "B": "without"
+ },
+ "ec75312b15__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-agent-handover",
+  "A": "without",
+  "B": "with"
+ },
+ "ec75312b15__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-agent-handover",
+  "A": "with",
+  "B": "without"
+ },
+ "857c43ce08__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-back-dumbbells",
+  "A": "without",
+  "B": "with"
+ },
+ "857c43ce08__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-back-dumbbells",
+  "A": "with",
+  "B": "without"
+ },
+ "ea5856c022__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-billing-presentation-open",
+  "A": "with",
+  "B": "without"
+ },
+ "ea5856c022__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-billing-presentation-open",
+  "A": "without",
+  "B": "with"
+ },
+ "dd4c946173__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-chunk-function",
+  "A": "without",
+  "B": "with"
+ },
+ "dd4c946173__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-chunk-function",
+  "A": "with",
+  "B": "without"
+ },
+ "0a1bdf8976__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-coach-boots",
+  "A": "without",
+  "B": "with"
+ },
+ "0a1bdf8976__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-coach-boots",
+  "A": "with",
+  "B": "without"
+ },
+ "d4d177bc0e__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-ladder-note",
+  "A": "with",
+  "B": "without"
+ },
+ "d4d177bc0e__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-ladder-note",
+  "A": "without",
+  "B": "with"
+ },
+ "1a346b6034__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-mutable-default",
+  "A": "with",
+  "B": "without"
+ },
+ "1a346b6034__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-mutable-default",
+  "A": "without",
+  "B": "with"
+ },
+ "baeb61044f__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-oleg-template",
+  "A": "with",
+  "B": "without"
+ },
+ "baeb61044f__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-oleg-template",
+  "A": "without",
+  "B": "with"
+ },
+ "6c25255ebf__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-rewrite-token-para",
+  "A": "without",
+  "B": "with"
+ },
+ "6c25255ebf__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-rewrite-token-para",
+  "A": "with",
+  "B": "without"
+ },
+ "3e8d4d5a90__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-sql-dormant-customers",
+  "A": "without",
+  "B": "with"
+ },
+ "3e8d4d5a90__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-sql-dormant-customers",
+  "A": "with",
+  "B": "without"
+ },
+ "3ffdf23e09__o1": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-subject-line-choice",
+  "A": "without",
+  "B": "with"
+ },
+ "3ffdf23e09__o2": {
+  "component": "rule-outbound-timing",
+  "case": "ctl-subject-line-choice",
+  "A": "with",
+  "B": "without"
+ },
+ "766a032d28__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-candidate-withdrew",
+  "A": "without",
+  "B": "with"
+ },
+ "766a032d28__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-candidate-withdrew",
+  "A": "with",
+  "B": "without"
+ },
+ "4a7394c854__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-investor-after-call",
+  "A": "without",
+  "B": "with"
+ },
+ "4a7394c854__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-investor-after-call",
+  "A": "with",
+  "B": "without"
+ },
+ "b69dd7c6d0__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-list-leak",
+  "A": "without",
+  "B": "with"
+ },
+ "b69dd7c6d0__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-list-leak",
+  "A": "with",
+  "B": "without"
+ },
+ "4768fd8943__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-movers-damage",
+  "A": "without",
+  "B": "with"
+ },
+ "4768fd8943__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-movers-damage",
+  "A": "with",
+  "B": "without"
+ },
+ "7b98701954__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-nina-asked",
+  "A": "with",
+  "B": "without"
+ },
+ "7b98701954__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-nina-asked",
+  "A": "without",
+  "B": "with"
+ },
+ "0cdfe06d01__o1": {
+  "component": "rule-outbound-timing",
+  "case": "now-notice-last-day",
+  "A": "with",
+  "B": "without"
+ },
+ "0cdfe06d01__o2": {
+  "component": "rule-outbound-timing",
+  "case": "now-notice-last-day",
+  "A": "without",
+  "B": "with"
+ },
+ "929667c284__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-after-choice-supplier",
+  "A": "without",
+  "B": "with"
+ },
+ "929667c284__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-after-choice-supplier",
+  "A": "with",
+  "B": "without"
+ },
+ "040104b51d__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-doc-reject-vacation",
+  "A": "without",
+  "B": "with"
+ },
+ "040104b51d__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-doc-reject-vacation",
+  "A": "with",
+  "B": "without"
+ },
+ "46b75208b5__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-insurance-newyear",
+  "A": "with",
+  "B": "without"
+ },
+ "46b75208b5__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-insurance-newyear",
+  "A": "without",
+  "B": "with"
+ },
+ "19f5784b46__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-loan-refusal-birthday",
+  "A": "with",
+  "B": "without"
+ },
+ "19f5784b46__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-loan-refusal-birthday",
+  "A": "without",
+  "B": "with"
+ },
+ "baedd9c339__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-no-discount-friday",
+  "A": "without",
+  "B": "with"
+ },
+ "baedd9c339__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-no-discount-friday",
+  "A": "with",
+  "B": "without"
+ },
+ "1446553fb9__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-resignation-flat",
+  "A": "with",
+  "B": "without"
+ },
+ "1446553fb9__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-resignation-flat",
+  "A": "without",
+  "B": "with"
+ },
+ "079236ea6f__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-slip-before-review",
+  "A": "with",
+  "B": "without"
+ },
+ "079236ea6f__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-slip-before-review",
+  "A": "without",
+  "B": "with"
+ },
+ "39842c9f46__o1": {
+  "component": "rule-outbound-timing",
+  "case": "own-user-overrode-advice",
+  "A": "with",
+  "B": "without"
+ },
+ "39842c9f46__o2": {
+  "component": "rule-outbound-timing",
+  "case": "own-user-overrode-advice",
+  "A": "without",
+  "B": "with"
+ }
+}

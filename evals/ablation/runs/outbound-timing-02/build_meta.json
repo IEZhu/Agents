@@ -1,0 +1,23 @@
+{
+ "skills": [
+  "skill-narrative-craft",
+  "skill-dense-summarization",
+  "skill-creative-craft"
+ ],
+ "implants": [
+  "SoT",
+  "PreMortem"
+ ],
+ "rules": [
+  "no-fabrication",
+  "serve-the-request",
+  "honest-uncertainty",
+  "anti-sycophancy",
+  "outbound-timing",
+  "agent-cooperation",
+  "thread-status",
+  "language-match",
+  "answer-timestamp"
+ ],
+ "tier": "standard"
+}

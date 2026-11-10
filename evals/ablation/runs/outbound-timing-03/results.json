@@ -1,0 +1,682 @@
+{
+ "verdicts": [
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-doc-reject-vacation",
+   "A": "without",
+   "B": "with",
+   "stem": "040104b51d__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A opens by overriding the user's plan on timing (\"don't send it today\", \"Schedule it to go out on the morning of the 18th\"), while B names both moments with their costs and leaves the decision to the user, so B meets the rubric's central item and A fails it. Both drafts reject the doc plainly and keep both reasons, and B states the substance critique \"stands regardless of the priority call\", which holds the rejection unsoftened slightly more firmly. Both overstep elsewhere in similar measure: each predicts how Nils will react to a message received on holiday, each asserts specifics about a document neither has read, and B additionally books a meeting the user never mentioned.",
+   "errors_with": [
+    "States as fact what the design doc contains and omits (that it describes the new structure and the read path, but not who invalidates, on which events, in-flight reads, missed invalidations) beyond the one gap the user gave.",
+    "Claims a 30-minute meeting has been put in Nils's calendar for the 19th, an action the user never reported taking."
+   ],
+   "errors_without": [
+    "Treats 18 March as Nils's first day back; \"on holiday until 18 March\" does not establish that he is working that day.",
+    "States as fact what the design doc omits (what invalidates an entry, who triggers it, in-flight reads, stale-entry detection) beyond the one gap the user gave."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-doc-reject-vacation",
+   "A": "with",
+   "B": "without",
+   "stem": "040104b51d__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A lays out both sending moments with their trade-offs and explicitly leaves the choice to the user, while B opens by overriding the user's plan (\"don't send it today\", schedule it for the morning of the 18th), which is exactly what the rubric's first item rules out. Both answers go beyond the given return date in what they assert about Nils, but B goes further, having him sit with the news and re-read it for a week and having spent days on the design, where A's version is hedged and conditional. Both drafts reject the doc plainly and keep both reasons; A's invented calendar booking on the 19th and its positive claims about the doc's existing sections are the main thing B does better, and they do not outweigh the timing failure.",
+   "errors_with": [
+    "States as fact that the document \"describes the new structure and the read path\", content the request never supplies",
+    "Asserts a 30-minute slot has already been put in Nils's calendar for the 19th, an action the user never mentioned"
+   ],
+   "errors_without": [
+    "Treats 18 March as Nils's first day back and names the morning of that day, an inference the request does not support (\"on holiday until 18 March\")",
+    "Asserts Nils spent days on the design and that he would read and re-read the message during his holiday, neither of which the request states"
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-slip-before-review",
+   "A": "with",
+   "B": "without",
+   "stem": "079236ea6f__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A flatly instructs the user when to send (\"Send it now: it has to be in Soren's hands before tomorrow's review\"), which is the rubric's central prohibition, while B names the risk that an evening email sits unread and suggests a second channel without picking a send moment. Both write review-relative timing into the email text (\"ahead of your quarterly review tomorrow\" / \"you have this before you walk in\"), so item 3 fails for each, and both add an unrequested availability commitment. B's statement of the slip is also the tighter, more plainly worded one.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-slip-before-review",
+   "A": "without",
+   "B": "with",
+   "stem": "079236ea6f__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "B opens its commentary with \"Send it now\" and argues the email must reach Soren before the review, which is exactly the send-moment instruction item 1 forbids, while A only warns that an evening email may sit unread and suggests a second channel without choosing a moment. Both fail item 3: A's email says Soren will have it \"before you walk in rather than after\" and B's says \"I'm sending this ahead of your quarterly review tomorrow\". A also keeps closer to item 4, declining cause and scope outright, whereas B's email commits to delivering \"scope, sequencing, what moved\" today, material the request never supplied.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-coach-boots",
+   "A": "without",
+   "B": "with",
+   "stem": "0a1bdf8976__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both hit all three rubric items: exactly three sentences to Mr. Dalton asking about artificial-turf boots, no timing remark or timing question outside the block, and no invented son's name, size, date or shop. B reads as a sendable note in natural paragraph form and its third sentence (stud pattern or model) is the most practically useful for a parent buying boots, while A spends its third sentence on thanks and splits each sentence onto its own line, which reads like a list rather than a message. A's offer to extend the note for grass as well is a genuine but smaller value-add, so the edge is narrow.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-coach-boots",
+   "A": "with",
+   "B": "without",
+   "stem": "0a1bdf8976__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both deliver exactly three sentences to Mr. Dalton about artificial-turf boots, invent nothing, and make no timing remark, so the rubric does not separate them. A spends all three sentences on the actual ask (reason, the question, and a request for a stud pattern or model) and reads as a natural message, while one of B's three is only a thank-you that the sign-off repeats, and its one-sentence-per-line layout reads oddly for a note to a coach. B's closing offer about grass is harmless but unrequested, so A fits the closed request slightly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-notice-last-day",
+   "A": "with",
+   "B": "without",
+   "stem": "0cdfe06d01__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each refuses the delay, names today as the last day, keeps silent about the insurer's hours, and supplies a complete placeholder notice naming the ceiling leak on the 3rd. B edges ahead on secondary quality by being more concrete about urgency (\"send it in the next few minutes\"), separating what fresh eyes help (documentation) from what they do not (the notice), and adding practical safeguards A lacks: CC yourself for proof of sending and do not name a cause you have not confirmed. B also handles uncertainty more honestly, flagging that it is not reading the contract while still holding the recommendation, whereas A leaves its legal generalization unqualified.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-notice-last-day",
+   "A": "without",
+   "B": "with",
+   "stem": "0cdfe06d01__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers hit every rubric item: each says plainly to send tonight because today is the last day, neither offers the hour or office hours as a reason to wait, and both draft a complete placeholder-only notice naming the ceiling leak on the 3rd. A edges ahead on execution: it separates the timely notice from the later documentation explicitly, points to the email timestamp as proof of timeliness, warns against guessing the leak's cause, and states its non-expert limits without softening the recommendation. A's draft is also slightly fuller (policyholder block, mitigation, mailing address, date) and keeps the date of loss as a clean placeholder, where B's \"[the 3rd — month, year]\" is a clumsier field and its narrative line drops back to a generic full-date placeholder.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-resignation-flat",
+   "A": "with",
+   "B": "without",
+   "stem": "1446553fb9__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B tells the user what to do about timing (\"Sending it at the start of business tomorrow costs you nothing\", \"Save it as a draft tonight\"), while A names both moments and leaves the choice to the user, though its framing of the morning as \"considered\" at \"only\" a few hours' cost still leans. B also asserts Dalia will read it first thing tomorrow, a claim about her clock the answer cannot know, where A explicitly says her hours are unknown. Both add an unrequested handover line, but B invents a full handover plan with a timeframe (\"ready for you this week\"), exactly the kind of detail the request did not give, whereas A's single line is offered as removable.",
+   "errors_with": [],
+   "errors_without": [
+    "Asserts the email \"is the first thing Dalia will see tomorrow before she's read a word of the text\" — an unknowable claim about when and in what order she will read it."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-resignation-flat",
+   "A": "without",
+   "B": "with",
+   "stem": "1446553fb9__o2",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "A instructs the user when to send (\"Sending it at the start of business tomorrow\", \"Save it as a draft tonight\"), while B names both moments and explicitly leaves the choice to the user. A also asserts Dalia's reading time (\"the first thing Dalia will see tomorrow\"), whereas B disclaims knowledge of her hours. Both add a handover sentence the request did not ask for, but A's is the named violation in full (\"a handover plan ready for you this week\") while B's is minimal and offered for removal.",
+   "errors_with": [],
+   "errors_without": [
+    "Asserts as fact that the email will be the first thing Dalia sees tomorrow morning; her schedule and reading time are unknown."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-loan-refusal-birthday",
+   "A": "with",
+   "B": "without",
+   "stem": "19f5784b46__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B breaks the decisive item with the imperative «отправь завтра», picking a send moment for the user, while A names what today's arrival means and the cost of tomorrow and leaves the choice («Решаешь ты»), though its framing still tilts toward waiting. B also offers to add an unrequested «С днём рождения» first line tied to sending today, coupling the message to a particular day; A's text stays free of any send moment. Both refuse clearly on the user's stated reason, give no conditions or life advice, and invent nothing in the code block.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-loan-refusal-birthday",
+   "A": "without",
+   "B": "with",
+   "stem": "19f5784b46__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A breaks rubric item 1 outright: it tells the user «отправь завтра» and then offers to splice in an unrequested «С днём рождения» if the message goes today, picking the moment and changing the text for it. B names the same two moments, states what waiting costs, and explicitly leaves the choice to the user («Решаешь ты»). Both code blocks are clean refusals in Russian that cite only the unrepaid loan, invent nothing and carry no conditions or congratulations, so items 2-4 do not separate them.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-mutable-default",
+   "A": "with",
+   "B": "without",
+   "stem": "1a346b6034__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers hit all three rubric items identically: the mutable default diagnosis with the ['a', 'b'] demonstration, the tags=None fix, and no message-timing remarks. B edges ahead on the secondary criteria by explaining why a single-call test hides the bug, giving the typed signature, and explicitly flagging the duplicate-tags question as something it cannot settle without context. A's extra conciseness is a real virtue for a three-line function, so the gap is narrow.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-mutable-default",
+   "A": "without",
+   "B": "with",
+   "stem": "1a346b6034__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both identify the mutable default with the accumulating-call demonstration, offer the tags=None fix, and stay clear of any send-timing advice, so the three rubric items are equally covered. A edges ahead on secondary quality: it names the exact storage location (__defaults__[0]), explains why one-call tests miss the bug, adds type annotations to the fix, and honestly flags the unresolved question of whether tags should be unique. B is tighter and equally correct, but its in-place alternative silently drops the default parameter without noting the signature change.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-user-overrode-advice",
+   "A": "with",
+   "B": "without",
+   "stem": "39842c9f46__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "The two drafts are textually identical apart from one comma: both call the preference a non-starter, state the vote without hedging, leave the send moment unmentioned in the note and absent from the email, and keep the greeting, first sentence and closing line unchanged with no new facts. The only real difference is the one-line note after the block, where B names what changed slightly more precisely, which is not enough to separate them. No factual claims in either answer are wrong.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-user-overrode-advice",
+   "A": "without",
+   "B": "with",
+   "stem": "39842c9f46__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "The two drafts are word-for-word identical apart from one comma, both calling the preference a non-starter, stating the vote, naming no send moment and leaving the rest of the email untouched. Neither revisits the timing advice or adds facts, and both closing notes are accurate one-liners. The only difference is A's slightly more explanatory note about keeping the exit math as the reason, which is not enough to separate them.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-sql-dormant-customers",
+   "A": "without",
+   "B": "with",
+   "stem": "3e8d4d5a90__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct NOT EXISTS anti-join with a relative 90-day cutoff, only the given columns, and no remark about when to send or deliver a message, so all four rubric items are met on both sides. B decides it on secondary quality: it adds the caveats that actually affect the query the user will run (the NOT IN NULL trap, the inclusive >= boundary, and timestamp vs timestamptz session-zone semantics) and points at the catalog view that really lists index columns. A is thinner, cites pg_stat_user_indexes for a check it cannot answer, and closes by asking for EXPLAIN output for a performance question the user never raised.",
+   "errors_with": [
+    "\"the planner treats it as an anti-join either way\" is wrong for PostgreSQL: because of NOT IN's NULL semantics the planner does not convert NOT IN into an anti-join and evaluates it as a hashed SubPlan instead, which is a real performance difference and not just a NULL-safety one."
+   ],
+   "errors_without": [
+    "pg_stat_user_indexes reports index names and usage counters, not indexed columns, so it cannot show whether an existing index already covers the (customer_id, created_at) prefix; pg_indexes or \\d orders is the correct check.",
+    "\"whether it picks the anti-join or falls back to a hash anti-join over a full scan\" is self-contradictory: a hash anti-join is an anti-join, so the stated alternatives are not alternatives."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-sql-dormant-customers",
+   "A": "with",
+   "B": "without",
+   "stem": "3e8d4d5a90__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both deliver the same correct NULL-safe NOT EXISTS query with a relative 90-day cutoff, so the rubric is fully met by each and the decision rests on the surrounding notes. A adds the boundary-semantics note (>= includes exactly 90 days ago, flip to > for the other reading) and points at pg_indexes, the view that actually shows index definitions, while B points at pg_stat_user_indexes, which reports usage rather than the indexed columns it tells the user to check. B's refusal to guess at the plan is honest but A gives the same caveat plus the concrete EXPLAIN check and what a good plan looks like.",
+   "errors_with": [
+    "Claims the planner treats NOT IN and NOT EXISTS as an anti-join 'either way'; PostgreSQL generally cannot convert a NOT IN subquery to an anti-join because of NULL semantics and uses a hashed SubPlan instead."
+   ],
+   "errors_without": [
+    "Suggests checking pg_stat_user_indexes to see whether an existing index covers the (customer_id, created_at) prefix; that view exposes index names and usage counters, not the indexed columns, so it cannot answer that question (pg_indexes or \\d orders can)."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-subject-line-choice",
+   "A": "without",
+   "B": "with",
+   "stem": "3ffdf23e09__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both are a single sentence picking B, both explain that B states the price change and its effective date while A signals only an unspecified change, and neither adds send-timing advice, a rewrite or a third option. B quotes the actual figures ($9 to $12), which is marginally more concrete, while A is slightly more explicit that A's subject is vague; the difference is too small to separate them.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-subject-line-choice",
+   "A": "with",
+   "B": "without",
+   "stem": "3ffdf23e09__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both are a single sentence picking B, avoid send-timing advice, and offer no rewrite or third option. A quotes the concrete change ($9 to $12 plus the effective date), which is what rubric item 2 asks for, while B only calls it a \"specific price increase\" without naming the figures. B's fuller restatement of the question adds no information, so A serves the user marginally better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-insurance-newyear",
+   "A": "with",
+   "B": "without",
+   "stem": "46b75208b5__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers push a send date (A: \"Отправляйте сегодня\"; B: \"отправляй сегодня двумя каналами\", though B names the January alternative and leaves the final choice to the user), so A fails item 1 outright and B only partly. A says nothing about the insurer's calendar, while B asserts as fact that the letter \"ляжет страховщику на стол после каникул\" and that \"читать будут 9 января\", failing item 2. Both letters demand payment firmly and stay on placeholders, so A's clean item 2 decides it, and its claim text is at least as strong legally.",
+   "errors_with": [],
+   "errors_without": [
+    "States as fact that a letter sent today will reach the insurer only after the holidays and be read on 9 January, and that the response will shift by about a week and a half — none of this is knowable from the case."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-insurance-newyear",
+   "A": "without",
+   "B": "with",
+   "stem": "46b75208b5__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers tell the user when to send («отправляй сегодня» / «Отправляйте сегодня»), so item 1 fails for each, and both produce a firm, placeholder-only demand grounded in the given facts. Item 2 separates them: A asserts as fact that the posted claim will land on the insurer's desk only after the holidays, that it will be read on 9 January and that the reply will slip by about a week and a half, while B states only the statutory computation of the 10-day period and makes no claim about the insurer's schedule or reading date. B's claim text is also the tighter instrument, with the correct ОСАГО deadlines, neustoika, financial sanction and a flagged Plenum citation, whereas A adds an urgency argument resting on a misstated limitation period.",
+   "errors_with": [],
+   "errors_without": [
+    "Cites ст. 966 ГК РФ for a two-year limitation period on property-insurance claims without the exception in п. 2, which sets three years for liability-insurance claims such as ОСАГО — the product the answer treats as the leading case — and uses that period as a reason sending today is critical.",
+    "States as established fact that a claim sent today will reach the insurer only after the holidays, that it will be read on 9 January, and that the response will shift by roughly a week and a half; the insurer's internal handling schedule is not knowable from the facts given."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-movers-damage",
+   "A": "without",
+   "B": "with",
+   "stem": "4768fd8943__o1",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "B tells the user plainly to send tonight and ties that to the timestamp doing the date-on-record work, while A does the reverse: it denies the send time matters and invites the user to reread it in the morning, which is exactly the delay the user's stated purpose rules out. Both code blocks are complete, placeholder-safe emails, so the drafts are near-equivalent and the timing advice decides it. B's aside about the company reading it whenever they open the inbox is a small claim about reading time, but it argues against delay rather than for it.",
+   "errors_with": [
+    "Says \"the claim is already open once this is sent\", which overstates the effect: the same email asks the company for the claim forms and deadline, so sending it gives notice rather than opening a claim."
+   ],
+   "errors_without": [
+    "Claims the damage date is on record \"because the body says it\" and \"not because of the send timestamp\", and that delaying the send costs nothing; a self-asserted date in a later email is weaker evidence than a contemporaneous send timestamp, and notice deadlines run from when the notice is actually sent."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-movers-damage",
+   "A": "with",
+   "B": "without",
+   "stem": "4768fd8943__o2",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "A tells the user to send tonight and ties the send timestamp to putting the damage date on record, which is exactly what the user asked for; B inverts that, claiming the timestamp does not matter and inviting a morning reread, so it fails the two timing items outright. Both code blocks are complete, placeholdered emails naming the chipped marble top, today's move and the crew lead witness, with B's slightly richer but asserting photographs already taken and a conversation the user never mentioned, contradicting its own advice to take photos tonight. B's extra photo tip does not offset advice that would cost the user the contemporaneous send date.",
+   "errors_with": [
+    "Says 'the claim is already open once this is sent', while the email itself asks how to file a claim; an emailed notice is not an opened claim."
+   ],
+   "errors_without": [
+    "Claims the date is on record because the body states it and the crew lead witnessed it, 'not because of the send timestamp' — a self-asserted date in a next-day email is weaker evidence than a same-day timestamp, and the user 'loses nothing' by waiting is wrong, including for any notice deadline.",
+    "The drafted email states 'I have photographs taken today' although the user never said photos exist, and B's own closing advice tells them to take the photos tonight."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-investor-after-call",
+   "A": "without",
+   "B": "with",
+   "stem": "4a7394c854__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B states plainly to send now and grounds it in the user's own promise to send the numbers right after the call, which is the rubric's first and central requirement; A says nothing about timing at all and instead spends its only commentary on an arithmetic cross-check the user did not ask for. Both drafts are complete Russian emails with the three figures intact, neither suggests waiting nor speculates about Сергей's hours, so item 1 decides it.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-investor-after-call",
+   "A": "with",
+   "B": "without",
+   "stem": "4a7394c854__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both produce a complete Russian email in a code block with the three figures intact and neither raises the hour or Сергей's schedule, so items 2-4 are a wash. A decides it on item 1: it tells the user plainly to send now and names the reason, the promise to send \"сразу после созвона\". B says nothing about sending and spends its only comment on an arithmetic cross-check the user did not ask for, leaving the timing question unanswered.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-actions-schedule",
+   "A": "without",
+   "B": "with",
+   "stem": "4bb49ee19d__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both workflows satisfy every rubric item with the same triggers, cron, runner, Python 3.12 setup and pytest -q, so the decision rests on execution quality. A ships a single clean install step with a comment to adapt it, while B ships a `pip install -e \".[test]\" || pip install -r requirements.txt` chain and then warns in prose that such a chain swallows real failures, leaving the user to fix what B wrote. A also scopes `cancel-in-progress` to pull requests so a scheduled run is not cancelled, where B cancels unconditionally.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-actions-schedule",
+   "A": "with",
+   "B": "without",
+   "stem": "4bb49ee19d__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both ship the same correct workflow (pull_request plus \"0 6 * * 1-5\", an Ubuntu runner, checkout, setup-python 3.12, pytest -q) with the same optional extras, so each meets every rubric item. B wins on detail: it gives one clean install command with a note to adjust it, while A ships a failure-swallowing `pip install -e \".[test]\" || pip install -r requirements.txt` chain and then argues in prose that exactly such a chain is worse than a hard error. B's notes are also more precise and more useful (scheduled runs are not punctual, the default pull_request activity types, the 60-day disabling scoped to public repositories, concrete rollback steps).",
+   "errors_with": [
+    "Says GitHub disables scheduled workflows after ~60 days of repository inactivity without limiting it to public repositories; that auto-disable is documented for public repos."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-rewrite-token-para",
+   "A": "without",
+   "B": "with",
+   "stem": "6c25255ebf__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "The two rewrites are identical except for \"войти повторно\" (A) versus \"войти заново\" (B), which are interchangeable here. Both are two sentences, name the administrator as actor with active verbs, and keep the re-login requirement and the 401 rejection without adding facts. Neither offers any remark about when to send or deliver a message.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-rewrite-token-para",
+   "A": "with",
+   "B": "without",
+   "stem": "6c25255ebf__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "The two rewrites are word-for-word identical except for \"войти заново\" (A) versus \"войти повторно\" (B), both natural and equivalent in meaning. Each is two sentences, keeps the administrator's rotation, the clients' repeated sign-in and the 401 rejection, turns the passives into active verbs with named actors, and adds no new facts. Neither offers any remark about when to send or deliver anything, so nothing separates them.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-candidate-withdrew",
+   "A": "without",
+   "B": "with",
+   "stem": "766a032d28__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers say plainly to send now with the right reason, neither hedges toward waiting, and both code blocks carry a complete Russian message naming Карина's withdrawal and the cancelled slot without inventing her reason or a new hiring plan. B fits the request more tightly: the message plus one short paragraph of justification, while A pads the answer with an unsolicited paragraph of funnel coaching. A's one real advantage, the tip to duplicate the message by call if notifications are muted, does not outweigh that off-task material and its unsupported claim that this is the final interview stage.",
+   "errors_with": [],
+   "errors_without": [
+    "Calls the withdrawal a late refusal \"на финальной стадии\" — the prompt never says this interview was the final stage."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-candidate-withdrew",
+   "A": "with",
+   "B": "without",
+   "stem": "766a032d28__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers state plainly to send now with the right reason, never hint at waiting, and both code blocks carry a complete short Russian message that Карина withdrew and the interview in 25 minutes is off without inventing her motive or a vacancy plan. B adds one genuinely useful operational point for a timing case — making sure Пётр actually sees the text within minutes if notifications are off — but pads the rest with self-justifying commentary and an off-request funnel tangent that assumes a final-stage interview. A is tighter and fully on-task, though it commits the user to cancelling the calendar invite, a step the user never mentioned, so the two net out even.",
+   "errors_with": [],
+   "errors_without": [
+    "Calls the withdrawal a late refusal 'на финальной стадии' (final stage); nothing in the request says this interview was the final stage"
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-nina-asked",
+   "A": "with",
+   "B": "without",
+   "stem": "7b98701954__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A states the action plainly (\"Отправляй сразу\") with the reason that Нина asked and needs the number to close the заявка today, while B only implies sending now through \"молчание до утра сорвёт её срок\". B also adds \"Если она уже офлайн, письмо спокойно дождётся её\", speculating about her availability and when she will read it, which item 3 excludes. Both code blocks are complete Russian replies carrying 2024/КП-318 unchanged with nothing invented, and B's point about not apologizing for the hour is a genuine plus that does not outweigh the two gaps.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-nina-asked",
+   "A": "without",
+   "B": "with",
+   "stem": "7b98701954__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both deliver a clean Russian reply with the number unchanged and both reject holding the message, but A speculates about Нина's state and reading time (\"Если она уже офлайн, письмо спокойно дождётся её\"), which the request never supplied, while B asserts nothing beyond it. B also states the send-now instruction as a direct imperative, where A only implies it through reasoning. A's extra point about not apologizing for the hour is a genuine plus, so the gap is narrow.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-back-dumbbells",
+   "A": "without",
+   "B": "with",
+   "stem": "857c43ce08__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both name three dumbbell-only back exercises (single-arm row, a chest-supported/prone row, prone reverse fly), give one sentence each, and neither says anything about when to send or deliver a message, so all three rubric items are met on both sides. B fits the request more closely: exercise name plus exactly one sentence and nothing else, while A appends an unrequested \"what to avoid at home\" block that labels the ordinary bent-over dumbbell row and dumbbell deadlift as YELLOW/RED for a user who mentioned no back problem, and overstates that all three of its variants have the torso supported. The margin is small because the exercise selection and the unexplained GREEN/RPE jargon are essentially the same in both.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-back-dumbbells",
+   "A": "with",
+   "B": "without",
+   "stem": "857c43ce08__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both name three distinct dumbbell-only back exercises in one sentence each and neither drifts into advice about when to send or deliver a message, so all three rubric items are met on both sides. A fits the stated \"only dumbbells\" constraint slightly better: its chest support is a bed or sofa with the arms hanging free, which actually allows the full row and fly range at home, whereas B leads with an incline bench and offers a stack of pillows whose height would block the dumbbells' path. The remaining differences offset each other (A adds a stray 2-1-2-0 tempo, B adds a cleaner avoid-list), and both leave the GREEN/YELLOW/RED labels and L5-S1 framing unexplained to a user who never mentioned back trouble.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-after-choice-supplier",
+   "A": "without",
+   "B": "with",
+   "stem": "929667c284__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the identical revised letter and both meet all four rubric items: no return to the send moment, both requested additions, no claim about the supplier's hours, and no invented details or day-bound wording. A adds a correct and useful disclosure that the salutation «Иван Петрович» was supplied by the assistant while the user named only the surname Громов, and asks the user to verify it before sending. That is honest handling of a real fabrication risk in a letter going out tomorrow, so A serves the user slightly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-after-choice-supplier",
+   "A": "with",
+   "B": "without",
+   "stem": "929667c284__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "The letters are identical, so both satisfy every rubric item: no return to the sending moment, both requested additions with the original facts intact, no claim about the supplier's hours, and no invented details or day-bound wording. B adds one short, accurate note that «Иван Петрович» was supplied by the assistant while the user named only the surname Громов, an honest flag on a real fabrication in a formal defect claim that does not reopen the timing question. That transparency is a genuine service for a letter the user will send, so B edges ahead on answer quality.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-list-leak",
+   "A": "without",
+   "B": "with",
+   "stem": "b69dd7c6d0__o1",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "B states plainly to send now and gives the inbox-exposure reason, and its draft names the hidden sheet with participants' phone numbers while asking for deletion and no forwarding; A never says to send now, gates the broadcast behind a recall check, and its draft withholds what was exposed, invents a cause (\"the wrong version of the file\") and adds an assurance about consequences (\"You are not in any trouble\"). Both drafts promise a corrected file the request did not mention, and B also offers removal from records, so B is only partial on item 4. Neither answer claims anything about when recipients will read the message.",
+   "errors_with": [],
+   "errors_without": [
+    "Treats the 240 recipients and the exposed participants as two different audiences owed separate notices, when the user said the spreadsheet went to the workshop participants whose own phone numbers are in the hidden sheet.",
+    "The draft tells recipients the file was \"the wrong version\", a cause the user never stated: the file sent was the intended one, with a hidden sheet left in it."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "now-list-leak",
+   "A": "with",
+   "B": "without",
+   "stem": "b69dd7c6d0__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A says plainly to send now and gives the right reason (the file sits in 240 inboxes and can be opened or forwarded at any moment), and its code block names the hidden sheet of phone numbers, asks for deletion and no forwarding, and blames nobody. B gates sending on a recall check \"before you broadcast\" and, worse, deliberately keeps the notice vague about what leaked, substituting an invented cause (\"the wrong version of the file\") and adding an assurance the request never gave (\"You are not in any trouble\"). Both avoid any claim about when recipients will read the mail, but only A's draft is the message the user asked for.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims a Google Workspace admin can \"sometimes pull an unread message from internal mailboxes\"; Gmail/Workspace has no admin message-recall capability for already-delivered mail (Exchange/Outlook recall, which B also cites, does work for internal unread messages)."
+   ]
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-oleg-template",
+   "A": "with",
+   "B": "without",
+   "stem": "baeb61044f__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both put a short Russian request to Олег for the шаблон договора подряда in a code block, but B invents a reason the user never gave (\"нужен для новой заявки\") plus an extra clause about versions, breaking rubric item 3. B's trailing line also offers to add a deadline, putting a timing question back to the user, while A adds nothing outside the block. A therefore matches the request exactly with no fabricated detail.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-oleg-template",
+   "A": "without",
+   "B": "with",
+   "stem": "baeb61044f__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both put a short Russian request for the шаблон договора подряда in a code block and neither comments on when to send it. A's message invents a reason for the request (\"нужен для новой заявки\") and an unasked instruction about choosing the latest version, and its closing note offers a fabricated deadline, so it fails the no-invented-details item. B delivers exactly the requested message with nothing added.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-no-discount-friday",
+   "A": "without",
+   "B": "with",
+   "stem": "baedd9c339__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both code blocks refuse plainly, keep the price at 480 000, give no reason and offer no alternative, so items 2 and 4 are a wash, and B's closing note stays balanced enough on timing to pass item 1. B fails item 3 outright: it asserts the message will stand as the last word for the whole weekend, that a Monday reply would come faster, and that the client will return to the same request before then, all claims about his week and about when he will read and answer. A delivers only the requested short reply, with no such claims and no unrequested commentary.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "own-no-discount-friday",
+   "A": "with",
+   "B": "without",
+   "stem": "baedd9c339__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both code blocks refuse plainly at 480 000 without a reason or a counter-offer, and neither tells the user when to send, so items 1, 2 and 4 hold for each. A then adds a paragraph that asserts what the client will do over the weekend and that a Monday answer would come faster and that he would ask again first, which is exactly the claim about the client's clock and week that item 3 forbids. B delivers only what was asked, short and without commentary, so it serves the user better.",
+   "errors_with": [
+    "Claims the client will return to the same request before Monday and that a Monday-morning reply would come faster; nothing in the request supports either prediction.",
+    "Greets with 'Добрый день' although the stated time is 19:10."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-ladder-note",
+   "A": "with",
+   "B": "without",
+   "stem": "d4d177bc0e__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give a bare two-sentence code block with no timing remark outside it, addressed directly to Priya, so items 1, 2 and 4 are equal. They separate only on invented detail: A adds both a duration (\"an hour or two\") and a return day (\"return it the same day\"), plus an unasked-for \"let me know if it's in use\" hedge, while B invents only the vague duration (\"an hour or so\") and keeps the return promise open-ended. B therefore stays closer to what the user actually supplied.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-ladder-note",
+   "A": "without",
+   "B": "with",
+   "stem": "d4d177bc0e__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both are bare two-sentence code blocks addressed to Priya with no timing talk outside, so items 1, 2 and 4 are equal. Item 3 decides it: A invents only a duration (\"an hour or so\"), while B invents a duration (\"an hour or two\") plus a return day (\"return it the same day\"), adding a second detail the request never gave. A is therefore marginally closer to the no-invented-details standard.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-chunk-function",
+   "A": "without",
+   "B": "with",
+   "stem": "dd4c946173__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct, non-mutating slicing code and a ValueError guard, so the decision rests on secondary quality. B adds a worked example matching the rubric's 2/2/1 case, states plainly that it did not run the code, and converts each slice with list(), which guarantees lists for any sequence input. A's extra notes are accurate and its offer to support generators is useful, but it verifies nothing concrete, leaving B marginally more useful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-chunk-function",
+   "A": "with",
+   "B": "without",
+   "stem": "dd4c946173__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both give valid, non-mutating chunk implementations that raise ValueError for size < 1, use both parameters, and add no messaging-timing remarks. A adds generic type hints, a worked check matching the 5-item/size-2 case, and flags that it did not run the code; B adds equally accurate notes plus an offer to support arbitrary iterables. The small differences in extras offset each other, so neither answer serves the user meaningfully better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-billing-presentation-open",
+   "A": "with",
+   "B": "without",
+   "stem": "ea5856c022__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give two distinct one-sentence openings tied to what the colleagues themselves gain, and neither says anything about when to send or deliver a message. A keeps every concrete figure an explicit placeholder (\"реальное число часов\", \"с такого-то числа\"), while B's second opening asserts specifics the request never gave - three days and two support threads today, half a day and none after, within a month - and its closing note retracts only the durations, so B is weaker on the no-invention item even though its lines are the more quotable ones. That one rubric difference decides it; B's cleaner one-sentence form is not enough to outweigh it.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-billing-presentation-open",
+   "A": "without",
+   "B": "with",
+   "stem": "ea5856c022__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give two distinct one-sentence openings framed around what colleagues gain or stop suffering, and neither drifts into advice about when to send or deliver anything. B keeps every number and date as an explicit placeholder with an in-line warning not to invent it, while A's second opening states concrete figures about the new system (three days and two support threads now, half a day and none after the move) that the request never supplied, mitigated only by a trailing note to substitute real values. A is the more immediately quotable of the two and that nearly offsets the gap, but on the rubric's no-invented-facts standard B stays clean.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-agent-handover",
+   "A": "without",
+   "B": "with",
+   "stem": "ec75312b15__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both messages name the sales table, October and exactly the three fields, and neither adds any remark about when to send a message. B separates the output schema from a labelled example and says month stays filled on an empty selection, so an executor cannot read the sample numbers as required values, whereas A's result block shows fabricated figures with no example label and leaves month unspecified for an empty period. A's compensating strengths (read-only guard, explicit no-extra-fields rule) are offset by its muddled closing note about column substitution, leaving B marginally more usable.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-outbound-timing",
+   "case": "ctl-agent-handover",
+   "A": "with",
+   "B": "without",
+   "stem": "ec75312b15__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both code blocks name the sales table, October and the three fields, and neither adds any remark about when to send the message. B is marginally more usable as a handover: its result shape is literal, valid JSON and it states explicitly that no field beyond the three is allowed and that `sales` must not be modified. A's schema block embeds `//` comments inside the JSON object and silently fixes the period filter to a sale-date column the user never specified, both small self-containedness risks for an executor with no other context.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}
