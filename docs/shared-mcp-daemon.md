@@ -970,9 +970,12 @@ seconds while the browser tab is visible (see
   - *Limits.* The reads need the page's `X-Agents-UI` header, as History's do. A
     request names only a discovered configuration directory, an existing project
     directory under its `projects/` (or the top-level `memory/`) and a plain file
-    name matching `[A-Za-z0-9][A-Za-z0-9._-]*\.md`; symlinks are refused, and the
-    resolved path must stay inside the memory directory. Files over 256 KB are shown
-    but cannot be edited, and files over 1 MB are listed without their text.
+    name matching `[A-Za-z0-9][A-Za-z0-9._-]*\.md` (`MEMORY.md` only on the file
+    routes, never as an item to copy or delete); symlinks and Windows junctions are
+    refused, and the resolved path must stay inside the memory directory. A delete
+    renames the file aside before it checks the version, so a version a session
+    writes meanwhile keeps the name. Files over 256 KB are shown but cannot be
+    edited, and files over 1 MB are listed without their text.
     `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev

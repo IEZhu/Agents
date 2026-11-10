@@ -12,8 +12,9 @@ when it holds files; Cursor keeps no memory in files.
 
 Every place comes from that discovery, never from a request: a request names a configuration
 directory the discovery found (``store``), a directory that exists under its ``projects/``
-(``project``; empty for the top-level memory) and a plain file name. Symlinks are refused, and the
-resolved path must stay inside the memory directory.
+(``project``; empty for the top-level memory) and a plain file name other than ``MEMORY.md``, which
+has routes of its own. Symlinks and Windows junctions are refused, and the resolved path must stay
+inside the memory directory.
 
 Claude Code writes memory without a lock. A write carries the SHA-256 of the version the page showed
 and is refused (409 ``file_changed``) when the file differs right before the atomic rename, so only a
@@ -57,6 +58,7 @@ import yaml
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from src.environments import is_link
 from src.utils.prompt_loader import split_frontmatter
 from .client_dirs import claude_config_dirs, codex_homes
 from .state import atomic_private, private_dir, read_json
@@ -122,14 +124,20 @@ def _iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(timespec="seconds")
 
 
-def _is_link(path: Path) -> bool:
-    return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
-
-
 def _item_name(store: Store, name: str) -> bool:
-    """A plain file name; Claude Code's items are Markdown files."""
+    """A plain file name; Claude Code's items are Markdown files other than its index."""
     return (isinstance(name, str) and FILE.fullmatch(name) is not None and name not in (".", "..")
-            and (store.client != "claude" or name.endswith(".md")))
+            and (store.client != "claude" or (name.endswith(".md") and name != INDEX)))
+
+
+def _index(store: Store, memory: Path) -> Path | None:
+    """Claude Code's ``MEMORY.md`` of a memory directory when it is a plain file; Codex keeps no index."""
+    index = memory / INDEX
+    return index if store.client == "claude" and not is_link(index) and index.is_file() else None
+
+
+def _is_index(store: Store, file) -> bool:
+    return store.client == "claude" and file == INDEX
 
 
 def _frontmatter(text: str) -> tuple[dict, bool]:
@@ -228,7 +236,7 @@ def _replace(path: Path, data: bytes, expected: str | None) -> None:
 
 
 def _check(path: Path, expected: str | None) -> None:
-    if _is_link(path):
+    if is_link(path):
         raise MemoryRefused("symlink_refused", f"{path.name} is a symlink")
     try:
         current = path.read_bytes()
@@ -250,6 +258,7 @@ class MemoryUI:
     # --- requests ---------------------------------------------------------------------
 
     async def handle(self, request: Request, path: str):
+        """Answers one ``/ui/api/memory…`` request; FlowsUI has checked the session and the headers."""
         if path not in READS and path not in WRITES:
             return self._json({"error": "not_found"}, 404)
         if request.method == WRITES.get(path):
@@ -291,6 +300,7 @@ class MemoryUI:
     # --- places -----------------------------------------------------------------------
 
     def stores(self) -> list[Store]:
+        """The configuration directories with memory, Claude Code's first, from ``client_dirs``."""
         home = Path(self.home or Path.home()).resolve()
         directory = getattr(self.service, "directory", None)
         found = [Store(path, "claude", _label(path, home))
@@ -315,7 +325,7 @@ class MemoryUI:
         memory = store.memory_dir(project)
         steps = [memory.parent.parent, memory.parent, memory] if project else [memory]
         for step in steps:
-            if _is_link(step):
+            if is_link(step):
                 raise MemoryRefused("symlink_refused", f"{step.name} is a symlink")
         if project and not create and not memory.parent.is_dir():
             raise MemoryRefused("project_not_found", "no such project in this configuration directory", 404)
@@ -329,7 +339,7 @@ class MemoryUI:
                                 + (" ending in .md" if store.client == "claude" else ""))
         memory = self._dir(store, project, create=create_dir)
         path = memory / file
-        if _is_link(path):
+        if is_link(path):
             raise MemoryRefused("symlink_refused", f"{file} is a symlink")
         if path.resolve().parent != memory.resolve():
             raise MemoryRefused("file_invalid", f"{file} is outside the memory directory")
@@ -337,20 +347,19 @@ class MemoryUI:
 
     @staticmethod
     def _names(store: Store, memory: Path) -> list[str]:
-        """The item files of a memory directory, sorted; ``MEMORY.md`` is the index, not an item."""
+        """The item files of a memory directory, sorted; Claude Code's ``MEMORY.md`` is not an item."""
         try:
             entries = list(os.scandir(memory))
         except (FileNotFoundError, NotADirectoryError):
             return []
         return sorted(entry.name for entry in entries
-                      if entry.name != INDEX and _item_name(store, entry.name)
-                      and entry.is_file(follow_symlinks=False))
+                      if _item_name(store, entry.name) and entry.is_file(follow_symlinks=False))
 
     def _places(self, store: Store):
         """``(project, memory dir)`` of every place in ``store`` that holds an item or an index."""
         candidates = [""]
         projects = store.path / "projects"
-        if store.client == "claude" and not _is_link(projects):
+        if store.client == "claude" and not is_link(projects):
             try:
                 candidates += sorted(entry.name for entry in os.scandir(projects)
                                      if entry.is_dir(follow_symlinks=False) and PROJECT.fullmatch(entry.name))
@@ -358,9 +367,9 @@ class MemoryUI:
                 pass
         for project in candidates:
             memory = store.memory_dir(project)
-            if (project and _is_link(memory.parent)) or _is_link(memory) or not memory.is_dir():
+            if (project and is_link(memory.parent)) or is_link(memory) or not memory.is_dir():
                 continue
-            if self._names(store, memory) or (memory / INDEX).is_file():
+            if self._names(store, memory) or _index(store, memory):
                 yield project, memory
 
     def _workspaces(self) -> dict[str, tuple[str, str]]:
@@ -412,6 +421,7 @@ class MemoryUI:
     # --- reads ------------------------------------------------------------------------
 
     def projects(self) -> dict:
+        """``GET /ui/api/memory/projects``: one row per project, merged across directories, newest first."""
         stores, workspaces, rows = self.stores(), self._workspaces(), {}
         for store in stores:
             for project, memory in self._places(store):
@@ -461,6 +471,7 @@ class MemoryUI:
         return item
 
     def read(self, store: str, project: str) -> dict:
+        """``GET /ui/api/memory``: one memory directory with its items, index and copy targets."""
         place = self._store(store)
         memory = self._dir(place, project)
         items = []
@@ -470,7 +481,7 @@ class MemoryUI:
             except OSError:
                 items.append({"file": name, "unreadable": True})
         index = {"exists": False, "sha256": None, "text": None, "links": []}
-        if (memory / INDEX).is_file() and not _is_link(memory / INDEX):
+        if _index(place, memory):
             raw = (memory / INDEX).read_bytes()
             text = raw.decode("utf-8", errors="replace")
             index = {"exists": True, "sha256": _sha(raw), "text": text, "links": links(text)}
@@ -481,8 +492,8 @@ class MemoryUI:
         for candidate in others:
             if candidate.client == place.client:
                 try:
-                    holds = self._names(candidate, self._dir(candidate, project)) or (
-                        candidate.memory_dir(project) / INDEX).is_file()
+                    memory_dir = self._dir(candidate, project)
+                    holds = bool(self._names(candidate, memory_dir) or _index(candidate, memory_dir))
                 except MemoryRefused:
                     holds = False
                 if holds:
@@ -498,15 +509,17 @@ class MemoryUI:
                             for candidate in others if candidate.client == "claude" and place.client == "claude"]}
 
     def file(self, store: str, project: str, file: str) -> dict:
+        """``GET /ui/api/memory/file``: one file's text and SHA-256."""
         place = self._store(store)
-        path = self._file(place, project, file) if file != INDEX else self._dir(place, project) / INDEX
-        if _is_link(path) or not path.is_file():
+        path = self._dir(place, project) / INDEX if _is_index(place, file) else self._file(place, project, file)
+        if is_link(path) or not path.is_file():
             raise MemoryRefused("file_not_found", f"{file} does not exist here", 404)
         raw = path.read_bytes()
         return {"store": place.id, "project": project, "file": file, "text": raw.decode("utf-8", errors="replace"),
                 "sha256": _sha(raw), "editable": len(raw) <= MAX_EDIT}
 
     def search(self, query: str) -> dict:
+        """``GET /ui/api/memory/search``: per project, the items whose name or text holds every term."""
         terms = [term for term in query.lower().split() if term]
         if not terms:
             return {"q": query, "projects": []}
@@ -548,18 +561,21 @@ class MemoryUI:
         return value
 
     def save(self, body: dict) -> dict:
+        """``PUT /ui/api/memory/file``: writes the version shown, or creates a file when ``sha256`` is null."""
         place = self._store(body.get("store", ""))
         project, file = body.get("project", ""), body.get("file", "")
         data = self._text(body)
         creating = body.get("sha256") is None
         expected = self._expected(body, required=not creating)
         with self._lock:
-            path = self._dir(place, project) / INDEX if file == INDEX else self._file(place, project, file)
+            path = self._dir(place, project) / INDEX if _is_index(place, file) else self._file(place, project, file)
             if not path.parent.is_dir():
                 raise MemoryRefused("project_not_found", "this memory directory does not exist", 404)
+            if not creating and not is_link(path) and path.is_file() and path.stat().st_size > MAX_EDIT:
+                raise MemoryRefused("file_too_large", f"{path.name} is over {MAX_EDIT // 1024} KB: shown, not edited")
             _replace(path, data, expected)
             indexed = False
-            if creating and body.get("index") is True and file != INDEX:
+            if creating and body.get("index") is True and place.client == "claude" and not _is_index(place, file):
                 indexed = self._index_add(path.parent, file, _index_line(file, data.decode("utf-8")))
         return {"status": "created" if creating else "saved", "store": place.id, "project": project, "file": file,
                 "sha256": _sha(data), "indexed": indexed}
@@ -567,7 +583,7 @@ class MemoryUI:
     def _index_add(self, memory: Path, file: str, line: str) -> bool:
         """Appends ``line`` to the index unless it already links ``file``; True when it was added."""
         index = memory / INDEX
-        if _is_link(index):
+        if is_link(index):
             raise MemoryRefused("symlink_refused", f"{INDEX} is a symlink")
         try:
             raw = index.read_bytes()
@@ -581,7 +597,7 @@ class MemoryUI:
 
     def _index_remove(self, memory: Path, file: str) -> bool:
         index = memory / INDEX
-        if _is_link(index) or not index.is_file():
+        if is_link(index) or not index.is_file():
             return False
         raw = index.read_bytes()
         text = raw.decode("utf-8", errors="replace")
@@ -600,18 +616,45 @@ class MemoryUI:
         return target
 
     def _remove(self, place: Store, project: str, path: Path, expected: str) -> dict:
+        """Deletes ``path`` when it is still the version shown, keeping a copy in the trash.
+
+        The file is renamed aside before its version is checked: a version Claude Code writes after
+        that rename lands under the original name and is never unlinked.
+        """
+        aside = path.with_name(f".{path.name}.{secrets.token_hex(4)}.deleting")
         try:
-            data = path.read_bytes()
+            os.rename(path, aside)
         except FileNotFoundError:
             raise MemoryRefused("file_changed", f"{path.name} no longer exists", 409) from None
-        if _sha(data) != expected:
-            raise MemoryRefused("file_changed", f"{path.name} changed since it was shown", 409)
-        kept = self._trash(place, project, path, data)
-        path.unlink()
+        try:
+            data = aside.read_bytes()
+            if _sha(data) != expected:
+                raise MemoryRefused("file_changed", f"{path.name} changed since it was shown", 409)
+            kept = self._trash(place, project, path, data)
+        except BaseException:
+            self._put_back(place, project, aside, path)
+            raise
+        aside.unlink()
         unindexed = self._index_remove(path.parent, path.name)
         return {"trash": str(kept), "unindexed": unindexed}
 
+    def _put_back(self, place: Store, project: str, aside: Path, path: Path) -> None:
+        """Returns a file renamed aside to its name, unless a newer file took the name meanwhile: then
+        the one aside goes to the trash rather than over the newer one."""
+        try:
+            os.link(aside, path)
+        except FileExistsError:
+            self._trash(place, project, path, aside.read_bytes())
+        except OSError:  # a file system without hard links
+            if os.path.lexists(path):
+                self._trash(place, project, path, aside.read_bytes())
+            else:
+                os.replace(aside, path)
+                return
+        aside.unlink()
+
     def delete(self, body: dict) -> dict:
+        """``POST /ui/api/memory/delete``: moves an item to the trash and removes its index lines."""
         place = self._store(body.get("store", ""))
         project, file = body.get("project", ""), body.get("file", "")
         expected = self._expected(body)
@@ -621,6 +664,7 @@ class MemoryUI:
         return {"status": "deleted", "store": place.id, "project": project, "file": file, **result}
 
     def copy(self, body: dict) -> dict:
+        """``POST /ui/api/memory/copy``: copies or moves an item to another Claude configuration directory."""
         source = self._store(body.get("store", ""))
         target = self._store(body.get("to_store", ""))
         project, file, move = body.get("project", ""), body.get("file", ""), body.get("move") is True
@@ -653,7 +697,7 @@ class MemoryUI:
             text = data.decode("utf-8", errors="replace")
             source_index = path.parent / INDEX
             line = None
-            if source_index.is_file() and not _is_link(source_index):
+            if source_index.is_file() and not is_link(source_index):
                 index_text = source_index.read_text(encoding="utf-8", errors="replace")
                 line = next((raw for raw in index_text.splitlines()
                              if (match := LINK.match(raw)) and match.group("file") == file), None)

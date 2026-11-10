@@ -14,6 +14,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from src.daemon import memory_ui
 from src.daemon.app import create_app
 from src.daemon.client_dirs import claude_config_dirs, codex_homes
 from src.daemon.memory_ui import links
@@ -240,6 +241,8 @@ async def test_symlinks_are_refused_and_never_listed(daemon):
     try:
         (env["main"] / "evil.md").symlink_to(env["tmp"] / "outside.md")
         (env["home"] / ".claude" / "projects" / "-linked").symlink_to(env["main"].parent, target_is_directory=True)
+        (env["home"] / ".claude" / "projects" / "-only-index" / "memory").mkdir(parents=True)
+        (env["home"] / ".claude" / "projects" / "-only-index" / "memory" / "MEMORY.md").symlink_to(env["main"] / "MEMORY.md")
     except OSError as error:  # Windows without the privilege to create symlinks
         pytest.skip(f"symlinks cannot be created here: {error}")
     (env["tmp"] / "outside.md").write_text("secret\n")
@@ -248,7 +251,7 @@ async def test_symlinks_are_refused_and_never_listed(daemon):
     data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
     assert "evil.md" not in [item["file"] for item in data["items"]]
     rows = (await http.get("/ui/api/memory/projects", headers=UI)).json()["projects"]
-    assert "claude:-linked" not in [row["key"] for row in rows]
+    assert not {"claude:-linked", "claude:-only-index"} & {row["key"] for row in rows}
     for path in (f"/ui/api/memory/file?store={main}&project={env['name']}&file=evil.md",
                  f"/ui/api/memory?store={main}&project=-linked"):
         response = await http.get(path, headers=UI)
@@ -294,6 +297,10 @@ async def test_a_save_carries_the_version_shown_and_keeps_the_mode(daemon):
     listed = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
     big = next(item for item in listed["items"] if item["file"] == "big.md")
     assert not big["editable"] and len(big["text"]) == 256 * 1024 + 1  # shown, not editable
+    shrink = await http.put("/ui/api/memory/file", json={**body, "file": "big.md", "text": "small\n",
+                                                         "sha256": big["sha256"]}, headers=UI)
+    assert shrink.status_code == 400 and shrink.json()["error"].startswith("file_too_large")
+    assert (env["main"] / "big.md").stat().st_size == 256 * 1024 + 1
     # MEMORY.md is written like any other file, which is how the page adds an item to it.
     index = env["main"] / "MEMORY.md"
     text = index.read_text(encoding="utf-8") + "- [loose](loose.md)\n"
@@ -399,3 +406,74 @@ async def test_replace_needs_the_targets_version_and_move_deletes_the_source_las
     assert (env["other"] / "MEMORY.md").read_text(encoding="utf-8") == \
         "- [Issue workflow](issue-workflow.md) — restate first\n"
     assert Path(moved.json()["trash"]).read_text(encoding="utf-8") == target.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_a_junction_counts_as_a_link(daemon, monkeypatch):
+    """Windows junctions are not symlinks to Python 3.11; the module asks the reparse-point check."""
+    http, env = daemon
+    junction = env["home"] / ".claude" / "projects" / "-junction"
+    (junction / "memory").mkdir(parents=True)
+    write(junction / "memory" / "a.md", note("a", "user", "d", "A."))
+    real = memory_ui.is_link
+    monkeypatch.setattr(memory_ui, "is_link", lambda path: Path(path) == junction or real(path))
+    await login(http)
+    main, _ = stores(env)
+    rows = (await http.get("/ui/api/memory/projects", headers=UI)).json()["projects"]
+    assert "claude:-junction" not in [row["key"] for row in rows]
+    response = await http.get(f"/ui/api/memory?store={main}&project=-junction", headers=UI)
+    assert response.status_code == 400 and response.json()["error"].startswith("symlink_refused")
+
+
+@pytest.mark.asyncio
+async def test_a_version_written_while_deleting_is_kept(daemon, monkeypatch):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    path = env["main"] / "zsh.md"
+    original = path.read_bytes()
+    trash = memory_ui.MemoryUI._trash
+
+    def write_meanwhile(self, place, project, target, data):
+        target.write_text("written by a session meanwhile\n", encoding="utf-8")
+        return trash(self, place, project, target, data)
+
+    monkeypatch.setattr(memory_ui.MemoryUI, "_trash", write_meanwhile)
+    body = {"store": main, "project": env["name"], "file": "zsh.md", "sha256": sha(path)}
+    done = await http.post("/ui/api/memory/delete", json=body, headers=UI)
+    assert done.status_code == 200 and Path(done.json()["trash"]).read_bytes() == original
+    assert path.read_text(encoding="utf-8") == "written by a session meanwhile\n"
+    assert not [name for name in os.listdir(env["main"]) if name.endswith(".deleting")]
+    # A refused delete puts the file back as it was and leaves nothing beside it.
+    monkeypatch.setattr(memory_ui.MemoryUI, "_trash", trash)
+    stale = await http.post("/ui/api/memory/delete", json={**body, "sha256": "3" * 64}, headers=UI)
+    assert stale.status_code == 409 and path.read_text(encoding="utf-8") == "written by a session meanwhile\n"
+    assert not [name for name in os.listdir(env["main"]) if name.endswith(".deleting")]
+
+
+@pytest.mark.asyncio
+async def test_memory_md_is_no_item_in_claude_and_a_plain_file_in_codex(daemon):
+    http, env = daemon
+    await login(http)
+    main, work = stores(env)
+    index = env["main"] / "MEMORY.md"
+    before = index.read_bytes()
+    body = {"store": main, "project": env["name"], "file": "MEMORY.md", "sha256": sha(index)}
+    for path, extra in (("/ui/api/memory/delete", {}), ("/ui/api/memory/copy", {"to_store": work})):
+        response = await http.post(path, json={**body, **extra}, headers=UI)
+        assert response.status_code == 400 and response.json()["error"].startswith("file_invalid"), path
+    assert index.read_bytes() == before and not (env["other"] / "MEMORY.md").exists()
+    # Codex keeps no index: its MEMORY.md is listed, read and edited like its other files.
+    memories = env["home"] / ".codex" / "memories"
+    write(memories / "MEMORY.md", "codex notes\n")
+    write(memories / "facts.txt", "plain text\n")
+    codex = str((env["home"] / ".codex").resolve())
+    rows = {row["key"]: row for row in (await http.get("/ui/api/memory/projects", headers=UI)).json()["projects"]}
+    assert rows["codex:"]["items"] == 2 and rows["codex:"]["name"] == "Codex memories"
+    data = (await http.get(f"/ui/api/memory?store={codex}&project=", headers=UI)).json()
+    assert [item["file"] for item in data["items"]] == ["MEMORY.md", "facts.txt"] and not data["index"]["exists"]
+    assert data["targets"] == [] and data["not_indexed"] == ["MEMORY.md", "facts.txt"]
+    saved = await http.put("/ui/api/memory/file", json={"store": codex, "project": "", "file": "MEMORY.md",
+                                                        "text": "edited\n", "sha256": sha(memories / "MEMORY.md")},
+                           headers=UI)
+    assert saved.status_code == 200 and (memories / "MEMORY.md").read_text(encoding="utf-8") == "edited\n"
