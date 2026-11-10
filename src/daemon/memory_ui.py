@@ -18,8 +18,12 @@ inside the memory directory.
 
 Claude Code writes memory without a lock. A write carries the SHA-256 of the version the page showed
 and is refused (409 ``file_changed``) when the file differs right before the atomic rename, so only a
-session writing in that very instant can still win or lose. A deleted item goes to ``memory-trash/``
-in the service's state directory, from where it can be restored by hand.
+session writing in that very instant can still win or lose; a create never replaces a file that
+appeared meanwhile. A delete renames the file aside before it checks the version, so a file written
+under the name afterwards survives, but on POSIX a session still writing through a handle it opened
+earlier writes into the file being deleted. A deleted item goes to ``memory-trash/`` in the service's
+state directory, from where it can be restored by hand. Files are read without following a symlink
+that replaced them after they were listed (``O_NOFOLLOW``; on Windows the check right before opening).
 
 An item's time (``changed``) is its ``metadata.modified`` and, without a readable one, the file's.
 
@@ -43,6 +47,7 @@ An item's time (``changed``) is its ``metadata.modified`` and, without a readabl
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import json
 import os
@@ -69,12 +74,16 @@ TRASH = "memory-trash"
 MAX_EDIT = 256 * 1024  # larger files are shown, not edited
 MAX_SHOW = 1024 * 1024  # larger files are listed without their text
 MAX_BODY = 4 * MAX_EDIT  # a JSON body escapes the text
-FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}")  # 255 characters, the usual file name limit
 PROJECT = re.compile(r"[A-Za-z0-9._-]{1,255}")
 LINK = re.compile(r"^\s*[-*+]\s+\[(?P<title>[^\]]*)\]\((?P<file>[^)\s]+)\)")
 SANITIZE = re.compile(r"[^A-Za-z0-9]")
 DEFAULT_MODE = 0o644
 CACHE_LIMIT = 10_000  # remembered item times; a list that outgrows it starts over
+# A file system without hard links (FAT, some network shares) answers os.link with these; Windows
+# with ERROR_INVALID_FUNCTION or ERROR_NOT_SUPPORTED.
+NO_LINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS}
+NO_LINKS_WINDOWS = {1, 50}
 
 WRITES = {PREFIX + "/file": "PUT", PREFIX + "/delete": "POST", PREFIX + "/copy": "POST"}
 READS = (PREFIX, PREFIX + "/projects", PREFIX + "/file", PREFIX + "/search")
@@ -211,17 +220,43 @@ def _index_line(file: str, text: str) -> str:
     return f"- [{title}]({file})" + (f" — {description}" if description else "")
 
 
+def _links_unsupported(error: OSError) -> bool:
+    return error.errno in NO_LINKS or getattr(error, "winerror", None) in NO_LINKS_WINDOWS
+
+
+def _open(path: Path):
+    """``path`` opened for reading without following a symlink, also one that replaced the file since
+    it was listed; a symlink or junction is refused."""
+    if is_link(path):
+        raise MemoryRefused("symlink_refused", f"{path.name} is a symlink")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    except OSError as error:
+        if error.errno == errno.ELOOP:  # O_NOFOLLOW met a symlink
+            raise MemoryRefused("symlink_refused", f"{path.name} is a symlink") from None
+        raise
+    return os.fdopen(fd, "rb")
+
+
+def _read(path: Path) -> bytes:
+    with _open(path) as stream:
+        return stream.read()
+
+
 def _replace(path: Path, data: bytes, expected: str | None) -> None:
     """Writes ``path`` through a temporary file and a rename, keeping its mode.
 
-    ``expected`` is the SHA-256 the file must still have, checked right before the rename; ``None``
-    means the file must not exist.
+    ``expected`` is the SHA-256 the file must still have, checked right before the rename. The check
+    and the rename are two steps, so a session writing between them loses its version. ``None`` means
+    the file must not exist: it is then installed with a hard link, which fails when any file took the
+    name meanwhile, and only a file system without hard links falls back to the checked rename.
     """
     try:
-        mode = path.stat().st_mode & 0o777
+        mode = os.lstat(path).st_mode & 0o777
     except FileNotFoundError:
         mode = DEFAULT_MODE
-    fd, temporary = tempfile.mkstemp(prefix="." + path.name + ".", suffix=".tmp", dir=path.parent)
+    # Not named after the file: a name near the 255-character limit must still fit.
+    fd, temporary = tempfile.mkstemp(prefix=".memory-", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
@@ -229,17 +264,34 @@ def _replace(path: Path, data: bytes, expected: str | None) -> None:
             os.fsync(stream.fileno())
         os.chmod(temporary, mode)
         _check(path, expected)
-        os.replace(temporary, path)
+        if expected is not None:
+            os.replace(temporary, path)
+            return
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
+        except OSError as error:
+            if not _links_unsupported(error):
+                raise
+            os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
 
 
-def _check(path: Path, expected: str | None) -> None:
-    if is_link(path):
-        raise MemoryRefused("symlink_refused", f"{path.name} is a symlink")
+def _undo_create(path: Path, data: bytes) -> None:
+    """Removes a file this request just created, unless something changed it since."""
     try:
-        current = path.read_bytes()
+        if _read(path) == data:
+            path.unlink()
+    except (OSError, MemoryRefused):
+        pass  # the request fails anyway with the error that made it undo; this file stays
+
+
+def _check(path: Path, expected: str | None) -> None:
+    try:
+        current = _read(path)
     except FileNotFoundError:
         current = None
     if expected is None and current is not None:
@@ -409,13 +461,13 @@ class MemoryUI:
         return moment
 
     def _changed(self, path: Path) -> float:
-        stat = path.stat()
+        stat = os.lstat(path)
         cached = self._times.get(str(path))
         if cached and cached[:2] == (stat.st_mtime_ns, stat.st_size):
             return cached[2]
         meta = {}
         if stat.st_size <= MAX_SHOW:
-            meta, _ = _frontmatter(path.read_bytes().decode("utf-8", errors="replace"))
+            meta, _ = _frontmatter(_read(path).decode("utf-8", errors="replace"))
         return self._remember(path, stat, meta)
 
     # --- reads ------------------------------------------------------------------------
@@ -430,7 +482,7 @@ class MemoryUI:
                 for name in names:
                     try:
                         times.append(self._changed(memory / name))
-                    except OSError:
+                    except (OSError, MemoryRefused):  # gone or turned into a link since it was listed
                         pass
                 newest = _iso(max(times)) if times else None
                 row = rows.setdefault(self._key(store, project), self._row(store, project, workspaces))
@@ -447,18 +499,18 @@ class MemoryUI:
                 "projects": out, "notes": notes}
 
     def _item(self, path: Path) -> dict:
-        stat = path.stat()
-        item = {"file": path.name, "bytes": stat.st_size, "mtime": _iso(stat.st_mtime), "changed": None,
-                "editable": stat.st_size <= MAX_EDIT, "text": None, "sha256": None, "name": None,
-                "description": None, "type": None, "modified": None, "frontmatter": True}
-        if stat.st_size > MAX_SHOW:  # listed and deletable, not shown
-            digest = hashlib.sha256()
-            with open(path, "rb") as stream:
+        with _open(path) as stream:
+            stat = os.fstat(stream.fileno())
+            item = {"file": path.name, "bytes": stat.st_size, "mtime": _iso(stat.st_mtime), "changed": None,
+                    "editable": stat.st_size <= MAX_EDIT, "text": None, "sha256": None, "name": None,
+                    "description": None, "type": None, "modified": None, "frontmatter": True}
+            if stat.st_size > MAX_SHOW:  # listed and deletable, not shown
+                digest = hashlib.sha256()
                 for chunk in iter(lambda: stream.read(1 << 20), b""):
                     digest.update(chunk)
-            item.update(sha256=digest.hexdigest(), changed=_iso(self._remember(path, stat, {})))
-            return item
-        raw = path.read_bytes()
+                item.update(sha256=digest.hexdigest(), changed=_iso(self._remember(path, stat, {})))
+                return item
+            raw = stream.read()
         text = raw.decode("utf-8", errors="replace")
         meta, parsed = _frontmatter(text)
         metadata = _metadata(meta)
@@ -478,11 +530,11 @@ class MemoryUI:
         for name in self._names(place, memory):
             try:
                 items.append(self._item(memory / name))
-            except OSError:
+            except (OSError, MemoryRefused):  # gone or turned into a link since it was listed
                 items.append({"file": name, "unreadable": True})
         index = {"exists": False, "sha256": None, "text": None, "links": []}
         if _index(place, memory):
-            raw = (memory / INDEX).read_bytes()
+            raw = _read(memory / INDEX)
             text = raw.decode("utf-8", errors="replace")
             index = {"exists": True, "sha256": _sha(raw), "text": text, "links": links(text)}
         linked = {link["file"] for link in index["links"]}
@@ -514,7 +566,7 @@ class MemoryUI:
         path = self._dir(place, project) / INDEX if _is_index(place, file) else self._file(place, project, file)
         if is_link(path) or not path.is_file():
             raise MemoryRefused("file_not_found", f"{file} does not exist here", 404)
-        raw = path.read_bytes()
+        raw = _read(path)
         return {"store": place.id, "project": project, "file": file, "text": raw.decode("utf-8", errors="replace"),
                 "sha256": _sha(raw), "editable": len(raw) <= MAX_EDIT}
 
@@ -530,10 +582,10 @@ class MemoryUI:
                 prefix = "\n".join(filter(None, (row["name"], row["root"], project)))
                 for name in self._names(store, memory):
                     try:
-                        if (memory / name).stat().st_size > MAX_SHOW:
+                        if os.lstat(memory / name).st_size > MAX_SHOW:
                             continue
-                        text = (memory / name).read_text(encoding="utf-8", errors="replace")
-                    except OSError:
+                        text = _read(memory / name).decode("utf-8", errors="replace")
+                    except (OSError, MemoryRefused):
                         continue
                     if all(term in (prefix + "\n" + name + "\n" + text).lower() for term in terms):
                         counts[row["key"]] = counts.get(row["key"], 0) + 1
@@ -571,12 +623,19 @@ class MemoryUI:
             path = self._dir(place, project) / INDEX if _is_index(place, file) else self._file(place, project, file)
             if not path.parent.is_dir():
                 raise MemoryRefused("project_not_found", "this memory directory does not exist", 404)
-            if not creating and not is_link(path) and path.is_file() and path.stat().st_size > MAX_EDIT:
+            if not creating and not is_link(path) and path.is_file() and os.lstat(path).st_size > MAX_EDIT:
                 raise MemoryRefused("file_too_large", f"{path.name} is over {MAX_EDIT // 1024} KB: shown, not edited")
+            index = creating and body.get("index") is True and place.client == "claude" and not _is_index(place, file)
+            if index and is_link(path.parent / INDEX):
+                raise MemoryRefused("symlink_refused", f"{INDEX} is a symlink")
             _replace(path, data, expected)
             indexed = False
-            if creating and body.get("index") is True and place.client == "claude" and not _is_index(place, file):
-                indexed = self._index_add(path.parent, file, _index_line(file, data.decode("utf-8")))
+            if index:
+                try:
+                    indexed = self._index_add(path.parent, file, _index_line(file, data.decode("utf-8")))
+                except BaseException:
+                    _undo_create(path, data)  # a refused request leaves no unindexed item behind
+                    raise
         return {"status": "created" if creating else "saved", "store": place.id, "project": project, "file": file,
                 "sha256": _sha(data), "indexed": indexed}
 
@@ -586,7 +645,7 @@ class MemoryUI:
         if is_link(index):
             raise MemoryRefused("symlink_refused", f"{INDEX} is a symlink")
         try:
-            raw = index.read_bytes()
+            raw = _read(index)
         except FileNotFoundError:
             raw = None
         text = raw.decode("utf-8", errors="replace") if raw is not None else ""
@@ -599,7 +658,7 @@ class MemoryUI:
         index = memory / INDEX
         if is_link(index) or not index.is_file():
             return False
-        raw = index.read_bytes()
+        raw = _read(index)
         text = raw.decode("utf-8", errors="replace")
         changed = _without_links(text, file)
         if changed == text:
@@ -619,15 +678,16 @@ class MemoryUI:
         """Deletes ``path`` when it is still the version shown, keeping a copy in the trash.
 
         The file is renamed aside before its version is checked: a version Claude Code writes after
-        that rename lands under the original name and is never unlinked.
+        that rename lands under the original name and is never unlinked. The name aside does not
+        embed the file's, so a name near the 255-character limit still fits.
         """
-        aside = path.with_name(f".{path.name}.{secrets.token_hex(4)}.deleting")
+        aside = path.with_name(f".deleting-{secrets.token_hex(8)}")
         try:
             os.rename(path, aside)
         except FileNotFoundError:
             raise MemoryRefused("file_changed", f"{path.name} no longer exists", 409) from None
         try:
-            data = aside.read_bytes()
+            data = _read(aside)
             if _sha(data) != expected:
                 raise MemoryRefused("file_changed", f"{path.name} changed since it was shown", 409)
             kept = self._trash(place, project, path, data)
@@ -644,10 +704,12 @@ class MemoryUI:
         try:
             os.link(aside, path)
         except FileExistsError:
-            self._trash(place, project, path, aside.read_bytes())
-        except OSError:  # a file system without hard links
+            self._trash(place, project, path, _read(aside))
+        except OSError as error:
+            if not _links_unsupported(error):
+                raise  # the file stays aside, under its hidden name
             if os.path.lexists(path):
-                self._trash(place, project, path, aside.read_bytes())
+                self._trash(place, project, path, _read(aside))
             else:
                 os.replace(aside, path)
                 return
@@ -677,14 +739,14 @@ class MemoryUI:
         with self._lock:
             path = self._file(source, project, file)
             try:
-                data = path.read_bytes()
+                data = _read(path)
             except FileNotFoundError:
                 raise MemoryRefused("file_changed", f"{file} no longer exists", 409) from None
             if _sha(data) != expected:
                 raise MemoryRefused("file_changed", f"{file} changed since it was shown", 409)
             destination = self._file(target, project, file, create_dir=True)
             try:
-                existing = destination.read_bytes()
+                existing = _read(destination)
             except FileNotFoundError:
                 existing = None
             if existing is not None and replace is None:
@@ -695,13 +757,18 @@ class MemoryUI:
                 raise MemoryRefused("target_changed", f"{file} is no longer in {target.label}", 409)
             _replace(destination, data, replace)
             text = data.decode("utf-8", errors="replace")
-            source_index = path.parent / INDEX
+            source_index = _index(source, path.parent)
             line = None
-            if source_index.is_file() and not is_link(source_index):
-                index_text = source_index.read_text(encoding="utf-8", errors="replace")
+            if source_index:
+                index_text = _read(source_index).decode("utf-8", errors="replace")
                 line = next((raw for raw in index_text.splitlines()
                              if (match := LINK.match(raw)) and match.group("file") == file), None)
-            indexed = self._index_add(destination.parent, file, line or _index_line(file, text))
+            try:
+                indexed = self._index_add(destination.parent, file, line or _index_line(file, text))
+            except BaseException:
+                if existing is None:
+                    _undo_create(destination, data)  # a refused copy leaves no unindexed item behind
+                raise
             result = {"status": "moved" if move else "copied", "store": source.id, "project": project, "file": file,
                       "to_store": target.id, "indexed": indexed, "replaced": existing is not None}
             if move:

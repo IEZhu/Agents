@@ -12,7 +12,7 @@
 // /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires, or, for
 // the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent, or,
 // for the "landing_updates*" scenarios (#381), what the overview's Updates section shows and saves, or,
-// for "memory" (#297), what the Memory tab lists, shows and sends.
+// for "memory" and "memory_codex" (#297), what the Memory tab lists, shows and sends.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -64,7 +64,7 @@ const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
 const isAutodev = scenario.startsWith("autodev");
-let signedIn = ["search", "render", "persona_race", "agents", "history", "history_adopt", "memory"].includes(scenario) || isUi || isSync
+let signedIn = ["search", "render", "persona_race", "agents", "history", "history_adopt", "memory", "memory_codex"].includes(scenario) || isUi || isSync
   || isAutodev;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
@@ -141,7 +141,7 @@ async function fetchStub(path, init = {}) {
   }
   if (scenario === "persona_race") return personaRace(path, init);
   if (scenario === "history" || scenario === "history_adopt") return respond(...historyData(path, init));
-  if (scenario === "memory") return respond(...memoryData(path, init));
+  if (scenario === "memory" || scenario === "memory_codex") return respond(...memoryData(path, init));
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
 }
@@ -334,6 +334,7 @@ function memoryData(path, init) {
   const url = new URL("http://127.0.0.1" + path), query = url.searchParams, method = init.method || "GET";
   const body = init.body ? JSON.parse(init.body) : null;
   if (method !== "GET") memoryCalls.push([method, url.pathname, body]);
+  if (scenario === "memory_codex") return memoryCodex(url, method);
   if (url.pathname === "/ui/api/memory/projects") {
     return [200, { stores: [{ store: MEM_MAIN, label: "~/.claude", client: "claude" }, { store: MEM_WORK, label: "~/.claude-work", client: "claude" }],
                    projects: MEMORY_ROWS, notes: ["Codex: no memory files.", "Cursor keeps no memory in files."] }];
@@ -380,6 +381,26 @@ function memoryData(path, init) {
     return [200, { status: body.move ? "moved" : "copied", indexed: true, trash: body.move ? "/state/memory-trash/y" : undefined }];
   }
   return uiData(path, init);
+}
+
+// memory_codex: one Codex store, whose files are plain text and which keeps no index.
+const MEM_CODEX = "/home/me/.codex";
+function memoryCodex(url, method) {
+  const place = { store: MEM_CODEX, label: "~/.codex", items: 1, newest: new Date(Date.now() - 3600000).toISOString() };
+  if (url.pathname === "/ui/api/memory/projects") {
+    return [200, { stores: [{ store: MEM_CODEX, label: "~/.codex", client: "codex" }], notes: ["Cursor keeps no memory in files."],
+                   projects: [{ key: "codex:", client: "codex", project: "", name: "Codex memories", root: null, workspace: null,
+                                places: [place], items: 1, newest: place.newest }] }];
+  }
+  if (url.pathname === "/ui/api/memory" && method === "GET") {
+    const item = { ...memItem("facts.md", null, null, null, ""), text: "# not *rendered*\n" };
+    return [200, { store: MEM_CODEX, label: "~/.codex", client: "codex", project: "", key: "codex:", name: "Codex memories",
+                   root: null, dir: MEM_CODEX + "/memories", items: [item],
+                   index: { exists: false, sha256: null, text: null, links: [] }, not_indexed: ["facts.md"], broken: [],
+                   places: [{ store: MEM_CODEX, label: "~/.codex" }], targets: [] }];
+  }
+  if (url.pathname === "/ui/api/memory/file" && method === "PUT") return [200, { status: "created", indexed: false }];
+  return [404, { error: "not_found" }];
 }
 
 const flow = (id, source, title, content, extra = {}) => ({ id, source, title, content, ...extra });
@@ -2296,6 +2317,33 @@ if (scenario === "memory") {
   out.leave.asked = confirms.at(-1);
   out.leave.asks = confirms.length - out.leave.asks;
   out.leave.guarded_after = unload();
+  await finish(out);
+}
+
+if (scenario === "memory_codex") {
+  const out = {};
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent : (node.textContent || "") + node.children.map(textOf).join(""));
+  const view = byId("m-view"), doc = () => findAll(view, hasClass("md"))[0];
+  const items = () => findAll(doc(), hasClass("m-item"));
+  const tagged = (node, tag) => findAll(node, (child) => child.tag === tag);
+  await openTab("memory");
+  await open(0);
+  out.sections = items().map((node) => textOf(node.children[0]));
+  out.pre = tagged(items()[0], "pre").map(textOf);
+  out.headings = findAll(items()[0], (node) => /^h[1-6]$/.test(node.tag)).length;
+  out.toc = findAll(view, hasClass("md-toc-item")).map((item) => item.textContent);
+  out.buttons = tagged(items()[0], "button").map((button) => button.textContent);
+  fire(byId("m-new"), "click");
+  await sleep(20);
+  const draft = items()[0];
+  out.draft = { first: textOf(draft.children[0]), selects: tagged(draft, "select").length, inputs: tagged(draft, "input").length,
+                file: tagged(draft, "input")[0].value, text: tagged(draft, "textarea")[0].value };
+  const input = tagged(draft, "input")[0];
+  input.value = "facts.txt";
+  fire(input, "input");
+  fire(tagged(draft, "button").find((button) => button.textContent === "Save"), "click");
+  await sleep(80);
+  out.created = memoryCalls.at(-1);
   await finish(out);
 }
 

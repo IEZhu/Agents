@@ -1819,3 +1819,14 @@ def test_the_memory_search_matches_names_here_and_item_text_on_the_server(memory
 
 def test_leaving_the_tab_asks_about_unsaved_text_and_then_lets_the_page_close(memory):
     assert memory["leave"] == {"guarded": True, "asks": 1, "asked": "Discard unsaved changes?", "guarded_after": False}
+
+
+def test_codex_memory_is_plain_text_and_a_new_file_starts_empty():
+    codex = run("memory_codex")
+    assert codex["sections"] == ["facts.md"] and codex["pre"] == ["# not *rendered*\n"] and codex["headings"] == 1
+    assert codex["toc"] == ["facts.md"]  # no index groups, no MEMORY.md entry
+    assert codex["buttons"] == ["Edit", "Delete"]  # no copy targets, no Add to MEMORY.md
+    assert codex["draft"] == {"first": "New item", "selects": 0, "inputs": 1, "file": "new-note.md", "text": ""}
+    method, path, body = codex["created"]
+    assert (method, path, body["file"], body["text"], body["sha256"], body["index"]) == (
+        "PUT", "/ui/api/memory/file", "facts.txt", "", None, False)

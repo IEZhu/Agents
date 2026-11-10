@@ -958,7 +958,16 @@ seconds while the browser tab is visible (see
     refuses with 409 `file_changed` when the file differs right before its atomic
     rename (a temporary file in the same directory, keeping the file's mode); the
     page keeps the text and offers to reload. Only a session writing in that very
-    instant can still win or lose.
+    instant can still win or lose. A create is installed with a hard link, so it
+    never replaces a file that appeared after the check (a file system without hard
+    links falls back to the checked rename), and a create that cannot add its index
+    line removes the new file again. A delete renames the file aside before it
+    checks the version: a file written under the name after that rename is kept.
+    On POSIX, a session that opened the file before the rename and writes through
+    that handle writes into the file being deleted, and those writes are lost, so
+    delete an item only while no session is writing it. Files are read without
+    following a symlink that replaced them after they were listed (`O_NOFOLLOW`; on
+    Windows, a check right before opening).
   - *Requests.* The page reads `GET /ui/api/memory/projects`,
     `GET /ui/api/memory?store=&project=`, `GET /ui/api/memory/file?store=&project=&file=`
     and `GET /ui/api/memory/search?q=`, and writes with
@@ -970,12 +979,13 @@ seconds while the browser tab is visible (see
   - *Limits.* The reads need the page's `X-Agents-UI` header, as History's do. A
     request names only a discovered configuration directory, an existing project
     directory under its `projects/` (or the top-level `memory/`) and a plain file
-    name matching `[A-Za-z0-9][A-Za-z0-9._-]*\.md` (`MEMORY.md` only on the file
-    routes, never as an item to copy or delete); symlinks and Windows junctions are
-    refused, and the resolved path must stay inside the memory directory. A delete
-    renames the file aside before it checks the version, so a version a session
-    writes meanwhile keeps the name. Files over 256 KB are shown but cannot be
-    edited, and files over 1 MB are listed without their text.
+    name of at most 255 characters. In a Claude Code directory the name matches
+    `[A-Za-z0-9][A-Za-z0-9._-]*\.md`, and `MEMORY.md` is the index: it has the file
+    routes, never the item routes (copy, delete). In Codex's `memories/` any name
+    matching `[A-Za-z0-9][A-Za-z0-9._-]*` is a plain file, `MEMORY.md` included,
+    with no index. Symlinks and Windows junctions are refused, and the resolved
+    path must stay inside the memory directory. Files over 256 KB are shown but
+    cannot be edited, and files over 1 MB are listed without their text.
     `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev

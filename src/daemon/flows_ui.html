@@ -2346,7 +2346,8 @@ window.addEventListener("hashchange", () => {
 // meanwhile is never overwritten.
 
 const MEMORY_SEARCH_MS = 250;
-const MEMORY_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+// File names as the server takes them (memory_ui.FILE): at most 255 characters, Claude Code's ending in .md.
+const MEMORY_FILE = { claude: /^[A-Za-z0-9][A-Za-z0-9._-]{0,251}\.md$/, codex: /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/ };
 const MEMORY_TYPES = ["user", "feedback", "project", "reference"];
 const MEMORY_TYPE_LINE = /^([ \t]+type:[ \t]*).*$/m;  // metadata.type in the new item's template
 // `edits` holds the open editors by file ({ file, text, original, sha256 }); `draft` a new item being
@@ -2703,12 +2704,15 @@ async function indexMemoryItem(item) {
   await reloadMemory("Added " + item.file + " to MEMORY.md.");
 }
 
+// Claude Code's items start from its frontmatter template; Codex's format has not been observed, so its
+// new file starts empty.
 function startMemoryDraft() {
   const data = memoryState.data;
   if (!data || memoryState.draft) return;
-  const text = "---\nname: new-item\ndescription: \"One line: when this item matters\"\nmetadata:\n  type: feedback\n  modified: "
+  const claude = data.client === "claude";
+  const text = !claude ? "" : "---\nname: new-item\ndescription: \"One line: when this item matters\"\nmetadata:\n  type: feedback\n  modified: "
     + new Date().toISOString() + "\n---\n\nThe fact or the rule.\n\n**Why:** \n\n**How to apply:** \n";
-  memoryState.draft = { file: "new-item.md", type: "feedback", text, original: text, index: data.client === "claude" };
+  memoryState.draft = { file: claude ? "new-item.md" : "new-note.md", type: "feedback", text, original: text, index: claude };
   rerenderMemory();
   memoryView.doc.scrollTop = 0;
 }
@@ -2724,17 +2728,19 @@ function renderMemoryDraft(doc, data) {
   input.setAttribute("id", "m-draft-file");
   input.value = draft.file;
   input.addEventListener("input", () => { draft.file = input.value.trim(); });
+  if (data.client !== "claude") {  // no type, no index: Codex's memories stay plain text
+    memoryEditor(host, draft, createMemoryItem, () => { memoryState.draft = null; rerenderMemory(); });
+    return;
+  }
   const kind = mdEl("select", "", field);
   kind.setAttribute("aria-label", "Type");
   for (const type of MEMORY_TYPES) kind.appendChild(new Option(type, type));
   kind.value = draft.type;
-  if (data.client === "claude") {
-    const check = mdEl("label", "", field), box = mdEl("input", "", check);
-    box.type = "checkbox";
-    box.checked = draft.index;
-    box.addEventListener("change", () => { draft.index = box.checked; });
-    mdText(" Add to MEMORY.md", check);
-  }
+  const check = mdEl("label", "", field), box = mdEl("input", "", check);
+  box.type = "checkbox";
+  box.checked = draft.index;
+  box.addEventListener("change", () => { draft.index = box.checked; });
+  mdText(" Add to MEMORY.md", check);
   const area = memoryEditor(host, draft, createMemoryItem, () => { memoryState.draft = null; rerenderMemory(); });
   // The type goes into the template's metadata.type; the rest of the text stays as written.
   kind.addEventListener("change", () => {
@@ -2747,8 +2753,10 @@ function renderMemoryDraft(doc, data) {
 async function createMemoryItem() {
   const data = memoryState.data, draft = memoryState.draft;
   if (!data || !draft) return;
-  if (!MEMORY_FILE.test(draft.file) || draft.file === "MEMORY.md") {
-    memoryNotice("A file name has letters, digits, dots, dashes or underscores, ends in .md and is not MEMORY.md.", "error");
+  const claude = data.client === "claude";
+  if (!MEMORY_FILE[claude ? "claude" : "codex"].test(draft.file) || (claude && draft.file === "MEMORY.md")) {
+    memoryNotice(claude ? "A file name has up to 255 letters, digits, dots, dashes or underscores, ends in .md and is not MEMORY.md."
+      : "A file name has up to 255 letters, digits, dots, dashes or underscores.", "error");
     return;
   }
   try {

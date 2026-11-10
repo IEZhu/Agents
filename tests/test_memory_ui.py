@@ -477,3 +477,102 @@ async def test_memory_md_is_no_item_in_claude_and_a_plain_file_in_codex(daemon):
                                                         "text": "edited\n", "sha256": sha(memories / "MEMORY.md")},
                            headers=UI)
     assert saved.status_code == 200 and (memories / "MEMORY.md").read_text(encoding="utf-8") == "edited\n"
+
+
+@pytest.mark.asyncio
+async def test_a_create_never_replaces_a_file_that_appeared_meanwhile(daemon, monkeypatch):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    target = env["main"] / "racing.md"
+    check = memory_ui._check
+
+    def appears_after_the_check(path, expected):
+        check(path, expected)
+        if path == target:
+            target.write_text("written by a session meanwhile\n", encoding="utf-8")
+
+    monkeypatch.setattr(memory_ui, "_check", appears_after_the_check)
+    body = {"store": main, "project": env["name"], "file": "racing.md", "text": "from the page\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 409 and response.json()["error"].startswith("file_exists")
+    assert target.read_text(encoding="utf-8") == "written by a session meanwhile\n"
+    assert not [name for name in os.listdir(env["main"]) if name.endswith(".tmp")]
+
+
+@pytest.mark.asyncio
+async def test_a_file_turned_into_a_symlink_after_listing_is_not_read(daemon, monkeypatch):
+    http, env = daemon
+    outside = env["tmp"] / "outside.md"
+    outside.write_text("secret\n", encoding="utf-8")
+    swapped = env["main"] / "swap.md"
+    write(swapped, "plain\n")
+    names = memory_ui.MemoryUI._names
+
+    def swap_after_listing(store, memory):
+        found = names(store, memory)
+        if swapped.exists() and not swapped.is_symlink():
+            swapped.unlink()
+            swapped.symlink_to(outside)
+        return found
+
+    try:
+        (env["tmp"] / "probe").symlink_to(outside)
+    except OSError as error:  # Windows without the privilege to create symlinks
+        pytest.skip(f"symlinks cannot be created here: {error}")
+    monkeypatch.setattr(memory_ui.MemoryUI, "_names", staticmethod(swap_after_listing))
+    await login(http)
+    main, _ = stores(env)
+    data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
+    item = next(item for item in data["items"] if item["file"] == "swap.md")
+    assert item == {"file": "swap.md", "unreadable": True} and "secret" not in json.dumps(data)
+
+
+@pytest.mark.asyncio
+async def test_long_file_names_up_to_255_characters_are_items(daemon):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    long_name = "n" * 240 + ".md"
+    write(env["main"] / long_name, note("long", "user", "d", "Long."))
+    data = (await http.get(f"/ui/api/memory?store={main}&project={env['name']}", headers=UI)).json()
+    assert long_name in [item["file"] for item in data["items"]]
+    body = {"store": main, "project": env["name"], "file": long_name, "sha256": sha(env["main"] / long_name)}
+    saved = await http.put("/ui/api/memory/file", json={**body, "text": "edited\n"}, headers=UI)
+    assert saved.status_code == 200
+    deleted = await http.post("/ui/api/memory/delete", json={**body, "sha256": sha(env["main"] / long_name)}, headers=UI)
+    assert deleted.status_code == 200 and not (env["main"] / long_name).exists()
+    too_long = await http.get(f"/ui/api/memory/file?store={main}&project={env['name']}&file={'n' * 254}.md",
+                              headers=UI)
+    assert too_long.status_code == 400 and too_long.json()["error"].startswith("file_invalid")
+
+
+@pytest.mark.asyncio
+async def test_a_create_or_copy_that_cannot_join_the_index_leaves_no_item(daemon, monkeypatch):
+    http, env = daemon
+    await login(http)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "unindexed.md", "sha256": None, "index": True,
+            "text": note("unindexed", "user", "d", "Body.")}
+
+    def refused(self, memory, file, line):
+        raise memory_ui.MemoryRefused("file_changed", "MEMORY.md changed since it was shown", 409)
+
+    index_add = memory_ui.MemoryUI._index_add
+    monkeypatch.setattr(memory_ui.MemoryUI, "_index_add", refused)
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 409 and not (env["main"] / "unindexed.md").exists()
+    _, work = stores(env)
+    copy = {"store": main, "project": env["name"], "file": "zsh.md", "sha256": sha(env["main"] / "zsh.md"), "to_store": work}
+    response = await http.post("/ui/api/memory/copy", json=copy, headers=UI)
+    assert response.status_code == 409 and not (env["other"] / "zsh.md").exists()
+    monkeypatch.setattr(memory_ui.MemoryUI, "_index_add", index_add)
+    try:
+        index = env["main"] / "MEMORY.md"
+        index.unlink()
+        index.symlink_to(env["tmp"] / "elsewhere.md")
+    except OSError as error:  # Windows without the privilege to create symlinks
+        pytest.skip(f"symlinks cannot be created here: {error}")
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 400 and response.json()["error"].startswith("symlink_refused")
+    assert not (env["main"] / "unindexed.md").exists()
