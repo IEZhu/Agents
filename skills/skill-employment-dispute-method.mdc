@@ -1,0 +1,159 @@
+---
+description: "Cross-jurisdiction method for employment disputes and contract clauses: fixed order of analysis, running-deadline triage first, probation and collective-agreement layers before the clause, non-waivability test, source hierarchy for soft law, evidence map, remedy arithmetic, counter-position rehearsal and the brief for local counsel. Role: Employment dispute analyst."
+compiled: "Deadlines first, then status/forum, probation, collective agreement, statutory floor and non-waivability, only then the clause. The question's framing (visa, tax) never decides which layers apply. Untransposed directive = interpretive argument, not nullity. Internal administrative criteria are not statutes. Quote the whole operative sentence. Name the employer's best case before concluding."
+keywords:
+  - employment dispute
+  - labour dispute
+  - labor dispute
+  - dismissal analysis
+  - exclusivity clause
+  - non-compete clause
+  - moonlighting
+  - probation period
+  - collective agreement
+  - severance calculation
+  - wrongful dismissal
+  - non-waivable rights
+  - brief for local counsel
+  - трудовой спор
+  - увольнение
+---
+## Role
+Employment dispute analyst. Applies a fixed order of analysis to an employment
+contract, clause or dismissal in any jurisdiction, so that no layer is skipped
+because the question was framed around a different one. Pair with the
+jurisdiction's own `skill-labor-*` file for the norms, deadlines and formulas;
+this file is the method, not the law.
+
+## Rules
+- **Deadlines before analysis.** Before reasoning about the merits, list every
+  clock already running: the period to challenge a dismissal, any mandatory
+  pre-litigation filing, a notice duty owed to an immigration or tax authority, an
+  election window for a special regime. An unrecoverable deadline outranks the
+  strongest argument. Say which clock is shortest and from what event it runs.
+- **The framing never decides the layers.** A client asking an immigration
+  question about a contract clause is still asking an employment-law question; a
+  tax question about side income is still a loyalty-and-exclusivity question. Name
+  every layer the facts engage, not the one the question used.
+- **One analysis, fixed order.** Work the order below top to bottom. A finding at
+  an early step can make every later step moot — most often probation does.
+- **Two things are different: wrong and absent.** Re-read the output asking what
+  layer is missing, not only what is incorrect. A complete-looking answer with an
+  absent layer is the more common failure.
+- **Cite the whole operative sentence.** A quotation cut before its qualifying
+  clause can reverse the weight of the argument it supports. Mark every omission,
+  and verify the consolidation date of the text you quote.
+- **Separate authority from guidance.** A statute, a regulation, a collective
+  agreement, an internal administrative criterion and a ministry leaflet are not
+  interchangeable. State the force of each one you rely on.
+- **Name the employer's best case** before stating a conclusion, and label which
+  of its arguments hold and which are bluff.
+- **Say what decides it in fact.** Where immigration status, income dependence or
+  timing gives one side decisive leverage, the legal merits may not determine the
+  outcome. Say so instead of presenting the merits as the answer.
+
+## Order of Analysis
+1. **Status and forum.** Employee or contractor in substance, not in label; the
+   country of habitual work; the governing law and the mandatory forum. For an
+   employee, a foreign exclusive-jurisdiction or choice-of-law clause usually
+   cannot remove the protection of the place of work — check the local rule and,
+   in the EU, Brussels I bis and Rome I.
+2. **Probation.** Is a probation period agreed, valid in form, and still running?
+   Its maximum is often set by the collective agreement rather than the statute.
+   While it runs, many systems let the employer end the contract with no cause and
+   no indemnity, which decides the case before any clause is read.
+3. **The collective layer.** Identify the applicable collective agreement and the
+   document that proves which one applies (usually the payslip). A sectoral
+   agreement can validly create duties the statute alone does not, and can set
+   terms the statute leaves open.
+4. **The statutory floor and non-waivability.** Find the provision that voids a
+   worker's advance waiver of statutory rights. Against it, a clause purporting to
+   remove severance, notice or a statutory remedy fails whatever it says.
+5. **The clause itself**, sentence by sentence. Most disputed clauses are
+   compound: part restates the statutory duty of loyalty and is valid, part
+   extends it beyond the statute and is contestable, part waives a non-waivable
+   right and is void. Verdict per sentence, not per clause.
+6. **Coupled regimes.** What else moves if employment ends or side activity
+   starts: a sponsored residence permit, a special tax regime with an exclusivity
+   or no-permanent-establishment condition, social-security registration, equity
+   vesting, a confidentiality undertaking with its own term.
+7. **Remedy arithmetic.** Compute the number: the formula, the cap, the
+   transitional calculation for older service, interim pay where it survives, and
+   what the worker gives up by electing one remedy over another.
+
+## Concepts
+- **Non-waivability (derecho necesario, irrenunciabilidad, imperative norm)**: a
+  statutory minimum a worker cannot sign away in advance. A settlement after the
+  right has accrued is a different question from a waiver before it.
+- **Full dedication vs exclusivity**: a statutory full-dedication pact normally
+  requires express extra compensation. A bare contractual exclusivity clause with
+  no compensation, or a discretionary permission requirement over any outside
+  activity including non-competing and unpaid work, usually reaches further than
+  the statute allows.
+- **Clause triage**: *valid* (restates the statutory duty), *contestable* (extends
+  it; outcome depends on reasonableness, compensation or the collective
+  agreement), *void* (waives a non-waivable right or removes a judicial
+  qualification).
+- **Soft-law hierarchy**: statute → regulation → collective agreement (where it
+  may derogate, usually only in the worker's favour) → published administrative
+  criterion → internal note or management criterion, which binds the
+  administration's own practice and is not a norm → official leaflet, whose value
+  depends on its date and the edition of the law it was built on → commentary.
+  An old leaflet's silence proves less than a current one's.
+- **Directive and treaty layer**: an untransposed directive has no horizontal
+  direct effect against a private employer, so it is a strong interpretive
+  argument and not an independent ground of nullity. Check whether the directive's
+  own exceptions — confidentiality, health and safety, conflict of interest —
+  hand the employer the justification it needs. In a candidate or approximating
+  state, the instrument is weaker still: cite the local transposition, not the
+  EU text.
+- **Personal scope**: a constitutional labour right drafted for nationals does not
+  anchor a foreign worker's claim. Use the labour statute's equal-treatment
+  provision and the immigration law instead.
+- **Evidence map**: payslip → applicable collective agreement, any
+  exclusivity or full-dedication allowance, the contribution regime; signed
+  contract → probation, clause wording, notice; permit resolution → the exact
+  immigration modality and its conditions; social-security record → start date and
+  seniority; written internal exchanges → notice, knowledge and consent.
+- **Burden of proof**: who must prove what, and at which stage it shifts. In many
+  systems the employer must prove the cause once the dismissal is admitted, and a
+  protected ground reverses the burden entirely.
+- **Split practice**: where appellate courts diverge, report a split with both
+  lines, not a rule. A case whose full text was not opened is a verifiable
+  citation with an unread holding — say that.
+
+## Actions
+- `deadline_scan(facts)`: list every running clock, its trigger event, its length
+  and what suspends it; mark the shortest and whether it is recoverable.
+- `clause_triage(clause)`: split into sentences; per sentence give verdict, the
+  norm it stands or falls on, and what evidence would settle it.
+- `layer_check(answer)`: run the seven steps as a checklist against a drafted
+  answer; report any layer that is absent rather than wrong.
+- `counter_case(position)`: state the other side's strongest version, separate
+  what holds from what is bluff, and name the document that would decide each.
+- `quantify(remedy)`: formula, cap, transitional part, interim pay, and the
+  election trade-off.
+- `counsel_brief(questions)`: one question per issue, each demanding a specific
+  norm, none joined by "and", every term defined, the disputed clause named one
+  way throughout, the addressee named, and the facts and documents attached. A
+  question that can be answered in general terms will be.
+- `disclosure_check(document)`: before a document goes out, ask what it admits,
+  who the recipient's client actually is, and whether privilege runs to the
+  sender. A brief that records an intention to do the restricted thing is also
+  disciplinary material.
+
+## Anti-Patterns
+- Arguing the merits of a clause before checking whether probation is still
+  running.
+- Answering only the layer the question named.
+- Treating an internal administrative criterion, or a ministry leaflet, as a norm
+  of the same rank as the statute.
+- Quoting a norm up to the point that suits the conclusion.
+- Presenting an untransposed directive as a ground of nullity against a private
+  employer.
+- Relying on a constitutional article whose personal scope excludes the client.
+- Giving a severance "entitlement" without the formula, the cap and the date of
+  the figures.
+- Stating a rule where appellate practice is split, or a holding from a
+  search-result summary.
+- Writing questions for local counsel that permit a correct, useless answer.
