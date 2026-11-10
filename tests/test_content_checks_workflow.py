@@ -101,6 +101,7 @@ def run_commands(path):
 
 
 def workflows_running(test_file):
+    """Every workflow with at least one step that passes this file to pytest."""
     return [p for p in WORKFLOWS if pytest_steps(p, test_file)]
 
 
@@ -126,6 +127,7 @@ def is_unconditional(job, step):
 
 
 def test_the_test_files_exist():
+    """A name in CONTENT_CHECKS that no longer exists would make its case vacuous."""
     for name in CONTENT_CHECKS:
         assert (ROOT / name).is_file(), f"{name} is listed here but not in the tree"
 
@@ -186,6 +188,7 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
     "/usr/bin/pytest tests/test_skill_freshness.py",
 ])
 def test_the_matcher_accepts_a_real_pytest_invocation(command):
+    """The forms this repository actually writes: python -m, bare, mid-list, absolute."""
     assert runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
 
 
@@ -198,6 +201,7 @@ def test_the_matcher_accepts_a_real_pytest_invocation(command):
     "ruff check tests/test_skill_freshness.py",
 ])
 def test_the_matcher_rejects_what_does_not_run_the_file(command):
+    """Naming it is not running it: an echo, a neighbouring path, a suffix, another tool."""
     assert not runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
 
 
@@ -242,6 +246,7 @@ def test_the_schedule_reader_reports_a_malformed_entry_instead_of_raising(
 
 
 def test_the_schedule_reader_handles_a_workflow_with_no_schedule():
+    """No schedule is not malformed, so it reports no crons and no problem."""
     assert schedule_crons({"on": {"pull_request": None}}) == ([], None)
     assert schedule_crons({}) == ([], None)
 
