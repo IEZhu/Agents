@@ -87,10 +87,13 @@ def confirmed_tag_target(api, tag):
     answering None at once for a name that is genuinely free, and keeps raising an unreadable tag
     object for the first read of a release, so publishing a new one never pays for these retries.
     An object that is still unreadable when the waiting ends keeps its own error instead of passing
-    for a missing tag: an unknown target is not a changed one, and the caller would say it was.
+    for a missing tag: an unknown target is not a changed one, and the caller would say it was. That
+    error outlives a later attempt that found the name gone, because reads which first showed the
+    name and then did not are lagging as readily as the tag is deleted, and the read that failed is
+    the one fact among them. The caller would otherwise pick one of those stories and report it.
     """
+    unreadable = None
     for attempt in range(TAG_READ_ATTEMPTS):
-        unreadable = None
         try:
             target = tag_target(api, tag)
         except HTTPError as error:

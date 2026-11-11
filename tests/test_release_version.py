@@ -283,6 +283,24 @@ def test_an_annotated_object_that_stays_unreadable_keeps_its_own_error(monkeypat
     assert sum(path.startswith("/git/tags/") for _, path, _ in api.calls) == release.TAG_READ_ATTEMPTS
 
 
+def test_a_mixed_sequence_of_404s_reports_the_read_that_failed(monkeypatch):
+    """A name seen with an unreadable object and then not at all is no proof that it was removed."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+    obj = "c" * 40
+
+    class Vanishing(API):
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/tags/"):
+                self.calls.append((method, path, data))
+                self.tags.clear()  # whichever replica serves the next ref read has no tag under it
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Vanishing(race={"type": "tag", "sha": obj}, tag_objects={obj: {"type": "commit", "sha": SHA}})
+    with pytest.raises(HTTPError) as error:
+        release.publish(promotion(), REPO, api)
+    assert error.value.code == 404  # not the 422, which would claim the name is taken by another object
+
+
 def test_both_names_conflict_fails_and_preserves_tags():
     tags = {"v26.10.14.1200": OTHER, "v26.10.14.1200-pr381": OTHER}
     api = API(tags=tags)
