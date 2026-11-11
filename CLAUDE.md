@@ -402,11 +402,11 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 
 - `src/engine/` — retrieval and protocol core: `persona.py`/`persona_bundle.py` (stateless protocol-2 handlers, all-or-nothing bundles), `router.py`, `enrichment.py`, the embedding stack (`onnx_embedding.py`, `vector_store.py`, `fingerprint.py`, `readiness.py`), the delegation stack (`subagent*.py`, where `subagent_exchange.py` holds the private package and stored contract), and `protocol_text.py` over `protocol/`, the 20 section files every protocol surface comes from.
 - `src/memory/` — the four memory tools; `config.py:22-23` owns this block's markers.
-- `src/daemon/` — the shared service, its control CLI and `mcp_proxy/`; importing it never loads the engine. Its web UI (`flows_ui.html`) has seven tabs — agents, flows, implants, skills, rules, history, memory — served by `flows_ui.py` and the per-tab modules beside it, newest `memory_ui.py` with `client_dirs.py`.
+- `src/daemon/` — the shared service, its control CLI and `mcp_proxy/`; importing it never loads the engine. Its web UI (`flows_ui.html`) has seven tabs — agents, flows, implants, skills, rules, history, memory — served by `flows_ui.py` and the per-tab modules beside it.
 - `src/artifacts/`, `src/cooperation/` — pinned text artifacts for workers; the mailbox, requests and agreements between sessions.
 - `src/instruction_signing/`, `src/local_inference/`, `src/schedules/`, `src/user_sync/`, `src/context_compaction/` — local authority and trust (enforcement still planned), optional disabled-by-default completions, scheduled runs and the autodev runner, personal library sync through a private git repository, opt-in client compaction.
-- Easy to miss: `src/utils/` (prompt loader, TTL cache, Langfuse shim) and `src/mcp_servers/` (a bundled `document_ocr/` server). Top-level modules cover flows (`flows.py`, `user_flows.py`, `flow_execution.py`), the personal library (`user_rules.py`, `component_toggles.py`) and client integration (`client_instructions.py`, `client_paths.py`, `mcp_registry.py`).
-- `agents/`, `skills/`, `implants/`, `rules/`, `flows/` — the content library, validated by `agents/common/agent-schema.json`. `docs/README.md` maps the documentation, `docs/mcp-tools.md` the tools and `docs/features.md` the client matrix.
+- Easy to miss: `src/utils/` and `src/mcp_servers/` (a bundled `document_ocr/` server). Top-level modules cover flows (`flows.py`, `user_flows.py`, `flow_execution.py`), the personal library (`user_rules.py`, `component_toggles.py`) and client integration (`client_instructions.py`, `client_paths.py`, `mcp_registry.py`).
+- `agents/`, `skills/`, `implants/`, `rules/`, `flows/` — the content library; `agents/common/agent-schema.json` validates persona frontmatter alone (`scripts/validate_agents.py`). `docs/README.md` maps the documentation, `docs/mcp-tools.md` the tools and `docs/features.md` the client matrix.
 
 ### Conventions
 
@@ -428,11 +428,11 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 
 ### Architecture Patterns
 
-Protocol 2 is stateless on the server. `route_and_load` answers `ROUTE_REQUIRED` only when it cannot pick an agent itself; on a cache hit or a meta query it returns `SUCCESS` or `NO_CHANGE` directly, so a caller follows the status it got. A `SUCCESS` carries a descriptor plus four blocks replacing the previous four; a `NO_CHANGE` carries none. Activation state lives in the caller's dialogue, and `replaces_activation_id` (null on a first activation) lets a stale reply be ignored.
+Protocol 2 is stateless on the server. `route_and_load` answers `ROUTE_REQUIRED` only when it cannot pick an agent itself; on a cache hit or a meta query it returns `SUCCESS` or `NO_CHANGE` directly, so a caller follows the status it got. A `SUCCESS` carries a descriptor plus four blocks replacing the previous four; a `NO_CHANGE` carries the descriptor and footer without them. Activation state lives in the caller's dialogue, and `replaces_activation_id` (null on a first activation) lets a stale reply be ignored.
 
 Retrieval is local and lazy. `readiness.py` warms the ONNX model and the NumPy stores in one daemon thread. Discovery tools are ungated; retrieval tools wait at most `WARMUP_WAIT_SECONDS` (20 by default), then answer `warming_up` rather than hanging. `fingerprint.py` mixes the embedding contract into derived indexes, so a model change invalidates them.
 
-Delegation is a contract, not a prompt. `get_subagent_context` writes a task-scoped package to a private 0600 file and keeps the contract by revision, returning a receipt whose `launch` text the host feeds to a fresh native worker; `validate_subagent_result` checks the worker's exact bytes against it, structurally only, under depth, node and size limits. Shared inputs travel as `src/artifacts/` manifests pinned into the contract. No MCP tool spawns a worker: the host owns execution and limits, and generation exists only in the disabled-by-default `src/local_inference/`.
+Delegation is a contract, not a prompt. `get_subagent_context` writes a task-scoped package to a private 0600 file and keeps the contract by revision, returning a receipt whose `launch` text the host feeds to a fresh native worker; `validate_subagent_result` checks the worker's exact bytes against it, structurally only, under depth, node and size limits. Shared inputs travel as `src/artifacts/` manifests pinned into the contract. No MCP tool spawns a worker: the host owns execution and limits, and in-process generation exists only in the disabled-by-default `src/local_inference/`, though the autodev runner starts CLI processes (`src/schedules/worker_launch.py:397`).
 
 ### Test Strategy
 
@@ -441,7 +441,7 @@ Delegation is a contract, not a prompt. `get_subagent_context` writes a task-sco
 ### Gotchas
 
 - Never edit, commit, reset or switch branches in the checkout the daemon runs from (default `~/.agents-core`); reading it is fine.
-- `requirements.txt` declares neither `langdetect` (a `pyproject.toml` dependency, needed by `tests/test_language.py`) nor `openai` (the `evals` extra), and no file declares `markdown-it-py`, which `scripts/check_docs.py` imports: CI installs it as `markdown-it-py>=3,<5`.
+- `requirements.txt` declares neither `langdetect` (a `pyproject.toml` dependency, needed by `tests/test_language.py`) nor `openai` (the `evals` extra), and neither file declares `markdown-it-py`, which `scripts/check_docs.py` imports: CI installs it as `markdown-it-py>=3,<5`.
 - Live runtime state is split, and a worktree is not exempt. Worker packages, session locks and indexes sit in the *installation* root's `data/`, which defaults to the running source tree but is configurable, so the tree to check is the installation's. Losing it loses the stored contracts, after which `validate_subagent_result` answers `contract_unknown`. The artifact store sits in the service-state directory (`AGENTS_SERVICE_DIR`). `git status --short --ignored` says whether a worktree still has none, because `git worktree remove` deletes what it finds.
 - A Windows run collects fewer tests by design: `tests/conftest.py:64` drops every `tests/test_local_inference_*` file on non-POSIX platforms.
 - The personal flow library lives in the installation's git-ignored `flows/.user`. The kinds that sync are `common`, `personas`, `history`, `components` and `mcp` (`src/user_sync/scope.py:43`), and per-repository groups under them sync as well once portable.

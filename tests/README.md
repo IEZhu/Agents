@@ -117,7 +117,7 @@ interpreter that runs the checker, at the version bound CI pins
 .venv/bin/python -m pip install 'markdown-it-py>=3,<5'
 ```
 
-It ignores inline/fenced examples, checks local paths and rendered
+The checker ignores inline/fenced examples, checks local paths and rendered
 heading/HTML anchors, and compares `docs/mcp-tools.md` with source registrations
 using AST reads. It does not fetch external URLs. `--skip-tool-index` selects
 navigation only. `tests/test_check_docs.py` checks the parser, path boundaries,
