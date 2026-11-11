@@ -108,8 +108,16 @@ importing the server, loading a model or starting a service:
 ```
 
 The default checks tracked `.md` files; explicit paths also cover new documents
-before they are staged. The checker uses `markdown-it-py` from the project
-environment, ignores inline/fenced examples, checks local paths and rendered
+before they are staged. The checker needs `markdown-it-py`, which neither
+`requirements.txt` nor `pyproject.toml` declares. Install it with the same
+interpreter that runs the checker, at the version bound CI pins
+(`.github/workflows/documentation-quality.yml`):
+
+```bash
+.venv/bin/python -m pip install 'markdown-it-py>=3,<5'
+```
+
+It ignores inline/fenced examples, checks local paths and rendered
 heading/HTML anchors, and compares `docs/mcp-tools.md` with source registrations
 using AST reads. It does not fetch external URLs. `--skip-tool-index` selects
 navigation only. `tests/test_check_docs.py` checks the parser, path boundaries,
