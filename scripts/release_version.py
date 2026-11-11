@@ -6,11 +6,15 @@ import os
 from pathlib import Path
 import re
 import sys
+from time import sleep
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src import calendar_version
+
+TAG_READ_ATTEMPTS = 3
+TAG_READ_DELAY = 2  # seconds; only a read that contradicts a known tag waits this long
 
 
 class GitHub:
@@ -71,6 +75,23 @@ def tag_target(api, tag):
     while target["type"] == "tag":
         target = api.request("GET", f"/git/tags/{target['sha']}")["object"]
     return target["type"], target["sha"]
+
+
+def confirmed_tag_target(api, tag):
+    """Resolve a tag the API has already shown to exist, through replication lag.
+
+    A ref read moments after a write can still answer 404 from a replica that has not caught up,
+    which a caller that already knows the name is taken would read as a deleted tag and report as
+    a failure. Only such callers wait here; tag_target keeps answering None at once for a name
+    that is genuinely free, so publishing a new release never pays for these retries.
+    """
+    for attempt in range(TAG_READ_ATTEMPTS):
+        target = tag_target(api, tag)
+        if target is not None:
+            return target
+        if attempt + 1 < TAG_READ_ATTEMPTS:
+            sleep(TAG_READ_DELAY)
+    return None
 
 
 def commit_time(commit):
@@ -148,18 +169,22 @@ def publish(event, repository, api):
         if existing is not None:
             continue
         try:
-            api.request("POST", "/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha})
+            created = api.request("POST", "/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha})
         except HTTPError as error:
             if error.code != 422:
                 raise
             # The same or another merge may have created the name concurrently.
-            existing = tag_target(api, tag)
+            existing = confirmed_tag_target(api, tag)
             if existing == ("commit", sha):
                 return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source, **metadata}
             if existing is not None:
                 continue
             raise
-        if tag_target(api, tag) != ("commit", sha):
+        # The create answers with the ref it wrote, so the tag is confirmed from the write itself.
+        # Reading the name back here instead would fail a correct release whenever the replica
+        # serving that read still had no tag under it.
+        written = created.get("object") or {}
+        if (created.get("ref"), written.get("type"), written.get("sha")) != (f"refs/tags/{tag}", "commit", sha):
             raise RuntimeError(f"Created tag {tag} does not target the merge commit")
         return {"status": "created", "version": version, "tag": tag, "sha": sha, "source": source, **metadata}
     if metadata:
@@ -211,7 +236,7 @@ def publish_release(event, repository, api):
             and existing.get("draft") is False and existing.get("prerelease") is False
             and existing.get("published_at")):
         raise RuntimeError(f"Tag {tag} has no matching published stable release; inspect it manually")
-    if tag_target(api, tag) != ("commit", sha):
+    if confirmed_tag_target(api, tag) != ("commit", sha):
         raise RuntimeError(f"Release tag {tag} no longer targets the merge commit")
     return {**result, "github_release": status,
             "release_url": f"https://github.com/{repository}/releases/tag/{tag}"}
