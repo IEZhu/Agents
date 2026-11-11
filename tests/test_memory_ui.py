@@ -505,6 +505,66 @@ async def test_a_failed_create_without_hard_links_leaves_no_item(daemon, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_a_failed_create_keeps_an_item_another_session_installed(daemon, monkeypatch):
+    """Giving the name back removes a name, so a name that now holds another file is left alone."""
+    http, env = daemon
+    target, fsync = env["main"] / "partial.md", os.fsync
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def full_disk_after_a_replacement(descriptor):
+        try:  # only the file created under its own name, never the temporary file beside it
+            created = os.fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            created = False
+        if created:  # another session installs its own file under the name, as a save would
+            theirs = target.with_name("theirs.md")
+            theirs.write_text("theirs\n", encoding="utf-8")
+            os.replace(theirs, target)
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return fsync(descriptor)
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fsync", full_disk_after_a_replacement)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert target.read_text(encoding="utf-8") == "theirs\n"
+
+
+@pytest.mark.asyncio
+async def test_a_create_that_cannot_be_wrapped_leaves_no_item(daemon, monkeypatch):
+    """The descriptor is wrapped only after the name is taken, so that failure gives it back too."""
+    http, env = daemon
+    target, fdopen = env["main"] / "partial.md", os.fdopen
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def too_many_streams(descriptor, *arguments, **options):
+        try:  # only the file created under its own name, never the temporary file beside it
+            created = os.fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            created = False
+        if created:
+            raise OSError(errno.EMFILE, "Too many open files")
+        return fdopen(descriptor, *arguments, **options)
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fdopen", too_many_streams)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert not target.exists()
+    assert not [name for name in os.listdir(env["main"]) if name.startswith(".memory-")]
+
+
+@pytest.mark.asyncio
 async def test_a_version_written_while_deleting_is_kept(daemon, monkeypatch):
     http, env = daemon
     await login(http)

@@ -266,22 +266,50 @@ def _read(path: Path) -> bytes:
         return stream.read()
 
 
+def _unlink_created(path: Path, created: os.stat_result) -> None:
+    """Takes back a name, and only while it still holds the very file ``created`` describes.
+
+    A failed write must leave no short item under the name, and must not take down an item another
+    process installed there meanwhile: unlink removes a name, not an inode, so a name that now
+    holds a different file is left alone, and ``lstat`` keeps a symlink put in the way from being
+    followed, which never matches either. The check and the unlink are two calls, so a replacement
+    that lands between them is still lost; POSIX joins them with nothing, and never cleaning up
+    would lose this call's own item under the name every time instead.
+    """
+    try:
+        current = os.lstat(path)
+    except OSError:
+        return
+    if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     """Creates ``path`` on a file system that has no hard links, without replacing anything.
 
     ``O_EXCL`` keeps the create contract that a file which appeared since the check is never lost; a
     rename would overwrite it. Without hard links nothing installs a finished file under a new name
     at once, so the content goes into the final name and a reader can see the item while it is still
-    short, which the hard-link path avoids. A write that fails gives the name back, and the mode goes
-    through the descriptor, which a symlink put in the way after the create cannot redirect."""
+    short, which the hard-link path avoids. A failure anywhere after the create gives the name back
+    through _unlink_created, so no short item is left under it, and the mode goes through the
+    descriptor, which a symlink put in the way after the create cannot redirect."""
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
     except FileExistsError:
         raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
+    created = os.fstat(fd)  # the identity the cleanup below unlinks by, read before anything else
     try:
         stream = os.fdopen(fd, "wb")
     except BaseException:
-        os.close(fd)
+        try:
+            os.close(fd)
+        except OSError:  # fdopen may have closed it on its way out
+            pass
+        _unlink_created(path, created)
         raise
     try:
         with stream:
@@ -291,10 +319,7 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
             stream.flush()
             os.fsync(stream.fileno())
     except BaseException:
-        try:
-            os.unlink(path)  # this call took the name, so a failed write leaves no item under it
-        except OSError:
-            pass
+        _unlink_created(path, created)
         raise
 
 
