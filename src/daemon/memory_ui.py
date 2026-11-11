@@ -279,12 +279,19 @@ def _unlink_matching(path: Path, created: os.stat_result) -> bool:
 
     Unlink removes a name, not an inode, so a name that now holds another process's file is left
     alone, and ``lstat`` keeps a symlink put in the way from being followed, which never matches
-    either.
+    either. An identity this cannot trust removes nothing: a name it failed to read may hold
+    anything, and a file system that numbers no file, as some without hard links do not, makes the
+    numbers of two different files equal. Leaving an item that nobody meant to keep is recoverable,
+    because its owner sees it and a create under its name says so; deleting one is not.
     """
     try:
         current = os.lstat(path)
-    except OSError:
+    except FileNotFoundError:
         return True  # nothing under the name any more
+    except OSError:
+        return False  # the name cannot be read, so what it holds is unknown
+    if not created.st_ino:
+        return False  # nothing identifies the created file, so no name can be shown to hold it
     if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
         return True  # the name holds another file now, which is not this call's to take down
     try:
@@ -301,7 +308,9 @@ def _settle_created(path: Path, fd: int, created: os.stat_result) -> None:
     numbers proof: a file system cannot recycle an inode something still references, so no file
     appearing under the name later can carry it. A platform that refuses to remove a name while it
     is open needs the attempt after the close, and the same rule keeps that one sound, because such
-    a platform also refused to let anything else replace the name while it was open.
+    a platform also refused to let anything else replace the name while it was open. Where neither
+    attempt can show that the name still holds the created file, the item stays for its owner to
+    see and remove, which is the recoverable half of that choice.
     """
     removed = _unlink_matching(path, created)
     _close(fd)
@@ -318,7 +327,8 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     short, which the hard-link path avoids. The descriptor stays open until the name is settled, so
     a failure anywhere after the create gives the name back through _settle_created without taking
     another process's file for this one, and the mode goes through that descriptor, which a symlink
-    put in the way after the create cannot redirect."""
+    put in the way after the create cannot redirect. No rollback here can be both complete and
+    safe, so an identity that cannot be trusted keeps the item instead of risking another one."""
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
     except FileExistsError:
@@ -326,11 +336,10 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     try:
         created = os.fstat(fd)  # the identity every cleanup below compares, read before anything else
     except BaseException:
+        # Nothing identifies the new file, so the name cannot be taken back: by the time it could
+        # be, another process may have installed its own file under it, and this empty item is not
+        # worth that. It stays for its owner, who sees it and gets file_exists for the name.
         _close(fd)
-        try:  # no identity to compare and nothing written yet, so the bare name goes back
-            os.unlink(path)
-        except OSError:
-            pass
         raise
     try:
         # closefd=False keeps the descriptor past the stream, so the cleanup still holds the file

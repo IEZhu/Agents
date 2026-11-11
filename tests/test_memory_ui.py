@@ -584,33 +584,130 @@ async def test_a_failed_create_still_holds_its_file_while_it_takes_the_name_back
 
 
 @pytest.mark.asyncio
-async def test_a_create_whose_identity_cannot_be_read_leaves_no_item(daemon, monkeypatch):
-    """The identity the cleanup compares is read first, so that read failing frees the name too."""
+async def test_a_create_whose_identity_cannot_be_read_keeps_the_name(daemon, monkeypatch):
+    """With nothing identifying the new file, the name is not this call's to take back any more."""
     http, env = daemon
     target, fstat = env["main"] / "partial.md", os.fstat
+    refused = []
 
     def no_links(source, destination):
         raise OSError(errno.ENOTSUP, "hard links are not supported here")
 
-    def unreadable(descriptor):
+    def unreadable_once(descriptor):
         record = fstat(descriptor)
         try:  # only the file created under its own name, never the temporary file beside it
             created = record.st_ino == os.stat(target).st_ino
         except OSError:
             created = False
-        if created:
+        if created and not refused:
+            refused.append(True)
             raise OSError(errno.EIO, "Input/output error")
         return record
 
     await login(http)
     monkeypatch.setattr(os, "link", no_links)
-    monkeypatch.setattr(os, "fstat", unreadable)
+    monkeypatch.setattr(os, "fstat", unreadable_once)
     main, _ = stores(env)
     body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
     response = await http.put("/ui/api/memory/file", json=body, headers=UI)
     assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
-    assert not target.exists()
+    assert target.exists()  # its owner sees the empty item and can remove it; a deleted one is gone
+    again = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert again.status_code == 409 and again.json()["error"].startswith("file_exists")
     assert not [name for name in os.listdir(env["main"]) if name.startswith(".memory-")]
+
+
+@pytest.mark.asyncio
+async def test_a_name_that_cannot_be_read_is_not_taken_for_a_removed_one(daemon, monkeypatch):
+    """A name that answers something other than absence may hold anything, this call's file included."""
+    http, env = daemon
+    target, fsync, lstat = env["main"] / "partial.md", os.fsync, os.lstat
+    failing, refused = [], []
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def full_disk(descriptor):
+        try:  # only the file created under its own name, never the temporary file beside it
+            created = os.fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            created = False
+        if created:
+            failing.append(True)
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return fsync(descriptor)
+
+    def unreadable_once(name, **options):
+        if failing and not refused and Path(name) == target:
+            refused.append(True)  # the attempt that runs while the descriptor is still open
+            raise OSError(errno.EIO, "Input/output error")
+        return lstat(name, **options)
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fsync", full_disk)
+    monkeypatch.setattr(os, "lstat", unreadable_once)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert refused == [True] and not target.exists()  # the second attempt read the name and freed it
+
+
+@pytest.mark.asyncio
+async def test_a_failed_create_keeps_a_replacement_where_files_carry_no_number(daemon, monkeypatch):
+    """Some file systems without hard links number no file, so every identity there is equal."""
+    http, env = daemon
+    target, fsync = env["main"] / "partial.md", os.fsync
+    fstat, lstat, replaced = os.fstat, os.lstat, []
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def is_created(descriptor):  # the file created under its own name, not the temporary beside it
+        try:
+            return fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            return False
+
+    def numberless(record):
+        fields = list(record)
+        fields[1] = 0  # st_ino, which such a file system leaves unset for every file alike
+        return os.stat_result(tuple(fields))
+
+    def numberless_fstat(descriptor):
+        record = fstat(descriptor)
+        return numberless(record) if is_created(descriptor) else record
+
+    def numberless_lstat(name, **options):
+        record = lstat(name, **options)
+        return numberless(record) if Path(name) == target else record
+
+    def full_disk_after_a_replacement(descriptor):
+        if not is_created(descriptor):
+            return fsync(descriptor)
+        theirs = target.with_name("theirs.md")  # another session installs its own file, as a save would
+        theirs.write_text("theirs\n", encoding="utf-8")
+        try:
+            os.replace(theirs, target)
+            replaced.append(True)
+        except OSError:  # a platform that holds an open name in place refuses this
+            theirs.unlink()
+            replaced.append(False)
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fsync", full_disk_after_a_replacement)
+    monkeypatch.setattr(os, "fstat", numberless_fstat)
+    monkeypatch.setattr(os, "lstat", numberless_lstat)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    if replaced != [True]:  # such a platform keeps anything else from replacing that name as well
+        pytest.skip("this platform refuses to replace a name while its descriptor is open")
+    assert target.read_text(encoding="utf-8") == "theirs\n"
 
 
 @pytest.mark.asyncio
