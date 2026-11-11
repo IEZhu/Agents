@@ -247,6 +247,25 @@ def test_a_concurrent_create_is_reused_after_a_lagging_ref_read(monkeypatch):
     assert release.publish(promotion(), REPO, api)["status"] == "existing"
 
 
+def test_a_concurrent_annotated_tag_is_reused_after_a_lagging_object_read(monkeypatch):
+    """A ref can reach a replica before the annotated tag object it points at, and that 404 is lag too."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+    obj = "c" * 40
+
+    class Lagging(API):
+        lag = 1
+
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/tags/") and self.lag:
+                self.lag -= 1
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Lagging(race={"type": "tag", "sha": obj}, tag_objects={obj: {"type": "commit", "sha": SHA}})
+    assert release.publish(promotion(), REPO, api)["status"] == "existing"
+    assert sum(method == "POST" for method, _, _ in api.calls) == 1
+
+
 def test_both_names_conflict_fails_and_preserves_tags():
     tags = {"v26.10.14.1200": OTHER, "v26.10.14.1200-pr381": OTHER}
     api = API(tags=tags)

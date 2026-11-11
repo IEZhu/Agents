@@ -82,11 +82,18 @@ def confirmed_tag_target(api, tag):
 
     A ref read moments after a write can still answer 404 from a replica that has not caught up,
     which a caller that already knows the name is taken would read as a deleted tag and report as
-    a failure. Only such callers wait here; tag_target keeps answering None at once for a name
-    that is genuinely free, so publishing a new release never pays for these retries.
+    a failure. An annotated tag lags in two places, the ref and the object it points at, so a 404
+    from either one waits here. Only callers that know the name is taken wait: tag_target keeps
+    answering None at once for a name that is genuinely free, and keeps raising an unreadable tag
+    object for the first read of a release, so publishing a new one never pays for these retries.
     """
     for attempt in range(TAG_READ_ATTEMPTS):
-        target = tag_target(api, tag)
+        try:
+            target = tag_target(api, tag)
+        except HTTPError as error:
+            if error.code != 404:
+                raise
+            target = None  # the ref arrived before the annotated tag object it points at
         if target is not None:
             return target
         if attempt + 1 < TAG_READ_ATTEMPTS:
