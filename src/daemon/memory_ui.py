@@ -53,6 +53,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -237,14 +238,25 @@ def _links_unsupported(error: OSError) -> bool:
 
 def _open(path: Path):
     """``path`` opened for reading without following a symlink, also one that replaced the file since
-    it was listed; a symlink or junction is refused."""
+    it was listed; a symlink, a junction and anything that is not a regular file are refused.
+
+    ``O_NONBLOCK`` keeps the open itself from waiting. A FIFO under an item's name would otherwise
+    hold ``O_RDONLY`` until some process opened it for writing, and a save reads the file it is about
+    to replace while it holds the page's lock, so one such entry would stall every later write."""
     if is_link(path):
         raise MemoryRefused("symlink_refused", f"{path.name} is a symlink")
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
     except OSError as error:
         if error.errno == errno.ELOOP:  # O_NOFOLLOW met a symlink
             raise MemoryRefused("symlink_refused", f"{path.name} is a symlink") from None
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise MemoryRefused("not_a_file", f"{path.name} is not a regular file")
+    except BaseException:
+        os.close(fd)
         raise
     return os.fdopen(fd, "rb")
 
@@ -254,13 +266,30 @@ def _read(path: Path) -> bytes:
         return stream.read()
 
 
+def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
+    """Creates ``path`` on a file system that has no hard links, without replacing anything.
+
+    ``O_EXCL`` keeps the create contract that a file which appeared since the check is never lost; a
+    rename would overwrite it. The content goes into the final name, so a reader can catch the file
+    while it is still short, which the hard-link path avoids."""
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
+    except FileExistsError:
+        raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(path, mode)
+
+
 def _replace(path: Path, data: bytes, expected: str | None) -> None:
     """Writes ``path`` through a temporary file and a rename, keeping its mode.
 
     ``expected`` is the SHA-256 the file must still have, checked right before the rename. The check
     and the rename are two steps, so a session writing between them loses its version. ``None`` means
     the file must not exist: it is then installed with a hard link, which fails when any file took the
-    name meanwhile, and only a file system without hard links falls back to the checked rename.
+    name meanwhile, and only a file system without hard links falls back to an exclusive create.
     """
     try:
         mode = os.lstat(path).st_mode & 0o777
@@ -285,7 +314,7 @@ def _replace(path: Path, data: bytes, expected: str | None) -> None:
         except OSError as error:
             if not _links_unsupported(error):
                 raise
-            os.replace(temporary, path)
+            _create_exclusively(path, data, mode)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

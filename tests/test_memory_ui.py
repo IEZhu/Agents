@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import errno
 import hashlib
 import json
 import os
@@ -423,6 +424,55 @@ async def test_a_junction_counts_as_a_link(daemon, monkeypatch):
     assert "claude:-junction" not in [row["key"] for row in rows]
     response = await http.get(f"/ui/api/memory?store={main}&project=-junction", headers=UI)
     assert response.status_code == 400 and response.json()["error"].startswith("symlink_refused")
+
+
+@pytest.mark.asyncio
+async def test_a_fifo_under_an_item_name_is_refused_instead_of_holding_the_lock(daemon):
+    """Opening a FIFO for reading waits for a writer, and a save reads under the page's lock."""
+    if os.name != "posix":
+        pytest.skip("mkfifo is POSIX only")
+    http, env = daemon
+    os.mkfifo(env["main"] / "pipe.md")
+    await login(http)
+    main, _ = stores(env)
+    create = {"store": main, "project": env["name"], "file": "pipe.md", "text": "x\n", "sha256": None}
+    try:
+        response = await asyncio.wait_for(http.put("/ui/api/memory/file", json=create, headers=UI), 10)
+    finally:  # a regression leaves a worker thread in open(); a writer releases it so the run can end
+        try:
+            os.close(os.open(env["main"] / "pipe.md", os.O_WRONLY | os.O_NONBLOCK))
+        except OSError:
+            pass  # ENXIO: nobody was waiting, which is what this test asserts
+    assert response.status_code == 400 and response.json()["error"].startswith("not_a_file")
+    later = {"store": main, "project": env["name"], "file": "zsh.md", "text": "after\n",
+             "sha256": sha(env["main"] / "zsh.md")}
+    assert (await http.put("/ui/api/memory/file", json=later, headers=UI)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_creating_without_hard_links_keeps_a_file_that_appeared(daemon, monkeypatch):
+    """Without hard links the create path still must not replace the winner of the name."""
+    http, env = daemon
+    target = env["main"] / "raced.md"
+    check = memory_ui._check
+
+    def lose_the_race(path, expected):
+        check(path, expected)
+        if Path(path) == target:  # another session takes the name between the check and the install
+            target.write_text("from another session\n", encoding="utf-8")
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    monkeypatch.setattr(memory_ui, "_check", lose_the_race)
+    monkeypatch.setattr(os, "link", no_links)
+    await login(http)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "raced.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 409 and response.json()["error"].startswith("file_exists")
+    assert target.read_text(encoding="utf-8") == "from another session\n"
+    assert not [name for name in os.listdir(env["main"]) if name.startswith(".memory-")]
 
 
 @pytest.mark.asyncio
