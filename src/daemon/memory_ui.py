@@ -270,17 +270,32 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     """Creates ``path`` on a file system that has no hard links, without replacing anything.
 
     ``O_EXCL`` keeps the create contract that a file which appeared since the check is never lost; a
-    rename would overwrite it. The content goes into the final name, so a reader can catch the file
-    while it is still short, which the hard-link path avoids."""
+    rename would overwrite it. Without hard links nothing installs a finished file under a new name
+    at once, so the content goes into the final name and a reader can see the item while it is still
+    short, which the hard-link path avoids. A write that fails gives the name back, and the mode goes
+    through the descriptor, which a symlink put in the way after the create cannot redirect."""
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
     except FileExistsError:
         raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.chmod(path, mode)
+    try:
+        stream = os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        raise
+    try:
+        with stream:
+            if hasattr(os, "fchmod"):  # Windows has none; there the mode of os.open stands
+                os.fchmod(stream.fileno(), mode)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        try:
+            os.unlink(path)  # this call took the name, so a failed write leaves no item under it
+        except OSError:
+            pass
+        raise
 
 
 def _replace(path: Path, data: bytes, expected: str | None) -> None:

@@ -476,6 +476,35 @@ async def test_creating_without_hard_links_keeps_a_file_that_appeared(daemon, mo
 
 
 @pytest.mark.asyncio
+async def test_a_failed_create_without_hard_links_leaves_no_item(daemon, monkeypatch):
+    """The exclusive create holds the name before the content is there, so a failure gives it back."""
+    http, env = daemon
+    target, fsync = env["main"] / "partial.md", os.fsync
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def full_disk(descriptor):
+        try:  # only the file created under its own name, never the temporary file beside it
+            created = os.fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            created = False
+        if created:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return fsync(descriptor)
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fsync", full_disk)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert not (env["main"] / "partial.md").exists()
+    assert not [name for name in os.listdir(env["main"]) if name.startswith(".memory-")]
+
+
+@pytest.mark.asyncio
 async def test_a_version_written_while_deleting_is_kept(daemon, monkeypatch):
     http, env = daemon
     await login(http)
