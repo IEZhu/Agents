@@ -562,14 +562,39 @@ window.
 Both installers replace only the marked routing section and back up changed
 files. The shared instruction writer retains the three newest backups per file
 whose names end in `.backup.<timestamp>`, accepting both the legacy 10-digit
-seconds and current 19-digit nanoseconds formats. It removes older matching
-regular files after a successful write or an unchanged-content check. An
-unchanged update creates no backup. Backup creation reserves a distinct name even
-when the clock returns a timestamp already in use. Named manual backups, other
-filename formats and symlink backups are preserved; MCP configuration backups use separate logic.
+seconds and the current nanosecond format of 19 digits or, once the counter
+reaches it, more. It removes older matching regular files after a successful
+write or an unchanged-content check. An unchanged update creates no backup.
+Backup creation reserves a distinct name even when the clock returns a timestamp
+already in use, and the snapshot is created private and takes the original's mode
+and timestamps only once its bytes are in place, so a private instruction file is
+never readable by others while it is copied. A backup of content the installer
+did not write, which only
+[`install_review_config.py --force`](review-config.md) creates, is named
+`.backup.kept.<timestamp>` and stays out of that rotation: it is the only copy of
+those bytes, so, like a backup you named yourself, you remove it. Named manual
+backups, other filename formats and symlink backups are
+preserved; MCP configuration backups use separate logic.
 Malformed routing markers stop the update without rewriting the target. A
 symlinked instruction, reminder or index file is refused unchanged; update its
 target manually.
+
+Each write opens the destination's parent directory and the destination itself
+once and runs the backup, the temporary file, the rename and the pruning against
+those descriptors, so a directory replaced by a symlink or another node put at the
+destination after a caller's check cannot move the write or feed the backup
+content from elsewhere. The destination is refused, with nothing written, when it
+is not a regular file, a FIFO for instance, or when it carries a second hard
+link, whose content the backup would copy and whose other name the write would
+break. The managed section is rendered from the bytes that same descriptor reads.
+A descriptor pins a node and not a name, so the write compares the destination's
+identity again immediately before the rename and refuses when another node has
+taken the name, leaving that file and the snapshot of the bytes it read. That
+narrows the window rather than closing it: no portable rename refuses an
+unexpected destination.
+Pinning the parent directory needs the `dir_fd` arguments of the platform's
+`openat` family and is therefore POSIX-only; on Windows the steps run against the
+path, as they did before.
 
 The installers migrate `feedback_agents_core_routing.md` in the Claude profile's
 `memory/` directory only when its bytes exactly match the current template or a

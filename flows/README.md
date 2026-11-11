@@ -23,6 +23,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Inventory public surfaces and review documentation for people and AI against current source | Reviewed changes on a separate branch, a coverage record, navigation/tool-index checks and explicit validation limits |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
+| [PR/MR queue](pr-queue.md) | Order several open requests, prove the order merges on a throwaway branch, check the integrated tree, then run `pr-review` per item | One merge chain for the owner, each item with its head, checks and remaining blocker |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
@@ -35,7 +36,9 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Code review pass](code-review-pass.md) | Review one commit range against the acceptance criteria, as a delegated worker or directly | A `ReviewPayload` |
 | [Change pre-mortem](change-premortem.md) | Name the three to five likeliest reasons a merged change breaks, as a delegated worker or directly | A `ReviewPayload` with one finding per risk |
 | [Autodev retrospective](autodev-retro.md) | Measure the autodev pipeline from its run records and pull requests (design 12 metrics, lead time, rework, cost), find where runs stall and propose changes, read-only and started by the owner | A report with the metrics, the diagnosis and at most five proposals; one issue only on request |
+| [Review config rollout](review-config-rollout.md) | Install the shared CodeRabbit configuration and the review-discipline section in one repository, with its real base branches, then prove a review arrives | A pull request left for the owner, with the stacks installed and the first review's outcome |
 | [Open-source tuning](open-source-tuning.md) | Tune a skill, implant or agent, or create one, from free and legally available sources: probe the gap, extract only the delta, verify facts, wire it to its owners and hand probe cases to A/B eval | A tuned component with its `sources`, a probe case set and a pull request against `dev` |
+| [Legal reference refresh](legal-reference-refresh.md) | Re-verify a jurisdiction, labour or investment skill whose freshness test came due: one research line per skill from primary sources only, a separate line instructed to refute each claim, a gap critic, then new `as_of` and `review_on` dates | Refreshed skills with a per-claim record, an explicit limits-of-verification section and a pull request against `dev` |
 
 Built-in flows declare their persona: `documentation-refresh` runs as
 `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
@@ -43,8 +46,9 @@ Built-in flows declare their persona: `documentation-refresh` runs as
 `investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `autodev-select`
 as `product_manager`, `autodev-implement` as `software_engineer`,
 `code-review-pass` as `code_reviewer`, `change-premortem` as `sysadmin`,
-`autodev-retro` as `engineering_manager` and `open-source-tuning` as
-`agent_builder`, each
+`autodev-retro` as `engineering_manager`, `review-config-rollout` as
+`devops_engineer`, `open-source-tuning` as
+`agent_builder` and `legal-reference-refresh` as `lawyer`, each
 with an exact list of skills and implants (see
 [choosing a flow's agent](#choose-a-flows-agent-and-components)). The
 `issue-agent` and `autodev` dispatchers and the `autodev-gate` rules have none.
@@ -53,8 +57,9 @@ The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
 
-`environment-autoconfigure` runs as `sysadmin` and `shared-kv-inference` as
-`software_engineer`, each with that agent's default components.
+`environment-autoconfigure` runs as `sysadmin`, `shared-kv-inference` as
+`software_engineer` and `pr-queue` as `code_reviewer`, each with that agent's
+default components.
 `environment-autoconfigure` audits and repairs the current host only when
 explicitly invoked; it is not an installation hook for ordinary conversations.
 The configured stack and platform determine versions and supported integrations.
@@ -74,6 +79,12 @@ Run flows/pr-review.md for <PR or MR URL>.
 ```
 
 Add `no-merge` to stop before merging.
+
+To take several open requests to the same target branch in sequence:
+
+```text
+Run flows/pr-queue.md for <PR or MR URLs>.
+```
 
 Add optional scope, a starting revision, or a branch when needed:
 
@@ -408,6 +419,11 @@ Each flow must specify:
 Write flows in English under the
 [documentation language policy](documentation-refresh.md#documentation-language).
 Link to shared protocols and references instead of maintaining duplicate copies.
+Retire a flow's text on recorded evidence that it is unexecutable as written or
+contradicts another instruction, or when it restates a passage that stays in the
+file: the shortened text then names that passage, and the change is checked to
+leave every obligation stated once. Producing no findings in a run is never a
+reason to remove a check.
 Before adding or updating a flow, review its examples, relative links, and
 completion criteria so another model can execute it from the file path alone.
 Write steps for the caller's repository. Mark project-specific examples and

@@ -11,6 +11,19 @@ for Langfuse analysis.
 
 ## Ground rules
 
+When selecting or sequencing issues, consult the optional personal-library plan
+through the [repository instruction pointer](../AGENTS.md#personal-issue-planning-context).
+Use its dated graph to find relevant dependencies, then apply the whole contract
+of that section rather than its first step: verify those dependencies against
+current GitHub and source evidence, recheck the relevant current issues, native
+blockers and linked pull requests, separate component readiness from final issue
+acceptance, and retain every unique requirement. Keep the personal plan and its
+snapshot catalog in the personal library. The lookup rules, the freshness
+requirement, the execution scope and the authorization limits are owned by the
+tracked section linked above, not by the plan, which carries no rule of its own.
+A missing personal library does not block independent work or authorize
+recreating or publishing its contents.
+
 Apply [bounded execution and evidence reuse](flow-execution.md) to implementation,
 review and closing: batch independent reads, save raw evidence, and consume one
 monitor's completion per pending run while retaining the required quality gates.

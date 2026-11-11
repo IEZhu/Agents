@@ -92,7 +92,139 @@ def test_bundle_distinguishes_source_target_and_completion(catalog, tmp_path):
 
 def test_shipped_catalog_is_loadable():
     entries = FlowCatalog().list()
-    assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review"}
+    assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review", "pr-queue"}
+
+
+def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
+    """A session read classic protection alone and reported a gated branch as ungated."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("gh api --paginate repos/OWNER/REPO/rulesets",
+                   "`Branch not protected`",
+                   "gh pr view N --json reviewDecision",
+                   "can be `MERGEABLE` and `BLOCKED` at the same time",
+                   # One page of rulesets, and an omitted bypass list, each read as
+                   # an absence of gating.
+                   "returns 30 rulesets at a time",
+                   "omits `bypass_actors` for a caller without write access",
+                   # The REST request answers 200 and queues nothing for this bot.
+                   "answers 200 for this bot and registers nothing",
+                   "requestCopilotCodeReview(input:{",
+                   "no bot node id and so no earlier Copilot review to take one from",
+                   "A registered reviewer is still not a review.",
+                   "takes `reviewEffort`, whose values are `LITE`, `BALANCED`, `MAX` and `AUTO`",
+                   # Two requests were spent on heads CodeRabbit had already picked up.
+                   "Read the head's own check runs before asking it for anything",
+                   "What suppresses a request is a run still going or a completed review of that head",
+                   "a rate-limited, paused or skipped status is a run of a kind and not a review"):
+        assert phrase in review, phrase
+    assert "on GitLab read that flow's own paragraph on the equivalents" in review
+
+
+def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
+    """#510: a queue was improvised once per item. Each step below had to be rediscovered."""
+    catalog = FlowCatalog()
+    queue = " ".join(catalog.load("pr-queue").content.split())
+    for phrase in (
+            # A stored rerere resolution hid a conflict in a local chain simulation.
+            "git -c rerere.enabled=false merge --no-ff",
+            "a stored resolution from an earlier attempt hides a conflict",
+            # Two merge bases: ort resolved the item while GitHub reported a conflict.
+            "git merge-base --all",
+            "Plan a merge of the target into that item right after its predecessor lands",
+            # Every merge invalidates the simulation the queue was planned on.
+            "Repeat the simulation after every merge",
+            "Re-simulate the remaining items on a fresh throwaway branch",
+            # A check red on every item because of the target's own state.
+            "workflow_dispatch",
+            # The approval requirement and who may bypass it, read rather than assumed.
+            "an account cannot approve its own request",
+            # pr-review's own rules are not relaxed by the queue.
+            "merge no other item's branch into it",
+            "a queue run carries `no-merge` into every item it\nstarts",
+            "Carrying `no-merge` moves one of those conditions onto this flow.",
+            "Never present an item\nas ready with neither.",
+            "Being next in a queue is not consent to merge an item,",
+            "the merges are the owner's to make",
+            # Corrections from the first review round of this flow, each of which a
+            # reader would otherwise have to rediscover the way the queue did.
+            "Do not\nstop at the first conflict",
+            "git refuses to delete the branch that is checked\nout",
+            "An item opened from a fork has its\nhead in that fork",
+            "declares the `workflow_dispatch` trigger on\n   that repository's default branch",
+            "re-simulate and run it again\nwhen a head changes",
+            "GitHub's default `pull_request` checkout is the merge of the head into the\nbase",
+            # Second review round of this flow.
+            "Do not push the simulation to the target repository.",
+            "the surface is the whole execution graph and not\n   the YAML",
+            "a private target never goes to a public\n   repository",
+            "gh workflow run vulnerability-scan.yml --repo <simulation repository>",
+            "Resolve every item to its exact current head SHA",
+            "Run step 3's checks again on that new simulation",
+            "Fetch the target branch from the remote that step 1 verified holds it",
+            # Third review round of this flow.
+            "the no-push\nrule covers the simulation rather than the flow",
+            "The one push this flow does make is the\ntarget merge into an item's own branch",
+            "Read `FETCH_HEAD`\nimmediately after the target fetch",
+            "each with\nthe same `-c rerere.enabled=false`",
+            "a contributor\n   with a branch in the target can add any of that just as a fork can",
+            "a head in a fork belongs\n   to its owner",
+            "gh api --paginate repos/<owner>/<repo>/rulesets",
+            "**This flow does not merge, and it never widens authorization.**",
+            "That is one fetch per item: two items on the same remote are two refs",
+            "Fetch every remaining item's head from the remote that holds it and re-resolve",
+            "Read it from the remote's URL (`git remote -v`),\nnot from its name",
+            "A predecessor that lives only in a fork cannot be a base",
+            "compare that\ncount with the required one",
+            "That is a consequence of the deletion, not of the\nmerge",
+            "count the eligible approvers",
+            # Running this flow on its own queue: a shortened head SHA made every
+            # item report what reads like a conflict and is none.
+            "A SHA named in a fetch is the whole forty characters.",
+            "git rev-parse --verify <item head>^{commit}",
+            # A branch dispatch is not a fork trigger, so the run receives every
+            # secret the destination reaches, inherited organization ones included.
+            "A `workflow_dispatch` run on a branch is not a fork trigger",
+            "inherits an organization\n   secret set to all repositories without anyone",
+            "an unread list is not\n   an empty one",
+            # Copilot, on that same paragraph: the lists are paginated, the
+            # environments were missing, and an ephemeral runner is not the property.
+            "gh api --paginate repos/<owner>/<repo>/environments/<name>/secrets",
+            "an ephemeral runner is not the property that would",
+            "dispatch is the exception rather than the second of two equal options",
+            # Second Copilot and CodeRabbit round on that paragraph: the gate sat
+            # after the push, the organization list does not exist for a user-owned
+            # repository, and two of the requirements were not enforceable at all.
+            "Establish it before the push and not before the dispatch",
+            "a user-owned repository has no\n   organization list",
+            "a rule that counted it as a reachable\n   credential would refuse every dispatch ever",
+            "that file comes from the simulation and an item\n   can rewrite it",
+            "no\n   identity federation that accepts that repository",
+            # Third round on that paragraph: a repository runner list hides an
+            # organization runner shared through a group, and the token leaves marks
+            # in the owner that no branch deletion takes back.
+            "orgs/<owner>/actions/runner-groups",
+            "repository's runner list does not show an organization runner shared",
+            "a package published with the token lives in the owner's namespace",
+            "one of the two events GitHub does not suppress when the token creates them",
+            "read the destination's owner as the blast radius",
+            "stop extending this list",
+            "the run left no package in the owner's namespace",
+            # The gate asked for empty lists, and every organization has a default
+            # runner group, so that would have refused every organization.
+            "Readable rather than empty, because an entry is not the same as a reach",
+            "a group with no runner in it puts no runner within reach",
+            # A visibility of `selected` names a list; it does not say who is on it.
+            "orgs/<owner>/actions/secrets/<name>/repositories",
+            "A `visibility` of `selected` means\n   a list decides",
+            "`private` covers only the private ones, so a public destination sits",
+            "its\n   own `allows_public_repositories` says it may",
+            "an empty list under `all` is no absence of reach",
+            # A group list says which groups exist, not which runners are in them.
+            "orgs/<owner>/actions/runner-groups/<id>/runners",
+            "a self-hosted runner is in reach exactly when it\n   sits in a group that covers the destination"):
+        assert " ".join(phrase.split()) in queue, phrase
+    review = " ".join(catalog.load("pr-review").content.split())
+    assert "run [pr-queue](pr-queue.md) instead" in review
 
 
 # The autodev flows (#346): the dispatcher and the gate's rules have no persona; each stage

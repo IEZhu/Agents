@@ -211,14 +211,35 @@ def test_mail_protects_used_registrations_and_is_not_retention_collected(h):
     assert len(receive(h, b, include_acknowledged=True)["messages"]) == 1
 
 
-def test_mail_does_not_renew_heartbeat_or_clear_quarantine(h):
+def test_model_authored_mail_keeps_a_corresponding_participant_live(h):
     a, b = h.register("a"), h.register("b")
     assert h.acquire(a)["status"] == "ok"
+    before = h.read()
     h.now += 121
     sent = send(h, a, b)["message"]
     assert ack(h, b, sent)["status"] == "ok"
     snapshot = h.read()
-    assert all(p["last_seen"] == 1000.0 and p["status"] == "suspect" for p in snapshot["participants"])
+    states = {p["task_id"]: p for p in snapshot["participants"]}
+    # Correspondence is an act of each participant's own model, so the service
+    # keeps the honest timestamp it already has instead of declaring them stale.
+    assert states["a"]["last_seen"] == h.now and states["b"]["last_seen"] == h.now
+    assert all(p["status"] == "active" for p in snapshot["participants"])
+    assert not snapshot["claims"][0]["quarantined"]
+    # Liveness is not an ownership decision: no peer has to retry a revision.
+    assert snapshot["revision"] == before["revision"]
+
+
+def test_mail_never_clears_an_established_suspicion_or_quarantine(h):
+    a, b = h.register("a"), h.register("b")
+    assert h.acquire(a)["status"] == "ok"
+    h.now += 121
+    assert h.read()["claims"][0]["quarantined"]
+    sent = send(h, a, b)["message"]
+    assert ack(h, b, sent)["status"] == "ok"
+    snapshot = h.read()
+    states = {p["task_id"]: p for p in snapshot["participants"]}
+    assert states["a"]["last_seen"] == h.now and states["b"]["last_seen"] == h.now
+    assert all(p["status"] == "suspect" for p in snapshot["participants"])
     assert snapshot["claims"][0]["quarantined"]
 
 
@@ -235,6 +256,46 @@ def test_successful_empty_poll_protects_listener_without_renewing_heartbeat(h):
     assert states["listener"]["status"] == "suspect"
     assert states["listener"]["last_seen"] == 1000.0
     assert states["listener"]["generation"] == 1
+
+
+def test_parent_relay_refreshes_the_relaying_parent_and_its_child(h):
+    parent, peer = h.register("parent"), h.register("peer")
+    child = h.register("child", parent=parent, communication_mode="parent_relay")
+    h.now += 121
+    relayed = send(h, parent, peer, subject_id=child["participant_id"])["message"]
+    assert relayed["sender_id"] == child["participant_id"] and relayed["actor_id"] == parent["participant_id"]
+    states = {p["task_id"]: p for p in h.read()["participants"]}
+    # The parent's model authored the send, so the participant that can hold
+    # claims must not be suspected; the child is refreshed with it because the
+    # parent is its only channel in this mode.
+    assert states["parent"]["last_seen"] == h.now and states["parent"]["status"] == "active"
+    assert states["child"]["last_seen"] == h.now and states["child"]["status"] == "active"
+    # The recipient did nothing and is treated accordingly.
+    assert states["peer"]["last_seen"] < h.now and states["peer"]["status"] == "suspect"
+
+
+def test_replayed_send_refreshes_liveness_and_returns_the_stored_receipt(h):
+    a, b = h.register("a"), h.register("b")
+    request = send_request(a, b)
+    first = h.service.send(request, a["identity"])
+    assert first["status"] == "ok"
+    h.now += 121
+    assert h.service.send(request, a["identity"]) == first
+    states = {p["task_id"]: p for p in h.read()["participants"]}
+    # A retry is the same model acting, so it renews liveness, while the
+    # response stays the byte-identical receipt of the original send.
+    assert states["a"]["last_seen"] == h.now and states["a"]["status"] == "active"
+    assert states["b"]["last_seen"] < h.now
+
+
+def test_a_refused_mail_action_refreshes_no_liveness(h):
+    a, gone = h.register("a"), h.register("gone")
+    assert h.apply(gone, {"kind": "cancel", "reason": "done"})["status"] == "ok"
+    h.now += 121
+    assert send(h, a, gone)["error"] == "scope_denied"
+    states = {p["task_id"]: p for p in h.read()["participants"]}
+    # The refresh runs inside the transaction that the refusal rolls back.
+    assert states["a"]["last_seen"] < h.now and states["a"]["status"] == "suspect"
 
 
 def test_largest_supported_inbox_cursor_has_empty_page(h):

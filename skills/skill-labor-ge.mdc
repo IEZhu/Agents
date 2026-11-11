@@ -1,0 +1,137 @@
+---
+description: "Employment and labour law of Georgia the country: Labour Code, probation as a separate paid agreement, the exhaustive dismissal grounds, the 30-day challenge window, Labour Inspection Service, labour migration permits and individual-entrepreneur reclassification. Role: Georgia employment adviser."
+compiled: "GE labour, the country and not the US state: Labour Code 4113-რს, consolidated to 16.09.2026. Minimum wage GEL 20 a month, so there is no meaningful floor. No statutory overtime multiplier, no paid sick leave, no night premium. Probation is a separate written paid agreement, 6 months at most, and ending it owes no notice or severance. Dismissal only on the 14 exhaustive LC 47(1) grounds; notice and severance only for (a), (f), (i) and (n): 30 days and 1 month's pay, or 3 days and 2 months'. The challenge window is 30 calendar days under LC 48(4)-(6). A union needs 25 founders, not 50. PIL art. 35(3) voids a choice of law that disregards the mandatory norms of the country most closely connected to the contract; art. 38 voids one that disregards norms protecting workers from discrimination where the contract was agreed in the worker's country of residence."
+keywords:
+  - /ge_labor
+  - ge_labor
+  - Labour Code of Georgia
+  - შრომის კოდექსი
+  - Labour Inspection Service
+  - трудовой кодекс Грузии
+  - labour mediation Georgia
+  - dismissal Georgia
+  - severance Georgia
+  - probation Georgia
+  - individual entrepreneur reclassification
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://matsne.gov.ge/ka/document/view/1155567
+  - https://matsne.gov.ge/en/document/view/1155567
+  - https://matsne.gov.ge/ka/document/view/1043717
+  - https://matsne.gov.ge/en/document/view/1043717
+  - https://matsne.gov.ge/ka/document/view/5003057
+  - https://matsne.gov.ge/ka/document/view/2806732
+  - https://matsne.gov.ge/ka/document/view/112786
+  - https://matsne.gov.ge/ka/document/view/4382851
+  - https://matsne.gov.ge/ka/document/view/93712
+---
+## Role
+Georgian employment law (საქართველო — country, not the US state). Assumes `skill-jurisdiction-ge` (tax, corporate, status, immigration) is loaded: never restate it. For individuals, remote workers, small employers.
+
+## Primary Sources
+Georgian consolidated texts, matsne.gov.ge, read 2026-11-06 (LC to 16.09.2026). **Shorthand `LC 48(1)` = Labour Code of Georgia, article 48, paragraph 1**; superscripts as printed.
+
+| Tag | Statute (No., date) |
+|---|---|
+| LC | Organic Law "Labour Code of Georgia" (4113-რს, 17.12.2010) |
+| LIS | Law on the Labour Inspection Service (7178-Iს, 29.09.2020) |
+| LMig | Law on Labour Migration (3418-IIს, 01.04.2015) |
+| Aliens | Law on Legal Status of Aliens and Stateless Persons |
+| TC | Tax Code of Georgia |
+| FPL | Law on Funded Pension (3303-რს, 21.07.2018) |
+| TU | Organic Law on Trade Unions (3825-Iს, 30.11.2018, publ. 14.12.2018). Law No. 617 (adopted 02.04.1997, publ. 26.04.1997) was an ordinary law and lost force 16.12.2018 — never cite it |
+| CPC | Civil Procedure Code of Georgia |
+| MinWage | Presidential Decree on the minimum wage (351, 04.06.1999) |
+
+**Dating rule.** The 2020 re-regulation is Organic Law No. 7177, 29.09.2020, published 05.10.2020 (commencement not separately established); most LC articles below carry it. The pre-2020 text was not read — assert nothing about it, and never call Georgia near-at-will (**unconfirmed**).
+
+## Contract Types & Mandatory Written Terms
+- Oral or written, fixed or open-ended (LC 12(1)); **written if the relation runs >1 month** (12(2), 2020), in a comprehensible language (13).
+- Fixed term only on grounds LC 12(3)(a–f) unless ≥1 year — the carve-out is in **12(3)** itself, not 12(5); over **30 months**, or consecutive terms past 30 months, it is open-ended (12(4), 2021); start-ups under 48 months exempt (12(6)).
+- Ten essential terms incl. working time, **how overtime is compensated**, leave and the termination route (LC 14(1)(a–j), 2020).
+
+## Probation & Early Termination
+- Once only, **≤6 months, written only**, as a *separate employment agreement for a trial period* — not a clause (LC 17(1), 2020). **Must be paid**, amount by agreement (17(2)).
+- Ending it: LC 48 notice, severance and substantiation **do not apply** unless that contract says so, pay being pro rata (17(4), 2020).
+
+## Working Time, Rest & Leave
+- ≤**40 h/week**, ≤**48 h/week** in listed continuous-process industries (LC 24(2)–(3), 2020); rest ≥12 h between days and ≥24 h weekly (24(4), (7)).
+- Overtime by agreement at an increased hourly rate **the parties set — no statutory multiplier** (LC 27(2), 2020), or proportional rest within 4 weeks (27(3)). **No overtime cap for adults**, only those rest floors; **no night premium** (28).
+- Paid leave **≥24 working days**/year, unpaid **≥15 calendar days** (LC 31(1)–(2), 2020), claimable after 11 months (32(1)), cashed out only on employer-initiated termination (31(5)).
+- Maternity **126 calendar days** (143 on complications/twins), **183/200 paid days** with parental leave, state-funded (LC 37, 39, 2020); the State benefit is **capped at GEL 2,000 in total** (Government Decree No. 33 of 24.01.2023, art. 1), so anything above that is for the employer to agree or not.
+- **No statutory paid sick leave**: incapacity suspends the relation unpaid, ≤40 consecutive **calendar** days or ≤60 per 6 months (LC **46(2)(i)** and **47(1)(i)** carry the 40/60 **კალენდარული დღე** limits; **46(4)** carries no day figure and supports only the absence of pay), then becomes a dismissal ground (47(1)(i)).
+
+## Pay, Minimum Wage & Mandatory Bonuses
+- Paid **at least monthly**, late pay **0.07%/day**, final settlement in **7 calendar days** (LC 41(3)–(4), 44, 2020).
+- **Minimum wage GEL 20/month** (MinWage point 1, 1999): the only amendment to Decree 351 re-words point 3 alone and leaves point 1 intact, so the figure stands and the LC sets none. There is **no meaningful wage floor**.
+- The same decree carries a separate **GEL 40** figure for minimum-wage-linked sanctions, capped at **GEL 5,000**. The GEL 115 often quoted as a public-sector minimum is not one: Decree No. 726/2005 sets it as a minimum *position salary* for autonomous-republic and local-self-government public servants, and its currency is unresolved (**unconfirmed**).
+- **No mandatory bonuses at all** — no 13th salary, seniority premium, or statutory overtime, night or holiday multiple (LC 27(2), 28, 30(4)).
+
+## Exclusivity, Moonlighting & Non-Compete
+- Exclusivity: dual employment may be restricted **only where the other principal is a competitor** (LC 16(5), 2020); a blanket ban is arguably void (LC 1(3), 14(7)).
+- No general loyalty duty in the LC; gaps fall to the Civil Code (LC 1(2)), whose good-faith anchors are arts. 8(3) and 316(2).
+- Non-compete: **≤6 months post-termination, and only while the employer keeps paying the remuneration in force at termination** (LC 60(1), 2020); unpaid versions have no basis. Barred in education, science, culture (60(2)).
+
+## Termination: Grounds, Procedure, Severance
+- **Exhaustive list of 14 grounds** (LC 47(1)(a)–(n), 2020); any other, or a discriminatory, ground is inadmissible; ground (n) must be substantiated in the notice (47(3)).
+- Notified pregnancy, maternity and childcare do **not** bar dismissal outright: LC 47(5)(c) still permits it on eight of the fourteen grounds — „ბ“, „გ“, „დ“, „ე“, „ზ“, „თ“, „კ“ and „მ“. Separate protections cover conscripts and reservists (47(5)(d)) and jurors (47(5)(e)).
+- Only for (a) redundancy, (f) inadequate qualification, (i) long incapacity, (n) other objective circumstance:
+
+| Route (2020) | Notice | Severance |
+|---|---|---|
+| LC 48(1) | 30 calendar days, written | ≥1 month's remuneration |
+| LC 48(2) | 3 calendar days, written | ≥2 months' remuneration |
+
+- Other grounds, (g) gross and (h) repeat breach included, carry **no statutory notice or severance**. Resignation: 30 calendar days' written notice (48(3)).
+- Collective redundancy (≥10 employees at 21–99 headcount, ≥10% above 100): **45 calendar days'** notice to the Minister (LC 49, 2020).
+
+## Collective Bargaining & Employee Representation
+- Association without permission (LC 52, 2020), anti-union discrimination barred (53); a union needs **≥25 founders** (TU 2(9)). Either side's proposal triggers a duty to **bargain in good faith** (LC 55(4)); written form only (57(1)).
+- **Finding the instrument**: there is no public register to query, so ask for the written agreement itself — LC 57(1) requires written form — and for the employer's internal rules; absent both, treat the statutory floor as the whole of the law for that worker.
+- **A collective agreement's terms become part of the individual contracts covered** (LC 57(8)) — it **can** impose duties the LC alone does not; a contrary individual clause is void unless it improves the employee's position (14(7)), and a collective term contravening the LC is void (57(9)).
+- Strike/lockout: the right arises **21 calendar days** after written notice to the Minister (LC 64(3), 2020); 3 calendar days' notice (64(4)); lockout ≤90 calendar days (64(6)); unpaid and not a termination ground (64(7)–(8)) — a final ruling of illegality is (47(1)(k)).
+- Information and consultation only at ≥**50** employees (LC 70(1), 2020). **No works council or board-level representation exists**.
+
+## Social Security & Payroll
+- PIT **20% on salary** (TC 81(1), 2026 text, which ends "unless otherwise provided by this Code"; 81(2)–(3) tax some personal income at 5%, so it is not a flat 20% across the board), withheld by the employer as tax agent (154(1)(a)) — **except** salary from a **non-resident** employer not charged to a Georgian permanent establishment, which the individual declares and pays (154(1)(a.b)).
+- Funded pension, mandatory for employees (FPL 21, 2018): employer **2%** of taxable salary, employee **2%**, self-employed **4%**, State **2%** on the first GEL 24,000 a year, **1%** to GEL 60,000, **nil above** (FPL 3(6)); opt-out only at **40+ on entry into force** (22(1)).
+- **Nothing beyond FPL 3(6)**: no unemployment, health or accident levy, no social tax — Georgia has **no equivalent** of those charges.
+- **The 5% rate in TC 81(2)–(3) is confined to two receipts**: residential letting income where the lessor takes no deductions (81(2)), and the gain on supplying a dwelling with its attached land or a motor vehicle (81(3)) — so it does not reach a relocated worker's side-activity service income, which stays at 20% under 81(1) unless another Code regime applies; the small-business and other reduced-rate statuses sit in `skill-jurisdiction-ge`, and taking paid side work can cost one.
+
+## Foreign Workers & Permit Coupling
+- **Constitutional personal scope, from the text.** Art. 26(1) of the Constitution guarantees freedom of labour and free choice of work to „ყველას" — everyone, not citizens — and leaves safe conditions and other labour rights to the organic law, which is the Labour Code; art. 33(1) gives foreign citizens and stateless persons residing in Georgia rights and duties equal to a citizen's, save exceptions provided by the Constitution and by law, and the work-right and permit regime is such an exception. So the constitutional labour provisions do reach a foreign worker on their face, unlike art. 35.1 of the Spanish Constitution; no Constitutional Court ruling on art. 26's reach to a non-resident was opened here. The operative rules remain the Labour Code, which applies territorially (LC 1(1)), and in LMig and the Aliens law, not in a constitutional right.
+- **"Labour immigrant"** = a foreigner without permanent residence employed by a **local** employer, remotely included, or **self-employed** (LMig 3(h)).
+- Lawful work needs all three (13³): a written **fixed-term** contract in Georgian **and** a language the immigrant understands (13²); the **right to labour activity** (13⁴); and a **D1** visa or **any type of residence permit provided by Georgian law** — since amendment №862 of 26.06.2025 the third condition is not confined to a labour residence permit.
+- The employer applies; decided within **30 calendar days**, fee **≤GEL 500**, **tied to one named employer** (13⁴(2), (5), (8); 13⁵(7)). Then a D1 visa within **30 calendar days** from abroad, or a work/IT permit within **10 calendar days** inside Georgia (13⁵(1)); permits presuppose that right (Aliens 15(a)), running **6 months to 1 year** (16(1)(a)).
+- **Effect of dismissal:** expiry *or early termination* of the contract **ends the right to labour activity** (13⁷(1)(a)), as does loss of the permit (13⁷(1)(d)), filed by the employer within **5 calendar days** (13⁵(3)), re-application barred for **1 month** (13⁸(1)) — that month is the real gate, 13⁸(2)'s absence being only one of two alternatives, lawful presence the other. Fines **GEL 2,000** each (16¹), **GEL 1,000** unfiled (16⁵).
+- **Outside the regime** (LMig 1(4)): refugees, diplomats, investment- and special-permit holders, short-term professional activity (13⁹, 15.04.2026), fully remote work for a local employer, and work for a **non-resident** — an employee of a **foreign** employer needs no work right and no withholding (TC 154(1)(a.b)).
+- Two of those carve-outs carry conditions that are usually dropped: **1(4)(k) requires no entry into Georgia**, and **1(4)(l) requires the activity to relate to the non-resident's activity abroad**. Quote neither without them.
+- Immigrants already registered must regularise by **1 January 2027** (LMig 17(2²)). Commencement of the 2025–2026 amendments was not read (**unconfirmed**).
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- Dismissal challenge — **30 calendar days, not "one month"**: ask for written substantiation within 30 calendar days of the notice (LC 48(4), 2020), the employer answers within 7 (48(5)), sue within **30 days of that answer** (48(6)). No answer → the **burden lies on the employer** (48(7)); that paragraph fixes no start date, so running the 30 days from the answer deadline is an interpretation, not the text. Never asked → 30 days from the notice.
+- Other claims, wages included: **1 year** from knowledge (LC 74, 2020).
+- **No mandatory pre-litigation stage for an individual dispute**: LC 61(5) says "and/or by applying to court", 48(6) is direct, and optional conciliation opens court after 14 calendar days (62(5)). **Ministerial mediation covers only collective disputes** (LC 63, 69, 2020).
+- Remedies: reinstatement, an equal job, **or** court-determined compensation (LC 48(8)) — **no statutory severance multiple**, so any "X months' pay" is practice; plus lost earnings to enforcement, offsetting severance (48(9)). The burden also shifts on a prima facie discrimination showing (LC 7, 2020) and onto a party that avoided conciliation (62(6)).
+- Labour Inspection since 2020: a Ministry public-law entity covering **all** labour norms, employment and collective agreements included (LIS 2, 3(a)); acts on **an interested person's complaint**, its **own initiative**, or **any identifiable person's labour-safety notification** (13(1)) — the employee, co-worker, union and Public Defender appear nowhere in that article; enters a workplace **subject to inspection** without notice at any hour (16(2)(a)) — not any workplace at large; imposes a warning, fine or **work-process suspension** — the penalty list is **20(3)** alone; **21(1)** is the appeal to court, and LIS 14(1) is the 2-month complaint deadline.
+- **It cannot undo a dismissal**: LC 77(1) excludes LC 47–50 from the fine regime; only a court reinstates or awards pay (48(8)).
+- Foreign employer, work done in Georgia: the LC applies territorially (1(1)); **no labour-specific forum rule** — defendant's domicile (CPC 15(1)), place of performance (16(2)), or its property absent a Georgian domicile (17). On the applicable law the Law on Private International Law arts. 35(3) and 36(1) govern, and **art. 35(3) voids a choice of law that disregards the mandatory norms of the country most closely connected to the contract**, and **art. 38** („სოციალური დაცვის იმპერატიული ნორმები") voids one that disregards the norms adopted to protect consumers and employees **from discrimination**, where the contract was agreed or concluded in the country of the worker's residence and those protective norms are in force there — the first provision to reach for against a foreign employer's choice-of-law clause.
+
+## Non-Waivable Rights & Void Clauses
+- Anchor: **a labour agreement may not set norms differing from the LC that worsen the employee's conditions** (LC 1(3), since 12.06.2013); better terms are always valid, on **LC 14(7)** in the next bullet and **not on 31(4)** — whose permission is bounded by its own words „ამ მუხლით“ to terms differing from *that* article, which governs the duration of leave.
+- Void expressly: an individual term contravening the LC or the collective agreement unless it improves the employee's position (LC 14(7)); a term denying annual **paid leave** (31(6)).
+- So waiving **severance** (48(1)–(2)), the 24 days' **paid leave**, the 40-hour cap or the challenge route is void (LC 1(3) with 14(7)), though only 31(6) says "void" in terms. Equally unwaivable: the sham fixed term (12(5)), exhaustive grounds (47(5)(a)), the non-compete pay condition (60(1)).
+
+## Common Pitfalls
+1. An individual entrepreneur on small-business (1%) status for what is really employment: that base **excludes salary income** (TC 90(3)), salary being any benefit from employment (101(1)); work done in Georgia is Georgian-source (104(1)(a)); and the Revenue Service may **reclassify a transaction whose form does not match its substance** (73(9)(b)). Cost: 20% PIT (81(1)) + 2%+2% pension (FPL 3(6)) + LC exposure (LC 2(1)). Decree No. 415 of 29.12.2010, Annex 4 item 4 bars the status for medical, architectural, advocacy, audit and **consulting** work (2010 original only; **unconfirmed** now).
+2. Assuming a single-foreign-client individual entrepreneur is safe: **no statutory bright-line test exists** (**unconfirmed**); exposure runs through TC 73(9)(b) with LC 2(1), aggravated by one payer, fixed hours, client equipment.
+3. Relying on matsne English: non-authoritative. It reverses LC 24(5) ("not less than 6 hours" → "no longer than") and turns LC 31(2)'s 15 **calendar** days into working days, both still wrong in the 16.09.2026 English text. Staleness is not the Labour Code page's defect — it is served as the final consolidation to 16.09.2026 — but it is the **LIS** page's, which reads "Initial version (05/10/2020 - 30/11/2022)".
+
+## Citation Format
+- Cite `art. N(para) Labour Code of Georgia` in full first, then these tags, plus amending act and version.
+- Mark anything not opened against a primary text `(unconfirmed)`, with why; never invent an article, case number or quotation. **No Supreme Court authority appears here — none was opened.**
+
+## Always Disclaim
+Close in the user's language with: legal information, not representation or a professional opinion; verify figures on matsne.gov.ge; for a dismissal, permit or re-characterisation exposure engage a licensed Georgian advocate (ადვოკატი) — the LC 48(6) window lapses fast.
