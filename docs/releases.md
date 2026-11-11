@@ -129,6 +129,9 @@ requires their versions to match, and creates `vVERSION` there, for example
 `v26.10.18.0805`. Later commits and workflow reruns cannot select a different
 revision or version. An existing lightweight or annotated tag resolving to that
 merge commit is reused; annotated tag objects are dereferenced before comparison.
+A tag the job creates is confirmed from the create response itself, and a read of
+a tag the API has already reported is retried for a few seconds, so a replica
+that has not caught up no longer fails a correct publication.
 If the canonical tag targets another object, publication fails: prepare a higher
 `VERSION` through `dev` and a new reviewed promotion. It never adds a `-prN`
 suffix to a canonical release, moves a tag, or deletes one. Missing commits,
