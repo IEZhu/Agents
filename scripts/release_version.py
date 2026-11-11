@@ -86,18 +86,24 @@ def confirmed_tag_target(api, tag):
     from either one waits here. Only callers that know the name is taken wait: tag_target keeps
     answering None at once for a name that is genuinely free, and keeps raising an unreadable tag
     object for the first read of a release, so publishing a new one never pays for these retries.
+    An object that is still unreadable when the waiting ends keeps its own error instead of passing
+    for a missing tag: an unknown target is not a changed one, and the caller would say it was.
     """
     for attempt in range(TAG_READ_ATTEMPTS):
+        unreadable = None
         try:
             target = tag_target(api, tag)
         except HTTPError as error:
             if error.code != 404:
                 raise
-            target = None  # the ref arrived before the annotated tag object it points at
+            unreadable = error  # the ref arrived before the annotated tag object it points at
+            target = None
         if target is not None:
             return target
         if attempt + 1 < TAG_READ_ATTEMPTS:
             sleep(TAG_READ_DELAY)
+    if unreadable is not None:
+        raise unreadable
     return None
 
 

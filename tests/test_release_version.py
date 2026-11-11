@@ -266,6 +266,23 @@ def test_a_concurrent_annotated_tag_is_reused_after_a_lagging_object_read(monkey
     assert sum(method == "POST" for method, _, _ in api.calls) == 1
 
 
+def test_an_annotated_object_that_stays_unreadable_keeps_its_own_error(monkeypatch):
+    """An unknown tag target is not a changed one, so the object's own 404 is what gets reported."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+
+    class Unreadable(API):
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/tags/"):
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Unreadable(race={"type": "tag", "sha": "c" * 40})
+    with pytest.raises(HTTPError) as error:
+        release.publish(promotion(), REPO, api)
+    assert error.value.code == 404
+    assert sum(path.startswith("/git/tags/") for _, path, _ in api.calls) == release.TAG_READ_ATTEMPTS
+
+
 def test_both_names_conflict_fails_and_preserves_tags():
     tags = {"v26.10.14.1200": OTHER, "v26.10.14.1200-pr381": OTHER}
     api = API(tags=tags)
