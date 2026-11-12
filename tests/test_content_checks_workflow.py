@@ -467,7 +467,31 @@ def needed_jobs(jobs, job_name, seen=None):
     return seen
 
 
-def skip_reasons(jobs, job_name, step):
+def effective_shell(workflow, job, step):
+    """The shell a step really runs under, and where it came from.
+
+    A step's own `shell` wins, then the job's `defaults.run.shell`, then the
+    workflow's. GitHub documents both halves of that order: `defaults.run`
+    "provide[s] default shell and working-directory to all run steps in the
+    job", "a default setting defined in a job will override a default setting
+    that has the same name defined in a workflow", and a step may "override the
+    default shell settings in the runner's operating system and the job's
+    default using the shell keyword". Reading only the step's key left
+    `defaults: {run: {shell: cat {0}}}` invisible, which prints the script.
+    """
+    for shell, where in (
+        (step.get("shell"), "the step"),
+        (((job.get("defaults") or {}).get("run") or {}).get("shell"),
+         "the job's `defaults.run`"),
+        (((workflow.get("defaults") or {}).get("run") or {}).get("shell"),
+         "the workflow's `defaults.run`"),
+    ):
+        if shell:
+            return shell, where
+    return None, None
+
+
+def skip_reasons(workflow, job_name, step):
     """Every reason a scheduled run might not reach this step, or an empty list.
 
     An `if:` is the obvious one and every one of them disqualifies the step,
@@ -489,15 +513,21 @@ def skip_reasons(jobs, job_name, step):
     carries would queue the job for ever, but judging which labels exist is a
     guess this guard should not make. A `strategy.matrix` that expands to
     nothing is unverified on GitHub's side, so it is named here and not refused.
+
+    The whole workflow is the argument, not its jobs, because a `shell` can be
+    set three levels up and the step that inherits it carries no key at all.
     """
+    jobs = workflow.get("jobs") or {}
     reasons = []
     if "if" in step:
         reasons.append("the step carries an `if:`")
     if step.get("continue-on-error") not in (None, "false"):
         reasons.append("the step is `continue-on-error`, so its failure is not the run's")
-    shell = step.get("shell")
-    if shell is not None and shell.split()[0] not in EXECUTING_SHELLS:
-        reasons.append(f"the step runs under `shell: {shell}`, which is not a shell")
+    shell, where = effective_shell(workflow, jobs.get(job_name) or {}, step)
+    if shell is not None and (shell.split() or [""])[0] not in EXECUTING_SHELLS:
+        reasons.append(
+            f"`shell: {shell}` from {where} is not a shell, so the script is printed"
+        )
     for name in sorted(needed_jobs(jobs, job_name)):
         job = jobs[name]
         where = "its job" if name == job_name else f"`{name}`, which it needs"
@@ -516,7 +546,7 @@ def skip_reasons(jobs, job_name, step):
 
 def is_unconditional(job, step):
     """Kept for the case table below: one job, read without its dependencies."""
-    return not skip_reasons({"only": job}, "only", step)
+    return not skip_reasons({"jobs": {"only": job}}, "only", step)
 
 
 def test_the_test_files_exist():
@@ -554,10 +584,10 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
                 f"{path.name}: a schedule entry has no usable five-field cron ({crons!r})"
             )
         else:
-            jobs = load_workflow(path).get("jobs") or {}
+            workflow = load_workflow(path)
             steps = pytest_steps(path, SCHEDULED_BY_CALENDAR)
             blocked = [
-                (job_name, skip_reasons(jobs, job_name, step))
+                (job_name, skip_reasons(workflow, job_name, step))
                 for job_name, _, step in steps
             ]
             if all(why for _, why in blocked):
@@ -958,8 +988,8 @@ def test_every_pytest_command_in_this_repository_is_recognised():
     ({"content": {}}, {"run": "pytest x", "continue-on-error": "true"},
      "the step is `continue-on-error`"),
     ({"content": {}}, {"run": "pytest x", "shell": "cat {0}"},
-     "which is not a shell"),
-    ({"content": {}}, {"run": "pytest x", "shell": "python"}, "which is not a shell"),
+     "`shell: cat {0}` from the step is not a shell"),
+    ({"content": {}}, {"run": "pytest x", "shell": "python"}, "is not a shell"),
     ({"content": {}}, {"run": "pytest x", "shell": "bash"}, None),
     ({"content": {}}, {"run": "pytest x", "shell": "bash -e {0}"}, None),
     ({"content": {"needs": "lint"}, "lint": {}}, {"run": "pytest x"}, None),
@@ -973,11 +1003,50 @@ def test_every_way_a_scheduled_run_can_miss_the_step_is_a_reason(jobs, step, rea
     calendar alarm land in a green run; and a `shell:` that is not a shell
     prints the command instead of running it. All four passed the guard before.
     """
-    reasons = skip_reasons(jobs, "content", step)
+    reasons = skip_reasons({"jobs": jobs}, "content", step)
     if reason_words is None:
         assert reasons == []
     else:
         assert any(reason_words in reason for reason in reasons), reasons
+
+
+@pytest.mark.parametrize("workflow, step, expected", [
+    ({"jobs": {"content": {}}}, {"run": "pytest x"}, (None, None)),
+    ({"jobs": {"content": {}}}, {"run": "pytest x", "shell": "bash"}, ("bash", "the step")),
+    ({"defaults": {"run": {"shell": "cat {0}"}}, "jobs": {"content": {}}},
+     {"run": "pytest x"}, ("cat {0}", "the workflow's `defaults.run`")),
+    ({"jobs": {"content": {"defaults": {"run": {"shell": "cat {0}"}}}}},
+     {"run": "pytest x"}, ("cat {0}", "the job's `defaults.run`")),
+    # A job's default overrides the workflow's, and a step's key overrides both.
+    ({"defaults": {"run": {"shell": "bash"}},
+      "jobs": {"content": {"defaults": {"run": {"shell": "cat {0}"}}}}},
+     {"run": "pytest x"}, ("cat {0}", "the job's `defaults.run`")),
+    ({"defaults": {"run": {"shell": "cat {0}"}},
+      "jobs": {"content": {"defaults": {"run": {"shell": "cat {0}"}}}}},
+     {"run": "pytest x", "shell": "bash"}, ("bash", "the step")),
+    ({"defaults": {"run": {"working-directory": "src"}}, "jobs": {"content": {}}},
+     {"run": "pytest x"}, (None, None)),
+])
+def test_the_shell_is_resolved_the_way_github_resolves_it(workflow, step, expected):
+    """A step can inherit its shell from two levels up and carry no key itself.
+
+    Reading only `step["shell"]` left `defaults: {run: {shell: cat {0}}}`
+    invisible: the script would be printed, the content checks would never run,
+    and the calendar case saw no reason at all.
+    """
+    job = workflow["jobs"]["content"]
+    assert effective_shell(workflow, job, step) == expected
+
+
+@pytest.mark.parametrize("workflow", [
+    {"defaults": {"run": {"shell": "cat {0}"}}, "jobs": {"content": {}}},
+    {"jobs": {"content": {"defaults": {"run": {"shell": "cat {0}"}}}}},
+    {"defaults": {"run": {"shell": "python"}}, "jobs": {"content": {}}},
+])
+def test_an_inherited_shell_that_is_not_a_shell_is_a_reason(workflow):
+    """And the calendar case has to see it, which is the half that was missing."""
+    reasons = skip_reasons(workflow, "content", {"run": "pytest x"})
+    assert any("is not a shell" in reason for reason in reasons), reasons
 
 
 def test_the_parser_reads_the_steps_of_the_workflow_it_is_given():
