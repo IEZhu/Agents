@@ -393,6 +393,11 @@ def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None)
     the same, which is likeliest when that content is empty. Neither test replaces the other. The
     bytes catch a file written into in place, where the identity is still this request's own, and
     the identity catches a different file that carries the same bytes.
+
+    What neither test closes is the gap between the last check and the unlink: POSIX has no
+    operation that removes a name only while it still holds a given file, so a replacement landing
+    inside that gap is removed. It stays open deliberately, because the alternative is to never
+    undo, which leaves every failed create's own item under its name instead.
     """
     try:
         if _read(path) != data:
