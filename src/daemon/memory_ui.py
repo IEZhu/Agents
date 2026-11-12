@@ -275,9 +275,10 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     short, which the hard-link path avoids. A failure gives the name back through _undo_create,
     which takes it only while the bytes under it are the ones this call meant to write; a name that
     holds anything else, its own partial write included, is left for its owner, who sees that item
-    next to the error it came with. The identity of the file would not serve instead, because an
-    inode is still this call's own after another process has written into it, and no check and
-    unlink are one operation. The mode goes through the descriptor, which a symlink put in the way
+    next to the error it came with. The identity of the file read here goes with those bytes rather
+    than instead of them: on its own it is still this call's own after another process has written
+    into the file, while the bytes on their own would match a different file carrying the same
+    content. The mode goes through the descriptor, which a symlink put in the way
     after the create cannot redirect.
     """
     try:
@@ -285,13 +286,17 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     except FileExistsError:
         raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
     try:
+        created = os.fstat(fd)  # the identity the undo compares beside the bytes, where it reads
+    except OSError:
+        created = None
+    try:
         stream = os.fdopen(fd, "wb")
     except BaseException:
         try:
             os.close(fd)
         except OSError:  # fdopen may have closed it on its way out
             pass
-        _undo_create(path, data)
+        _undo_create(path, data, created)
         raise
     try:
         with stream:
@@ -301,7 +306,7 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
             stream.flush()
             os.fsync(stream.fileno())
     except BaseException:
-        _undo_create(path, data)
+        _undo_create(path, data, created)
         raise
 
 
@@ -379,11 +384,24 @@ def _warning(error: Exception) -> str:
     return f"storage_error: {getattr(error, 'strerror', None) or error}"
 
 
-def _undo_create(path: Path, data: bytes) -> None:
-    """Removes a file this request just created, unless something changed it since."""
+def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None) -> None:
+    """Removes a file this request just created, unless something changed it since.
+
+    The bytes under the name must still be the ones this request wrote. ``created``, the identity
+    of the file it created, has to match as well wherever the caller holds it: equal bytes alone
+    would take down a file another session installed under the name whose content happens to be
+    the same, which is likeliest when that content is empty. Neither test replaces the other. The
+    bytes catch a file written into in place, where the identity is still this request's own, and
+    the identity catches a different file that carries the same bytes.
+    """
     try:
-        if _read(path) == data:
-            path.unlink()
+        if _read(path) != data:
+            return
+        if created is not None:
+            current = os.lstat(path)
+            if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
+                return
+        path.unlink()
     except (OSError, MemoryRefused):
         pass  # the request fails anyway with the error that made it undo; this file stays
 

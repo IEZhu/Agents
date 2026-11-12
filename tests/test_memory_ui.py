@@ -544,6 +544,44 @@ async def test_a_failed_create_keeps_an_item_another_session_installed(daemon, m
 
 
 @pytest.mark.asyncio
+async def test_a_failed_create_keeps_a_replacement_that_holds_the_same_bytes(daemon, monkeypatch):
+    """Equal bytes are not ownership: another session's file can hold exactly what this one wrote."""
+    http, env = daemon
+    target, fsync = env["main"] / "partial.md", os.fsync
+    theirs = []
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def full_disk_after_an_equal_replacement(descriptor):
+        try:  # only the file created under its own name, never the temporary file beside it
+            created = os.fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            created = False
+        if created:  # another session installs its own file, holding the very same content
+            other = target.with_name("theirs.md")
+            other.write_text("mine\n", encoding="utf-8")
+            try:
+                os.replace(other, target)
+                theirs.append(os.stat(target).st_ino)
+            except OSError:  # a platform that holds an open name in place refuses this
+                other.unlink()
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return fsync(descriptor)
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fsync", full_disk_after_an_equal_replacement)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    if not theirs:  # such a platform keeps anything else from replacing that name as well
+        pytest.skip("this platform refuses to replace a name while its descriptor is open")
+    assert os.stat(target).st_ino == theirs[0]  # their file, not a name this request took back
+
+
+@pytest.mark.asyncio
 async def test_a_create_that_cannot_be_wrapped_keeps_the_empty_item(daemon, monkeypatch):
     """The name is taken before the stream exists, and an empty file is not the content to undo."""
     http, env = daemon
