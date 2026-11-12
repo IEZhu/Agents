@@ -392,7 +392,10 @@ def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None)
     would take down a file another session installed under the name whose content happens to be
     the same, which is likeliest when that content is empty. Neither test replaces the other. The
     bytes catch a file written into in place, where the identity is still this request's own, and
-    the identity catches a different file that carries the same bytes.
+    the identity catches a different file that carries the same bytes. An unset ``st_ino``, which
+    some file systems without hard links report for every file alike, identifies nothing: there
+    the bytes would decide alone, which is the case the identity is here to cover, so nothing is
+    removed instead.
 
     What neither test closes is the gap between the last check and the unlink: POSIX has no
     operation that removes a name only while it still holds a given file, so a replacement landing
@@ -403,6 +406,8 @@ def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None)
         if _read(path) != data:
             return
         if created is not None:
+            if not created.st_ino:
+                return  # a file system that numbers no file cannot tell two of them apart
             current = os.lstat(path)
             if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
                 return

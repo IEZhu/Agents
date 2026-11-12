@@ -582,6 +582,61 @@ async def test_a_failed_create_keeps_a_replacement_that_holds_the_same_bytes(dae
 
 
 @pytest.mark.asyncio
+async def test_a_failed_create_keeps_a_replacement_where_files_carry_no_number(daemon, monkeypatch):
+    """Some file systems without hard links number no file, so an identity there proves nothing."""
+    http, env = daemon
+    target, fsync = env["main"] / "partial.md", os.fsync
+    fstat, lstat, replaced = os.fstat, os.lstat, []
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def is_created(descriptor):  # the file created under its own name, not the temporary beside it
+        try:
+            return fstat(descriptor).st_ino == os.stat(target).st_ino
+        except OSError:
+            return False
+
+    def numberless(record):
+        fields = list(record)
+        fields[1] = 0  # st_ino, which such a file system leaves unset for every file alike
+        return os.stat_result(tuple(fields))
+
+    def numberless_fstat(descriptor):
+        record = fstat(descriptor)
+        return numberless(record) if is_created(descriptor) else record
+
+    def numberless_lstat(name, **options):
+        record = lstat(name, **options)
+        return numberless(record) if Path(name) == target else record
+
+    def full_disk_after_an_equal_replacement(descriptor):
+        if not is_created(descriptor):
+            return fsync(descriptor)
+        other = target.with_name("theirs.md")  # another session, holding the very same content
+        other.write_text("mine\n", encoding="utf-8")
+        try:
+            os.replace(other, target)
+            replaced.append(True)
+        except OSError:  # a platform that holds an open name in place refuses this
+            other.unlink()
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fsync", full_disk_after_an_equal_replacement)
+    monkeypatch.setattr(os, "fstat", numberless_fstat)
+    monkeypatch.setattr(os, "lstat", numberless_lstat)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    if not replaced:  # such a platform keeps anything else from replacing that name as well
+        pytest.skip("this platform refuses to replace a name while its descriptor is open")
+    assert target.exists()  # the bytes matched and the numbers told nothing, so it was left alone
+
+
+@pytest.mark.asyncio
 async def test_a_create_that_cannot_be_wrapped_keeps_the_empty_item(daemon, monkeypatch):
     """The name is taken before the stream exists, and an empty file is not the content to undo."""
     http, env = daemon
