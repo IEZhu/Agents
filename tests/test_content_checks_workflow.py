@@ -223,19 +223,26 @@ def pytest_paths(args):
 def names_the_file(path, test_file):
     """True when this pytest argument selects that file: the path, or a glob over it.
 
-    Quotes and a leading `./` are stripped, because the shell removes the quotes
-    and both spellings are the same file. A glob is expanded against the tree
-    rather than read as a literal: the shell expands it before pytest sees it,
-    so the file really is an argument of the command that runs, and
-    `.github/workflows/user-sync.yml` already commits that form. A bare
-    directory is still not a name -- that is the trade the docstring states.
+    A leading `./` is stripped, because it is the same file. Quotes are stripped
+    too, since the shell removes them, but whether they were there decides what
+    the argument means: an unquoted glob reaches pytest already expanded, so the
+    file really is an argument of the command that runs, and
+    `.github/workflows/user-sync.yml` already commits that form -- while a
+    quoted one does not expand at all. Measured, `pytest 'tests/test_skill_*.py'`
+    answers `ERROR: file or directory not found` and runs nothing, so it is not
+    evidence however much it looks like the form above.
+
+    A partially quoted token such as `tests/'test_skill_'*.py` is left as it is
+    and matches nothing, which is a miss rather than a mistake. A bare directory
+    is still not a name -- that is the trade the docstring states.
     """
-    cleaned = path.strip("\"'")
+    quoted = len(path) > 1 and path[0] == path[-1] and path[0] in "\"'"
+    cleaned = path.strip("\"'") if quoted else path
     if cleaned.startswith("./"):
         cleaned = cleaned[2:]
     if cleaned == test_file:
         return True
-    if any(character in cleaned for character in "*?["):
+    if not quoted and any(character in cleaned for character in "*?["):
         return fnmatch.fnmatch(test_file, cleaned)
     return False
 
@@ -274,6 +281,16 @@ def deselects_the_file(args, test_file):
     suppress a file given as an explicit argument, so reading it as an exclusion
     would fail a workflow that really does run the file; where the file appears
     only as `--ignore`'s value it is not one of `pytest_paths` either way.
+
+    The value is compared as written, with no `./` stripped, because pytest
+    compares it that way too. Review asked for the normalisation that
+    `names_the_file` does, and measuring refused it: `--deselect ./<file>`
+    deselects nothing, with or without a `./` on the positional, since a node id
+    is `<file>::<test>` and `./<file>` is not a prefix of it. Normalising here
+    would refuse a command that really does run the file. The asymmetry is the
+    point: a path argument and a node-id prefix are different things, and
+    `--deselect <file>` after a `./<file>` positional does deselect, which is a
+    case below.
     """
     node_prefix = test_file + "::"
     for index, token in enumerate(args):
@@ -688,6 +705,12 @@ def test_the_matcher_rejects_what_does_not_run_the_file(command):
     "python -m pytest tests/test_skill_freshness.py --deselect tests/test_skill_freshness.py::",
     # And a glob that misses it is not a name for it either.
     "python -B -m pytest tests/test_source_*.py -q",
+    # A quoted glob is not expanded by the shell, so pytest collects nothing:
+    # measured, `ERROR: file or directory not found`.
+    "python -B -m pytest 'tests/test_skill_*.py' -q",
+    'python -B -m pytest "tests/test_skill_*.py" -q',
+    # A node-id prefix that does match, after a `./` spelling of the positional.
+    "python -m pytest ./tests/test_skill_freshness.py --deselect tests/test_skill_freshness.py",
 ])
 def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     """Invoking pytest is not running tests, and naming a file is not including it.
@@ -707,6 +730,10 @@ def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     "python -m pytest tests/test_skill_freshness.py --ignore=tests/other.py",
     "python -m pytest tests/test_skill_freshness.py --deselect tests/other.py::test_one",
     "python -m pytest --deselect tests/test_skill_freshness.py::test_one tests/test_skill_freshness.py",
+    # Measured: `--deselect ./<file>` deselects nothing, because a node id is
+    # `<file>::<test>` and `./<file>` is not a prefix of it. The file runs.
+    "python -m pytest ./tests/test_skill_freshness.py --deselect ./tests/test_skill_freshness.py",
+    "python -m pytest ./tests/test_skill_freshness.py --deselect './tests/test_skill_freshness.py'",
 ])
 def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     """The other half of the same decision, and the one worth getting wrong-way-round.
