@@ -1576,8 +1576,8 @@ lockfiles and scanner/database errors fail the job. The independent `requirement
 installation input is also resolved universally for Python 3.11 and later, without
 Python downloads, and its complete pinned dependency list is scanned alongside
 `uv.lock`. That resolution takes published wheels only, except for a declared
-dependency that publishes no usable wheel, which is built from its source
-distribution so the audit still reaches it and its transitive dependencies. The
+dependency that publishes no usable wheel, whose source distribution it accepts
+so the audit still reaches it and its transitive dependencies. The
 report must include every expected package name and version from both inventories,
 including conditional versions. This audit resolves the
 requirements at scan time; it does not turn independent pip installs into locked installs.
