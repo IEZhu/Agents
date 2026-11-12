@@ -15,10 +15,10 @@ Four things here are strict because review found each of them loose. A file
 counts only inside a command that *starts* by invoking pytest, so `echo pytest
 x.py` is not evidence and neither is a shell comment. It must appear as a whole
 argument, so `...freshness.py.bak` does not stand in for `...freshness.py`. A
-cron has to be one GitHub Actions can schedule, field by field, because `99 5 *
-* 1` parses as five fields and runs never. And the schedule must reach a step no
-condition can skip, because a workflow can have a schedule and still never run
-this file on it.
+cron has to be one GitHub Actions can schedule, field by field *and* as a
+whole, because `99 5 * * 1` and `17 5 31 2 *` both parse as five fields and both
+run never. And the schedule must reach a step no condition can skip, because a
+workflow can have a schedule and still never run this file on it.
 
 The cost is one false negative: a workflow running `pytest tests/` would
 execute these files without naming them and would still fail here. That is the
@@ -54,6 +54,13 @@ PYTEST_CALL = re.compile(
 # starts a new command, so a file name after either one is never pytest's argument.
 INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
 COMMAND_SEPARATOR = re.compile(r";|&&|\|\||\|")
+# An install is recognised the same way, by what the command runs rather than by
+# the word `install` appearing in it: `python -m pytest tests/x.py -k install`
+# runs pytest. The coverage case at the bottom needs the two apart.
+PIP_INSTALL = re.compile(
+    r"^(?:\S*/)?(?:pip[\d.]*|python[\d.]*\s+(?:-\S+\s+)*-m\s+pip)"
+    r"\s+(?:-\S+\s+)*install(?=\s|$)"
+)
 # GitHub Actions schedules only a five-field POSIX cron expression, and
 # documents each field's range and the four operators it accepts: `*`, `,`, `-`
 # and `/`. `?`, `L`, `W` and `#` are Quartz extensions it does not take, and
@@ -66,6 +73,8 @@ CRON_NAMES = (
     ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"),
     ("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"),
 )
+# February gets 29: a leap year is a real date, so `29 2 *` is a real schedule.
+DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
 def load_workflow(path):
@@ -175,14 +184,66 @@ def cron_item(item, low, high, names):
     return len(ends) <= 2 and all(cron_value(end, low, high, names) for end in ends)
 
 
+def cron_values(field, low, high, names):
+    """Every value a validated field selects.
+
+    Only the day and month fields need this, and only for the one question a
+    field cannot answer alone: whether the pair can fall on a real date. A step
+    counts from the start of its range through the end of the field, which is
+    what GitHub's own `20/15 * * * *` means -- minutes 20, 35 and 50 -- and a
+    range written backwards wraps rather than selecting nothing, because this is
+    not the place to judge it.
+    """
+    width = high - low + 1
+    selected = set()
+    for item in field.split(","):
+        base, slash, step_text = item.partition("/")
+        step = int(step_text) if slash else 1
+        if base == "*":
+            start, end = low, high
+        else:
+            ends = [cron_number(e, names, low) for e in base.split("-")]
+            start = ends[0]
+            end = ends[1] if len(ends) > 1 else (high if slash else start)
+        span = (end - start) % width + 1
+        selected.update(low + (start - low + i) % width for i in range(0, span, step))
+    return selected
+
+
+def cron_number(value, names, low):
+    """One field value as a number, counting a name from where its field starts.
+
+    JAN is month 1 and SUN is weekday 0, so the index alone is wrong for one of
+    them: `low` is what tells them apart.
+    """
+    return int(value) if value.isdigit() else names.index(value.upper()) + low
+
+
+def reaches_a_date(day, month, weekday):
+    """True unless the day and month can never meet, which is a schedule for never.
+
+    `17 5 31 2 *` passes every field and asks for 31 February. The weekday field
+    decides whether the pair is binding at all: crontab(5) runs the job when
+    *either* the day or the weekday matches, as long as both are restricted, so
+    a weekday other than `*` gives the schedule days of its own and the
+    impossible pair stops mattering.
+    """
+    if weekday != "*":
+        return True
+    days = cron_values(day, 1, 31, ())
+    months = cron_values(month, 1, 12, CRON_NAMES[3])
+    return any(d <= DAYS_IN_MONTH[m - 1] for d in days for m in months)
+
+
 def schedulable(cron):
     """True when GitHub Actions can schedule this cron value.
 
     A non-empty value is not a schedule: `cron: weekly` is accepted by YAML and
     by nothing else, so the workflow would carry a schedule entry and never run.
     Neither is a well-shaped one whose values are out of range -- `99 5 * * 1`
-    counts five fields and asks for a minute that does not exist -- which is the
-    same silent failure one field further in.
+    counts five fields and asks for a minute that does not exist -- nor one whose
+    valid fields never coincide, like 31 February. All three are the same silent
+    failure, one layer further in each time.
     """
     fields = (cron or "").split()
     if len(fields) != 5:
@@ -191,7 +252,7 @@ def schedulable(cron):
         items = field.split(",")
         if not all(items) or not all(cron_item(i, low, high, names) for i in items):
             return False
-    return True
+    return reaches_a_date(fields[2], fields[3], fields[4])
 
 
 def is_unconditional(job, step):
@@ -252,11 +313,15 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
 
 # Guard the guard. Every assertion above rests on these helpers, and one that
 # said yes to anything, or no to everything, would make them all vacuous.
-# Review caught four such: the matcher accepted the file name anywhere in any
-# run script, so an echo counted as execution; it then accepted a `pytest` token
-# anywhere in the command, so `echo pytest x.py` counted too; the calendar case
-# accepted an empty schedule, because all([]) is true; and the cron check read
-# the characters of a field without its range, so minute 99 was a schedule.
+# Review caught six such, each one layer inside the last: the matcher accepted
+# the file name anywhere in any run script, so an echo counted as execution; it
+# then accepted a `pytest` token anywhere in the command, so `echo pytest x.py`
+# counted too; the calendar case accepted an empty schedule, because all([]) is
+# true; the cron check read the characters of a field without its range, so
+# minute 99 was a schedule; it then read each field without the others, so 31
+# February was one; and the case below told a pytest run from an install by
+# looking for the word `install` anywhere, which made `pytest -k install` an
+# install and would have failed a legitimate workflow.
 
 @pytest.mark.parametrize("command", [
     "python -B -m pytest tests/test_skill_freshness.py -q",
@@ -283,6 +348,7 @@ def test_the_matcher_accepts_a_real_pytest_invocation(command):
     "python -m pytest tests/test_skill_invariants.py -q",
     "ruff check tests/test_skill_freshness.py",
     "echo pytest tests/test_skill_freshness.py",
+    "echo /pytest tests/test_skill_freshness.py",
     "echo python -m pytest tests/test_skill_freshness.py",
     "python -m pip install pytest tests/test_skill_freshness.py",
     "ls pytest tests/test_skill_freshness.py",
@@ -353,6 +419,30 @@ def test_the_schedule_reader_reports_a_malformed_entry_instead_of_raising(
         assert problem and problem_words in problem
 
 
+@pytest.mark.parametrize("command, installing", [
+    ("python -m pip install pytest python-dotenv pyyaml", True),
+    ("python3 -m pip install pytest python-dotenv pyyaml", True),
+    ("pip install pytest", True),
+    ("pip3 install pytest", True),
+    (".venv/bin/pip install pytest", True),
+    ("python -m pip install --upgrade pytest", True),
+    ("python -m pip install -r requirements.txt", True),
+    ("python -m pytest tests/test_skill_freshness.py -k install", False),
+    ("python -m pytest tests/test_installer_windows.py", False),
+    ("echo pip install pytest", False),
+    ("pip download pytest", False),
+    ("pip list", False),
+])
+def test_an_install_is_told_from_a_run_by_what_the_command_invokes(command, installing):
+    """`pytest -k install` runs pytest, and the word `install` does not say otherwise.
+
+    The oracle in the coverage case below depends on this: it classified by
+    searching every argument for `install`, so selecting installation tests
+    would have failed a workflow that was perfectly correct.
+    """
+    assert bool(PIP_INSTALL.match(command)) is installing
+
+
 @pytest.mark.parametrize("cron, usable", [
     ("17 5 * * 1", True),
     ("0 5 * * 1,4", True),
@@ -375,6 +465,16 @@ def test_the_schedule_reader_reports_a_malformed_entry_instead_of_raising(
     ("17 5 32 * 1", False),
     ("17 5 * 13 1", False),
     ("17 5 * * 7", False),         # GitHub documents 0-6; Sunday is 0 or SUN
+    ("17 5 29 2 *", True),         # a leap year is a real date
+    ("17 5 31 1,2 *", True),       # January has a 31st, so the pair can meet
+    ("30 5 31 2 1", True),         # a restricted weekday gives it days of its own
+    ("17 5 31 2 *", False),        # 31 February
+    ("17 5 30 2 *", False),
+    ("17 5 31 4 *", False),        # April has 30 days
+    ("17 5 31 2,4 *", False),      # neither month has a 31st
+    ("17 5 31 FEB *", False),      # the same date, spelled out
+    ("17 5 31 JAN *", True),
+    ("? * * * *", False),          # Quartz again, this time in the minute
     ("*/0 * * * *", False),        # a step of zero divides by nothing
     ("17 5 * * ?", False),         # Quartz operators are not GitHub's
     ("17 5 L * 1", False),
@@ -390,6 +490,31 @@ def test_only_a_cron_github_can_schedule_counts_as_a_schedule(cron, usable):
     JAN-DEC, weekday 0-6 or SUN-SAT) and the operators from the table under it.
     """
     assert schedulable(cron) is usable
+
+
+@pytest.mark.parametrize("field, low, high, names, expected", [
+    ("20/15", 0, 59, (), {20, 35, 50}),          # GitHub's documented example
+    ("*/15", 0, 59, (), {0, 15, 30, 45}),
+    ("*", 1, 31, (), set(range(1, 32))),
+    ("17", 0, 59, (), {17}),
+    ("1,3,5", 1, 12, CRON_NAMES[3], {1, 3, 5}),
+    ("JAN,MAR", 1, 12, CRON_NAMES[3], {1, 3}),
+    ("FEB", 1, 12, CRON_NAMES[3], {2}),          # a name counts from its field's start
+    ("DEC", 1, 12, CRON_NAMES[3], {12}),
+    ("NOV-FEB", 1, 12, CRON_NAMES[3], {11, 12, 1, 2}),   # a backwards range wraps
+    ("SUN", 0, 6, CRON_NAMES[4], {0}),           # and weekdays start at zero
+    ("MON-FRI", 0, 6, CRON_NAMES[4], {1, 2, 3, 4, 5}),
+    ("29-31", 1, 31, (), {29, 30, 31}),
+])
+def test_the_field_expander_selects_the_values_the_spec_names(
+    field, low, high, names, expected
+):
+    """The calendar check rests on these numbers, so they are pinned, not inferred.
+
+    Reading a name as its bare index is the mistake this table exists to catch:
+    it makes February January, and `31 FEB *` a schedule again.
+    """
+    assert cron_values(field, low, high, names) == expected
 
 
 def test_the_schedule_reader_handles_a_workflow_with_no_schedule():
@@ -418,10 +543,15 @@ def test_every_pytest_command_in_this_repository_is_recognised():
     """An anchor that rejected a real form would turn every case above into a lie.
 
     A `pytest` token appears in exactly two kinds of command in these workflows:
-    one that runs it, and `pip install pytest`, which does not. Both are checked
-    against the anchor here, over the committed files rather than over examples,
+    one that runs it, and `pip install pytest`, which does not. Each is read by
+    its own anchored pattern, over the committed files rather than over examples,
     so a new invocation form (another interpreter, a runner such as `uv run`)
-    fails this case instead of silently making a wiring guard unsatisfiable.
+    drops the count below the floor and fails this case instead of silently
+    making a wiring guard unsatisfiable.
+
+    A command that only mentions pytest, in an echo or a message, is counted as
+    neither and fails nothing: the two anchors have to disagree about the same
+    command for this to fail, which is the mistake worth catching.
     """
     invocations = installs = 0
     for path in WORKFLOWS:
@@ -429,15 +559,13 @@ def test_every_pytest_command_in_this_repository_is_recognised():
             tokens = command.split()
             if "pytest" not in tokens and not any(t.endswith("/pytest") for t in tokens):
                 continue
-            installing = "install" in tokens
-            assert bool(PYTEST_CALL.match(command)) is not installing, (
-                f"{path.name}: the anchor disagrees that this "
-                f"{'installs' if installing else 'runs'} pytest: {command!r}"
+            runs = bool(PYTEST_CALL.match(command))
+            installing = bool(PIP_INSTALL.match(command))
+            assert not (runs and installing), (
+                f"{path.name}: read as both a pytest run and an install: {command!r}"
             )
-            if installing:
-                installs += 1
-            else:
-                invocations += 1
+            invocations += runs
+            installs += installing
     assert invocations >= 15 and installs >= 3, (
         "too few pytest commands found to prove anything about the anchor: "
         f"{invocations} invocations, {installs} installs"
