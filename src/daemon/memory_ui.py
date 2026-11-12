@@ -266,8 +266,9 @@ def _read(path: Path) -> bytes:
         return stream.read()
 
 
-def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
-    """Creates ``path`` on a file system that has no hard links, without replacing anything.
+def _create_exclusively(path: Path, data: bytes, mode: int) -> os.stat_result:
+    """Creates ``path`` on a file system that has no hard links, without replacing anything, and
+    answers with the identity of the file it created.
 
     ``O_EXCL`` keeps the create contract that a file which appeared since the check is never lost; a
     rename would overwrite it. Without hard links nothing installs a finished file under a new name
@@ -315,15 +316,21 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     except BaseException:
         _undo_create(path, data, created)
         raise
+    return created
 
 
-def _replace(path: Path, data: bytes, expected: str | None) -> None:
-    """Writes ``path`` through a temporary file and a rename, keeping its mode.
+def _replace(path: Path, data: bytes, expected: str | None) -> os.stat_result:
+    """Writes ``path`` through a temporary file and a rename, keeping its mode, and answers with
+    the identity of the file it installed.
 
     ``expected`` is the SHA-256 the file must still have, checked right before the rename. The check
     and the rename are two steps, so a session writing between them loses its version. ``None`` means
     the file must not exist: it is then installed with a hard link, which fails when any file took the
     name meanwhile, and only a file system without hard links falls back to an exclusive create.
+
+    Every path reads that identity from a descriptor, never from ``path`` after the fact, so a
+    caller that has to undo the create later can tell the file it installed from one another
+    session put under the name meanwhile.
     """
     try:
         mode = os.lstat(path).st_mode & 0o777
@@ -336,11 +343,12 @@ def _replace(path: Path, data: bytes, expected: str | None) -> None:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
+            installed = os.fstat(stream.fileno())  # the inode the rename or the link gives the name
         os.chmod(temporary, mode)
         _check(path, expected)
         if expected is not None:
             os.replace(temporary, path)
-            return
+            return installed
         try:
             os.link(temporary, path)
         except FileExistsError:
@@ -348,7 +356,8 @@ def _replace(path: Path, data: bytes, expected: str | None) -> None:
         except OSError as error:
             if not _links_unsupported(error):
                 raise
-            _create_exclusively(path, data, mode)
+            return _create_exclusively(path, data, mode)
+        return installed
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -391,20 +400,18 @@ def _warning(error: Exception) -> str:
     return f"storage_error: {getattr(error, 'strerror', None) or error}"
 
 
-def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None) -> None:
+def _undo_create(path: Path, data: bytes, created: os.stat_result) -> None:
     """Removes a file this request just created, unless something changed it since.
 
-    The bytes under the name must still be the ones this request wrote. ``created``, the identity
-    of the file it created, has to match as well wherever the caller holds it: equal bytes alone
-    would take down a file another session installed under the name whose content happens to be
-    the same, which is likeliest when that content is empty. Only a caller that installed a
-    finished file, through a rename or a link, passes none and leaves the bytes to decide; a
-    caller that created the name itself and cannot read an identity for it calls nothing here. Neither test replaces the other. The
-    bytes catch a file written into in place, where the identity is still this request's own, and
-    the identity catches a different file that carries the same bytes. An unset ``st_ino``, which
-    some file systems without hard links report for every file alike, identifies nothing: there
-    the bytes would decide alone, which is the case the identity is here to cover, so nothing is
-    removed instead.
+    The bytes under the name must still be the ones this request wrote, and ``created``, the
+    identity of the file the request installed there, has to match as well. It is required rather
+    than optional because the bytes alone would take down a file another session installed under
+    the name whose content happens to be the same, likeliest when that content is empty, and a
+    caller holding no identity for the name must not undo at all. Neither test replaces the
+    other: the bytes catch a file written into in place, where the identity is still this
+    request's own, and the identity catches a different file that carries the same bytes. An unset
+    ``st_ino``, which some file systems without hard links report for every file alike,
+    identifies nothing, so there nothing is removed either.
 
     What neither test closes is the gap between the last check and the unlink: POSIX has no
     operation that removes a name only while it still holds a given file, so a replacement landing
@@ -414,12 +421,11 @@ def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None)
     try:
         if _read(path) != data:
             return
-        if created is not None:
-            if not created.st_ino:
-                return  # a file system that numbers no file cannot tell two of them apart
-            current = os.lstat(path)
-            if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
-                return
+        if not created.st_ino:
+            return  # a file system that numbers no file cannot tell two of them apart
+        current = os.lstat(path)
+        if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
+            return
         path.unlink()
     except (OSError, MemoryRefused):
         pass  # the request fails anyway with the error that made it undo; this file stays
@@ -774,13 +780,15 @@ class MemoryUI:
             index = creating and body.get("index") is True and place.client == "claude" and not _is_index(place, file)
             if index and is_link(path.parent / INDEX):
                 raise MemoryRefused("symlink_refused", f"{INDEX} is a symlink")
-            _replace(path, data, expected)
+            installed = _replace(path, data, expected)
             indexed = False
             if index:
                 try:
                     indexed = self._index_add(path.parent, file, _index_line(file, data.decode("utf-8")))
                 except BaseException:
-                    _undo_create(path, data)  # a refused request leaves no unindexed item behind
+                    # A refused request leaves no unindexed item behind, and takes back only the
+                    # file it installed: another session's, under that name, is not its to drop.
+                    _undo_create(path, data, installed)
                     raise
         return {"status": "created" if creating else "saved", "store": place.id, "project": project, "file": file,
                 "sha256": _sha(data), "indexed": indexed}
@@ -914,7 +922,7 @@ class MemoryUI:
                 index_text = _read(source_index).decode("utf-8", errors="replace")
                 line = next((raw for raw in index_text.splitlines()
                              if (match := LINK.match(raw)) and match.group("file") == file), None)
-            _replace(destination, data, replace)
+            installed = _replace(destination, data, replace)
             text = data.decode("utf-8", errors="replace")
             result = {"status": "copied", "store": source.id, "project": project, "file": file,
                       "to_store": target.id, "indexed": False, "replaced": existing is not None}
@@ -922,12 +930,12 @@ class MemoryUI:
                 result["indexed"] = self._index_add(destination.parent, file, line or _index_line(file, text))
             except (MemoryRefused, OSError) as error:
                 if existing is None:  # a new item that cannot join the index is not left behind
-                    _undo_create(destination, data)
+                    _undo_create(destination, data, installed)
                     raise
                 result["index_warning"] = _warning(error)  # the replacement is done
             except BaseException:
                 if existing is None:
-                    _undo_create(destination, data)
+                    _undo_create(destination, data, installed)
                 raise
             if move:
                 try:

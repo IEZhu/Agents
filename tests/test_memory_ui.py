@@ -664,7 +664,7 @@ async def test_a_create_whose_identity_cannot_be_read_keeps_the_name(daemon, mon
     body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
     response = await http.put("/ui/api/memory/file", json=body, headers=UI)
     assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
-    assert target.exists()  # its owner sees the empty item and can remove it; a deleted one is gone
+    assert target.read_bytes() == b""  # its owner sees the empty item; a deleted one is gone
     again = await http.put("/ui/api/memory/file", json=body, headers=UI)
     assert again.status_code == 409 and again.json()["error"].startswith("file_exists")
     assert not [name for name in os.listdir(env["main"]) if name.startswith(".memory-")]
@@ -848,6 +848,28 @@ async def test_long_file_names_up_to_255_characters_are_items(daemon):
     too_long = await http.get(f"/ui/api/memory/file?store={main}&project={env['name']}&file={'n' * 254}.md",
                               headers=UI)
     assert too_long.status_code == 400 and too_long.json()["error"].startswith("file_invalid")
+
+
+@pytest.mark.asyncio
+async def test_an_index_failure_keeps_a_replacement_that_holds_the_same_bytes(daemon, monkeypatch):
+    """The undo after a failed index update identifies the file it installed, not just its bytes."""
+    http, env = daemon
+    target = env["main"] / "fresh.md"
+
+    def replaced_then_fails(self, memory, file, line):
+        theirs = target.with_name("theirs.md")  # another session, holding the very same content
+        theirs.write_text("mine\n", encoding="utf-8")
+        os.replace(theirs, target)
+        raise OSError(errno.EIO, "Input/output error")
+
+    await login(http)
+    monkeypatch.setattr(memory_ui.MemoryUI, "_index_add", replaced_then_fails)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "fresh.md", "text": "mine\n",
+            "sha256": None, "index": True}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert target.exists()  # their file, under the same name and with the same bytes, was not dropped
 
 
 @pytest.mark.asyncio
