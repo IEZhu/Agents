@@ -41,6 +41,12 @@ CONTENT_CHECKS = (
 )
 SCHEDULED_BY_CALENDAR = "tests/test_skill_freshness.py"
 PYTEST_CALL = re.compile(r"(?:^|\s|/)pytest(?:\s|$)")
+# A `#` that begins a token comments out the rest of the line, and each of these
+# starts a new command, so a file name after either one is never pytest's argument.
+INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
+COMMAND_SEPARATOR = re.compile(r";|&&|\|\||\|")
+# GitHub Actions schedules only a five-field POSIX cron expression.
+CRON_FIELD = re.compile(r"[0-9*,\-/A-Za-z?#LW]+")
 
 
 def load_workflow(path):
@@ -58,17 +64,23 @@ def load_workflow(path):
 def logical_commands(script):
     """Split one `run:` script into commands, as a shell would read them.
 
-    Backslash continuations are joined first, then comment-only lines dropped:
-    three steps in this repository use a continuation and four carry a comment,
-    so neither can be skipped. Whitespace is normalised last, which is what
-    lets a folded YAML scalar and a block scalar compare the same way.
+    Backslash continuations are joined first, so a step that wraps its arguments
+    reads as one command. Then a comment is cut from the first `#` that begins a
+    token, and what is left is split on the separators that start a new command:
+    `python -m pytest a.py # b.py` and `python -m pytest a.py; echo b.py` both
+    name `b.py` in a place pytest never receives it, and a guard that kept the
+    whole line would count either as evidence. Whitespace is normalised last,
+    which is what lets a folded YAML scalar and a block scalar compare the same
+    way. This models those forms rather than parsing a shell: a `#` or a `;`
+    inside quotes is treated as if it were not.
     """
     joined = re.sub(r"\\\s*\n\s*", " ", script)
     out = []
     for line in joined.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            out.append(" ".join(line.split()))
+        for piece in COMMAND_SEPARATOR.split(INLINE_COMMENT.sub("", line)):
+            command = " ".join(piece.split())
+            if command:
+                out.append(command)
     return out
 
 
@@ -121,6 +133,16 @@ def schedule_crons(workflow):
     return [entry.get("cron") for entry in entries], None
 
 
+def schedulable(cron):
+    """True when a cron value has the five fields GitHub Actions needs to schedule it.
+
+    A non-empty value is not a schedule: `cron: weekly` is accepted by YAML and
+    by nothing else, so the workflow would carry a schedule entry and never run.
+    """
+    fields = (cron or "").split()
+    return len(fields) == 5 and all(CRON_FIELD.fullmatch(field) for field in fields)
+
+
 def is_unconditional(job, step):
     """A step a scheduled run cannot skip: no `if:` on the job or on the step."""
     return "if" not in job and "if" not in step
@@ -156,8 +178,10 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
             reasons.append(f"{path.name}: {problem}")
         elif not crons:
             reasons.append(f"{path.name}: runs it but has no schedule entry")
-        elif not all(crons):
-            reasons.append(f"{path.name}: a schedule entry has no cron ({crons!r})")
+        elif not all(schedulable(cron) for cron in crons):
+            reasons.append(
+                f"{path.name}: a schedule entry has no usable five-field cron ({crons!r})"
+            )
         elif not any(
             is_unconditional(job, step)
             for _, job, step in pytest_steps(path, SCHEDULED_BY_CALENDAR)
@@ -212,6 +236,11 @@ def test_the_matcher_rejects_what_does_not_run_the_file(command):
      ["python -m pytest tests/test_skill_freshness.py -q"]),
     ("  python -B   -m  pytest   tests/a.py  ", ["python -B -m pytest tests/a.py"]),
     ("first\n\n# a comment\nsecond", ["first", "second"]),
+    ("pytest tests/a.py # pytest tests/b.py", ["pytest tests/a.py"]),
+    ("pytest tests/a.py; echo tests/b.py", ["pytest tests/a.py", "echo tests/b.py"]),
+    ("pytest tests/a.py && pytest tests/b.py",
+     ["pytest tests/a.py", "pytest tests/b.py"]),
+    ("pytest tests/a.py | tee log # tests/b.py", ["pytest tests/a.py", "tee log"]),
 ])
 def test_the_parser_reads_a_script_the_way_a_shell_would(script, expected):
     """A comment is not a command, and a continuation is not two of them."""
@@ -221,6 +250,22 @@ def test_the_parser_reads_a_script_the_way_a_shell_would(script, expected):
 def test_a_commented_out_pytest_line_is_not_evidence():
     """The whole point of the parser: the file is named, and still not run."""
     script = "# python -m pytest tests/test_skill_freshness.py -q\necho done"
+    assert not runs_as_pytest_argument(logical_commands(script), "tests/test_skill_freshness.py")
+
+
+@pytest.mark.parametrize("script", [
+    "python -m pytest tests/other.py # tests/test_skill_freshness.py",
+    "python -m pytest tests/other.py; echo tests/test_skill_freshness.py",
+    "python -m pytest tests/other.py && echo tests/test_skill_freshness.py",
+    "python -m pytest tests/other.py | grep tests/test_skill_freshness.py",
+    "python -m pytest tests/other.py\necho tests/test_skill_freshness.py",
+])
+def test_a_name_outside_the_pytest_command_is_not_evidence(script):
+    """A token after a comment or a separator never reaches pytest, whatever precedes it.
+
+    The matcher reads one command, so without the parser splitting these the pytest
+    token and the file token would sit in the same string and the guard would pass.
+    """
     assert not runs_as_pytest_argument(logical_commands(script), "tests/test_skill_freshness.py")
 
 
@@ -243,6 +288,22 @@ def test_the_schedule_reader_reports_a_malformed_entry_instead_of_raising(
         assert problem is None
     else:
         assert problem and problem_words in problem
+
+
+@pytest.mark.parametrize("cron, usable", [
+    ("17 5 * * 1", True),
+    ("0 5 * * 1,4", True),
+    ("*/15 * * * *", True),
+    ("weekly", False),
+    ("", False),
+    (None, False),
+    ("17 5 * *", False),
+    ("17 5 * * 1 2", False),
+    ("17 5 * * monday!", False),
+])
+def test_only_a_five_field_cron_counts_as_a_schedule(cron, usable):
+    """A schedule entry GitHub cannot parse schedules nothing, so it is not one."""
+    assert schedulable(cron) is usable
 
 
 def test_the_schedule_reader_handles_a_workflow_with_no_schedule():
