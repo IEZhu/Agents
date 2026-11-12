@@ -266,99 +266,43 @@ def _read(path: Path) -> bytes:
         return stream.read()
 
 
-def _close(fd: int) -> None:
-    """Closes a descriptor once, where its own failure must not replace the error being reported."""
-    try:
-        os.close(fd)
-    except OSError:
-        pass
-
-
-def _unlink_matching(path: Path, created: os.stat_result) -> bool:
-    """Removes ``path`` while it still holds the file ``created`` describes; says whether it is gone.
-
-    Unlink removes a name, not an inode, so a name that now holds another process's file is left
-    alone, and ``lstat`` keeps a symlink put in the way from being followed, which never matches
-    either. An identity this cannot trust removes nothing: a name it failed to read may hold
-    anything, and a file system that numbers no file, as some without hard links do not, makes the
-    numbers of two different files equal. Leaving an item that nobody meant to keep is recoverable,
-    because its owner sees it and a create under its name says so; deleting one is not.
-    """
-    try:
-        current = os.lstat(path)
-    except FileNotFoundError:
-        return True  # nothing under the name any more
-    except OSError:
-        return False  # the name cannot be read, so what it holds is unknown
-    if not created.st_ino:
-        return False  # nothing identifies the created file, so no name can be shown to hold it
-    if (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino):
-        return True  # the name holds another file now, which is not this call's to take down
-    try:
-        os.unlink(path)
-    except OSError:
-        return False
-    return True
-
-
-def _settle_created(path: Path, fd: int, created: os.stat_result) -> None:
-    """Gives back the name a failed create took, and closes the descriptor it took it with.
-
-    The first attempt runs while that descriptor is still open, which is what makes the identity
-    numbers proof: a file system cannot recycle an inode something still references, so no file
-    appearing under the name later can carry it. A platform that refuses to remove a name while it
-    is open needs the attempt after the close, and the same rule keeps that one sound, because such
-    a platform also refused to let anything else replace the name while it was open. Where neither
-    attempt can show that the name still holds the created file, the item stays for its owner to
-    see and remove, which is the recoverable half of that choice.
-    """
-    removed = _unlink_matching(path, created)
-    _close(fd)
-    if not removed:
-        _unlink_matching(path, created)
-
-
 def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     """Creates ``path`` on a file system that has no hard links, without replacing anything.
 
     ``O_EXCL`` keeps the create contract that a file which appeared since the check is never lost; a
     rename would overwrite it. Without hard links nothing installs a finished file under a new name
     at once, so the content goes into the final name and a reader can see the item while it is still
-    short, which the hard-link path avoids. The descriptor stays open until the name is settled, so
-    a failure anywhere after the create gives the name back through _settle_created without taking
-    another process's file for this one, and the mode goes through that descriptor, which a symlink
-    put in the way after the create cannot redirect. No rollback here can be both complete and
-    safe, so an identity that cannot be trusted keeps the item instead of risking another one."""
+    short, which the hard-link path avoids. A failure gives the name back through _undo_create,
+    which takes it only while the bytes under it are the ones this call meant to write; a name that
+    holds anything else, its own partial write included, is left for its owner, who sees that item
+    next to the error it came with. The identity of the file would not serve instead, because an
+    inode is still this call's own after another process has written into it, and no check and
+    unlink are one operation. The mode goes through the descriptor, which a symlink put in the way
+    after the create cannot redirect.
+    """
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
     except FileExistsError:
         raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
     try:
-        created = os.fstat(fd)  # the identity every cleanup below compares, read before anything else
+        stream = os.fdopen(fd, "wb")
     except BaseException:
-        # Nothing identifies the new file, so the name cannot be taken back: by the time it could
-        # be, another process may have installed its own file under it, and this empty item is not
-        # worth that. It stays for its owner, who sees it and gets file_exists for the name.
-        _close(fd)
-        raise
-    try:
-        # closefd=False keeps the descriptor past the stream, so the cleanup still holds the file
-        # it created and the identity it compares cannot have become anything else's.
-        stream = os.fdopen(fd, "wb", closefd=False)
-    except BaseException:
-        _settle_created(path, fd, created)
+        try:
+            os.close(fd)
+        except OSError:  # fdopen may have closed it on its way out
+            pass
+        _undo_create(path, data)
         raise
     try:
         with stream:
             if hasattr(os, "fchmod"):  # Windows has none; there the mode of os.open stands
-                os.fchmod(fd, mode)
+                os.fchmod(stream.fileno(), mode)
             stream.write(data)
             stream.flush()
-            os.fsync(fd)
+            os.fsync(stream.fileno())
     except BaseException:
-        _settle_created(path, fd, created)
+        _undo_create(path, data)
         raise
-    _close(fd)
 
 
 def _replace(path: Path, data: bytes, expected: str | None) -> None:
