@@ -11,9 +11,11 @@ The freshness check needs more than a path filter. It fails on the earlier of a
 skill's rolling window and its pinned `review_on` date, so the file nobody
 touches is the one it exists to catch, and only a schedule reaches that file.
 
-Four things here are strict because review found each of them loose. A file
+Five things here are strict because review found each of them loose. A file
 counts only inside a command that *starts* by invoking pytest, so `echo pytest
-x.py` is not evidence and neither is a shell comment. It must appear as a whole
+x.py` is not evidence and neither is a shell comment. Invoking pytest is not
+running tests either: `--collect-only` parses the file and executes nothing, and
+`--ignore` takes it back out, so neither counts. It must appear as a whole
 argument, so `...freshness.py.bak` does not stand in for `...freshness.py`. A
 cron has to be one GitHub Actions can schedule, field by field *and* as a
 whole, because `99 5 * * 1` and `17 5 31 2 *` both parse as five fields and both
@@ -54,6 +56,17 @@ PYTEST_CALL = re.compile(
 # starts a new command, so a file name after either one is never pytest's argument.
 INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
 COMMAND_SEPARATOR = re.compile(r";|&&|\|\||\|")
+# Options that make pytest parse the file and run none of its tests: it is
+# collected, listed or described, and nothing in it executes. `-k` and `-m` are
+# deliberately absent -- choosing a subset is what a maintainer legitimately
+# does, and the guard does not judge which subset.
+NON_RUNNING_FLAGS = frozenset({
+    "--collect-only", "--co", "--setup-only", "--setup-plan",
+    "--fixtures", "--fixtures-per-test", "--markers",
+    "--help", "-h", "--version", "-V",
+})
+# Options that take a named file back out of the run.
+FILE_EXCLUDING_OPTIONS = frozenset({"--ignore", "--ignore-glob", "--deselect"})
 # An install is recognised the same way, by what the command runs rather than by
 # the word `install` appearing in it: `python -m pytest tests/x.py -k install`
 # runs pytest. The coverage case at the bottom needs the two apart.
@@ -112,10 +125,43 @@ def logical_commands(script):
     return out
 
 
+def excludes_the_file(tokens, test_file):
+    """True when an option hands this exact file back out of the run.
+
+    Only an exact value counts: `--deselect <file>::<test>` drops one test and
+    leaves the rest of the file running, so it is not an exclusion. A pattern
+    given to `--ignore-glob` is read as the literal it is and not expanded,
+    which is the one case here that could be missed rather than mistaken.
+    """
+    for index, token in enumerate(tokens):
+        option, _, inline = token.partition("=")
+        if option not in FILE_EXCLUDING_OPTIONS:
+            continue
+        value = inline or (tokens[index + 1] if index + 1 < len(tokens) else "")
+        if value == test_file:
+            return True
+    return False
+
+
 def runs_as_pytest_argument(commands, test_file):
-    """True when some command calls pytest and passes this file as its own argument."""
+    """True when some command runs pytest over this file as its own argument.
+
+    Calling pytest is not running its tests. `--collect-only` and its relatives
+    parse the file and execute nothing; `--ignore` or a whole-file `--deselect`
+    names it and removes it. Either way the command is not evidence, however
+    plainly it spells the path out.
+    """
     whole_argument = re.compile(rf"(?<!\S){re.escape(test_file)}(?!\S)")
-    return any(PYTEST_CALL.search(cmd) and whole_argument.search(cmd) for cmd in commands)
+    for command in commands:
+        if not (PYTEST_CALL.search(command) and whole_argument.search(command)):
+            continue
+        tokens = command.split()
+        if NON_RUNNING_FLAGS.intersection(tokens):
+            continue
+        if excludes_the_file(tokens, test_file):
+            continue
+        return True
+    return False
 
 
 def pytest_steps(path, test_file):
@@ -225,10 +271,18 @@ def reaches_a_date(day, month, weekday):
     `17 5 31 2 *` passes every field and asks for 31 February. The weekday field
     decides whether the pair is binding at all: crontab(5) runs the job when
     *either* the day or the weekday matches, as long as both are restricted, so
-    a weekday other than `*` gives the schedule days of its own and the
-    impossible pair stops mattering.
+    a restricted weekday gives the schedule days of its own and the impossible
+    pair stops mattering.
+
+    Restricted is the man page's own test -- a field that does not contain the
+    `*` character -- so `*/2` is not restricted, and `17 5 31 2 */2` is refused
+    like `17 5 31 2 *`. That reading is disputed between cron implementations
+    and GitHub documents neither, so this is a choice: under the other reading
+    the expression fires on alternate weekdays in February, which nobody writing
+    `31 2` meant either. Refusing it cannot hide a dead schedule, and a weekday
+    written `0-6/2` says the intended thing without the ambiguity.
     """
-    if weekday != "*":
+    if "*" not in weekday:
         return True
     days = cron_values(day, 1, 31, ())
     months = cron_values(month, 1, 12, CRON_NAMES[3])
@@ -319,9 +373,10 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
 # counted too; the calendar case accepted an empty schedule, because all([]) is
 # true; the cron check read the characters of a field without its range, so
 # minute 99 was a schedule; it then read each field without the others, so 31
-# February was one; and the case below told a pytest run from an install by
-# looking for the word `install` anywhere, which made `pytest -k install` an
-# install and would have failed a legitimate workflow.
+# February was one; the case below told a pytest run from an install by looking
+# for the word `install` anywhere, which made `pytest -k install` an install and
+# would have failed a legitimate workflow; and the matcher read the pytest
+# command without its options, so `--collect-only` counted as a run.
 
 @pytest.mark.parametrize("command", [
     "python -B -m pytest tests/test_skill_freshness.py -q",
@@ -356,6 +411,50 @@ def test_the_matcher_accepts_a_real_pytest_invocation(command):
 def test_the_matcher_rejects_what_does_not_run_the_file(command):
     """Naming it is not running it: an echo, a neighbouring path, a suffix, another tool."""
     assert not runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
+
+
+@pytest.mark.parametrize("command", [
+    "python -m pytest --collect-only tests/test_skill_freshness.py",
+    "python -m pytest --co tests/test_skill_freshness.py -q",
+    "python -m pytest --setup-only tests/test_skill_freshness.py",
+    "python -m pytest --setup-plan tests/test_skill_freshness.py",
+    "python -m pytest --fixtures tests/test_skill_freshness.py",
+    "python -m pytest --fixtures-per-test tests/test_skill_freshness.py",
+    "python -m pytest --markers tests/test_skill_freshness.py",
+    "python -m pytest --help tests/test_skill_freshness.py",
+    "python -m pytest --version tests/test_skill_freshness.py",
+    "python -m pytest --ignore tests/test_skill_freshness.py tests/other.py",
+    "python -m pytest --ignore=tests/test_skill_freshness.py tests/other.py",
+    "python -m pytest --deselect tests/test_skill_freshness.py tests/other.py",
+    "python -m pytest --deselect=tests/test_skill_freshness.py tests/other.py",
+])
+def test_a_command_that_never_runs_the_file_is_not_evidence(command):
+    """Invoking pytest is not running tests, and naming a file is not including it.
+
+    `--collect-only` parses the file and executes nothing; `--ignore` and a
+    whole-file `--deselect` spell the path out in order to leave it out. A guard
+    that read only the command and the path would count all of these.
+    """
+    assert not runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
+
+
+@pytest.mark.parametrize("command", [
+    "python -m pytest tests/test_skill_freshness.py -k install",
+    "python -m pytest tests/test_skill_freshness.py -m 'not slow'",
+    "python -m pytest tests/test_skill_freshness.py -x --maxfail=1",
+    "python -m pytest tests/test_skill_freshness.py --durations=15 -q",
+    "python -m pytest tests/test_skill_freshness.py --ignore=tests/other.py",
+    "python -m pytest tests/test_skill_freshness.py --deselect tests/other.py::test_one",
+    "python -m pytest --deselect tests/test_skill_freshness.py::test_one tests/test_skill_freshness.py",
+])
+def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
+    """The other half of the same decision, and the one worth getting wrong-way-round.
+
+    Choosing a subset is legitimate and may legitimately select nothing, so `-k`
+    and `-m` are not read as refusals to run. Excluding a different file, or one
+    test out of this one, leaves this file running and still counts.
+    """
+    assert runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("script, expected", [
@@ -473,6 +572,9 @@ def test_an_install_is_told_from_a_run_by_what_the_command_invokes(command, inst
     ("17 5 31 4 *", False),        # April has 30 days
     ("17 5 31 2,4 *", False),      # neither month has a 31st
     ("17 5 31 FEB *", False),      # the same date, spelled out
+    ("17 5 31 2 */2", False),      # crontab(5) calls a field with `*` unrestricted
+    ("17 5 * * */2", True),        # every other weekday is a real schedule
+    ("17 5 31 2 0-6/2", True),     # and this is how to say it without the `*`
     ("17 5 31 JAN *", True),
     ("? * * * *", False),          # Quartz again, this time in the minute
     ("*/0 * * * *", False),        # a step of zero divides by nothing
