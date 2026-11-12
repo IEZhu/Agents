@@ -413,10 +413,14 @@ def _undo_create(path: Path, data: bytes, created: os.stat_result) -> None:
     ``st_ino``, which some file systems without hard links report for every file alike,
     identifies nothing, so there nothing is removed either.
 
-    What neither test closes is the gap between the last check and the unlink: POSIX has no
-    operation that removes a name only while it still holds a given file, so a replacement landing
-    inside that gap is removed. It stays open deliberately, because the alternative is to never
-    undo, which leaves every failed create's own item under its name instead.
+    Two windows stay open, both for the same reason, and both deliberately. POSIX has no operation
+    that removes a name only while it still holds a given file, so a replacement landing between
+    the last check and the unlink is removed. And an identity is a pair of numbers, not a hold on
+    the file: once the descriptor that produced it is closed, a file system may reuse that inode
+    number, so a replacement that lands on it with the same bytes passes both tests. Only a
+    reference kept open from the write through the undo would close either, which means carrying a
+    descriptor across the caller's own work, and the alternative to both is never undoing, which
+    leaves every failed create's own item under its name instead.
     """
     try:
         if _read(path) != data:
