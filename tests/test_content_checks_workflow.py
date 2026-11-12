@@ -11,30 +11,53 @@ The freshness check needs more than a path filter. It fails on the earlier of a
 skill's rolling window and its pinned `review_on` date, so the file nobody
 touches is the one it exists to catch, and only a schedule reaches that file.
 
-Five things here are strict because review found each of them loose. A file
-counts only inside a command that *starts* by invoking pytest, so `echo pytest
-x.py` is not evidence and neither is a shell comment. Invoking pytest is not
-running tests either: `--collect-only` parses the file and executes nothing, and
-`--ignore` takes it back out, so neither counts. It must appear as a whole
-argument, so `...freshness.py.bak` does not stand in for `...freshness.py`. A
-cron has to be one GitHub Actions can schedule, field by field *and* as a
-whole, because `99 5 * * 1` and `17 5 31 2 *` both parse as five fields and both
-run never. And the schedule must reach a step no condition can skip, because a
-workflow can have a schedule and still never run this file on it.
+What this module reads is a command, not a word and not a path. The reader
+finds the command position first, stepping over the prefixes this repository
+really writes -- a leading `NAME=value`, which is the form `CLAUDE.md` and
+`tests/README.md` prescribe, an `env` with its assignments, and `uv run` or
+`uvx` -- and then requires pytest, a path ending in it, or an interpreter whose
+`-m` names pytest. After that it separates pytest's options from the paths it
+will collect, expands a glob against the tree because the shell does, and asks
+whether any of those paths is this file. So `echo pytest x.py` is not evidence,
+`--collect-only` and its undashed spellings are not, a whole-file `--deselect`
+is not, and `...freshness.py.bak` is not; while a glob, a quoted path and a
+`./` spelling all are, because each of them really runs the file.
 
-The cost is one false negative: a workflow running `pytest tests/` would
-execute these files without naming them and would still fail here. That is the
-intended trade, because being named is the property worth holding.
+The schedule is read twice as hard. A cron has to be one GitHub Actions can
+schedule, field by field *and* as a whole, because `99 5 * * 1` and
+`17 5 31 2 *` both parse as five fields and both run never. And the step has to
+be one a scheduled run reaches: not behind an `if:`, not in a job that needs a
+job gated to pull requests, not behind an `environment:`, not `continue-on-error`
+on either, and not under a `shell:` that prints the script instead of running it.
+Every one of those passed this guard until an adversarial pass found it.
+
+Two limits are real and stated rather than solved. A command can run the file
+without naming it -- `pytest tests/` collects the directory, and a file list
+held in a shell variable expands outside this reader -- and both still fail
+here, which is the intended trade: being named is what makes dropping a file
+visible. And a static read cannot tell whether a script's pytest line is
+reached. A step that defines a shell function called pytest, writes its own
+stub on PATH, puts the command in a here-document or after an `exit 0`, or
+backgrounds it with `&`, satisfies every check above and runs nothing; closing
+that would mean executing the script rather than reading it, which only a real
+workflow run can do.
 """
 
 from pathlib import Path
+import fnmatch
 import re
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = sorted((ROOT / ".github/workflows").glob("*.yml"))
+# Both extensions: GitHub accepts `.yml` and `.yaml`, and a workflow saved with
+# the other one would have gone unseen here, failing a correct repository.
+WORKFLOWS = sorted(
+    path
+    for pattern in ("*.yml", "*.yaml")
+    for path in (ROOT / ".github/workflows").glob(pattern)
+)
 
 # The checks over the content library. A new one belongs in this list and in a
 # workflow's pytest command, which is the pairing this module exists to hold.
@@ -45,28 +68,43 @@ CONTENT_CHECKS = (
 )
 SCHEDULED_BY_CALENDAR = "tests/test_skill_freshness.py"
 # pytest has to be what the command runs, not a word inside it: `echo pytest
-# x.py` names both and runs neither. So the match is anchored to the command
-# position -- `pytest`, a path ending in it, or an interpreter whose `-m` is
-# pytest. `python -m pip install pytest` fails on that `-m`, which is the one
-# other place these workflows write the word.
-PYTEST_CALL = re.compile(
-    r"^(?:\S*/)?(?:pytest(?=\s|$)|python[\d.]*\s+(?:-\S+\s+)*-m\s+pytest(?=\s|$))"
-)
+# x.py` names both and runs neither. The reader below finds the command position
+# first, stepping over the three prefixes this repository and its own
+# documentation actually write -- a leading `NAME=value`, an `env` with its
+# assignments, and `uv run` or `uvx`.
+ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+PYTEST_EXECUTABLE = re.compile(r"^(?:\S*/)?pytest$")
+PYTHON_EXECUTABLE = re.compile(r"^(?:\S*/)?python[\d.]*$")
+# Interpreter options that take the next token, so `python -W error -m pytest`
+# and `python -X dev -m pytest` are still pytest.
+PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "-c", "-m"})
+# pytest options that take the next token, so their value is not a path pytest
+# will collect. An option missing here keeps its value in the path list, which
+# can only make this guard readier to believe a file runs, and only if that
+# value is itself one of the content checks.
+VALUE_OPTIONS = frozenset({
+    "-k", "-m", "-p", "-o", "-c", "-W", "-n", "--deselect", "--ignore",
+    "--ignore-glob", "--rootdir", "--maxfail", "--durations", "--junitxml",
+    "--override-ini", "--confcutdir", "--import-mode", "--tb", "--log-level",
+})
 # A `#` that begins a token comments out the rest of the line, and each of these
 # starts a new command, so a file name after either one is never pytest's argument.
 INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
 COMMAND_SEPARATOR = re.compile(r";|&&|\|\||\|")
 # Options that make pytest parse the file and run none of its tests: it is
-# collected, listed or described, and nothing in it executes. `-k` and `-m` are
-# deliberately absent -- choosing a subset is what a maintainer legitimately
-# does, and the guard does not judge which subset.
-NON_RUNNING_FLAGS = frozenset({
-    "--collect-only", "--co", "--setup-only", "--setup-plan",
-    "--fixtures", "--fixtures-per-test", "--markers",
-    "--help", "-h", "--version", "-V",
+# collected, listed or described, and nothing in it executes. Spelled without
+# their dashes, because pytest answers to `--collectonly` and `--setuponly` as
+# well as to the hyphenated forms its help prints -- measured on pytest 9.1.1,
+# not inferred. `-k` and `-m` are deliberately absent: choosing a subset is what
+# a maintainer legitimately does, and the guard does not judge which subset.
+NON_RUNNING_OPTIONS = frozenset({
+    "collectonly", "co", "setuponly", "setupplan",
+    "fixtures", "fixturespertest", "markers",
+    "help", "h", "version", "V",
 })
-# Options that take a named file back out of the run.
-FILE_EXCLUDING_OPTIONS = frozenset({"--ignore", "--ignore-glob", "--deselect"})
+# Shells that run a `run:` script as commands. `shell: cat {0}` is a documented
+# template and prints the script instead, so a step using one is not evidence.
+EXECUTING_SHELLS = frozenset({"bash", "sh", "pwsh", "powershell", "cmd"})
 # An install is recognised the same way, by what the command runs rather than by
 # the word `install` appearing in it: `python -m pytest tests/x.py -k install`
 # runs pytest. The coverage case at the bottom needs the two apart.
@@ -125,20 +163,125 @@ def logical_commands(script):
     return out
 
 
-def excludes_the_file(tokens, test_file):
-    """True when an option hands this exact file back out of the run.
+def pytest_invocation(command):
+    """pytest's own arguments when this command runs pytest, otherwise None.
 
-    Only an exact value counts: `--deselect <file>::<test>` drops one test and
-    leaves the rest of the file running, so it is not an exclusion. A pattern
-    given to `--ignore-glob` is read as the literal it is and not expanded,
-    which is the one case here that could be missed rather than mistaken.
+    The command position decides it. Three prefixes are stepped over first,
+    because all three are how pytest is really invoked here and refusing them
+    would fail a correct workflow: a leading `NAME=value`, which is the form
+    `CLAUDE.md` and `tests/README.md` both prescribe; an `env` with its
+    assignments; and `uv run` or `uvx`, with uv already in this CI. What has to
+    follow is `pytest`, a path ending in it, or a Python interpreter whose `-m`
+    names pytest. `python -m pip install pytest` fails on that `-m`, which is
+    the one other place these workflows write the word.
     """
-    for index, token in enumerate(tokens):
-        option, _, inline = token.partition("=")
-        if option not in FILE_EXCLUDING_OPTIONS:
+    tokens = command.split()
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if ENV_ASSIGNMENT.match(token) or token == "uvx":
+            index += 1
+        elif token == "env":
+            index += 1
+            while index < len(tokens) and ENV_ASSIGNMENT.match(tokens[index]):
+                index += 1
+        elif token == "uv" and tokens[index + 1 : index + 2] == ["run"]:
+            index += 2
+        else:
+            break
+    if index >= len(tokens):
+        return None
+    if PYTEST_EXECUTABLE.match(tokens[index]):
+        return tokens[index + 1 :]
+    if not PYTHON_EXECUTABLE.match(tokens[index]):
+        return None
+    index += 1
+    while index < len(tokens) and tokens[index] != "-m":
+        if not tokens[index].startswith("-"):
+            return None
+        index += 2 if tokens[index] in PYTHON_VALUE_OPTIONS else 1
+    if tokens[index + 1 : index + 2] != ["pytest"]:
+        return None
+    return tokens[index + 2 :]
+
+
+def pytest_paths(args):
+    """The arguments pytest will collect: the options and their values removed."""
+    paths = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token.startswith("-"):
+            option = token.partition("=")[0]
+            index += 2 if option in VALUE_OPTIONS and "=" not in token else 1
             continue
-        value = inline or (tokens[index + 1] if index + 1 < len(tokens) else "")
-        if value == test_file:
+        paths.append(token)
+        index += 1
+    return paths
+
+
+def names_the_file(path, test_file):
+    """True when this pytest argument selects that file: the path, or a glob over it.
+
+    Quotes and a leading `./` are stripped, because the shell removes the quotes
+    and both spellings are the same file. A glob is expanded against the tree
+    rather than read as a literal: the shell expands it before pytest sees it,
+    so the file really is an argument of the command that runs, and
+    `.github/workflows/user-sync.yml` already commits that form. A bare
+    directory is still not a name -- that is the trade the docstring states.
+    """
+    cleaned = path.strip("\"'")
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    if cleaned == test_file:
+        return True
+    if any(character in cleaned for character in "*?["):
+        return fnmatch.fnmatch(test_file, cleaned)
+    return False
+
+
+def normalised_option(token):
+    """An option's spelling without its dashes.
+
+    pytest answers to `--collectonly` as well as `--collect-only`, and to
+    `--setuponly` and `--setupplan`, although `--help` lists only the hyphenated
+    forms. Comparing without the dashes covers both spellings of each, and of
+    any further alias in that family, instead of chasing them one at a time.
+    """
+    return token.partition("=")[0].lstrip("-").replace("-", "")
+
+
+def suppresses_the_run(args):
+    """True when an option makes pytest collect or describe and execute nothing."""
+    return any(
+        normalised_option(arg) in NON_RUNNING_OPTIONS
+        for arg in args
+        if arg.startswith("-")
+    )
+
+
+def deselects_the_file(args, test_file):
+    """True when `--deselect` removes every test in the file.
+
+    pytest deselects every node whose id starts with the value, so the file is
+    gone when the value is a prefix of `<file>::`: the bare path, or the path
+    with `::`. A longer value such as `<file>::test_one` drops one test and
+    leaves the rest running, so it still counts. Measured on pytest 9.1.1
+    rather than read off the source: `--deselect <file>` and
+    `--deselect <file>::` each deselect the whole file, `<file>::test_one` one.
+
+    `--ignore` is deliberately not here. Measured the same way, it does not
+    suppress a file given as an explicit argument, so reading it as an exclusion
+    would fail a workflow that really does run the file; where the file appears
+    only as `--ignore`'s value it is not one of `pytest_paths` either way.
+    """
+    node_prefix = test_file + "::"
+    for index, token in enumerate(args):
+        option, _, inline = token.partition("=")
+        if option != "--deselect":
+            continue
+        value = inline or (args[index + 1] if index + 1 < len(args) else "")
+        if value and node_prefix.startswith(value):
             return True
     return False
 
@@ -146,21 +289,18 @@ def excludes_the_file(tokens, test_file):
 def runs_as_pytest_argument(commands, test_file):
     """True when some command runs pytest over this file as its own argument.
 
-    Calling pytest is not running its tests. `--collect-only` and its relatives
-    parse the file and execute nothing; `--ignore` or a whole-file `--deselect`
-    names it and removes it. Either way the command is not evidence, however
-    plainly it spells the path out.
+    Calling pytest is not running its tests: `--collect-only` and its relatives
+    parse the file and execute nothing, and a whole-file `--deselect` names it
+    in order to drop it. Neither is evidence, however plainly the path is spelt.
     """
-    whole_argument = re.compile(rf"(?<!\S){re.escape(test_file)}(?!\S)")
     for command in commands:
-        if not (PYTEST_CALL.search(command) and whole_argument.search(command)):
+        args = pytest_invocation(command)
+        if args is None:
             continue
-        tokens = command.split()
-        if NON_RUNNING_FLAGS.intersection(tokens):
+        if suppresses_the_run(args) or deselects_the_file(args, test_file):
             continue
-        if excludes_the_file(tokens, test_file):
-            continue
-        return True
+        if any(names_the_file(path, test_file) for path in pytest_paths(args)):
+            return True
     return False
 
 
@@ -197,8 +337,14 @@ def schedule_crons(workflow):
     Returns `(crons, problem)`. `BaseLoader` hands back exactly what was
     written, so a schedule given as bare strings instead of mappings would make
     a plain `entry.get("cron")` raise AttributeError; it is reported instead.
+    The trigger itself gets the same treatment: `on: push` and `on: [push]` are
+    valid shorthand, and reading `schedule` off a string or a list raised
+    instead of saying that the workflow has no calendar.
     """
-    entries = ((workflow.get("on") or {}).get("schedule")) or []
+    triggers = workflow.get("on")
+    if triggers is not None and not isinstance(triggers, dict):
+        return [], f"`on` is a {type(triggers).__name__}, not a mapping, so it has no schedule"
+    entries = ((triggers or {}).get("schedule")) or []
     if not isinstance(entries, list):
         return [], f"schedule is a {type(entries).__name__}, not a list"
     not_mappings = [entry for entry in entries if not isinstance(entry, dict)]
@@ -309,9 +455,68 @@ def schedulable(cron):
     return reaches_a_date(fields[2], fields[3], fields[4])
 
 
+def needed_jobs(jobs, job_name, seen=None):
+    """This job and every job it transitively needs."""
+    seen = set() if seen is None else seen
+    if job_name in seen or job_name not in jobs:
+        return seen
+    seen.add(job_name)
+    needs = jobs[job_name].get("needs") or []
+    for other in [needs] if isinstance(needs, str) else needs:
+        needed_jobs(jobs, other, seen)
+    return seen
+
+
+def skip_reasons(jobs, job_name, step):
+    """Every reason a scheduled run might not reach this step, or an empty list.
+
+    An `if:` is the obvious one and every one of them disqualifies the step,
+    harmless or not, because deciding which conditions exclude the `schedule`
+    event is the judgement this guard exists to avoid making. The rest came out
+    of attacking it, and each was verified to leave the guard green:
+
+    * `needs:` on a job gated to pull requests takes this job with it, because
+      GitHub skips every job that needs a skipped one, so the whole dependency
+      chain has to be unconditional and has to exist.
+    * `environment:` can hold the run at a deployment approval nobody gives at
+      05:17 on a Monday.
+    * `continue-on-error`, on the step or the job, lets the calendar alarm fire
+      into a green run, which defeats the same purpose one layer later.
+    * a `shell:` that is not a shell prints the script instead of running it;
+      `shell: cat {0}` is a documented template.
+
+    Two further forms are left alone on purpose. A `runs-on` label no runner
+    carries would queue the job for ever, but judging which labels exist is a
+    guess this guard should not make. A `strategy.matrix` that expands to
+    nothing is unverified on GitHub's side, so it is named here and not refused.
+    """
+    reasons = []
+    if "if" in step:
+        reasons.append("the step carries an `if:`")
+    if step.get("continue-on-error") not in (None, "false"):
+        reasons.append("the step is `continue-on-error`, so its failure is not the run's")
+    shell = step.get("shell")
+    if shell is not None and shell.split()[0] not in EXECUTING_SHELLS:
+        reasons.append(f"the step runs under `shell: {shell}`, which is not a shell")
+    for name in sorted(needed_jobs(jobs, job_name)):
+        job = jobs[name]
+        where = "its job" if name == job_name else f"`{name}`, which it needs"
+        if "if" in job:
+            reasons.append(f"{where} carries an `if:`")
+        if "environment" in job:
+            reasons.append(f"{where} declares an `environment:`, which can hold the run")
+        if job.get("continue-on-error") not in (None, "false"):
+            reasons.append(f"{where} is `continue-on-error`")
+        needs = job.get("needs") or []
+        for other in [needs] if isinstance(needs, str) else needs:
+            if other not in jobs:
+                reasons.append(f"{where} needs `{other}`, which this file does not define")
+    return reasons
+
+
 def is_unconditional(job, step):
-    """A step a scheduled run cannot skip: no `if:` on the job or on the step."""
-    return "if" not in job and "if" not in step
+    """Kept for the case table below: one job, read without its dependencies."""
+    return not skip_reasons({"only": job}, "only", step)
 
 
 def test_the_test_files_exist():
@@ -348,16 +553,20 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
             reasons.append(
                 f"{path.name}: a schedule entry has no usable five-field cron ({crons!r})"
             )
-        elif not any(
-            is_unconditional(job, step)
-            for _, job, step in pytest_steps(path, SCHEDULED_BY_CALENDAR)
-        ):
-            reasons.append(
-                f"{path.name}: every step running it sits behind an `if:`, "
-                "so a scheduled run may skip it"
-            )
         else:
-            return
+            jobs = load_workflow(path).get("jobs") or {}
+            steps = pytest_steps(path, SCHEDULED_BY_CALENDAR)
+            blocked = [
+                (job_name, skip_reasons(jobs, job_name, step))
+                for job_name, _, step in steps
+            ]
+            if all(why for _, why in blocked):
+                reasons.append(
+                    f"{path.name}: a scheduled run may not reach any step running it -- "
+                    + "; ".join(f"{job}: {', '.join(why)}" for job, why in blocked)
+                )
+            else:
+                return
     pytest.fail(
         f"nothing runs {SCHEDULED_BY_CALENDAR} on a schedule a run cannot skip; "
         "a path filter never reaches a file nobody edits. "
@@ -389,6 +598,19 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
     ".venv/bin/pytest tests/test_skill_freshness.py",
     "python3.11 -m pytest tests/test_skill_freshness.py",
     "python -m pytest -p tests.ci_shard tests/test_skill_freshness.py -v",
+    # Forms review found refused although they run the file. Two are committed
+    # in this repository already and one is what its own documentation says.
+    "python -B -m pytest tests/test_skill_*.py -q",
+    "python -B -m pytest tests/test_skill_fresh???s.py -q",
+    "LANGFUSE_TRACING_ENABLED=false python -m pytest tests/test_skill_freshness.py -q",
+    "env PYTHONHASHSEED=0 python -B -m pytest tests/test_skill_freshness.py",
+    "uv run python -B -m pytest tests/test_skill_freshness.py -q",
+    "uvx pytest tests/test_skill_freshness.py",
+    "python -m pytest ./tests/test_skill_freshness.py -q",
+    "python -m pytest 'tests/test_skill_freshness.py' -q",
+    'python -m pytest "tests/test_skill_freshness.py" -q',
+    "python -W error -m pytest tests/test_skill_freshness.py",
+    "python -X dev -m pytest tests/test_skill_freshness.py",
 ])
 def test_the_matcher_accepts_a_real_pytest_invocation(command):
     """The forms this repository actually writes: python -m, bare, mid-list, absolute."""
@@ -427,6 +649,15 @@ def test_the_matcher_rejects_what_does_not_run_the_file(command):
     "python -m pytest --ignore=tests/test_skill_freshness.py tests/other.py",
     "python -m pytest --deselect tests/test_skill_freshness.py tests/other.py",
     "python -m pytest --deselect=tests/test_skill_freshness.py tests/other.py",
+    # pytest answers to the undashed spellings although its help omits them.
+    "python -m pytest --collectonly tests/test_skill_freshness.py",
+    "python -m pytest --setuponly tests/test_skill_freshness.py",
+    "python -m pytest --setupplan tests/test_skill_freshness.py",
+    # A node-id prefix ending in `::` takes every test in the file.
+    "python -m pytest tests/test_skill_freshness.py --deselect=tests/test_skill_freshness.py::",
+    "python -m pytest tests/test_skill_freshness.py --deselect tests/test_skill_freshness.py::",
+    # And a glob that misses it is not a name for it either.
+    "python -B -m pytest tests/test_source_*.py -q",
 ])
 def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     """Invoking pytest is not running tests, and naming a file is not including it.
@@ -625,6 +856,31 @@ def test_the_schedule_reader_handles_a_workflow_with_no_schedule():
     assert schedule_crons({}) == ([], None)
 
 
+@pytest.mark.parametrize("triggers, problem_words", [
+    ({"schedule": [{"cron": "17 5 * * 1"}]}, None),
+    ({"pull_request": None}, None),
+    (None, None),
+    ("push", "`on` is a str"),
+    (["push"], "`on` is a list"),
+    (["push", "pull_request"], "not a mapping"),
+])
+def test_a_shorthand_trigger_is_reported_instead_of_raising(triggers, problem_words):
+    """`on: push` and `on: [push]` are valid GitHub Actions and are not mappings.
+
+    Reading `schedule` off either one raised AttributeError, so the calendar case
+    failed with a traceback instead of saying the workflow has no calendar. The
+    promise the reader already made about malformed entries covers the entries;
+    this covers the trigger that holds them.
+    """
+    crons, problem = schedule_crons({"on": triggers})
+    assert crons == ([] if problem_words or triggers in (None, {"pull_request": None}) else
+                     ["17 5 * * 1"])
+    if problem_words is None:
+        assert problem is None
+    else:
+        assert problem and problem_words in problem
+
+
 @pytest.mark.parametrize("job, step, expected", [
     ({"steps": []}, {"run": "pytest x"}, True),
     ({"if": "github.event_name == 'pull_request'"}, {"run": "pytest x"}, False),
@@ -646,32 +902,82 @@ def test_every_pytest_command_in_this_repository_is_recognised():
 
     A `pytest` token appears in exactly two kinds of command in these workflows:
     one that runs it, and `pip install pytest`, which does not. Each is read by
-    its own anchored pattern, over the committed files rather than over examples,
-    so a new invocation form (another interpreter, a runner such as `uv run`)
-    drops the count below the floor and fails this case instead of silently
-    making a wiring guard unsatisfiable.
+    its own reader, over the committed files rather than over examples, so a
+    command this file cannot read is counted as neither and the count moves.
 
-    A command that only mentions pytest, in an echo or a message, is counted as
-    neither and fails nothing: the two anchors have to disagree about the same
-    command for this to fail, which is the mistake worth catching.
+    The floor is a floor, not an alarm. With 22 invocations against it, one
+    migrated step does not trip it, and the earlier version of this docstring
+    claiming otherwise was wrong: review measured seven steps of headroom. What
+    the floor catches is a reader that stops reading -- a regression that drops
+    the count to nothing, which is how every other case here becomes vacuous.
+    The mistake it does catch exactly is the two readers agreeing on one
+    command, which is the assertion inside the loop.
     """
-    invocations = installs = 0
+
+    invocations, installs, unreadable = 0, 0, []
     for path in WORKFLOWS:
         for command in run_commands(path):
             tokens = command.split()
             if "pytest" not in tokens and not any(t.endswith("/pytest") for t in tokens):
                 continue
-            runs = bool(PYTEST_CALL.match(command))
+            runs = pytest_invocation(command) is not None
             installing = bool(PIP_INSTALL.match(command))
             assert not (runs and installing), (
                 f"{path.name}: read as both a pytest run and an install: {command!r}"
             )
             invocations += runs
             installs += installing
+            if not (runs or installing):
+                unreadable.append(f"{path.name}: {command}")
     assert invocations >= 15 and installs >= 3, (
-        "too few pytest commands found to prove anything about the anchor: "
-        f"{invocations} invocations, {installs} installs"
+        "too few pytest commands found to prove anything about the readers: "
+        f"{invocations} invocations, {installs} installs. Unread: {unreadable}"
     )
+
+
+@pytest.mark.parametrize("jobs, step, reason_words", [
+    ({"content": {}}, {"run": "pytest x"}, None),
+    ({"content": {"if": "github.event_name == 'pull_request'"}}, {"run": "pytest x"},
+     "its job carries an `if:`"),
+    ({"content": {}}, {"run": "pytest x", "if": "github.event_name != 'schedule'"},
+     "the step carries an `if:`"),
+    ({"content": {"needs": "gate"}, "gate": {"if": "github.event_name == 'pull_request'"}},
+     {"run": "pytest x"}, "`gate`, which it needs carries an `if:`"),
+    ({"content": {"needs": ["lint", "gate"]}, "lint": {},
+      "gate": {"if": "github.event_name == 'pull_request'"}},
+     {"run": "pytest x"}, "`gate`, which it needs carries an `if:`"),
+    ({"content": {"needs": "first"}, "first": {"needs": "second"},
+      "second": {"if": "always()"}}, {"run": "pytest x"},
+     "`second`, which it needs carries an `if:`"),
+    ({"content": {"needs": "absent"}}, {"run": "pytest x"},
+     "needs `absent`, which this file does not define"),
+    ({"content": {"environment": "production"}}, {"run": "pytest x"},
+     "declares an `environment:`"),
+    ({"content": {"continue-on-error": "true"}}, {"run": "pytest x"},
+     "is `continue-on-error`"),
+    ({"content": {}}, {"run": "pytest x", "continue-on-error": "true"},
+     "the step is `continue-on-error`"),
+    ({"content": {}}, {"run": "pytest x", "shell": "cat {0}"},
+     "which is not a shell"),
+    ({"content": {}}, {"run": "pytest x", "shell": "python"}, "which is not a shell"),
+    ({"content": {}}, {"run": "pytest x", "shell": "bash"}, None),
+    ({"content": {}}, {"run": "pytest x", "shell": "bash -e {0}"}, None),
+    ({"content": {"needs": "lint"}, "lint": {}}, {"run": "pytest x"}, None),
+    ({"content": {"continue-on-error": "false"}}, {"run": "pytest x"}, None),
+])
+def test_every_way_a_scheduled_run_can_miss_the_step_is_a_reason(jobs, step, reason_words):
+    """An `if:` was never the only way, and each of the others was verified green.
+
+    A dependency on a job gated to pull requests skips this job with it; an
+    environment can hold the run for an approval; `continue-on-error` lets the
+    calendar alarm land in a green run; and a `shell:` that is not a shell
+    prints the command instead of running it. All four passed the guard before.
+    """
+    reasons = skip_reasons(jobs, "content", step)
+    if reason_words is None:
+        assert reasons == []
+    else:
+        assert any(reason_words in reason for reason in reasons), reasons
 
 
 def test_the_parser_reads_the_steps_of_the_workflow_it_is_given():
@@ -680,5 +986,5 @@ def test_the_parser_reads_the_steps_of_the_workflow_it_is_given():
     assert hosts, "the fixture for this assertion is the first assertion above"
     commands = run_commands(hosts[0])
     assert commands, f"{hosts[0].name} parsed to no run commands"
-    assert any(PYTEST_CALL.search(cmd) for cmd in commands)
+    assert any(pytest_invocation(cmd) is not None for cmd in commands)
     assert pytest_steps(hosts[0], CONTENT_CHECKS[0]), "the step finder lost the step"
