@@ -206,6 +206,7 @@ does not demonstrate equal results or lower total token use including retries.
 | Agent | Trigger | Role |
 |---|---|---|
 | `lawyer` | `/lawyer` | Multi-Jurisdictional Legal Expert (Colombia, Cyprus, Georgia, Kazakhstan, Mexico, Russia, Serbia, Spain, United States) |
+| `labor_lawyer` | `/labor_lawyer` | Employment & Labour Law Expert (Colombia, Cyprus, Georgia, Kazakhstan, Mexico, Serbia, Spain, United States) |
 
 The single `lawyer` agent replaced nine country-specific clones (`colombian_lawyer`, `cypriot_lawyer`, `georgian_lawyer`, `kazakh_lawyer`, `mexican_lawyer`, `russian_lawyer`, `serbian_lawyer`, `spanish_lawyer`, `us_lawyer`). Per-jurisdiction knowledge now lives in `skill-jurisdiction-{co|cy|ge|kz|mx|ru|rs|es|us}` and is loaded into the `lawyer` agent's `capable_skills` pool — activated by country-specific keywords. Old trigger commands (`/co_lawyer`, `/cy_lawyer`, …, `/us_lawyer`) are preserved as routing aliases to `/lawyer`.
 
