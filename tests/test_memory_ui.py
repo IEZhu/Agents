@@ -637,6 +637,40 @@ async def test_a_failed_create_keeps_a_replacement_where_files_carry_no_number(d
 
 
 @pytest.mark.asyncio
+async def test_a_create_whose_identity_cannot_be_read_keeps_the_name(daemon, monkeypatch):
+    """With nothing identifying the new file, the name is not this call's to take back any more."""
+    http, env = daemon
+    target, fstat = env["main"] / "partial.md", os.fstat
+    refused = []
+
+    def no_links(source, destination):
+        raise OSError(errno.ENOTSUP, "hard links are not supported here")
+
+    def unreadable_once(descriptor):
+        record = fstat(descriptor)
+        try:  # only the file created under its own name, never the temporary file beside it
+            created = record.st_ino == os.stat(target).st_ino
+        except OSError:
+            created = False
+        if created and not refused:
+            refused.append(True)
+            raise OSError(errno.EIO, "Input/output error")
+        return record
+
+    await login(http)
+    monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "fstat", unreadable_once)
+    main, _ = stores(env)
+    body = {"store": main, "project": env["name"], "file": "partial.md", "text": "mine\n", "sha256": None}
+    response = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error")
+    assert target.exists()  # its owner sees the empty item and can remove it; a deleted one is gone
+    again = await http.put("/ui/api/memory/file", json=body, headers=UI)
+    assert again.status_code == 409 and again.json()["error"].startswith("file_exists")
+    assert not [name for name in os.listdir(env["main"]) if name.startswith(".memory-")]
+
+
+@pytest.mark.asyncio
 async def test_a_create_that_cannot_be_wrapped_keeps_the_empty_item(daemon, monkeypatch):
     """The name is taken before the stream exists, and an empty file is not the content to undo."""
     http, env = daemon

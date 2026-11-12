@@ -286,9 +286,16 @@ def _create_exclusively(path: Path, data: bytes, mode: int) -> None:
     except FileExistsError:
         raise MemoryRefused("file_exists", f"{path.name} already exists", 409) from None
     try:
-        created = os.fstat(fd)  # the identity the undo compares beside the bytes, where it reads
+        created = os.fstat(fd)  # the identity the undo compares beside the bytes
     except OSError:
-        created = None
+        # With no identity nothing tells this call's file from one another session installed under
+        # the name holding the same bytes, so the name is not given back at all: the empty item
+        # stays for its owner, who sees it and gets file_exists for a create under that name.
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
     try:
         stream = os.fdopen(fd, "wb")
     except BaseException:
@@ -390,7 +397,9 @@ def _undo_create(path: Path, data: bytes, created: os.stat_result | None = None)
     The bytes under the name must still be the ones this request wrote. ``created``, the identity
     of the file it created, has to match as well wherever the caller holds it: equal bytes alone
     would take down a file another session installed under the name whose content happens to be
-    the same, which is likeliest when that content is empty. Neither test replaces the other. The
+    the same, which is likeliest when that content is empty. Only a caller that installed a
+    finished file, through a rename or a link, passes none and leaves the bytes to decide; a
+    caller that created the name itself and cannot read an identity for it calls nothing here. Neither test replaces the other. The
     bytes catch a file written into in place, where the identity is still this request's own, and
     the identity catches a different file that carries the same bytes. An unset ``st_ino``, which
     some file systems without hard links report for every file alike, identifies nothing: there
