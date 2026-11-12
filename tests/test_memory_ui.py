@@ -597,18 +597,29 @@ async def test_a_failed_create_keeps_a_replacement_where_files_carry_no_number(d
         except OSError:
             return False
 
-    def numberless(record):
-        fields = list(record)
-        fields[1] = 0  # st_ino, which such a file system leaves unset for every file alike
-        return os.stat_result(tuple(fields))
+    class Numberless:
+        """One stat result reporting no inode, as such a file system does for every file alike.
+
+        It delegates every other field instead of rebuilding an ``os.stat_result`` from the
+        classic ten: a rebuilt one answers None for the Windows-only ``st_file_attributes``,
+        where the real call always sets it, and the reparse-point check reads that field.
+        """
+
+        st_ino = 0
+
+        def __init__(self, record):
+            self._record = record
+
+        def __getattr__(self, name):
+            return getattr(self._record, name)
 
     def numberless_fstat(descriptor):
         record = fstat(descriptor)
-        return numberless(record) if is_created(descriptor) else record
+        return Numberless(record) if is_created(descriptor) else record
 
     def numberless_lstat(name, **options):
         record = lstat(name, **options)
-        return numberless(record) if Path(name) == target else record
+        return Numberless(record) if Path(name) == target else record
 
     def full_disk_after_an_equal_replacement(descriptor):
         if not is_created(descriptor):
