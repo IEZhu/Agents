@@ -38,6 +38,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Autodev retrospective](autodev-retro.md) | Measure the autodev pipeline from its run records and pull requests (design 12 metrics, lead time, rework, cost), find where runs stall and propose changes, read-only and started by the owner | A report with the metrics, the diagnosis and at most five proposals; one issue only on request |
 | [Review config rollout](review-config-rollout.md) | Install the shared CodeRabbit configuration and the review-discipline section in one repository, with its real base branches, then prove a review arrives | A pull request left for the owner, with the stacks installed and the first review's outcome |
 | [Open-source tuning](open-source-tuning.md) | Tune a skill, implant or agent, or create one, from free and legally available sources: probe the gap, extract only the delta, verify facts, wire it to its owners and hand probe cases to A/B eval | A tuned component with its `sources`, a probe case set and a pull request against `dev` |
+| [Legal reference refresh](legal-reference-refresh.md) | Re-verify a jurisdiction, labour or investment skill whose freshness test came due: one research line per skill from primary sources only, a separate line instructed to refute each claim, a gap critic, then new `as_of` and `review_on` dates | Refreshed skills with a per-claim record, an explicit limits-of-verification section and a pull request against `dev` |
 
 Built-in flows declare their persona: `documentation-refresh` runs as
 `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
@@ -46,8 +47,8 @@ Built-in flows declare their persona: `documentation-refresh` runs as
 as `product_manager`, `autodev-implement` as `software_engineer`,
 `code-review-pass` as `code_reviewer`, `change-premortem` as `sysadmin`,
 `autodev-retro` as `engineering_manager`, `review-config-rollout` as
-`devops_engineer` and `open-source-tuning` as
-`agent_builder`, each
+`devops_engineer`, `open-source-tuning` as
+`agent_builder` and `legal-reference-refresh` as `lawyer`, each
 with an exact list of skills and implants (see
 [choosing a flow's agent](#choose-a-flows-agent-and-components)). The
 `issue-agent` and `autodev` dispatchers and the `autodev-gate` rules have none.
@@ -418,6 +419,11 @@ Each flow must specify:
 Write flows in English under the
 [documentation language policy](documentation-refresh.md#documentation-language).
 Link to shared protocols and references instead of maintaining duplicate copies.
+Retire a flow's text on recorded evidence that it is unexecutable as written or
+contradicts another instruction, or when it restates a passage that stays in the
+file: the shortened text then names that passage, and the change is checked to
+leave every obligation stated once. Producing no findings in a run is never a
+reason to remove a check.
 Before adding or updating a flow, review its examples, relative links, and
 completion criteria so another model can execute it from the file path alone.
 Write steps for the caller's repository. Mark project-specific examples and

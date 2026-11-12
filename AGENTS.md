@@ -113,6 +113,20 @@ plans and catalogs out of tracked repository files.
   `src/client_instructions.py` sends the initialization pointer although a
   checkout's instruction file is not current.
   Keep repository notes and Repository Memory outside the routing markers.
+- The separator rule of the plain-text worker result has one source too:
+  `SEPARATORS` in [subagent_text.py](src/engine/subagent_text.py), from which
+  `separator_rule` composes the sentences that both the rendered package and the
+  block between the markers of
+  [subagent-contract.md](docs/subagent-contract.md) state. Edit the source, never
+  the block, then run
+  `.venv/bin/python -m src.engine.subagent_contract_text --write` (`--check`
+  reports a stale block). `tests/test_subagent_contract_text.py` fails on a stale
+  block and on a wrap that would split a quoted spelling; the Documentation
+  workflow runs it on every pull request, because the test matrix is filtered out
+  for a change that touches neither a test nor one of its listed sources. The
+  conditions in those sentences are not generated: the labelled examples that
+  follow them in the package are executed by
+  `tests/test_subagent_exchange.py` instead (#596).
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.

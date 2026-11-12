@@ -1,0 +1,143 @@
+---
+description: "Serbian employment and labour law: Zakon o radu, otkaz and the mandatory warning step, probni rad, zabrana konkurencije, minimalna zarada, the paušalac independence test, jedinstvena dozvola for foreign workers and the 60-day window to sue. Role: Serbia employment adviser."
+compiled: "RS labour: Zakon o radu is the backbone. Minimum 371.00 RSD an hour net for 2026, with 405.00 already published for 2027; the rate is set by 15 September and can move mid-year. Probni rad 6 months at most, ended on 5 working days' notice with reasons. The čl. 179 grounds are closed and the čl. 180/180a warning step is mandatory: skipping it costs up to 6 salaries even on sound facts. Severance only for redundancy, at least a third of salary per completed year, paid before the dismissal. 60 days to sue under čl. 195. Paušalac test: čl. 85 st. 1 t. 17) ZPDG, 5 of 9 criteria. An EU directive is not directly applicable in Serbia."
+keywords:
+  - /rs_labor
+  - rs_labor
+  - Zakon o radu
+  - закон о раду
+  - otkaz ugovora o radu
+  - probni rad
+  - zabrana konkurencije
+  - rešenje o otkazu
+  - test samostalnosti
+  - dopunski rad
+  - ugovor o delu
+  - radna dozvola Srbija
+  - kolektivni ugovor
+  - minimalna zarada
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://www.pio.rs/sites/default/files/ZAKON%20O%20RADU.pdf
+  - https://pravno-informacioni-sistem.rs/SlGlasnikPortal/eli/rep/sgrs/skupstina/zakon/2019/31/4
+  - https://purs.gov.rs/upload/media/2025/12/15/760517/%D0%97%D0%B0%D0%BA%D0%BE%D0%BD_%D0%BE_%D0%BF%D0%BE%D1%80%D0%B5%D0%B7%D1%83_%D0%BD%D0%B0_%D0%B4%D0%BE%D1%85%D0%BE%D0%B4%D0%B0%D0%BA_%D0%B3%D1%80%D0%B0%D1%92%D0%B0%D0%BD%D0%B0_-_%D1%83_%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D0%BD%D0%B8_%D0%BE%D0%B4_01012026.pdf
+  - https://purs.gov.rs/upload/media/2025/12/15/760519/%D0%97%D0%B0%D0%BA%D0%BE%D0%BD_%D0%BE_%D0%B4%D0%BE%D0%BF%D1%80%D0%B8%D0%BD%D0%BE%D1%81%D0%B8%D0%BC%D0%B0_%D0%B7%D0%B0_%D0%BE%D0%B1%D0%B0%D0%B2%D0%B5%D0%B7%D0%BD%D0%BE_%D1%81%D0%BE%D1%86%D0%B8%D1%98%D0%B0%D0%BB%D0%BD%D0%BE_%D0%BE%D1%81%D0%B8%D0%B3%D1%83%D1%80%D0%B0%D1%9A%D0%B5_-_%D1%83_%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D0%BD%D0%B8_%D0%BE%D0%B4_01012026.pdf
+  - https://www.nsz.gov.rs/filemanager/Files/Dokumenta/Dozvole%20za%20rad/Va%C5%BEne%20informacije/Zakon-o-izmenama-i-dopunama-Zakona-o-zaposljavanju-stranaca-Sl.gl_.62-23.pdf
+  - https://va.os.sud.rs/files/zakon_o_parnicnom_postupku.pdf
+  - https://www.mfin.gov.rs/sr/aktivnosti-1/mali-vlada-u-etvrtak-donosi-odluku-o-redovnom-poveanju-minimalne-zarade-na-551-evro-od-1-januara-2026-godine-1
+---
+## Role
+Serbian employment layer for individuals, relocated remote workers and small employers. `Zakon o radu` (ZoR) is the backbone; a bare `čl. N` means ZoR.
+Serbia only approximates the acquis: an EU directive is **not** directly applicable, merely an interpretive argument. Basics: `skill-jurisdiction-rs`.
+
+## Primary Sources
+- **ZoR** Zakon o radu — Sl. glasnik RS 24/05 … 113/17, 95/18 (authentic interpretation), 109/25 (other law); figures below from the 113/17 consolidation, read 2026-11-06.
+- **ZPDG** porez na dohodak građana; **ZDOSO** doprinosi za obavezno socijalno osiguranje — both …109/25, in force 01/01/2026.
+- **ZZS** zapošljavanje stranaca 128/14 … 62/23; **ZPP** parnični postupak 72/11+ (copy read: pre-2018); **ZMRRS** mirno rešavanje radnih sporova 125/04 … 50/18; **ZZD** zabrana diskriminacije 22/2009 and 52/2021.
+- Bodies: inspekcija rada (čl. 268); Socijalno-ekonomski savet (čl. 112); Poreska uprava; NSZ; RAMRRS.
+
+## Contract Types & Mandatory Written Terms
+- Written `ugovor o radu` before work starts, a copy to the worker (čl. 30, 32); none → indefinite employment from day one (čl. 32).
+- 13 mandatory elements (čl. 33); points 11–13 (pay components, pay dates, hours) may instead name the act setting them.
+- Fixed term: objective reason, max **24 months** cumulative; a break under **30 days** does not count; five exceptions. Unlawful term, or **≥5 working days** worked after expiry → indefinite (čl. 37).
+- `Privremeni i povremeni poslovi` ≤**120 working days**/year, limited to the unemployed, part-timers and **old-age pension beneficiaries** (`korisnik starosne penzije`) — not pensioners generally (čl. 197).
+- `Ugovor o delu` only **outside the employer's activity** (čl. 199).
+- Disguised employment: **the ZoR sets no test.** Its only handles are čl. 32 st. 2 (no written contract before the worker starts → indefinite employment `danom stupanja na rad`) and čl. 199 st. 1 (`ugovor o delu` only for work `van delatnosti poslodavca`). Directed work, the employer's premises and continuity come from čl. 85 st. 1 t. 17) ZPDG and court practice, **not from the ZoR** — so before relying on them in a labour claim, settle which factors a Serbian court actually requires to find employment behind the paper.
+- No reclassification article: the labour route is a claim on the existence of employment, and the tax route is čl. 85 st. 1 t. 17) ZPDG. Do not cite čl. 441 ZPP for the claim — it only makes revizija admissible in disputes on the creation, existence and termination of employment, and creates no cause of action.
+
+## Probation & Early Termination
+- `Probni rad` max **6 months**, agreed in the contract (čl. 36).
+- Either side may end it on **≥5 working days** notice; the employer must give reasons (čl. 36).
+- Inadequate ability → employment ends when probation expires (**čl. 36 st. 4**): no čl. 179 ground, no warning, no severance.
+- Cost: notice pay, unused-leave compensation (čl. 76), and the employer's duty to pay out all unpaid `zarade`, `naknade zarade` and other earned `primanja` **within 30 days of termination** (čl. 186) — a payment deadline on the employer, **not** a limitation period: the worker still has 60 days to sue (čl. 195) and 3 years for money claims (čl. 196); the čl. 187 pregnancy and leave ban still applies, and it does reach a probation *otkaz*. **Čl. 183 does not**, by its own opening words `u smislu člana 179. ovog zakona`, which confine its list of non-grounds to čl. 179 dismissals; a probation *otkaz* under čl. 36 st. 3 rests on no čl. 179 ground. The protection for a probationer runs through čl. 18–21 (discrimination), čl. 187, and čl. 45 st. 2 of the Zakon o zabrani diskriminacije for the burden of proof. A court may still read čl. 183 across by analogy — **the statute does not say**: čl. 183 confines its own list to dismissals `у смислу члана 179. овог закона`, a čl. 36 st. 3 *otkaz* rests on no čl. 179 ground, and nothing in the ZoR either extends or excludes it. The open question is whether the Vrhovni sud has applied čl. 183 to a probation *otkaz*, in a judgment or a `pravni stav` of its Građansko odeljenje; until that is read, plead čl. 18–21, čl. 187 and čl. 45 st. 2 ZZD and raise čl. 183 only as an argument.
+
+## Working Time, Rest & Leave
+
+| Item | Rule |
+|---|---|
+| Full time | **40 h/week**; general act may set 36–40 h (čl. 51) |
+| Overtime | **≤8 h/week**, **≤12 h/day** incl. overtime (čl. 53) |
+| Preraspodela | **6-month** average, **9** by collective agreement; **≤60 h** any week (čl. 57) |
+| Rest | break **≥30 min** at ≥6 h/day (čl. 64); daily **≥12 h**/24 h, **11 h** in preraspodela (čl. 66); weekly **≥24 h** plus that (čl. 67) |
+| Annual leave | **≥20 working days** (week = 5 days), non-waivable, no buy-out except on termination (čl. 68–70); first part **≥2 weeks**, rest by **30 June** next year (čl. 73) |
+
+## Pay, Minimum Wage & Mandatory Bonuses
+- `Minimalna cena rada` is **net of tax and contributions, per working hour**, set by 15 September for the next year and can never fall (čl. 112).
+- **Jan–Dec 2026: 371.00 RSD/hour net** (Sl. glasnik RS 78/2025); ministry monthly headline **64,554 RSD ≈ 551 EUR** at 174 h, so the monthly figure tracks the month's hours.
+- The successor is already published: **405.00 RSD/hour net for 2027**, adopted 20.08.2026 (Sl. glasnik RS 75/2026), about 70,470 RSD at 174 h **(unconfirmed** — only paragraf.rs carries the Odluka; the gazette's own site fails its TLS handshake and the official Pravno-informacioni sistem serves the same 13 KB application shell for every URL**)**. The rate is reset by 15 September each year and **can also move mid-year** (čl. 112 st. 5): 2025 ran at 308.00 to September and 337.00 from October.
+- Minimum uplifts on the base (čl. 108): public holiday **+110%**, night **+26%**, overtime **+26%**, `minuli rad` **+0.4%/full year**; summed if concurrent.
+- Mandatory (čl. 118): commuting, travel, field board and lodging, **meal allowance** in money, `regres`; retirement severance **≥2 average salaries** (čl. 119).
+
+## Exclusivity, Moonlighting & Non-Compete
+- No plain blanket exclusivity: `zabrana konkurencije` in service binds only if the contract names the barred jobs **and** the post yields specially important know-how, a wide partner circle or business secrets (čl. 161); remedy = damages.
+- Post-termination: **max 2 years**, valid only if the employer undertook **in the contract** to pay agreed money (čl. 162).
+- Lawful second work: `dopunski rad` ≤**1/3** of full time elsewhere (čl. 202); a `preduzetnik` side activity is not barred, but see the independence test.
+- Loyalty is no standalone article: čl. 15 duties (conscientious work, respect for employer rules, duty to report material circumstances); breach is a čl. 179 st. 2–3 ground.
+
+## Termination: Grounds, Procedure, Severance
+- Closed grounds (čl. 179): st. 1 capability; st. 2 culpable breach of a work duty; st. 3 breach of work discipline (alcohol or drugs, false hiring data, untenable conduct); st. 5 redundancy or refusal of an `aneks`.
+- The four categories are exhaustive, but two points inside them — čl. 179 st. 2 t. 5) and st. 3 t. 8) — take their content from the employer's own general act, so "closed list" is closed as to categories, not as to every particular.
+- For st. 2–3: written `upozorenje` naming ground, facts and evidence, **≥8 days** to reply, served like a dismissal (čl. 180); the worker may attach his union's opinion (čl. 181). For poor results, čl. 180a requires written notice of shortcomings, instructions and an improvement period.
+- Skipping it makes a factually sound dismissal unlawful — no reinstatement, but up to **6 salaries** (čl. 191 st. 7).
+- Written `rešenje o otkazu` with reasons and remedy instruction; personal service, else notice board after **8 days** (čl. 185).
+- Notice: **8–30 days** by insurance seniority for poor results (čl. 189); resignation **≥15 days**, up to **30** (čl. 178).
+- Severance: redundancy only, **≥1/3 of salary per completed year** here, paid **before** dismissal (čl. 158); none for conduct, capability or probation.
+- **The base is in the statute.** `Zarada` for čl. 158 is the **average monthly salary paid for the last three months preceding the month of payment** (čl. 159), **gross** (čl. 105 st. 2), covering all `primanja iz radnog odnosa` except those čl. 105 st. 3 excludes — čl. 14, čl. 42 st. 3 t. 4)–5), čl. 118 t. 1–4), čl. 119, čl. 120 t. 1) and čl. 158 itself. Only a **navršena godina** counts (čl. 158 st. 2), so a part year adds nothing to the statutory floor; service with a predecessor employer and with the employer's related parties does count (st. 3); and no second *otpremnina* is owed for a period already paid out (st. 6). A general act may raise the floor, never stretch the payment period beyond st. 2–3 (st. 5).
+- Dismissal in pregnancy or parental leave is void under čl. 187 st. 3 **only** where the employer knew of the circumstances on the day the rešenje issued, or where the worker notifies the employer within **30 days** of termination with a doctor's certificate. That 30-day window decides the case and is routinely missed. For union representatives the employer bears the burden (čl. 188).
+
+## Collective Bargaining & Employee Representation
+- Three levels (čl. 241–248): `opšti`, `poseban` (branch or territory), `kod poslodavca`.
+- A collective agreement **can add duties ZoR does not contain**, but only upward: greater rights, better conditions, rights the law omits (čl. 8).
+- `Pravilnik o radu` substitutes only where (čl. 3): no representative union; nobody opens negotiations; no agreement within **60 days** of their start; the union ignores the employer's invitation for **15 days**.
+- An employer refusing a representative union's initiative **may not** use a pravilnik; it lapses when a collective agreement takes effect (čl. 3).
+- Representativeness: union **≥15%** of the employer's workforce (čl. 219), **≥10%** for a branch or territory (čl. 220).
+- Branch agreements bind the signatory association's members, plus six months after exit (čl. 256); the Government may extend one binding **>50%** of a branch (čl. 257).
+- An employer-level agreement binds non-union employees too (čl. 262); term ≤**3 years** (čl. 263).
+- `Savet zaposlenih` may be formed above **50 employees**; it **gives an opinion and participates in decision-making** on employees' economic and social rights, in the manner and under the conditions laid down by law and the general act (čl. 205 st. 2). It is not a purely advisory body.
+- No `opšti kolektivni ugovor` is in force: the 2008 one (Sl. glasnik RS 50/2008, with annexes 104/2008 and 8/2009) is reported to have ceased 17 May 2011 **(unconfirmed** — private compilations only; the gazette record was unreachable**)**. **The absence of an instrument is not the doubt**: čl. 263 st. 2 ends a collective agreement by operation of law on the expiry of its three-year term unless the parties agree otherwise 30 days before, and čl. 264 is the only early exit, by agreement of all participants or by *otkaz*. So nothing need have been published to end it; what is unconfirmed is the OKU's own entry-into-force date, on which the 17 May 2011 arithmetic depends. Private IT has none, so the pravilnik governs.
+
+## Social Security & Payroll
+- Salary tax **10%** after the non-taxable deduction (čl. 16 ZPDG); non-taxable amount **34,221 RSD/month** full-time from **01.01.2026**, pro-rated part-time (čl. 15a ZPDG). The prior-year figure is not stated here: no primary source gave it, and secondary sources disagree.
+- Rates (čl. 44 ZDOSO, from 01.01.2026): pension 24%, health 10.3%, unemployment 0.75%.
+- **Relocation relief: ZPDG čl. 15в + ZDOSO čl. 15а.** For a `novonastanjeni obveznik` on an open-ended contract with a `kvalifikovani poslodavac`, in a post needing special expertise scarce on the domestic market, the salary-tax base is the čl. 15а st. 2 base `умањена за 70%` (ZPDG čl. 15в st. 1) and the contribution base for worker and employer is `зарада умањена за 70%` (ZDOSO čl. 15а st. 1). Qualifying: not predominantly resident in Serbia for the 24 months before the contract, or under 40 with 12 months abroad for study (st. 4); monthly salary above **217,656 RSD** or **145,104 RSD** on the respective route (st. 5–6); settling here and becoming tax resident by centre of business and life interests (st. 7); **5 years** from the contract date, surviving a change of employer (st. 8). The relief covers only the qualified employer's salary and imposes no condition on other paid work — side activity bites through the st. 7 residency test and through čl. 85 st. 1 t. 17) ZPDG, not through čl. 15в. The `kvalifikovano novozaposleno lice` exemption (ZPDG čl. 21ж) is spent: salaries to 31.12.2022, or 31.12.2025 for employers with ≤30 staff on 31.12.2020.
+- On salary: pension **14% worker + 10% employer**, health **5.15% each**, unemployment **0.75% worker** → **19.90% / 15.15% / 35.05% total** (summed from čl. 44).
+- e-bolovanje: from **1 January 2026**, čl. 14 of the law in Sl. glasnik RS 109/2025 (`е-Боловање – Послодавац`) stops čl. 103 and čl. 179 st. 3 t. 2) applying **only in the part imposing on the insured person the duty to notify the employer of the medical commission's assessment** (`у делу који се односи на обавезу осигураног лица да обавести послодавца о оцени лекарске комисије о привременој спречености за рад`), on the publisher's editorial note to the consolidated ZoR. **The rest of čl. 103 stands**: the worker still owes the employer the doctor's `potvrda` within 3 days.
+
+## Foreign Workers & Permit Coupling
+- **Constitutional personal scope is settled.** Čl. 60 Ustava guarantees the right to work to everyone — `Јемчи се право на рад, у складу са законом`, `Свако има право на слободан избор рада`, `Свима су, под једнаким условима, доступна сва радна места` — with the st. 4 rights (dignity at work, safe conditions, limited hours, daily and weekly rest, paid annual leave, fair pay, legal protection on termination) that `Нико се тих права не може одрећи`; and čl. 17 extends every constitutional right to foreigners `изузев права која по Уставу и закону имају само држављани Републике Србије`. Čl. 60 is a framework right `у складу са законом` (Sl. glasnik RS 98/2006, 115/2021), so argue the operative position from čl. 2 ZoR, which applies the law to all work performed in Serbia for a domestic or foreign employer, and in the ZZS and the Law on Foreigners, with čl. 17 and čl. 60 Ustava as the constitutional anchor behind them.
+- Work needs an employment visa or residence **plus** a `jedinstvena dozvola` — one combined residence-and-work permit (čl. 2 t. 13, čl. 9 ZZS); NSZ does the `procena` (čl. 10 ZZS).
+- **Job- and employer-tied** (čl. 11 ZZS): changing the work basis, the employer or adding a second employer needs NSZ `saglasnost` on the Jedinstveni portal, decided in **10 days**. The requirement is not absolute — čl. 11 st. 6 lets the Government exempt deficit occupations.
+- Employment also ends when the permit expires; the foreigner then has **30 days** to sign a new contract, else the Law on Foreigners governs stay (čl. 9 ZZS).
+- A foreigner engaged without the visa, `jedinstvena dozvola`, `saglasnost` or work-permitting temporary residence **is owed everything**: čl. 15 st. 1 ZZS makes the employer `дужан ... да му исплати сва новчана потраживања, у складу са прописима о раду, уз уплату припадајућих пореза и доприноса за обавезно социјално осигурање`, and st. 2 adds a **rebuttable presumption that the employment lasted at least three months**. Čl. 6 of the 62/23 law does amend čl. 15, contrary to what this file said. The same breach costs the employer 800,000–2,000,000 RSD (čl. 34 st. 1 t. 4)) and the foreigner 15,000–150,000 RSD (čl. 35) — the fine does not displace the pay.
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- **60 days** from service of the rešenje, or from learning of the violation, to sue (čl. 195); money claims prescribe in **3 years** (čl. 196).
+- **Nothing here says what suspends that 60 days, and this section offers two alternative routes.** **Nothing suspends the 60 days**: čl. 195 has no tolling clause (its old st. 3 was deleted by 75/2014), čl. 194 suspends the employment and not the deadline (`запосленом мирује радни однос`), and ZMRRS čl. 30 st. 2 only makes a court **stay a suit already filed** (`суд ће застати са поступком`) once the parties report the arbitration. Whether a court would nonetheless excuse a late filing because an arbitration was running is an open question with no ruling opened here: file within 60 days and let the arbitration run alongside, because the arbitration is recoverable and the lapsed deadline is not.
+- In-house arbitration where a general act provides it: notify the employer the day after service (čl. 185), start within **3 days**, decide in **10 days** (čl. 194).
+- RAMRRS offers **arbitration only** in an individual dispute (čl. 4 st. 2, čl. 30 st. 1 ZMRRS); `mirenje` is confined to collective disputes (čl. 4 st. 1). Its čl. 3 st. 1 list covers dismissal, working time, leave, pay, cost reimbursement, retirement severance and discrimination. Each party bears its own costs and the arbitrator's fee comes from the Republic budget (čl. 14, čl. 52 st. 3).
+- Remedies (čl. 191): reinstatement with lost earnings and contributions; or **up to 18 salaries** if reinstatement is not sought (st. 5), **double that** if continuation is proved impossible (st. 6), **up to 6 salaries** for a procedure-only breach (st. 7). No 24-salary cap exists.
+- Burden: on the employer for union-related dismissal (čl. 188); in discrimination it shifts once the claimant makes the act probable (čl. 45 st. 2 ZZD).
+- ZoR covers all work in Serbia for a **domestic or foreign** employer (čl. 2). ZPP labour chapter (čl. 436–441): single judge, urgency, interim measures ex officio, revizija always open.
+- No special labour venue: general venue plus the branch forum (čl. 54 ZPP); against a **legal person** seated abroad, for obligations `које су засноване у Републици Србији или у Републици Србији морају да се испуне`, sue where its `стално заступништво` or the seat of the body entrusted with its business is (čl. 55 ZPP). **With no representation here, or against a natural person, čl. 53 ZPP still opens a forum**: where the obligation is to be performed (st. 3), where it arose during the defendant's stay (st. 2), or where his property or the thing claimed is (st. 1).
+
+## Non-Waivable Rights & Void Clauses
+- A collective agreement, `pravilnik o radu` or contract **may not** give fewer rights or worse conditions than the law; better terms are allowed (čl. 8).
+- A general act less favourable than the law is displaced — **the law applies**; individual terms below the law **or the applicable general act**, or based on the employer's inaccurate information, are **void** (`ništave`). Only those terms fall: the contract survives and the statutory or collective standard fills the gap (čl. 9).
+- Void despite consent: unequal pay for equal work (čl. 104).
+
+## Common Pitfalls
+1. **No warning step** — skipping čl. 180/180a voids a factually sound dismissal; up to 6 salaries (čl. 191 st. 7).
+2. **Paušalac reclassified** — čl. 85 st. 1 t. 17) ZPDG: one payer or its related party plus **≥5 of 9** criteria: payer sets hours or leave; payer's premises; payer trains; hired by ad or agency; payer's tools or direction; **≥70% of 12-month revenue** from one payer; inside the payer's activity without risk; ban on serving others; **≥130 working days/12 months**.
+3. The fee then becomes other income at **20% plus contributions on the gross, with no 20% cost deduction** (čl. 85 st. 5 t. 1, čl. 86 ZPDG).
+4. **An exclusivity clause scores criterion (8)** of čl. 85 ZPDG; only a carve-out naming direct competitors escapes.
+5. **Dismissal is an immigration event** — čl. 9 ZZS starts a 30-day clock; a new employer without NSZ consent (čl. 11 ZZS) is unlawful work.
+6. **`Aneks` refusal** is a čl. 179 st. 5 t. 2) ground only after a written offer with reasons and **≥8 working days** to reply (čl. 172).
+
+## Citation Format
+- `čl. N [Zakon name]` — `čl. 179 Zakona o radu`, short `čl. 179 ZoR`; deeper `čl. 85 st. 1 t. 17) ZPDG`. Cyrillic is equally official.
+- Add the gazette on first use. Never invent a case number; mark anything unopened `(unconfirmed)`.
+
+## Always Disclaim
+Ja sam AI asistent i ne zamenjujem licenciranog advokata. Odgovori su informativni. Za otkaz, tužbu u roku od 60 dana ili dozvolu za rad konsultujte advokata u Srbiji.

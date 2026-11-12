@@ -1,7 +1,7 @@
 # Task-scoped subagent context and exchange contract
 
 Status: implemented; mandatory delegation guidance updated 2026-10-11; compact
-exchange added 2026-10-24.
+exchange added 2026-10-24; text-result diagnostics collected 2026-11-06.
 Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This reference describes
 the implemented worker API; the ordinary persona protocol remains version 2.
 
@@ -175,10 +175,41 @@ The header lines are `task`, `attempt`, `contract` (at least 12 hex characters o
 revision), `status` and, for `input_required`, `question`. Sections are `summary`, the
 payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
 `artifacts`, `limitations`, `remaining_work` and `question`; empty ones are omitted. A
-list item starts with `- `, continuation lines are indented, two-part items separate
-their parts with ` — `, a finding's recommendation follows on a `fix:` line, and `[^id]`
-cites an evidence entry. Evidence IDs are unique, and one item cites each ID at most
-once, counting a finding's explanation and its `fix:` line together.
+list item starts with `- `, continuation lines are indented, a finding's recommendation
+follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry.
+
+The separator between the two parts of a line has one source, `SEPARATORS` in
+`src/engine/subagent_text.py`, and the block below is written from it by
+`src.engine.subagent_contract_text`, so this document states the rule rather than a copy
+of it. It is the text the rendered package puts in front of a worker; the labelled
+examples that follow it there are each run through the parser they illustrate by
+`tests/test_subagent_exchange.py`, which is how the conditions in these sentences are
+checked instead of being described twice.
+
+<!-- >>> separator rule (managed by src.engine.subagent_contract_text) >>> -->
+> Where the form shows ' — ', write exactly that: one space, an em dash (U+2014) and one
+> space. Not a plain hyphen, not an en dash '–', not nothing at all. It has to stand in
+> the line's own text, outside any `code span`, because that is where it is looked for.
+> Every evidence line, finding, changes item and artifacts item needs one. ' -- ' (the
+> spelling accepted before this contract named one) still separates a line where no ' — '
+> appears outside a code span, but do not write it. A line where none of them appears
+> outside a code span is reported as separator_required.
+<!-- <<< separator rule <<< -->
+
+A code span is a run of backticks closed by a run of the same length, the rule Markdown
+itself uses, so a span opened with two backticks may hold a single backtick, and a run
+that nothing closes is literal text. A finding whose `fix:` line is missing or empty is
+rejected as `recommendation_required`, and one that merely confirms something needs that
+line too, saying what to keep: the typed payload keeps `recommendation` required, so a
+parent is never handed a review item whose recommendation it has to chase. Evidence IDs
+are unique; in a text result a repeated citation of one ID inside a single item counts
+once, including a finding's explanation and its `fix:` line together, and does not fail
+validation. A JSON result keeps the stricter rule and reports
+`duplicate_evidence_reference` for a reference repeated within one item. The rendered
+result format shows an evidence example with several locations, states both of those line
+shapes with a counter-example of each — together they discarded six of eight worker runs
+in one measured task (#526) — and closes with a pre-reply check for the separator, the
+`fix:` lines and the 4,000-character limit per text.
 `src/engine/subagent_text.py` parses this into the same closed result model, filling the
 protocol, the full contract revision and the bundle revision from the contract, so every
 structural rule below applies unchanged; a text result may sit in one code fence.
@@ -358,6 +389,32 @@ invariants and evidence references. Bound nesting, arrays, strings, total payloa
 size and diagnostic output. No caller-provided executable schema or remote `$ref`
 resolution in v1: JSON Schemas come only from the fixed built-in result models.
 
+One validation of a text result reports every per-line format error it found instead of
+stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
+`invalid_severity`, `invalid_check` and `recommendation_required` are collected across the
+whole result, within the same limit of 20 diagnostics. A line whose error was collected is
+skipped rather than guessed — the result is invalid either way, and nothing is repaired —
+and its diagnostic keeps that line's own position, such as `$.result.result.changes[2]`.
+A run of consecutive
+lines that belong to no item and to no evidence entry is one diagnostic, because it is one
+problem, and such a line takes no position of its own; a second malformed `[^id]:` line is
+its own diagnostic. Schema and size errors join the same response whenever the text can
+still be parsed, so a string over 4,000 characters or a list over its cap is reported
+together with the format errors, at the position of the line that holds it rather than of
+the shortened list. The identity reads the header alone, so a wrong `task:` or `attempt:`
+is reported in that same response; the status invariants and the evidence references are
+not, because they would only describe the lines that were skipped, and they run once the
+format is clean. Whole-result errors still stop parsing with a single diagnostic,
+because they leave the result's structure or identity uninterpretable: `unknown_section`,
+`duplicate_section`, `invalid_header`, `duplicate_header`, `header_required` and
+`identity_mismatch`. A `separator_required` diagnostic names the shape that was expected,
+not the sections it covers, because the quoted line now says which one it is. Every
+diagnostic about one line also quotes that line, collapsed onto one line and shortened to
+120 characters, so a correction needs no guess about which of a long result's lines
+failed; a schema or size error on a list item quotes its line too.
+Quoting is all that happens to it: a reference inside the line stays a reference and is
+never read, so validation stays structural.
+
 Return `valid: true/false`, a bounded list of errors with field paths and error
 codes, `verification: structural_only`, `result_sha256` when the result could be
 read and, for a contract prepared with `complexity`, possibly `escalation`.
@@ -442,6 +499,18 @@ conclusions are true:
 
 On `valid: false`, inspect `errors[].path`, `code` and `message`, return concrete diagnostics for correction, and validate the revised output again. A new execution attempt requires a new package with a different `attempt_id` and its matching receipt or retained contract. Never rewrite identities or the parent contract to make an invalid result pass. A missing, failed or unavailable validation is not success. Require `valid: true`, then independently verify evidence and acceptance criteria before accepting, integrating, citing as verified, or marking the delegated work complete. Validation opens no path or URI except the stored contract of `contract_revision` and `result_ref`, and never one named inside a result.
 
+In Claude Code that correction round depends on the kind of worker the parent launched. A
+Workflow agent cannot be resumed: `SendMessage` to it answers `No transcript found for
+agent ID`, so even a failure on format alone needs a new attempt with a new `attempt_id`,
+which repeats the whole task at full cost. A background `Agent` worker does receive the
+diagnostics through `SendMessage` and revises the result it already produced, so prefer
+it whenever a correction round matters, and launch with the tool named in the receipt's
+`execution.spawn`. In the reproductions recorded for
+[issue #526](https://github.com/IEZhu/Agents/issues/526), eight of nine Workflow review
+workers failed validation on format alone on 2026-10-26 and each failure became a new
+attempt, while on 2026-11-05 five of seven background `Agent` workers failed on format
+and all five revisions validated after one `SendMessage`.
+
 Component selection uses lexical overlap between task/criteria/scope/context
 and each eligible component's ID, description and keywords, with profile order
 breaking ties. This deterministic ranking needs no embedding model or router
@@ -464,8 +533,11 @@ stored contract; and `invalid_result_ref`, `result_ref_missing`,
 `result_ref_outside`, `result_ref_too_large`, `result_ref_unreadable`,
 `invalid_text` or `result_ref_empty` for the file. A text result that breaks the
 format reports `unknown_section`, `duplicate_section`, `invalid_header`,
-`duplicate_header`, `header_required`, `identity_mismatch`, `separator_required`,
-`invalid_item`, `invalid_evidence`, `invalid_severity` or `invalid_check`.
+`duplicate_header`, `header_required` or `identity_mismatch` on its own, and collects
+`separator_required`, `invalid_item`, `invalid_evidence`, `invalid_severity`,
+`invalid_check` and `recommendation_required` for every offending line in one response,
+each quoting that line, merged with the schema errors
+([result validation](#result-validation)).
 Artifact-backed preparation can also fail with `worker_artifact_rule_missing`,
 workspace errors, `artifact_unavailable` or `integrity_error`; it returns no
 usable partial package. A later release or expiry does not make an otherwise

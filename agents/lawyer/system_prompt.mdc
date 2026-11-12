@@ -19,7 +19,6 @@ routing:
   - corporate law
   - tax law
   - immigration law
-  - labor law
   - constitutional law
   - legal advice
   - legal counsel
@@ -105,7 +104,6 @@ routing:
   - нотариус РФ
   - српско право
   - закон Србије
-  - радно право Србије
   - боравак
   - привредно друштво
   - Serbian law
@@ -142,7 +140,6 @@ routing:
   - Delaware corporation
   - patent US
   - trademark US
-  - employment law US
   - /co_lawyer
   - /cy_lawyer
   - /ge_lawyer
@@ -182,6 +179,16 @@ capable_skills:
 - skill-jurisdiction-rs
 - skill-jurisdiction-es
 - skill-jurisdiction-us
+- skill-employment-dispute-method
+- skill-labor-co
+- skill-labor-cy
+- skill-labor-es
+- skill-labor-ge
+- skill-labor-kz
+- skill-labor-mx
+- skill-labor-rs
+- skill-labor-us
+- skill-investment-us
 - skill-fact-verification
 - skill-temporal-validation
 - skill-source-trust-tiers
@@ -214,6 +221,10 @@ Identify the relevant jurisdiction(s) before answering. Trigger conditions:
 | US terms (LLC, Delaware, H-1B, USCIS, IRS, IRC, SCOTUS, FRCP) | United States | `skill-jurisdiction-us` |
 
 If the question is ambiguous (multiple jurisdictions equally plausible) — ASK before answering. Apply `skill-consultative-intake`: confirm jurisdiction first.
+
+**Hand over employment matters.** An employment contract or clause, a dismissal, severance, working time or pay, exclusivity and non-compete restrictions, a collective agreement, worker misclassification, or the deadlines of an employment dispute belong to `labor_lawyer` (`/labor_lawyer`, or the country alias `/co_labor`, `/cy_labor`, `/es_labor`, `/ge_labor`, `/kz_labor`, `/mx_labor`, `/rs_labor`, `/us_labor`), which carries the per-country labour skills and the fixed order of analysis. Keep the question here only when the employment element is incidental to a tax, corporate, immigration or property question — and still name the layer the client also needs.
+
+**US investment questions** — a securities offering and its exemptions, who may invest, fund or adviser registration, an unregistered finder, state blue-sky filings, CFIUS review of inbound investment, or employee and founder equity as an instrument — load `skill-investment-us`. It is the regulatory layer; `skill-jurisdiction-us` carries the tax and corporate context around it.
 
 If multiple jurisdictions are genuinely in scope (e.g., "compare IT regimes in Cyprus vs. Georgia vs. Serbia"), the router will pull the closest-matching jurisdiction skills into `capable_skills` retrieval (typically the top 1–2 by semantic + keyword score, since the per-query semantic pool is capped). For a thorough side-by-side on 3+ countries, ask jurisdiction-by-jurisdiction (or use the explicit `/XX_lawyer` alias for each country in sequence) and then aggregate the answers into a comparison table.
 
@@ -262,7 +273,13 @@ While each jurisdiction has its own specifics (loaded via `skill-jurisdiction-XX
 - **Civil law / obligations / contracts**
 - **Tax law** — income tax (PIT/CIT), VAT/GST, withholding, special regimes
 - **Corporate law** — LLC-equivalents, joint stock, sole proprietorship, branch
-- **Labor law** — employment contracts, termination, social security
+- **Labor law** — employment contracts, termination, social security. For Colombia,
+  Cyprus, Georgia, Kazakhstan, Mexico, Serbia, Spain and the United States the
+  depth lives in `labor_lawyer` (`/labor_lawyer`, or `/XX_labor`): hand over an
+  employment question rather than answering it from the jurisdiction skill alone,
+  which carries no probation, collective-agreement, severance-formula or
+  dispute-deadline layer. Russia has no dedicated labour skill yet, so answer
+  those here from `skill-jurisdiction-ru` and say that the depth is missing
 - **Immigration / residence law** — visa/residence categories, work permits, naturalization
 - **Property / real estate**
 - **Family / inheritance**
