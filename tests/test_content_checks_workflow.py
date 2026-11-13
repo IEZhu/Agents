@@ -220,6 +220,20 @@ def pytest_paths(args):
     return paths
 
 
+def unquoted(token):
+    """A token with one matching outer pair of quotes removed, as a shell does.
+
+    Only the outer pair, and only a matching one. A quote character inside the
+    value survives expansion and belongs to the path, so
+    `--deselect="<file>'"` really hands pytest a name that matches no node id
+    and the file still runs. Deleting every quote character instead would read
+    that as a whole-file deselection and refuse a command that does run it.
+    """
+    if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
 def names_the_file(path, test_file):
     """True when this pytest argument selects that file: the path, or a glob over it.
 
@@ -236,8 +250,8 @@ def names_the_file(path, test_file):
     and matches nothing, which is a miss rather than a mistake. A bare directory
     is still not a name -- that is the trade the docstring states.
     """
-    quoted = len(path) > 1 and path[0] == path[-1] and path[0] in "\"'"
-    cleaned = path.strip("\"'") if quoted else path
+    cleaned = unquoted(path)
+    quoted = cleaned is not path
     if cleaned.startswith("./"):
         cleaned = cleaned[2:]
     if cleaned == test_file:
@@ -282,8 +296,15 @@ def deselects_the_file(args, test_file):
     would fail a workflow that really does run the file; where the file appears
     only as `--ignore`'s value it is not one of `pytest_paths` either way.
 
-    The value is compared as written, with no `./` stripped, because pytest
-    compares it that way too. Review asked for the normalisation that
+    Quotes come off the value first, because the shell removes them before
+    pytest is started: measured on pytest 9.1.1, `--deselect='<file>'` and
+    `--deselect "<file>"` each deselect the whole file exactly as the bare
+    spelling does. That is the opposite of `names_the_file`, where quoting is
+    load-bearing because it decides whether the shell expands a glob, and the
+    two must not be made to agree. An escaped quote inside a path is not
+    modelled, which would be a miss rather than a mistake.
+
+    The `./` is not stripped, because pytest compares the value as written. Review asked for the normalisation that
     `names_the_file` does, and measuring refused it: `--deselect ./<file>`
     deselects nothing, with or without a `./` on the positional, since a node id
     is `<file>::<test>` and `./<file>` is not a prefix of it. Normalising here
@@ -298,6 +319,7 @@ def deselects_the_file(args, test_file):
         if option != "--deselect":
             continue
         value = inline or (args[index + 1] if index + 1 < len(args) else "")
+        value = unquoted(value)
         if value and node_prefix.startswith(value):
             return True
     return False
@@ -370,9 +392,21 @@ def schedule_crons(workflow):
     return [entry.get("cron") for entry in entries], None
 
 
+def ascii_number(value):
+    """True for a run of ASCII digits, the only numeral a cron field can hold.
+
+    `str.isdigit()` is the wrong test twice over. It is true for `\u0661\u0667`, which
+    `int()` happily parses as 17, so a cron GitHub cannot schedule passed the
+    range check; and it is true for `\u00b2`, which `int()` refuses, so the same test
+    turned a malformed field into a ValueError instead of a verdict -- in a
+    reader whose whole contract is to report a problem rather than raise.
+    """
+    return value.isascii() and value.isdigit()
+
+
 def cron_value(value, low, high, names):
     """True for one number inside its field's range, or a name that field allows."""
-    if value.isdigit():
+    if ascii_number(value):
         return low <= int(value) <= high
     return value.upper() in names
 
@@ -385,7 +419,7 @@ def cron_item(item, low, high, names):
     by nothing, and a range needs two endpoints, both inside the field.
     """
     base, slash, step = item.partition("/")
-    if slash and not (step.isdigit() and int(step) >= 1):
+    if slash and not (ascii_number(step) and int(step) >= 1):
         return False
     if base == "*":
         return True
@@ -425,7 +459,7 @@ def cron_number(value, names, low):
     JAN is month 1 and SUN is weekday 0, so the index alone is wrong for one of
     them: `low` is what tells them apart.
     """
-    return int(value) if value.isdigit() else names.index(value.upper()) + low
+    return int(value) if ascii_number(value) else names.index(value.upper()) + low
 
 
 def reaches_a_date(day, month, weekday):
@@ -711,6 +745,12 @@ def test_the_matcher_rejects_what_does_not_run_the_file(command):
     'python -B -m pytest "tests/test_skill_*.py" -q',
     # A node-id prefix that does match, after a `./` spelling of the positional.
     "python -m pytest ./tests/test_skill_freshness.py --deselect tests/test_skill_freshness.py",
+    # Quoted exactly as the shell would hand it over bare: measured, each of
+    # these deselects the whole file.
+    "python -m pytest tests/test_skill_freshness.py --deselect='tests/test_skill_freshness.py'",
+    'python -m pytest tests/test_skill_freshness.py --deselect="tests/test_skill_freshness.py"',
+    "python -m pytest tests/test_skill_freshness.py --deselect 'tests/test_skill_freshness.py'",
+    "python -m pytest tests/test_skill_freshness.py --deselect='tests/test_skill_freshness.py::'",
 ])
 def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     """Invoking pytest is not running tests, and naming a file is not including it.
@@ -734,6 +774,13 @@ def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     # `<file>::<test>` and `./<file>` is not a prefix of it. The file runs.
     "python -m pytest ./tests/test_skill_freshness.py --deselect ./tests/test_skill_freshness.py",
     "python -m pytest ./tests/test_skill_freshness.py --deselect './tests/test_skill_freshness.py'",
+    # Quote removal keeps the `./` distinction: the value still is not a node-id
+    # prefix, so the file still runs and still counts.
+    "python -m pytest tests/test_skill_freshness.py --deselect='./tests/test_skill_freshness.py'",
+    # An inner quote belongs to the path: the shell removes only the outer pair,
+    # so pytest gets a name matching no node id and the file still runs.
+    "python -m pytest tests/test_skill_freshness.py --deselect=\"tests/test_skill_freshness.py'\"",
+    "python -m pytest tests/test_skill_freshness.py --deselect='tests/test_skill_freshness.py\"'",
 ])
 def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     """The other half of the same decision, and the one worth getting wrong-way-round.
@@ -865,6 +912,11 @@ def test_an_install_is_told_from_a_run_by_what_the_command_invokes(command, inst
     ("17 5 31 2 0-6/2", True),     # and this is how to say it without the `*`
     ("17 5 31 JAN *", True),
     ("? * * * *", False),          # Quartz again, this time in the minute
+    ("\u0661\u0667 5 * * 1", False),       # Arabic-Indic digits: int() parses them, cron does not
+    ("\u06f1\u06f7 \u06f5 * * \u06f1", False),      # the same field by field
+    ("\u00b2 5 * * 1", False),         # isdigit() is true and int() raises on this one
+    ("*/\u0662 * * * *", False),       # and in a step
+    ("1-\u0665 5 * * 1", False),       # and in a range
     ("*/0 * * * *", False),        # a step of zero divides by nothing
     ("17 5 * * ?", False),         # Quartz operators are not GitHub's
     ("17 5 L * 1", False),
