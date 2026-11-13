@@ -220,6 +220,20 @@ def pytest_paths(args):
     return paths
 
 
+def unquoted(token):
+    """A token with one matching outer pair of quotes removed, as a shell does.
+
+    Only the outer pair, and only a matching one. A quote character inside the
+    value survives expansion and belongs to the path, so
+    `--deselect="<file>'"` really hands pytest a name that matches no node id
+    and the file still runs. Deleting every quote character instead would read
+    that as a whole-file deselection and refuse a command that does run it.
+    """
+    if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
 def names_the_file(path, test_file):
     """True when this pytest argument selects that file: the path, or a glob over it.
 
@@ -236,8 +250,8 @@ def names_the_file(path, test_file):
     and matches nothing, which is a miss rather than a mistake. A bare directory
     is still not a name -- that is the trade the docstring states.
     """
-    quoted = len(path) > 1 and path[0] == path[-1] and path[0] in "\"'"
-    cleaned = path.strip("\"'") if quoted else path
+    cleaned = unquoted(path)
+    quoted = cleaned is not path
     if cleaned.startswith("./"):
         cleaned = cleaned[2:]
     if cleaned == test_file:
@@ -305,7 +319,7 @@ def deselects_the_file(args, test_file):
         if option != "--deselect":
             continue
         value = inline or (args[index + 1] if index + 1 < len(args) else "")
-        value = value.replace('"', "").replace("'", "")
+        value = unquoted(value)
         if value and node_prefix.startswith(value):
             return True
     return False
@@ -763,6 +777,10 @@ def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     # Quote removal keeps the `./` distinction: the value still is not a node-id
     # prefix, so the file still runs and still counts.
     "python -m pytest tests/test_skill_freshness.py --deselect='./tests/test_skill_freshness.py'",
+    # An inner quote belongs to the path: the shell removes only the outer pair,
+    # so pytest gets a name matching no node id and the file still runs.
+    "python -m pytest tests/test_skill_freshness.py --deselect=\"tests/test_skill_freshness.py'\"",
+    "python -m pytest tests/test_skill_freshness.py --deselect='tests/test_skill_freshness.py\"'",
 ])
 def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     """The other half of the same decision, and the one worth getting wrong-way-round.
