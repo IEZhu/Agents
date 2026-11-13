@@ -378,9 +378,21 @@ def schedule_crons(workflow):
     return [entry.get("cron") for entry in entries], None
 
 
+def ascii_number(value):
+    """True for a run of ASCII digits, the only numeral a cron field can hold.
+
+    `str.isdigit()` is the wrong test twice over. It is true for `\u0661\u0667`, which
+    `int()` happily parses as 17, so a cron GitHub cannot schedule passed the
+    range check; and it is true for `\u00b2`, which `int()` refuses, so the same test
+    turned a malformed field into a ValueError instead of a verdict -- in a
+    reader whose whole contract is to report a problem rather than raise.
+    """
+    return value.isascii() and value.isdigit()
+
+
 def cron_value(value, low, high, names):
     """True for one number inside its field's range, or a name that field allows."""
-    if value.isdigit():
+    if ascii_number(value):
         return low <= int(value) <= high
     return value.upper() in names
 
@@ -393,7 +405,7 @@ def cron_item(item, low, high, names):
     by nothing, and a range needs two endpoints, both inside the field.
     """
     base, slash, step = item.partition("/")
-    if slash and not (step.isdigit() and int(step) >= 1):
+    if slash and not (ascii_number(step) and int(step) >= 1):
         return False
     if base == "*":
         return True
@@ -433,7 +445,7 @@ def cron_number(value, names, low):
     JAN is month 1 and SUN is weekday 0, so the index alone is wrong for one of
     them: `low` is what tells them apart.
     """
-    return int(value) if value.isdigit() else names.index(value.upper()) + low
+    return int(value) if ascii_number(value) else names.index(value.upper()) + low
 
 
 def reaches_a_date(day, month, weekday):
@@ -882,6 +894,11 @@ def test_an_install_is_told_from_a_run_by_what_the_command_invokes(command, inst
     ("17 5 31 2 0-6/2", True),     # and this is how to say it without the `*`
     ("17 5 31 JAN *", True),
     ("? * * * *", False),          # Quartz again, this time in the minute
+    ("\u0661\u0667 5 * * 1", False),       # Arabic-Indic digits: int() parses them, cron does not
+    ("\u06f1\u06f7 \u06f5 * * \u06f1", False),      # the same field by field
+    ("\u00b2 5 * * 1", False),         # isdigit() is true and int() raises on this one
+    ("*/\u0662 * * * *", False),       # and in a step
+    ("1-\u0665 5 * * 1", False),       # and in a range
     ("*/0 * * * *", False),        # a step of zero divides by nothing
     ("17 5 * * ?", False),         # Quartz operators are not GitHub's
     ("17 5 L * 1", False),
