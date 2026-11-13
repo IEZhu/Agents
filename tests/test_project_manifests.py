@@ -23,9 +23,13 @@ NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
 PYTEST = re.compile(r"(^|/)pytest$")
 # Options that make pytest collect, inspect or print instead of running the tests
 # it selects. Measured on pytest 9.1.1: each one leaves a test body unexecuted,
-# while `--setup-show` executes it and so is deliberately not here.
+# while `--setup-show` executes it and so is deliberately not here. The
+# de-hyphenated spellings are pytest's own aliases and are accepted, so they
+# belong here too; `--fixturespertest` is not one of them -- pytest refuses the
+# command, which runs nothing either way, so it is left out rather than implied.
 NON_RUNNING = frozenset({
-    "--collect-only", "--co", "--setup-only", "--setup-plan",
+    "--collect-only", "--collectonly", "--co",
+    "--setup-only", "--setuponly", "--setup-plan", "--setupplan",
     "--fixtures", "--funcargs", "--fixtures-per-test", "--markers",
     "--help", "-h", "--version", "-V",
 })
@@ -253,17 +257,26 @@ def test_only_a_pytest_argument_counts_as_a_run():
 def test_a_command_that_only_collects_is_not_a_run():
     """Collection is not execution, so `--collect-only` is not cover for a file.
 
-    Measured on pytest 9.1.1: every option in `NON_RUNNING` leaves the test body
-    unexecuted, while `--setup-show` executes it, which is why that one is absent
-    from the set and is asserted here as a run.
+    The modes are written out here instead of read from `NON_RUNNING`, because a
+    case taken from the set under test disappears with the entry it should have
+    caught: dropping an alias would remove its own assertion and the test would
+    still pass. The last assertion is what keeps the two lists from drifting.
+    Measured on pytest 9.1.1, every mode below leaves a test body unexecuted,
+    pytest's de-hyphenated aliases included, while `--setup-show` executes it
+    and is deliberately absent.
     """
     def document(command):
         return {"jobs": {"tests": {"steps": [{"run": command}]}}}
 
+    modes = ("--collect-only", "--collectonly", "--co",
+             "--setup-only", "--setuponly", "--setup-plan", "--setupplan",
+             "--fixtures", "--funcargs", "--fixtures-per-test", "--markers",
+             "--help", "-h", "--version", "-V")
     wanted = "tests/test_install_x.py"
-    for mode in sorted(NON_RUNNING):
+    for mode in modes:
         assert invoked_by(wanted, {"w.yml": document(f"pytest {mode} {wanted}")}) == [], mode
     # An option that shows more while still running is a run, and a neighbouring
     # command that only collects does not answer for the one that executes.
     assert invoked_by(wanted, {"w.yml": document(f"pytest --setup-show {wanted}")}) == ["w.yml"]
     assert invoked_by(wanted, {"w.yml": document(f"pytest --co {wanted}\npytest {wanted}")}) == ["w.yml"]
+    assert set(modes) == NON_RUNNING, "the modes above and NON_RUNNING have drifted apart"
