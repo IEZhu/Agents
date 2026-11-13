@@ -282,8 +282,15 @@ def deselects_the_file(args, test_file):
     would fail a workflow that really does run the file; where the file appears
     only as `--ignore`'s value it is not one of `pytest_paths` either way.
 
-    The value is compared as written, with no `./` stripped, because pytest
-    compares it that way too. Review asked for the normalisation that
+    Quotes come off the value first, because the shell removes them before
+    pytest is started: measured on pytest 9.1.1, `--deselect='<file>'` and
+    `--deselect "<file>"` each deselect the whole file exactly as the bare
+    spelling does. That is the opposite of `names_the_file`, where quoting is
+    load-bearing because it decides whether the shell expands a glob, and the
+    two must not be made to agree. An escaped quote inside a path is not
+    modelled, which would be a miss rather than a mistake.
+
+    The `./` is not stripped, because pytest compares the value as written. Review asked for the normalisation that
     `names_the_file` does, and measuring refused it: `--deselect ./<file>`
     deselects nothing, with or without a `./` on the positional, since a node id
     is `<file>::<test>` and `./<file>` is not a prefix of it. Normalising here
@@ -298,6 +305,7 @@ def deselects_the_file(args, test_file):
         if option != "--deselect":
             continue
         value = inline or (args[index + 1] if index + 1 < len(args) else "")
+        value = value.replace('"', "").replace("'", "")
         if value and node_prefix.startswith(value):
             return True
     return False
@@ -711,6 +719,12 @@ def test_the_matcher_rejects_what_does_not_run_the_file(command):
     'python -B -m pytest "tests/test_skill_*.py" -q',
     # A node-id prefix that does match, after a `./` spelling of the positional.
     "python -m pytest ./tests/test_skill_freshness.py --deselect tests/test_skill_freshness.py",
+    # Quoted exactly as the shell would hand it over bare: measured, each of
+    # these deselects the whole file.
+    "python -m pytest tests/test_skill_freshness.py --deselect='tests/test_skill_freshness.py'",
+    'python -m pytest tests/test_skill_freshness.py --deselect="tests/test_skill_freshness.py"',
+    "python -m pytest tests/test_skill_freshness.py --deselect 'tests/test_skill_freshness.py'",
+    "python -m pytest tests/test_skill_freshness.py --deselect='tests/test_skill_freshness.py::'",
 ])
 def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     """Invoking pytest is not running tests, and naming a file is not including it.
@@ -734,6 +748,9 @@ def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     # `<file>::<test>` and `./<file>` is not a prefix of it. The file runs.
     "python -m pytest ./tests/test_skill_freshness.py --deselect ./tests/test_skill_freshness.py",
     "python -m pytest ./tests/test_skill_freshness.py --deselect './tests/test_skill_freshness.py'",
+    # Quote removal keeps the `./` distinction: the value still is not a node-id
+    # prefix, so the file still runs and still counts.
+    "python -m pytest tests/test_skill_freshness.py --deselect='./tests/test_skill_freshness.py'",
 ])
 def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     """The other half of the same decision, and the one worth getting wrong-way-round.
