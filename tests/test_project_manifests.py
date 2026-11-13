@@ -21,6 +21,14 @@ INSTALLERS = sorted((ROOT / "scripts").glob("install_*.py"))
 INSTALLER_TESTS = sorted((ROOT / "tests").glob("test_install_*.py"))
 NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
 PYTEST = re.compile(r"(^|/)pytest$")
+# Options that make pytest collect, inspect or print instead of running the tests
+# it selects. Measured on pytest 9.1.1: each one leaves a test body unexecuted,
+# while `--setup-show` executes it and so is deliberately not here.
+NON_RUNNING = frozenset({
+    "--collect-only", "--co", "--setup-only", "--setup-plan",
+    "--fixtures", "--funcargs", "--fixtures-per-test", "--markers",
+    "--help", "-h", "--version", "-V",
+})
 
 
 def normalise(name: str) -> str:
@@ -117,7 +125,9 @@ def pytest_arguments(block: str) -> list[str]:
     A substring test counts `echo tests/test_x.py`, a shell comment and
     `tests/test_x.py.disabled`, and misses `pytest tests/test_x*.py`, which does
     run the file. Commands are taken one at a time, so an argument of a
-    neighbouring command never answers for pytest.
+    neighbouring command never answers for pytest, and a command that only
+    collects contributes nothing: `--collect-only` imports the file and executes
+    no test in it, so reading it as a run would report cover that does not exist.
     """
     arguments = []
     for segment in re.split(r"&&|\|\||;|\||\n", block):
@@ -127,7 +137,9 @@ def pytest_arguments(block: str) -> list[str]:
             continue                       # an unbalanced quote is not an invocation
         for index, token in enumerate(tokens):
             if PYTEST.search(token):
-                arguments.extend(tokens[index + 1:])
+                command = tokens[index + 1:]
+                if NON_RUNNING.isdisjoint(command):
+                    arguments.extend(command)
                 break
     return [argument for argument in arguments if not argument.startswith("-")]
 
@@ -236,3 +248,22 @@ def test_only_a_pytest_argument_counts_as_a_run():
     assert invoked_by(wanted, {"w.yml": document("python -B -m pytest " + wanted)}) == ["w.yml"]
     assert invoked_by(wanted, {"w.yml": document(".venv/bin/pytest " + wanted)}) == ["w.yml"]
     assert invoked_by(wanted, {"w.yml": document("ls && pytest " + wanted)}) == ["w.yml"]
+
+
+def test_a_command_that_only_collects_is_not_a_run():
+    """Collection is not execution, so `--collect-only` is not cover for a file.
+
+    Measured on pytest 9.1.1: every option in `NON_RUNNING` leaves the test body
+    unexecuted, while `--setup-show` executes it, which is why that one is absent
+    from the set and is asserted here as a run.
+    """
+    def document(command):
+        return {"jobs": {"tests": {"steps": [{"run": command}]}}}
+
+    wanted = "tests/test_install_x.py"
+    for mode in sorted(NON_RUNNING):
+        assert invoked_by(wanted, {"w.yml": document(f"pytest {mode} {wanted}")}) == [], mode
+    # An option that shows more while still running is a run, and a neighbouring
+    # command that only collects does not answer for the one that executes.
+    assert invoked_by(wanted, {"w.yml": document(f"pytest --setup-show {wanted}")}) == ["w.yml"]
+    assert invoked_by(wanted, {"w.yml": document(f"pytest --co {wanted}\npytest {wanted}")}) == ["w.yml"]
