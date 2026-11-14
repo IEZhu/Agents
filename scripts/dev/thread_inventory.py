@@ -116,6 +116,7 @@ PS_DOUBLE_END = re.compile(r"`|\"|\$\(")  # what ends or interrupts a "..." stri
 PS_HERE_STRING = re.compile(r"@(['\"])[ \t]*\r?\n")
 PS_ASSIGNMENT = re.compile(r"^\$[\w:.\[\]{}]+\s*[-+*/%]?=\s*")  # `$x = git log` still runs git
 PS_CALL = {"&", "."}  # the call operator and dot sourcing, as in `& git push`
+PS_CHAIN = {"&&", "||"}  # operators PowerShell 7 chains commands with and 5.1 does not have
 PS_KEYWORDS = {"if", "elseif", "else", "while", "do", "foreach", "for", "switch", "try", "catch",
                "finally", "begin", "process", "end", "param", "return", "function", "filter"}
 PS_CHDIR = {"cd", "chdir", "sl", "set-location"}
@@ -175,14 +176,36 @@ WRITE_VERBS = {
 READ_VERBS = {
     "browse", "check", "count", "describe", "explore", "fetch", "filter", "find", "get", "guide", "history", "list",
     "load", "lookup", "query", "read", "retrieve", "search", "select", "show", "status", "view"}
-# Servers the host application itself provides (task list, chat title, chapters, panes): their
-# calls change the app's own UI, not an external system, so they are counted apart.
+# Servers the host application itself provides (task list, chat title, chapters, panes). The
+# prefix alone does not say a call stays inside the application: the host's tool surface is the
+# vendor's and changes between releases, so only the names below are counted apart. A tool of
+# such a server that is not listed is classified by the ordinary rules, which make it a write or
+# leave it unclassified, so a new or renamed one is reported instead of disappearing into the
+# local counter. `mcp__ccd_pr__set_monitor`, which arms the application to push commits and
+# answer review comments on a pull request, and `mcp__ccd_session__start_session`, which starts
+# another session, are measured examples: both act outside the application and neither is here.
 CLIENT_LOCAL_SERVER = re.compile(r"^mcp__ccd_")
-# Tools of those servers that do act outside the application: one arms the merge of a pull
-# request on the forge, the others destroy a session, reach another session or start a remote
-# one. They stay write, so each keeps its time, actor and target in `external_writes`.
-CLIENT_LOCAL_EXCEPTIONS = {"mcp__ccd_pr__set_auto_merge", "mcp__ccd_session__move_to_cloud",
-                           "mcp__ccd_session_mgmt__delete_session", "mcp__ccd_session_mgmt__send_message"}
+CLIENT_LOCAL_TOOLS = {
+    # the turn's own task list and next-step box; `advance` is a retired name old transcripts hold
+    "mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up", "mcp__ccd_turn__advance",
+    # the session's own record in the application: its title, chapters, cards, usage and history
+    "mcp__ccd_session__mark_chapter", "mcp__ccd_session__dismiss_task",
+    "mcp__ccd_session__list_start_targets", "mcp__ccd_session_mgmt__set_session_title",
+    "mcp__ccd_session_mgmt__get_session", "mcp__ccd_session_mgmt__list_events",
+    "mcp__ccd_session_mgmt__list_sessions", "mcp__ccd_session_mgmt__search_session_transcripts",
+    "mcp__ccd_session_mgmt__get_usage",
+    # the application's own panes and sidebar
+    "mcp__ccd_view__show_pane", "mcp__ccd_sidebar__mark_completed",
+    # the directory this session works in; `propose_branch` is retired too
+    "mcp__ccd_directory__change_directory", "mcp__ccd_directory__request_directory",
+    "mcp__ccd_directory__propose_branch",
+    # the application's own pull-request monitor, which reads and binds but writes nothing there
+    "mcp__ccd_pr__get_status", "mcp__ccd_pr__bind_pr",
+    # this session's connectors: the connector's own calls are recorded when they happen
+    "mcp__ccd_connectors__session_connectors_status",
+    "mcp__ccd_connectors__set_session_connector_enabled",
+    # the user's own file manager, which is shown a path and nothing more
+    "mcp__ccd_host__reveal_path"}
 # Tools whose name starts with a write verb but which only return text or a verdict.
 READ_ONLY_TOOLS = {"run_flow", "validate_subagent_result"}
 TARGET_KEYS = ("trigger_id", "id", "task_id", "list_id", "doc_id", "url", "owner", "repo", "pullNumber",
@@ -716,8 +739,12 @@ def classify_tool(name: str, data) -> str:
         return "read" if not action or action in ARTIFACT_READ_ACTIONS else "write"
     if not name.startswith("mcp__"):
         return "read"
-    if CLIENT_LOCAL_SERVER.match(name) and name not in CLIENT_LOCAL_EXCEPTIONS:
-        return "client_local"
+    if CLIENT_LOCAL_SERVER.match(name):
+        if name in CLIENT_LOCAL_TOOLS:
+            return "client_local"
+        # An unknown tool of a host server is never counted apart: a write verb makes it a write,
+        # with its time, actor and target, and anything else is printed as unclassified.
+        return "write" if any(word in WRITE_VERBS for word in _name_words(name)) else "unclassified"
     words = _name_words(name)
     pairs = {"".join(pair) for pair in zip(words, words[1:])}  # read_only reads as read + only
     if name.rsplit("__", 1)[-1].lower() in READ_ONLY_TOOLS or "readonly" in words or "readonly" in pairs:
@@ -1412,11 +1439,36 @@ def _powershell_writes(segment: str, tokens: list[str]) -> list[str]:
                 files.append(target)
             continue
         index += 1
-    if tokens[:1] and tokens[0].lower() in PS_WRITE_CMDLETS:
-        target = _ps_target(tokens[1:])
-        if target and target.lower() not in PS_NULL:
-            files.append(target)
+    for command in _ps_statements(tokens):
+        if command[:1] and command[0].lower() in PS_WRITE_CMDLETS:
+            target = _ps_target(command[1:])
+            if target and target.lower() not in PS_NULL:
+                files.append(target)
     return files
+
+
+def _ps_statements(tokens: list[str]) -> list[list[str]]:
+    """The commands of one tokenised PowerShell statement, split at `&&` and `||`.
+
+    Windows PowerShell 5.1 has neither operator, so the segmenter keeps such a line as a single
+    statement; PowerShell 7 runs both. Which dialect the host's tool runs is not established, so
+    every command of a chain is read for the file it writes: under 5.1 the line runs nothing and
+    the extra target is a path the thread named, and under 7 it is a write that would be lost.
+    The git classification of a chain stays `unknown`, which `_shell` decides.
+    """
+    commands, current = [], []
+    for token in tokens:
+        if token in PS_CHAIN:
+            commands.append(current)
+            current = []
+        else:
+            current.append(token)
+    commands.append(current)
+    for index, command in enumerate(commands):
+        while command and (command[0] in PS_CALL or command[0].lower() in PS_KEYWORDS):
+            command = command[1:]
+        commands[index] = command
+    return commands
 
 
 def _ps_target(args: list[str]) -> str | None:
@@ -1786,18 +1838,21 @@ def summarize(sink: dict) -> dict:
 
 
 def detect_memory_files(directories: list[Path], first: str | None, last: str | None, known: set[str],
-                        activity: list[str]) -> dict:
-    """Memory files changed inside the session's span and near one of its entries, whoever wrote them.
+                        activity: list[str], background: list[dict] | tuple = ()) -> dict:
+    """Memory files changed in the session's span while it was working, whoever wrote them.
 
     A script that opens and writes a file itself is neither an edit-tool call nor a redirection, so
     ``memory_writes`` cannot see it. This is a lower bound found by modification time, not an observed
     tool call: a file changed by another session while this one worked is listed too, and a file written
     in the span and changed again later is missed. ``activity`` holds the times of the transcript's own
-    entries, and a file counts only when its modification time falls within ``MEMORY_ACTIVITY_WINDOW``
+    entries, and a file counts when its modification time falls within ``MEMORY_ACTIVITY_WINDOW``
     seconds of one of them: the span alone accepts nearly every file of the directory on a session that
-    stayed open for days. Every directory scanned adds a note with the files it holds, the files listed,
-    the span and that window, so the list is read against them; one that is missing or cannot be read
-    adds a note instead of a failure.
+    stayed open for days. ``background`` holds the session's background tasks, and the run of each one,
+    from its start to its recorded end or else to the last entry, counts as the session's own time too:
+    the pauses the window leaves blind are where a background script writes, which is this field's
+    reason for existing. Every directory scanned adds a note with the files it holds, the files listed,
+    the files the window excluded, the span, that window and the number of runs, so the list is read
+    against them; one that is missing or cannot be read adds a note instead of a failure.
     """
     from datetime import datetime, timezone
 
@@ -1810,11 +1865,23 @@ def detect_memory_files(directories: list[Path], first: str | None, last: str | 
     start, end = epoch(first), epoch(last)
     moments = sorted(moment for moment in map(epoch, activity) if moment is not None)
 
+    runs = []
+    for task in background:
+        began = epoch(task.get("ts"))
+        stopped = epoch((task.get("ended") or {}).get("ts"))
+        finished = end if stopped is None else stopped
+        if began is not None and finished is not None and finished >= began:
+            runs.append((began, finished))
+
     def worked_near(mtime: float) -> bool:
         """Whether an entry of the transcript stands within the window of a modification time."""
         index = bisect.bisect_left(moments, mtime)
         return any(abs(mtime - moments[other]) <= MEMORY_ACTIVITY_WINDOW
                    for other in (index - 1, index) if 0 <= other < len(moments))
+
+    def ran_during(mtime: float) -> bool:
+        """Whether a background task of the session was running at a modification time."""
+        return any(began <= mtime <= finished for began, finished in runs)
 
     found, notes = [], []
     seen = {path.replace("\\", "/") for path in known}
@@ -1832,14 +1899,19 @@ def detect_memory_files(directories: list[Path], first: str | None, last: str | 
         if start is None or end is None:
             notes.append({"directory": str(directory), "status": "no session span"})
             continue
-        listed = 0
+        listed, excluded = 0, 0
         for path, mtime in sorted(stamped):
-            if start <= mtime <= end + 1 and worked_near(mtime) and str(path).replace("\\", "/") not in seen:
-                stamp = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                found.append({"path": str(path), "mtime": stamp, "detected_by": "modification time"})
-                listed += 1
+            if not start <= mtime <= end + 1 or str(path).replace("\\", "/") in seen:
+                continue
+            if not (worked_near(mtime) or ran_during(mtime)):
+                excluded += 1  # inside the span, in none of the session's own working time
+                continue
+            stamp = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            found.append({"path": str(path), "mtime": stamp, "detected_by": "modification time"})
+            listed += 1
         notes.append({"directory": str(directory), "status": "scanned", "files": len(stamped), "listed": listed,
-                      "span": {"first": first, "last": last}, "window_seconds": MEMORY_ACTIVITY_WINDOW})
+                      "span": {"first": first, "last": last}, "window_seconds": MEMORY_ACTIVITY_WINDOW,
+                      "background_runs": len(runs), "excluded_by_window": excluded})
     return {"memory_files_detected": found, "memory_scan_notes": notes}
 
 
@@ -1903,8 +1975,27 @@ def latest_in_project(directory: str) -> tuple[Path | None, list[str]]:
     return candidates[0], recent
 
 
+# Every field `collect` returns, in the order it returns them, and the contract the reader is
+# audited against: the output repeats this list as `output_fields`, and the documentation gate
+# checks that `flows/thread-close.md` names each one, so instructions that predate a field cannot
+# drop it silently. A command-line run adds `notes` beside them. Keep this list and the flow's
+# sentences in step with any field added to `summarize`, `detect_memory_files` or `collect`.
+OUTPUT_FIELDS = (
+    "sessions", "bridge_sessions", "title", "first", "last", "models", "responses", "tokens",
+    "prompts", "user_commands", "directories", "files_written", "memory_writes", "git_mutations",
+    "unclassified_commands", "shell_writes", "github_refs", "external_writes", "scheduled",
+    "unclassified_tools", "logging_calls", "client_local_calls", "background_tasks",
+    "scratchpad_paths", "corrections", "skipped_entries", "subagents_with_writes",
+    "subagent_transcripts", "transcripts", "unreadable_lines", "git_roots",
+    "memory_files_detected", "memory_scan_notes", "output_fields")
+
+
 def collect(paths: list[Path]) -> dict:
     """Inventory of the transcripts and of their subagents' transcripts."""
+    # A path observed in a tool call is absolute, so a transcript path given relative to the
+    # working directory is made absolute once, here: the memory directory is derived from it and
+    # compared with those paths, and a relative spelling matches none of them.
+    paths = [Path(os.path.abspath(path)) for path in paths]
     entries, bad = load_entries(paths)
     sink = scan(entries)
     subagents = []
@@ -1927,10 +2018,11 @@ def collect(paths: list[Path]) -> dict:
     result["unreadable_lines"] = bad
     result["git_roots"] = git_roots(result["directories"])
     # The memory directory sits beside the transcripts: <config>/projects/<project>/memory.
-    memory_dirs = [Path(path).parent / "memory" for path in paths]
+    memory_dirs = [path.parent / "memory" for path in paths]
     result.update(detect_memory_files(memory_dirs, result["first"], result["last"],
                                       {item["path"] for item in result["memory_writes"]},
-                                      sink["activity"]))
+                                      sink["activity"], result["background_tasks"]))
+    result["output_fields"] = list(OUTPUT_FIELDS)
     return _masked(result)
 
 

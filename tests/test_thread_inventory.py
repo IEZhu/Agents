@@ -290,9 +290,41 @@ def test_client_local_calls_are_reported_apart_from_external_writes():
     "mcp__ccd_session_mgmt__delete_session",  # destroys a session
     "mcp__ccd_session_mgmt__send_message",    # reaches another session
     "mcp__ccd_session__move_to_cloud",        # starts a remote session
+    "mcp__ccd_pr__set_monitor",           # arms the app to push commits and answer review comments
+    "mcp__ccd_session__start_session",    # starts another session, in the cloud or another repository
 ])
 def test_host_server_tools_acting_outside_the_app_are_writes(name):
     assert thread_inventory.classify_tool(name, {}) == "write"
+
+
+@pytest.mark.parametrize("name", [
+    "mcp__ccd_pr__frobnicate",             # a name no list knows: unclassified, so it is printed
+    "mcp__ccd_newserver__widget_handling",
+    "mcp__ccd_turn__advance_twice",
+    "mcp__ccd_session__delete_everything",  # a write verb makes it a write, which is louder still
+])
+def test_an_unknown_host_server_tool_is_never_counted_as_client_local(name):
+    """The vendor's tool surface churns, so the prefix cannot prove a tool acts inside the app:
+    only the names known to be app-local are counted apart, and an unknown one stays visible."""
+    assert thread_inventory.classify_tool(name, {}) != "client_local"
+
+
+def test_an_unknown_host_server_tool_never_reaches_client_local_calls():
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__ccd_pr__frobnicate", {"url": "https://github.com/Owner/Repo/pull/9"}, "k1"),
+        tool("mcp__ccd_pr__set_monitor", {"url": "https://github.com/Owner/Repo/pull/9"}, "k2"),
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "k3"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 1}
+    assert inv["unclassified_tools"] == {"mcp__ccd_pr__frobnicate": 1}
+    assert [w["tool"] for w in inv["external_writes"]] == ["mcp__ccd_pr__set_monitor"]
+
+
+def test_every_known_local_host_tool_belongs_to_a_host_server_and_is_counted_apart():
+    assert thread_inventory.CLIENT_LOCAL_TOOLS, "the known-local list is the only way into the counter"
+    for name in thread_inventory.CLIENT_LOCAL_TOOLS:
+        assert thread_inventory.CLIENT_LOCAL_SERVER.match(name), name
+        assert thread_inventory.classify_tool(name, {}) == "client_local", name
 
 
 def test_an_exempt_host_tool_keeps_its_time_actor_and_target():
@@ -556,6 +588,15 @@ def test_files_written_elsewhere_add_their_directory(tmp_path):
     out = thread_inventory.collect([main])
     assert {str(repo), "/elsewhere"} <= set(out["directories"])
     assert len(out["git_roots"]) == 1 and out["git_roots"][0].endswith("/other")
+
+
+def test_the_helper_states_the_fields_it_emits(tmp_path):
+    """The reader may hold older instructions, so the output names its own fields."""
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text(json.dumps(human("go", "2026-10-02T09:00:00Z")) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([transcript])
+    assert out["output_fields"] == list(thread_inventory.OUTPUT_FIELDS)
+    assert sorted(out) == sorted(thread_inventory.OUTPUT_FIELDS)  # every field, and no other
 
 
 def test_cli_missing_transcript_and_latest_notes(tmp_path, monkeypatch, capsys):
@@ -982,7 +1023,7 @@ def test_memory_files_written_by_a_script_are_detected_by_modification_time(tmp_
     assert result["memory_scan_notes"] == [
         {"directory": str(project / "memory"), "status": "scanned", "files": 3, "listed": 1,
          "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T09:05:00Z"},
-         "window_seconds": 300}]
+         "window_seconds": 300, "background_runs": 0, "excluded_by_window": 0}]
 
 
 def test_a_memory_file_seen_as_a_tool_call_is_not_listed_again_as_detected(tmp_path):
@@ -1036,7 +1077,7 @@ def test_a_memory_file_far_from_every_entry_is_not_attributed_to_the_session(tmp
     assert result["memory_scan_notes"] == [
         {"directory": str(project / "memory"), "status": "scanned", "files": 2, "listed": 1,
          "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T17:00:00Z"},
-         "window_seconds": 300}]
+         "window_seconds": 300, "background_runs": 0, "excluded_by_window": 1}]
 
 
 def test_a_missing_or_unreadable_memory_directory_is_a_note_not_a_failure(tmp_path):
@@ -1054,6 +1095,65 @@ def test_a_missing_or_unreadable_memory_directory_is_a_note_not_a_failure(tmp_pa
     _, transcript = _session_with_memory(tmp_path / "other")
     (transcript.parent / "memory").rmdir()
     assert thread_inventory.collect([transcript])["memory_scan_notes"][0]["status"] == "missing"
+
+
+def test_a_memory_file_written_while_a_background_task_ran_is_detected(tmp_path):
+    """The window alone leaves a session's long pauses blind, and that is where a background
+    script writes: a run the helper already tracks counts as the session's own time."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    transcript = project / f"{SESSION}.jsonl"
+    started = [
+        human("go", "2026-10-02T09:00:00Z"),
+        *bash("python3 scripts/write_memory.py", "b1", ts="2026-10-02T09:01:00Z", run_in_background=True),
+        result("b1", "Command running in background with ID: bg9. Output is being written to: x",
+               "2026-10-02T09:01:05Z"),
+    ]
+    ended = user("<task-notification> <task-id>bg9</task-id> <status>completed</status></task-notification>",
+                 "2026-10-02T13:00:00Z", origin={"kind": "task-notification"})
+    last = human("done", "2026-10-02T17:00:00Z")
+    transcript.write_text("\n".join(json.dumps(e) for e in [*started, ended, last]) + "\n", encoding="utf-8")
+    during, blind = (project / "memory" / name for name in ("during.md", "blind.md"))
+    for path, stamp in ((during, "2026-10-02T11:00:00Z"), (blind, "2026-10-02T15:00:00Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    result_ = thread_inventory.collect([transcript])
+    # 11:00 is two hours from every entry, and inside the run of bg9; 15:00 is in neither.
+    assert [m["path"] for m in result_["memory_files_detected"]] == [str(during)]
+    assert result_["memory_scan_notes"] == [
+        {"directory": str(project / "memory"), "status": "scanned", "files": 2, "listed": 1,
+         "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T17:00:00Z"},
+         "window_seconds": 300, "background_runs": 1, "excluded_by_window": 1}]
+    # A task with no recorded end ran, as far as the transcript says, until the last entry.
+    transcript.write_text("\n".join(json.dumps(e) for e in [*started, last]) + "\n", encoding="utf-8")
+    running = thread_inventory.collect([transcript])
+    assert [m["path"] for m in running["memory_files_detected"]] == [str(blind), str(during)]
+    assert running["memory_scan_notes"][0]["excluded_by_window"] == 0
+
+
+def test_a_relative_transcript_path_scans_the_same_memory_directory(tmp_path, monkeypatch):
+    """The observed writes are absolute, so a relative transcript path must be made absolute
+    before the exclusion compares them, or an observed write is re-reported as a found file."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    known, script = (project / "memory" / name for name in ("known.md", "script.md"))
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        human("go", "2026-10-02T09:00:00Z"),
+        *assistant([tool("Write", {"file_path": str(known), "content": "x"}, "w1")],
+                   "2026-10-02T09:01:00Z", "m1"),
+        human("thanks", "2026-10-02T09:02:00Z"),
+    ]) + "\n", encoding="utf-8")
+    for path, stamp in ((known, "2026-10-02T09:01:00Z"), (script, "2026-10-02T09:01:30Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    absolute = thread_inventory.collect([transcript])
+    monkeypatch.chdir(project)
+    relative = thread_inventory.collect([Path(transcript.name)])
+    assert [m["path"] for m in absolute["memory_files_detected"]] == [str(script)]
+    assert [m["path"] for m in relative["memory_files_detected"]] == [str(script)]
+    assert relative["memory_scan_notes"] == absolute["memory_scan_notes"]
+    assert relative["transcripts"] == absolute["transcripts"] == [str(transcript)]
 
 
 def queued(prompt, ts, **attachment):
@@ -1224,6 +1324,23 @@ def test_powershell_commands_that_cannot_be_classified_are_listed_not_dropped():
     assert chained["git_mutations"] == []  # 5.1 runs neither operator, so neither line ran
     other = thread_inventory.inventory(powershell("Remove-Item -Recurse -Force .\\build", "u3"))
     assert (other["git_mutations"], other["unclassified_commands"], other["shell_writes"]) == ([], [], [])
+
+
+def test_every_write_of_a_powershell_chain_is_collected():
+    """Which dialect the host's tool runs is not established: PowerShell 7 does chain with `&&`
+    and `||`, so every statement of a chain is read for its write target, which is right under
+    either dialect. The git classification of a chain stays unknown, as the test above pins."""
+    inv = thread_inventory.inventory(powershell(
+        "Set-Content -Path a.txt -Value x && Add-Content -Path b.txt -Value y\n"
+        "Out-File -FilePath c.txt -InputObject z || Set-Content d.txt w", "c1"))
+    assert [(w["command"], w["files"]) for w in inv["shell_writes"]] == [
+        ("Set-Content -Path a.txt -Value x && Add-Content -Path b.txt -Value y",
+         ["C:/work/repo/a.txt", "C:/work/repo/b.txt"]),
+        ("Out-File -FilePath c.txt -InputObject z || Set-Content d.txt w",
+         ["C:/work/repo/c.txt", "C:/work/repo/d.txt"])]
+    chained = thread_inventory.inventory(powershell("git fetch && git push origin HEAD", "c2"))
+    assert [c["command"] for c in chained["unclassified_commands"]] == ["git fetch && git push origin HEAD"]
+    assert chained["git_mutations"] == []
 
 
 def test_powershell_background_start_is_a_task():

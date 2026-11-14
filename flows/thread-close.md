@@ -204,7 +204,17 @@ Rules:
 1. Read the current time with `date -u`. Fix the mode and identify the thread.
 2. In Claude Code, run the inventory helper. Keep its `notes`: other active
    sessions in the same project mean you must confirm which session is being
-   closed.
+   closed. The run states its own contract in `output_fields`: a field named
+   there that these instructions do not describe means you are reading a copy of
+   this flow older than the helper, so read that field before trusting the
+   audit's coverage. The run also says what it read and who wrote it:
+   `transcripts` lists the files read, `subagent_transcripts` counts those
+   belonging to subagents and workflow agents and `subagents_with_writes` names
+   the ones that changed anything, `sessions` and `bridge_sessions` give the
+   session ids, `title` the chat's last title, `first` and `last` the span,
+   `models`, `responses` and `tokens` the provenance that Verification levels
+   says is recorded and never scored, and `directories` every directory the
+   thread's calls worked in, from which `git_roots` below is derived.
 3. Work out which repositories to check: the helper's `git_roots` plus any named
    in the conversation. For each one, collect:
    - `git status --short`, the current branch, `git stash list` and
@@ -254,21 +264,33 @@ subagent or user), and what the thread claimed about it. Cover:
 - **Memory** written during the thread: files and what changed. `memory_writes`
   lists only the writes an edit tool made, which the helper observed.
   `memory_files_detected` lists memory files whose modification time falls inside
-  the session, up to one second past its last entry, and within five minutes of one
-  of its entries, such as a file a script wrote; it is a lower bound found by
+  the session, up to one second past its last entry, and either within five minutes
+  of one of its entries or inside the run of one of its `background_tasks`, such as
+  a file a script wrote while the session waited; it is a lower bound found by
   modification time, not an observed tool call, and can include another session's
   file. Read `memory_scan_notes` for every memory directory: a `scanned` note gives
-  the files the directory holds beside the files listed, the session's span and that
-  window, so a session open for days is not read as a report on the whole directory,
-  while `missing`, `unreadable` and `no session span` each mean nothing was listed
-  from it.
+  the files the directory holds beside the files listed, the session's span, that
+  window, `background_runs` for the runs it counted and `excluded_by_window` for the
+  files inside the span that neither the window nor a run accepted. So a session
+  open for days is not read as a report on the whole directory, while a large
+  `excluded_by_window` says the directory changed while this session was idle or
+  away, and `missing`, `unreadable` and `no session span` each mean nothing was
+  listed from it. A background task with no `ended` record counts as having run
+  until the last entry, so its run can be longer than the work it did.
 - **External systems** the thread wrote to: trackers, chat, published pages,
   remote triggers. Use `external_writes`. Also inspect `unclassified_tools`:
-  these are MCP calls whose names did not say whether they write. Most tools of
-  the host's own `mcp__ccd_` servers act on the client, not on an external
-  system, and are counted apart in `client_local_calls`; the four that do act
-  outside it stay in `external_writes`: arming a pull request's merge,
-  destroying a session, messaging another session and starting a remote one.
+  these are MCP calls whose names did not say whether they write. Tools of the
+  host's own `mcp__ccd_` servers that the helper knows act on the client, not on
+  an external system, are counted apart in `client_local_calls`. The prefix alone
+  decides nothing, because that surface belongs to the client's vendor and changes
+  between releases: a tool of those servers the helper does not know stays
+  visible, as a write in `external_writes` with its time, actor and target when
+  its name carries a write verb, and in `unclassified_tools` otherwise. Arming a
+  pull request's merge, arming the monitor that pushes commits and answers review
+  comments, destroying a session, messaging another session and starting another
+  or a remote one reach `external_writes` that way. A host tool you do not
+  recognize in either field is the helper reporting that the surface moved:
+  decide what it does before accepting the audit.
   Likewise, `unclassified_commands` lists git and gh commands the helper could
   not classify as reads or writes.
 - **Scheduled work**: wake-ups and cron jobs, from `scheduled`.
@@ -347,8 +369,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    tool and status, and for Agents-Core calls the persona descriptor. The helper
    lists no call of every tool: `logging_calls` counts the `log_interaction`
    calls, `client_local_calls` counts by name the calls of the host's own servers
-   that act on the client, and `unclassified_tools` counts other unclassified
-   tools by name, while `external_writes` and `scheduled` list only
+   that the helper knows act on the client, and `unclassified_tools` counts other
+   unclassified tools by name, a host tool it does not know among them, while
+   `external_writes` and `scheduled` list only
    write-classified and scheduling calls, with time, tool and actor but no
    status; take the other calls and the statuses from a short script over the
    transcript and do not reprint it. Count final answers apart from progress

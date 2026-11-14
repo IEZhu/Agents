@@ -20,6 +20,8 @@ from markdown_it import MarkdownIt
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN = MarkdownIt("commonmark").enable("table")
 BADGE_PATH = Path("docs/badges/mcp-api-docs.svg")
+INVENTORY_HELPER = Path("scripts/dev/thread_inventory.py")
+INVENTORY_FLOW = Path("flows/thread-close.md")
 
 
 class AnchorParser(HTMLParser):
@@ -128,6 +130,36 @@ def check_tool_index(root: Path) -> list[str]:
             + [f"Unknown MCP tool in docs/mcp-tools.md: {name}" for name in sorted(documented - expected)])
 
 
+def inventory_fields(root: Path) -> tuple[str, ...]:
+    """The output fields the thread-inventory helper declares, read as AST without importing it."""
+    tree = ast.parse((root / INVENTORY_HELPER).read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "OUTPUT_FIELDS"
+                                                for target in node.targets):
+            return tuple(ast.literal_eval(node.value))
+    return ()
+
+
+def check_inventory_fields(root: Path) -> list[str]:
+    """Every field the helper emits must be named in the flow that reads its output.
+
+    The flow is the reader's instructions: a field it does not name is a section of the audit
+    that silently goes missing, which a copy of the flow older than the field already does. A
+    root without either file has nothing to compare, and a missing tracked file is a broken link
+    the navigation check reports; a helper that declares no field list is reported here, because
+    then this check would pass on anything.
+    """
+    helper, flow = root / INVENTORY_HELPER, root / INVENTORY_FLOW
+    if not helper.is_file() or not flow.is_file():
+        return []
+    fields = inventory_fields(root)
+    if not fields:
+        return [f"{INVENTORY_HELPER.as_posix()}: no OUTPUT_FIELDS to check {INVENTORY_FLOW.as_posix()} against"]
+    named = set(re.findall(r"`([a-z][a-z0-9_]*)`", flow.read_text(encoding="utf-8")))
+    return [f"{INVENTORY_FLOW.as_posix()}: inventory field not named: {field}"
+            for field in fields if field not in named]
+
+
 def tool_badge(root: Path) -> str:
     expected = declared_tools(root)
     covered = len(expected & documented_tools(root))
@@ -175,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         path = ROOT / BADGE_PATH
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(tool_badge(ROOT), encoding="utf-8")
-    errors = check_links(ROOT, documents)
+    errors = check_links(ROOT, documents) + check_inventory_fields(ROOT)
     if not args.skip_tool_index:
         errors.extend(check_tool_index(ROOT))
         errors.extend(check_tool_badge(ROOT))
