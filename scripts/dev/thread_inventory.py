@@ -1163,6 +1163,24 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             sink["scratch"].setdefault(_resolve(path, None) or path, ts)  # one spelling for a Windows path
 
 
+def _scratchpad_paths(scratch: dict) -> list[str]:
+    """The session-local paths this thread touched, without the cuts the token scan leaves.
+
+    The token scan reads a command as blanks-separated words, so a quoted path with a space
+    reaches it cut at that space. Recording the parsed target beside it is what keeps the write
+    visible, but the cut stays in the field as well, and a cut is a path no write created: the
+    very thing this inventory must not report. A recorded path that another recorded path
+    continues after a single space is such a cut, and only a blanks split produces that shape.
+
+    A directory whose own name is a prefix of a file beside it, with a space between, goes with
+    the cuts. That costs nothing: the file already names the directory, and reporting one fewer
+    inferred parent is the right direction of error for a field that answers what was written.
+    """
+    paths = sorted(scratch)
+    return [path for path in paths
+            if not any(other.startswith(path + " ") for other in paths if other != path)]
+
+
 def _written_files(segment: str, tokens: list[str]) -> list[str]:
     """Files a simple command writes through the shell: the targets of its unquoted output
     redirections, such as `> f`, `2>> log` or `&> out`, and the files `tee` writes. `>&2` and
@@ -1901,7 +1919,7 @@ def summarize(sink: dict) -> dict:
         "logging_calls": sink["logging"],
         "client_local_calls": dict(sink["client_local"]),
         "background_tasks": background,
-        "scratchpad_paths": sorted(sink["scratch"]),
+        "scratchpad_paths": _scratchpad_paths(sink["scratch"]),
         "corrections": _in_time_order(sink["corrections"]),
         "skipped_entries": sink["skipped"],
     }

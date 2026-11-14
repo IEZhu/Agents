@@ -1382,15 +1382,19 @@ def test_a_windows_scratchpad_write_reaches_the_scratchpad_paths():
 
 def test_a_quoted_scratchpad_path_with_a_space_is_still_reported():
     """A scratchpad write leaves `shell_writes` for `scratchpad_paths`, and the whole path has to
-    arrive there. The token scan that fills that field splits the command at blanks and quotes, so
-    it only ever saw `…/scratchpad/my`; dropping the parsed target as well left the write with no
-    trace of it in the report at all. Both shells record the target they parsed."""
+    arrive there, alone.
+
+    The token scan that fills that field splits the command at blanks and quotes, so it only ever
+    saw `…/scratchpad/my`; dropping the parsed target as well left the write with no trace of it in
+    the report at all. Recording the target fixes that half, and the cut then stood in the field
+    beside it, which is a path no write created: the one thing this inventory must not report. So
+    the assertion is equality rather than membership, in both shells."""
     posix = thread_inventory.inventory(bash(f"echo done > '{SCRATCH}/my notes.md'", "sp3"))
-    assert f"{SCRATCH}/my notes.md" in posix["scratchpad_paths"]
+    assert posix["scratchpad_paths"] == [f"{SCRATCH}/my notes.md"]
     assert posix["shell_writes"] == []
     windows = thread_inventory.inventory(powershell(
         f"Set-Content -Path '{WIN_SCRATCH}\\my notes.md' -Value done", "sp4"))
-    assert f"{WIN_SCRATCH_POSIX}/my notes.md" in windows["scratchpad_paths"]
+    assert windows["scratchpad_paths"] == [f"{WIN_SCRATCH_POSIX}/my notes.md"]
     assert windows["shell_writes"] == []
     outside = thread_inventory.inventory(bash("echo done > '/work/repo/my notes.md'", "sp5"))
     assert outside["scratchpad_paths"] == []  # a path outside the scratchpad stays a shell write
