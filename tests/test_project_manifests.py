@@ -622,7 +622,9 @@ def invocation(path: str, documents: dict) -> Invocation:
     an invocation; then each recorded argv is handed to the real pytest, which is
     the only thing that knows which of its arguments select a file. The reading
     left between them is which recorded program was started, by the same
-    `pytest_invocation` the #632 guard uses on the same log lines.
+    `pytest_arguments` the #632 guard uses on the same log lines, and what the
+    step's own shell would do with its failure, which `cannot_redden_the_step`
+    reads from the script because the argv does not carry it.
     """
     hosts, problems, refusals, measured = [], [], [], 0
     for name, document in documents.items():
@@ -1236,7 +1238,8 @@ def test_a_recorded_argument_is_replayed_from_the_working_directory_it_was_made_
     assert run.hosts == ["w.yml"], (run.hosts, run.problems, run.refusals)
     # The same argument without the directory is the path that is not there,
     # or the case above is not about the directory at all.
-    assert invocation(wanted, {"w.yml": step(f"pytest {Path(wanted).name}")}).hosts == []
+    bare = invocation(wanted, {"w.yml": step(f"pytest {Path(wanted).name}")})
+    assert bare.hosts == [], bare.hosts
     # And the replay's own bound: a directory that is not one inside the tree is
     # the third answer rather than a run from somewhere else. This is the
     # reader's bound and says nothing about where the step executor may be sent.

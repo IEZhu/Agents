@@ -104,8 +104,9 @@ script has to be readable to be executed, so what this stops is a forged line,
 not a step that goes looking.
 
 The executing half runs on one CI leg and is opt-in anywhere else
-(`confined_to_the_executing_leg`, and `test_the_executing_leg_really_executed_on_this_runner`
-for the reading that leg rests on). The steps are platform-neutral and the
+(`confined_to_the_executing_leg`, with
+`test_the_executing_leg_really_executed_on_this_runner` for the reading that
+leg rests on). The steps are platform-neutral and the
 recorder's answer does not depend on the host, so three legs paid three times
 for one fact; the other two read.
 
