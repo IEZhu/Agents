@@ -120,6 +120,30 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
     assert "on GitLab read that flow's own paragraph on the equivalents" in review
 
 
+def test_pr_review_looks_for_concurrent_sessions_without_requiring_the_coordinator():
+    """A closing audit found a peer editing the same file; the roster that should have shown it was empty."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("Where the Agents-Core coordinator is available, register bounded scope",
+                   "`cooperation_read` on the `repository_id` that registration returns",
+                   # The coordinator is optional, so the step cannot gate the git checks.
+                   "The coordinator is optional, so this step must not become a prerequisite.",
+                   # Registration is not an agreement, and an informal exchange is not one either.
+                   "Registration reserves nothing.",
+                   "a persisted agreement through `cooperation_apply` and compatible resource claims",
+                   "An informal exchange of messages does not satisfy that",
+                   "answers `store_unavailable`, report the unavailable coordinator and continue",
+                   # An empty roster is not an absence of peers.
+                   "Never read a missing roster as evidence that nobody else is active.",
+                   "It lists who registered, not who pushed",
+                   # A clean push is not concurrency protection in a shared checkout.
+                   "what catches that depends on where it writes",
+                   "its commit is already on this HEAD so the push still fast-forwards",
+                   "Do not read a clean push as concurrency protection",
+                   "A roster holding only `cancelled` or `suspect` participants proves nothing either",
+                   "check the client's own list of live sessions in the same project as a second signal"):
+        assert phrase in review, phrase
+
+
 def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
     """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())

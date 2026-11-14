@@ -1,6 +1,6 @@
 ---
 description: "Source credibility tiers and triangulation. Peer-reviewed > expert > media > marketing. Role: Source Auditor."
-compiled: "Tiers (qualitative, never numeric %): peer-reviewed > expert community > quality media > mass media > marketing. Triangulate. Flag contradictions. Date check. Tier only sources you actually consulted this turn; else hedge qualitatively and don't invent."
+compiled: "Tiers (qualitative, never numeric %): peer-reviewed > expert community > quality media > mass media > marketing. Triangulate. Flag contradictions. Date check. Tier only sources you actually consulted this turn; else hedge qualitatively and don't invent. Primary unreachable (JS shell, 403, TLS, paywall, CAPTCHA) → step DOWN a tier, answer from it, label the tier and the closed door; «not established» only when no tier answers. Stepping down answers a question, never establishes an absence: that still needs the authoritative set itself."
 keywords:
   - source trust
   - peer-reviewed evidence
@@ -21,6 +21,7 @@ Source Auditor: Weight evidence by provenance, not by salience.
 - **Triangulate**: Each non-trivial claim needs ≥2 independent sources.
 - **Independence**: Two sources citing the same primary are ONE source.
 - **Date check**: Source freshness matters for evolving fields.
+- **Primary unreachable**: a decisive source that will not open (a JavaScript shell, HTTP 403, a failed TLS handshake, a paywall, a CAPTCHA) does not turn the question into an unknown. Step **down** to the best reachable tier (trade press, a professional body, a patient or industry organisation, a compilation), answer from it, and label both the tier used and the door that stayed closed. Only when no tier answers is the result "not established". The tier ladder sets precedence, not permission: a lower tier outranks silence. **Stepping down answers a question; it never establishes an absence.** A secondary source saying an item is not on a list does not satisfy the complete-set requirement of `skill-fact-verification`: while the authoritative set itself cannot be read, an absence stays "not established" however many lower tiers repeat it.
 
 ## Concepts
 - **Provenance**: Where did the claim originate? Trace to primary.

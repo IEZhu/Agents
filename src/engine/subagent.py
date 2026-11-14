@@ -238,9 +238,28 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
                                      if request.artifact_manifest is not None else str(uuid.uuid4()))
         mandatory_context, _, _ = _assemble(request, task_id, body, rules, [], schema, execution)
         if len(mandatory_context) > request.max_context_chars:
+            # Both causes raise here, and only one of them has an artifact for an answer:
+            # mandatory role, rule and schema text cannot be published away, and a manifest
+            # adds its own mandatory instructions. Dropping the supplied context is the test
+            # that separates them, so the error says which case the caller is in.
+            # Both causes raise here and only one has an artifact for an answer: mandatory
+            # role, rule and schema text cannot be published away. Which case this is cannot
+            # be read off the raw entry lengths, because the assembly adds its own headers,
+            # bullets or JSON syntax around them, so the context-free package is assembled
+            # and measured instead.
+            bare, _, _ = _assemble(request.model_copy(update={"context": []}), task_id, body,
+                                   rules, [], schema, execution)
+            if len(bare) <= request.max_context_chars:
+                cost = len(mandatory_context) - len(bare)
+                remedy = (f"Context adds {cost}; without it the package fits. Consider "
+                          "artifact_publish, artifact_manifest_create, then artifact_manifest; "
+                          "a manifest adds mandatory text of its own.")
+            else:
+                remedy = (f"Without your context it still needs {len(bare)}, so role, rules and "
+                          "schema do not fit alone: shorten them or raise max_context_chars.")
             raise ContractError("context_budget_exceeded",
                                 f"Mandatory context needs {len(mandatory_context)} characters; "
-                                f"budget is {request.max_context_chars}.")
+                                f"budget is {request.max_context_chars}. {remedy}")
         while True:
             context, contract, descriptor = _assemble(request, task_id, body, rules, components, schema,
                                                       execution)

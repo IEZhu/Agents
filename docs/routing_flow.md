@@ -589,9 +589,16 @@ link, whose content the backup would copy and whose other name the write would
 break. The managed section is rendered from the bytes that same descriptor reads.
 A descriptor pins a node and not a name, so the write compares the destination's
 identity again immediately before the rename and refuses when another node has
-taken the name, leaving that file and the snapshot of the bytes it read. That
-narrows the window rather than closing it: no portable rename refuses an
-unexpected destination.
+taken the name, leaving that file and the snapshot of the bytes it read. It opens
+the name again for that comparison, because a descriptor stat and a path stat do
+not agree about the change time everywhere: on Windows with Python 3.14 the
+descriptor reports the change time of one untouched file and the path reports its
+creation time. A name it can no longer open the same way is refused as well, and
+the device and inode of the name itself, which the two calls do agree on, must
+still match the node that was opened, so a symlink that took the name where
+O_NOFOLLOW does not exist is refused rather than replaced. That narrows the
+window rather than closing it: no portable rename refuses an unexpected
+destination.
 Pinning the parent directory needs the `dir_fd` arguments of the platform's
 `openat` family and is therefore POSIX-only; on Windows the steps run against the
 path, as they did before.
