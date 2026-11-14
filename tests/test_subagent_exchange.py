@@ -584,12 +584,22 @@ def test_a_structural_limit_arrives_with_the_format_errors(worker_tree):
 
 
 def test_the_array_diagnostic_names_the_list_path_and_its_length(worker_tree):
+    """The list is named in the message, and the diagnostic's own path stays the envelope.
+
+    Where the list path goes decides whether the prefix is applied twice. `bounded_object`
+    reports the offending list in the message and leaves `ContractError.path` at `$`, so
+    `diagnostics(error, "$.result")` names `$.result` once. A review read this change as having
+    rooted `path` at the list itself and asked for the prefixing to be undone; rooting it there
+    is what would produce `$.result.result.changes`, which is why the path is asserted here too.
+    """
     package = prepared(result_type="implementation")
     bullets = "\n".join(f"- src/app{index}.py — Change {index}" for index in range(101))
     response = validate_result(package.contract.model_dump(mode="json"),
                                text_result(package, payload=f"## changes\n{bullets}"))
-    messages = [error.message for error in response.errors if error.code == "array_too_large"]
-    assert len(messages) == 1 and "$.result.changes has 101" in messages[0], response.errors
+    oversized = [error for error in response.errors if error.code == "array_too_large"]
+    assert len(oversized) == 1, response.errors
+    assert "$.result.changes has 101" in oversized[0].message, response.errors
+    assert oversized[0].path == "$.result", "the diagnostic's path is the envelope, named once"
 
 
 def test_a_rendered_package_states_the_first_lines_and_the_list_limit_once(worker_tree):
