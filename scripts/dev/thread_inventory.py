@@ -67,6 +67,7 @@ HTTP_URL = re.compile(r"https?://\S+\Z")
 GITHUB_URL = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
 GITLAB_MR_URL = re.compile(r"https?://([\w.-]+(?::\d+)?)/((?:[\w.-]+/)+[\w.-]+)/-/merge_requests/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
+URL_HOST = re.compile(r"https?://([^/?#]+)")  # the host a link names, which is part of a reference
 # A pull request on a forge that is neither github.com nor GitLab: only its own link names the host.
 FORGE_PULL_REQUEST = "forge_pull_request"
 SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
@@ -964,13 +965,29 @@ def _earlier(ts, than) -> bool:
     return bool(ts) and (not than or ts < than)
 
 
+def _forge_host(url: str | None) -> str | None:
+    """The host of a reference's URL, lower-cased and without the scheme's default port, or None when
+    the reference has no URL. Two forges number their own pull requests and merge requests, so the host
+    tells one `group/project!7` from another and is part of the reference's identity."""
+    match = URL_HOST.match(url) if url else None
+    if not match:
+        return None
+    host = match.group(1).lower()
+    default = ":443" if url.lower().startswith("https:") else ":80"
+    return host[:-len(default)] if host.endswith(default) else host
+
+
 def _add_ref(refs: dict, repository, kind: str, number: int, ts, url: str | None = None) -> None:
     """Record a reference. A repository value that starts with `$` is an unexpanded shell variable and is
     dropped. A reference given with a URL keeps it, because its record or text is the only authority on the
     host: a GitLab merge request and a pull request on another forge are never rewritten to github.com.
     Without one, a pull request or issue gets a github.com URL only when the repository is `owner/repo`; a
     longer path is a nested GitLab group whose host is unknown, so that reference is left out rather than
-    invented, and a merge request or another forge's pull request is not recorded at all."""
+    invented, and a merge request or another forge's pull request is not recorded at all.
+
+    The host of that URL is part of the identity, beside the repository, the kind and the number: the same
+    number on two forges is two references, and merging them would drop one of the two URLs. A github.com
+    pull request or issue is never split by this, because its URL is given or built on that one host."""
     if isinstance(repository, str) and any(part.startswith("$") for part in repository.split("/")):
         repository = None
     url = url or None
@@ -981,7 +998,7 @@ def _add_ref(refs: dict, repository, kind: str, number: int, ts, url: str | None
             if repository.count("/") != 1:
                 return
             url = f"https://github.com/{repository}/{kind}/{number}"
-    key = (repository, kind, number)
+    key = (repository, kind, number, _forge_host(url))
     ref = refs.get(key)
     if ref is None:
         refs[key] = {"repository": repository, "kind": kind, "number": number, "url": url, "first_seen": ts}
@@ -1806,7 +1823,8 @@ def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
 
 def summarize(sink: dict) -> dict:
     background = [{**task, "ended": sink["ended"].get(task["id"])} for task in _in_time_order(sink["started"])]
-    refs = sorted(sink["refs"].values(), key=lambda ref: (ref["repository"] or "", ref["kind"], ref["number"]))
+    refs = sorted(sink["refs"].values(),  # the URL orders two forges' references of the same number
+                  key=lambda ref: (ref["repository"] or "", ref["kind"], ref["number"], ref["url"] or ""))
     return {
         "sessions": sink["sessions"],
         "bridge_sessions": sink["bridges"],

@@ -985,6 +985,41 @@ def test_a_pr_link_whose_url_is_not_a_link_falls_back_to_the_repository_rule():
         ("pull", "https://github.com/Owner/Repo/pull/3")]
 
 
+def test_two_forges_keep_their_own_reference_of_the_same_number():
+    """The host belongs to the identity: `(repository, kind, number)` alone merged a self-hosted
+    merge request into gitlab.com's and kept only the URL seen first, so the second link left the
+    report without a trace. The same number on two hosts is two references, each with its own URL."""
+    mirrored = thread_inventory.inventory([human(
+        "see https://gitlab.com/grp/proj/-/merge_requests/7 and "
+        "https://gitlab.example.org/grp/proj/-/merge_requests/7", "t1")])
+    assert [r["url"] for r in mirrored["github_refs"]] == [
+        "https://gitlab.com/grp/proj/-/merge_requests/7",
+        "https://gitlab.example.org/grp/proj/-/merge_requests/7"]
+    forges = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 9, "prRepository": "Owner/Repo", "prUrl": GHE_PULL,
+         "timestamp": "2026-11-05T14:20:01Z"},
+        {"type": "pr-link", "prNumber": 9, "prRepository": "Owner/Repo",
+         "prUrl": "https://ghe.other.example.com/Owner/Repo/pull/9", "timestamp": "2026-11-05T14:20:02Z"}])
+    assert [(r["number"], r["url"]) for r in forges["github_refs"]] == [
+        (9, GHE_PULL), (9, "https://ghe.other.example.com/Owner/Repo/pull/9")]
+
+
+def test_one_host_in_two_spellings_stays_one_reference():
+    """The host is normalized before it identifies a reference, so neither the scheme, the letter
+    case nor the scheme's own default port splits one merge request into several entries."""
+    inv = thread_inventory.inventory([human(
+        "https://git.example.org/grp/sub/proj/-/merge_requests/106 "
+        "http://GIT.example.org/grp/sub/proj/-/merge_requests/106 "
+        "https://git.example.org:443/grp/sub/proj/-/merge_requests/106", "t1")])
+    assert [(r["kind"], r["number"], r["url"]) for r in inv["github_refs"]] == [
+        ("merge_request", 106, GITLAB_MR)]  # the first sighting's URL, as before
+    pull = thread_inventory.inventory([
+        human("https://github.com/Owner/Repo/pull/7", "t1"),
+        *bash("gh pr view 7 --repo Owner/Repo", "b1", ts="2026-10-02T09:00:01Z")])
+    assert [(r["kind"], r["url"]) for r in pull["github_refs"]] == [
+        ("pull", "https://github.com/Owner/Repo/pull/7")]  # a built URL and a read one are one host
+
+
 def test_gitlab_merge_request_link_in_text_is_not_a_github_pull_request():
     inv = thread_inventory.inventory([human(f"see {GITLAB_MR} please", "t1")])
     assert [(r["kind"], r["url"]) for r in inv["github_refs"]] == [("merge_request", GITLAB_MR)]
