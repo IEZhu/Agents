@@ -628,6 +628,64 @@ def test_a_path_stat_disagreeing_about_the_change_time_still_replaces(
     assert backup.read_bytes() == b"original"
 
 
+def test_a_symlink_to_the_file_this_write_read_is_refused_before_the_rename(
+    tmp_path, helpers, monkeypatch,
+):
+    """Identity alone cannot separate a link from the file it points at.
+
+    Windows has no O_NOFOLLOW, so the reopen before the rename follows a symlink
+    that took the name, and a link to the file this write already read answers
+    with that file's identity. Renaming a file on Windows keeps the write time
+    that its fstat reports as the change time, so a moved original matches the
+    recorded identity exactly, which is what this test hands the reopen. Without
+    the device and inode of the name itself the rename would replace the link,
+    and refusing a symlinked destination is this helper's own promise.
+    """
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    moved = tmp_path / "moved.md"
+    recorded = []
+    real_fstat = injector.os.fstat
+    original_write = injector._write
+
+    class KeptChangeTime:
+        """A descriptor stat of a renamed file, as Windows reports it."""
+
+        def __init__(self, info, change_time):
+            self._info = info
+            self.st_ctime_ns = change_time
+
+        def __getattr__(self, name):
+            return getattr(self._info, name)
+
+    def windows_fstat(descriptor):
+        info = real_fstat(descriptor)
+        if not recorded:
+            recorded.append(info.st_ctime_ns)
+            return info
+        return KeptChangeTime(info, recorded[0])
+
+    def swap_then_write(path, parent_fd, content, info):
+        # After the backup, before the rename: the original keeps its inode.
+        path.rename(moved)
+        path.symlink_to(moved)
+        return original_write(path, parent_fd, content, info)
+
+    monkeypatch.setattr(injector.os, "O_NOFOLLOW", 0, raising=False)
+    monkeypatch.setattr(injector.os, "fstat", windows_fstat)
+    monkeypatch.setattr(injector, "_write", swap_then_write)
+
+    with pytest.raises(ValueError, match="changed while this write prepared"):
+        injector.write_with_backup(target, b"managed")
+
+    assert os.path.islink(target), "the symlink took the write instead of being refused"
+    assert moved.read_bytes() == b"original"
+    backup, = tmp_path.glob("CLAUDE.md.backup.*")
+    assert backup.read_bytes() == b"original"
+    assert not list(tmp_path.glob(".CLAUDE.md.*")), "the temporary file is left behind"
+
+
 def test_a_file_created_under_a_new_destination_is_refused(tmp_path, helpers, monkeypatch):
     """A write that found no file refuses one that appeared while it prepared.
 

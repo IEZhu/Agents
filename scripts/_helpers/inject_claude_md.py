@@ -122,8 +122,8 @@ def _unchanged(path: Path, parent_fd: int | None, info: os.stat_result | None) -
     renameat2 is Linux-only and absent from os.
 
     Both halves come from os.fstat, because _identity is not comparable across a
-    descriptor and a path. Opening the name again also refuses a symlink, a FIFO
-    or a node this run can no longer read, none of which holds what it read.
+    descriptor and a path. Opening the name again also refuses a FIFO or a node
+    this run can no longer read, neither of which holds what it read.
     """
     try:
         current = _open_destination(path, parent_fd)
@@ -132,7 +132,22 @@ def _unchanged(path: Path, parent_fd: int | None, info: os.stat_result | None) -
     if current is None:
         return info is None
     try:
-        return info is not None and _identity(os.fstat(current)) == _identity(info)
+        if info is None:
+            return False
+        opened = os.fstat(current)
+        if _identity(opened) != _identity(info):
+            return False
+        # Windows has no O_NOFOLLOW, so this open follows a symlink that took the
+        # name, and a link to the file the write already read answers with that
+        # file's identity: renaming a file there keeps the write time its fstat
+        # reports as the change time. The device and inode of the name itself
+        # separate the two, and both calls agree on exactly those fields, so this
+        # keeps the refusal of a symlinked destination that the write promises.
+        try:
+            named = _node(path.name, path.parent, parent_fd)
+        except OSError:
+            return False
+        return (named.st_dev, named.st_ino) == (opened.st_dev, opened.st_ino)
     finally:
         os.close(current)
 
