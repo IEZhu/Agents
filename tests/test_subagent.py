@@ -1,6 +1,7 @@
 """Worker contracts: source policy, budget accounting, strict exchange validation."""
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -263,6 +264,11 @@ def test_the_budget_error_names_the_remedy_that_fits_its_cause(worker_tree):
     # passes with the argument name missing. Assert the argument where it stands alone.
     assert "then artifact_manifest;" in supplied
     assert supplied.count("artifact_manifest") == 2
+    # The reported cost is the difference between two assemblies, not the sum of the raw
+    # entries: the assembly wraps them in its own headers and separators. Subtracting raw
+    # lengths instead would report exactly 10500 here and misjudge the cause near the
+    # budget boundary, so the strict inequality is what pins the measurement.
+    assert int(re.search(r"Context adds (\d+)", supplied).group(1)) > 3500 * 3
 
 
 def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
