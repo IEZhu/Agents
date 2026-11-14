@@ -1326,6 +1326,22 @@ def test_powershell_commands_that_cannot_be_classified_are_listed_not_dropped():
     assert (other["git_mutations"], other["unclassified_commands"], other["shell_writes"]) == ([], [], [])
 
 
+def test_only_the_powershell_program_name_is_case_insensitive():
+    """PowerShell resolves `GIT` to the same executable, so an uppercase program name with a real
+    subcommand is the write it performs. Git and gh parse their own subcommands case sensitively,
+    measured here: `git Commit -m x` answers `fatal: cannot handle Commit as a builtin` and
+    `gh PR create` answers `unknown command "PR" for "gh"`. A mixed-case subcommand therefore ran
+    nothing, and it is listed for a reader instead of counted as a mutation that never happened."""
+    resolved = thread_inventory.inventory(powershell("GIT commit -m x\nGH pr create --title t --body b", "k1"))
+    assert [m["command"] for m in resolved["git_mutations"]] == [
+        "GIT commit -m x", "GH pr create --title t --body b"]
+    assert resolved["unclassified_commands"] == []
+    rejected = thread_inventory.inventory(powershell("Git Commit -m x\nGH PR Create --title t", "k2"))
+    assert [c["command"] for c in rejected["unclassified_commands"]] == [
+        "Git Commit -m x", "GH PR Create --title t"]
+    assert rejected["git_mutations"] == []
+
+
 def test_every_write_of_a_powershell_chain_is_collected():
     """Which dialect the host's tool runs is not established: PowerShell 7 does chain with `&&`
     and `||`, so every statement of a chain is read for its write target, which is right under
