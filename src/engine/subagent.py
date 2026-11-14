@@ -16,7 +16,7 @@ from src.engine.rules import get_rules
 from src.engine.subagent_text import render_assignment, render_result_format
 from src.engine.subagent_validation import (ContractError, bounded_object, canonical_json,
                                            contract_fingerprint, diagnostics, fingerprint)
-from src.schemas.subagent import (Budgets, MAX_REQUEST_CHARS, PROTOCOL, RESULT_MODELS,
+from src.schemas.subagent import (CONTEXT_BUDGET_REASON, Budgets, MAX_REQUEST_CHARS, PROTOCOL, RESULT_MODELS,
                                  ExecutionPlan, PreparationError, PreparationRequest, PreparedPackage,
                                  SelectionDecision, TaskContract, WorkerDescriptor)
 from src.utils.prompt_loader import process_imports, read_mdc, resolve_path
@@ -275,7 +275,7 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
             for decision in decisions:
                 if decision.kind == omitted.kind and decision.id == omitted.id:
                     decision.selected = False
-                    decision.reason = "context_budget"
+                    decision.reason = CONTEXT_BUDGET_REASON
     except (ContractError, ValidationError) as error:
         return PreparationError(errors=diagnostics(error))
     except (OSError, ValueError, yaml.YAMLError, RecursionError) as error:
