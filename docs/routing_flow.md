@@ -591,8 +591,12 @@ A descriptor pins a node and not a name, so the write compares the destination's
 identity again immediately before the rename and refuses when another node has
 taken the name, leaving that file and the snapshot of the bytes it read. It opens
 the name again for that comparison, because a descriptor stat and a path stat do
-not report the same change time for one untouched file on every platform, so a
-name it can no longer open the same way is refused as well. That narrows the
+not agree about the change time everywhere: on Windows with Python 3.14 the
+descriptor reports the change time of one untouched file and the path reports its
+creation time. A name it can no longer open the same way is refused as well, and
+the device and inode of the name itself, which the two calls do agree on, must
+still match the node that was opened, so a symlink that took the name where
+O_NOFOLLOW does not exist is refused rather than replaced. That narrows the
 window rather than closing it: no portable rename refuses an unexpected
 destination.
 Pinning the parent directory needs the `dir_fd` arguments of the platform's
