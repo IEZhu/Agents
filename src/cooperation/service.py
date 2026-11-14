@@ -880,6 +880,14 @@ class CooperationService:
             live_keys = {identity for identity, observation in published.items()
                          if observation["kind"] == "paused" and observation["next_free_at"] > now}
             if len(live_keys) > MAX_ITEMS:
+                # Unreachable while a participant's scope is bounded by this
+                # same MAX_ITEMS, because publishing is scope bound: at most
+                # one live pause per registered allowance. Pauses cannot
+                # accumulate past it either, since scope is written once, when
+                # register creates the participant, and a wider assignment
+                # needs a new attempt. It stays as a loud failure in case the
+                # two bounds ever diverge, because the alternative is dropping
+                # a pause that other sessions are waiting on.
                 raise CooperationError("invalid_request",
                                        "More live allowance pauses than one participant can publish")
             live = sorted((item for item in published.items() if item[0] in live_keys), key=order)

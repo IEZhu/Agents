@@ -1245,3 +1245,21 @@ def test_an_observation_about_an_unregistered_allowance_is_refused(h):
     assert h.checkpoint(holder, name="own", external_quota=[_pause(h, UNKNOWN_REVIEWER)])["status"] == "ok"
     assert not _participant(h, holder)["external_quota"] or [
         o["resource_key"] for o in _participant(h, holder)["external_quota"]] == [allowance["resource_key"]]
+
+
+def test_the_live_pause_bound_cannot_be_exceeded_while_scope_shares_it():
+    # Publishing is scope bound and a scope holds at most MAX_ITEMS resources,
+    # so a participant cannot carry more live pauses than the published list
+    # allows. That is why the bound check in _checkpoint cannot be reached, and
+    # this pins the two facts that make it so: if either bound moves on its
+    # own, the guard becomes reachable and this test says where to look.
+    from src.cooperation import models, service
+    assert service.MAX_ITEMS is models.MAX_ITEMS
+    scope = [quota.resource(quota.quota_key("github.com", "IEZhu", f"reviewer-{index}"))
+             for index in range(models.MAX_ITEMS + 1)]
+    with pytest.raises(ValueError, match="scope"):
+        parse_register({"protocol": PROTOCOL, "checkout_path": "/tmp", "task_id": "too-wide",
+                        "attempt_id": "1", "root_task_id": "too-wide", "scope": scope})
+    assert len(parse_register({"protocol": PROTOCOL, "checkout_path": "/tmp", "task_id": "at-the-bound",
+                               "attempt_id": "1", "root_task_id": "at-the-bound",
+                               "scope": scope[:-1]}).scope) == models.MAX_ITEMS
