@@ -667,8 +667,9 @@ def runs_the_file(argv, test_file, literal=False):
     recorded one is what the process was handed.
 
     False is the answer for an argv `reading_of` could not read as well, which
-    is why no caller may decide a verdict on this alone: the callers that
-    report pair it with `unreadable_positionals` above.
+    is why a caller that reports does not decide on this alone: it asks
+    `reading_of` itself, through `read_invocations` for a written command and
+    through `unreadable_recorded_runs` for a recorded one.
     """
     return reading_of(argv, test_file, literal)[0] == RUNS
 
@@ -1878,9 +1879,10 @@ def recorded_pytest_runs(commands, test_file):
     the glob is the shell's business and is over by then. The same refusals
     apply for the same reasons: a recorded `--collect-only` collected the file
     and ran none of it, and a recorded whole-file `--deselect` dropped it. What
-    the shell did with the command -- an `&`, a pipe, a `||` -- is not in the
-    argv it handed over, so it is read from the script's text instead, where
-    `runs_as_pytest_argument` and `invocations_the_step_survives` read it.
+    the shell did with the command -- an `&`, a pipe, a `||`, an `&&` -- is not
+    in the argv it handed over, so it is read from the script's text instead,
+    where `read_invocations` reads it. What the argv does carry is an option
+    this reader cannot read, and `unreadable_recorded_runs` below is that half.
     """
     return [command for command in commands
             if runs_the_file(recorded_argv(command), test_file, literal=True)]

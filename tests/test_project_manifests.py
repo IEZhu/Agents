@@ -162,11 +162,14 @@ SELECTING_OPTIONS = frozenset({"-k", "-m"})
 # carrying it went to the real inner pytest with `cache_dir` or `addopts` set
 # from a workflow's text (Copilot on PR 662). Both spellings of one option
 # belong to one refusal.
-# `--pyargs` is here because it changes what the positional values are: with it they are
-# Python package names rather than paths, so `outside_the_stub_tree` reads a name such as
-# `pytest` as an in-tree path, finds nothing to refuse, and the inner interpreter imports
-# the installed package instead. The containment check is about paths, so an option that
-# stops them being paths bounds nothing.
+# `--pyargs` is here because it changes where a positional value is looked up:
+# pytest searches `sys.path` for a module of that name and keeps the value as a
+# path only where it finds none (`_pytest/main.py`,
+# `resolve_collection_argument` with `search_pypath`). So `outside_the_stub_tree`
+# reads a name such as `pytest` as an in-tree path, finds nothing to refuse, and
+# the inner interpreter imports the installed package instead. The containment
+# check is about paths, so an option that decides a value somewhere other than
+# the tree bounds nothing.
 UNBOUNDED_OPTIONS = frozenset({
     "--basetemp", "--junitxml", "--rootdir", "-c", "-o", "--override-ini",
     "--pyargs",
