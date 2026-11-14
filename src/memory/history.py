@@ -1025,10 +1025,20 @@ class HistoryWriter:
         matches = _HEADER_RE.findall(payload)
         month = (max(match[0] for match in matches) if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
         os.makedirs(self.archive_dir, exist_ok=True)
-        _regular_kind(os.lstat(self.archive_dir), directory=True)
+        archive_dir_info = os.lstat(self.archive_dir)
+        _regular_kind(archive_dir_info, directory=True)
         _sync_directory(os.path.dirname(self.archive_dir) or ".")
         archive_path = os.path.join(self.archive_dir, f"{month}.md")
-        existed = os.path.exists(archive_path)
+        # os.path.exists follows the link, so a dangling archive symlink reads as
+        # absent: the replace below would overwrite the link itself while this
+        # append reports the entry as recorded. Decide from the entry instead,
+        # and let a link or a special file raise rather than be replaced.
+        try:
+            _regular_kind(os.lstat(archive_path))
+        except FileNotFoundError:
+            existed = False
+        else:
+            existed = True
         archive_root = _archive_root(self.history_path, self.archive_dir)
         if existed and self._archive_ends_with(archive_path, payload, root=archive_root):
             # A crash after the append but before the unlink: already archived.
@@ -1052,6 +1062,20 @@ class HistoryWriter:
                 dst.write(payload.encode("utf-8", errors="surrogateescape"))
                 dst.flush()
                 os.fsync(dst.fileno())
+            # The temporary file above and this replace both reach the archive
+            # directory by name, and os.replace takes no directory descriptor on
+            # every platform (it is absent from os.supports_dir_fd on macOS), so
+            # the directory is re-identified right before the move: a swap after
+            # the check above is refused instead of sending the archive to the
+            # link's target. The window left is this comparison to the move.
+            current_dir = os.lstat(self.archive_dir)
+            swapped = _is_link(current_dir) or not stat.S_ISDIR(current_dir.st_mode)
+            if archive_dir_info.st_ino and current_dir.st_ino:
+                # A file system that numbers no entry cannot tell two apart.
+                swapped = swapped or ((current_dir.st_dev, current_dir.st_ino)
+                                      != (archive_dir_info.st_dev, archive_dir_info.st_ino))
+            if swapped:
+                raise PermissionError("journal archive directory changed while rotating")
             os.replace(temp, archive_path)
             _sync_directory(self.archive_dir)
         except Exception:

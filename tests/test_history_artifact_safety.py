@@ -179,6 +179,62 @@ def test_archive_directory_swap_cannot_redirect_the_open(journals, monkeypatch):
         history.HistoryReader(str(path)).journal_entries()
 
 
+def test_a_dangling_archive_link_is_not_replaced_by_a_merge(journals):
+    """`os.path.exists` follows the link, so a dangling archive reads as absent.
+
+    The merge would then take the create path and `os.replace` would overwrite
+    the link itself, while the append reported the entry as recorded.
+    """
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    payload = target.read_text(encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    month = max(match[0] for match in history._HEADER_RE.findall(payload))[:7]
+    directory = path.parent / "history"
+    directory.mkdir()
+    archive = directory / f"{month}.md"
+    link_or_skip(archive, directory / "never-written.md")
+    assert archive.is_symlink() and not archive.exists()
+    with pytest.raises(OSError):
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert archive.is_symlink() and not archive.exists()
+    assert pending.read_text(encoding="utf-8") == payload
+
+
+def test_an_archive_directory_swapped_before_the_replace_is_refused(journals, monkeypatch, tmp_path):
+    """The temporary file and the replace reach the directory by name.
+
+    `os.replace` takes no directory descriptor on every platform, so the
+    directory's identity is read again immediately before the move.
+    """
+    path, target = journals
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    probe = tmp_path / "probe"
+    link_or_skip(probe, elsewhere, directory=True)
+    probe.unlink()
+    pending = path.with_name(path.name + ".rotating")
+    payload = target.read_text(encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    month = max(match[0] for match in history._HEADER_RE.findall(payload))[:7]
+    directory = path.parent / "history"
+    directory.mkdir()
+    (directory / f"{month}.md").write_text("kept", encoding="utf-8")
+    real_copy = history.shutil.copyfileobj
+
+    def swap_then_copy(source, destination, *args, **kwargs):
+        if not directory.is_symlink():
+            directory.rename(path.parent / "original")
+            directory.symlink_to(elsewhere, target_is_directory=True)
+        return real_copy(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(history.shutil, "copyfileobj", swap_then_copy)
+    with pytest.raises(PermissionError, match="archive directory changed"):
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert list(elsewhere.iterdir()) == []
+    assert pending.read_text(encoding="utf-8") == payload
+
+
 def test_failed_unlink_does_not_truncate_a_retargeted_pending(journals, monkeypatch):
     path, target = journals
     pending = path.with_name(path.name + ".rotating")

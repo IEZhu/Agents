@@ -41,7 +41,8 @@ from typing import Optional
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.memory.history import ENTRY_ID, EntryChanged, _archive_names, _open_regular, _reading, delete_entry, parsed_file
+from src.memory.history import (ENTRY_ID, EntryChanged, _archive_names, _open_regular, _reading,
+                                _regular_kind, delete_entry, parsed_file)
 from src.memory.history_stats import FileSummaries, attribution
 from .state import read_json
 from .workspaces import WorkspaceError
@@ -82,9 +83,21 @@ def _file_path(root: Path, name: str) -> Path:
 
 
 def _files(root: Path) -> list[str]:
-    """``current`` when ``history.md`` exists, then the archives of a real month, newest first."""
+    """``current`` when ``history.md`` is a regular file, then the archives of a real month, newest first.
+
+    ``Path.is_file()`` follows a link, so a substituted ``history.md`` would be
+    listed here and then refused by the guarded reader, which the caller records
+    as one unreadable file while still reporting the workspace available. A
+    current journal that cannot be read safely makes the workspace unreadable,
+    so this raises and lets the caller report it that way, as it already does
+    for an unsafe archive directory.
+    """
     names = [name[:7] for name in reversed(_archive_names(str(root / "history"))) if _MONTH.fullmatch(name[:7])]
-    return ([CURRENT] if (root / "history.md").is_file() else []) + names
+    try:
+        _regular_kind(os.lstat(root / "history.md"))
+    except FileNotFoundError:
+        return names
+    return [CURRENT] + names
 
 
 def _same(path: Path, other: Path) -> bool:

@@ -141,6 +141,34 @@ async def test_linked_archive_only_blocks_its_own_workspace(daemon, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_a_linked_current_journal_makes_its_workspace_unreadable(daemon, tmp_path):
+    """`Path.is_file()` follows the link, so the substituted journal was listed and then refused.
+
+    One unreadable file next to a readable archive left the workspace reported
+    available, which the contract gives only to a workspace that can be read.
+    """
+    http, ids = daemon
+    await login(http)
+    current = tmp_path / "project" / "history.md"
+    current.unlink()
+    try:
+        current.symlink_to(tmp_path / "other" / "history.md")
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            if os.environ.get("AGENTS_TEST_REQUIRE_SYMLINKS") == "1":
+                pytest.fail("CI must execute journal symlink safety checks")
+            pytest.skip("Windows symlink privilege unavailable")
+        raise
+    response = await http.get("/ui/api/history/repos", headers=UI)
+    assert response.status_code == 200
+    repos = {repo["workspace"]: repo for repo in response.json()["repos"]}
+    assert repos[ids["project"]]["available"] is False
+    assert repos[ids["project"]]["unreadable"] is True
+    assert repos[ids["project"]]["files"] == []
+    assert repos[ids["other"]]["entries"] == 1
+
+
+@pytest.mark.asyncio
 async def test_a_file_reads_newest_first_in_portions_with_a_full_index(daemon, tmp_path):
     http, ids = daemon
     await login(http)
