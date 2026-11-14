@@ -155,6 +155,38 @@ or `git merge --abort` for a merge-based update), keep unrelated local changes,
 never use plain `--force`, `--no-verify` or a reset that discards work, and
 never delete or recreate a branch to get past a rejection.
 
+**Before the first edit, establish who else is working in this checkout.** A
+second session editing the same files is not a conflict to resolve later: its
+commit can land on the branch between a read and a push, and its reasoning never
+reaches this one. Where the Agents-Core coordinator is available, register
+bounded scope with `cooperation_register`, read the roster with
+`cooperation_read` on the `repository_id` that registration returns, and read
+whether an active participant holds a file this change touches.
+
+Registration reserves nothing. Finding such a participant gates the edit only
+through the repository's own cooperation requirements: a persisted agreement
+through `cooperation_apply` and compatible resource claims before conflicting
+work, with one integrator named. An informal exchange of messages does not
+satisfy that and does not make the edit safe. Where those requirements cannot be
+met, say so and leave the shared file alone rather than editing it first.
+
+The coordinator is optional, so this step must not become a prerequisite. When
+either call answers `store_unavailable`, report the unavailable coordinator and
+continue: every git check in this step still applies without it.
+
+Never read a missing roster as evidence that nobody else is active. It lists who
+registered, not who pushed, so a session that writes without registering is
+invisible in it, and what catches that depends on where it writes. A peer
+pushing the same branch from another worktree surfaces as a non-fast-forward
+rejection, which is evidence to read and never an obstacle to force past. A peer
+sharing this checkout surfaces as neither: its commit is already on this HEAD so
+the push still fast-forwards, and its uncommitted edits are not in the push at
+all. Do not read a clean push as concurrency protection; for a shared checkout
+only the working tree and the roster can show the peer. A roster holding only
+`cancelled` or `suspect` participants proves nothing either: check the client's
+own list of live sessions in the same project as a second signal, because the two
+can disagree.
+
 ## 2. Keep the title and description accurate
 
 Use a short English title that names the resulting change. Write a concise

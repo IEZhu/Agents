@@ -1,6 +1,7 @@
 """Worker contracts: source policy, budget accounting, strict exchange validation."""
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -228,6 +229,46 @@ def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
         assert (component_id + " COMPILED" in result.worker_context) == (component_id in result.descriptor.skills_loaded)
     assert "Compact engineering judgment." in result.worker_context
     assert all(name + " instructions" in result.worker_context for name in subagent.WORKER_RULE_IDS)
+
+
+def test_the_budget_error_names_the_remedy_that_fits_its_cause(worker_tree):
+    """Two causes raise one code, and only one of them has an artifact for an answer.
+
+    Review found the first version of this advice unconditional: it offered the
+    artifact path even where the mandatory role, rule and schema text was what
+    overflowed, which publishing cannot shrink and a manifest only enlarges. The
+    error now applies the test that separates the two -- would the package fit
+    without the context the caller supplied -- and says so either way, inside the
+    240 characters a diagnostic keeps.
+    """
+    def message_of(response):
+        assert "context_budget_exceeded" in codes(response)
+        text = " ".join(error.message for error in response.errors)
+        assert len(text) <= 240, len(text)
+        assert text.endswith("."), text[-40:]
+        return text
+
+    mandatory_only = message_of(prepare_subagent(request(max_context_chars=2000)))
+    assert "do not fit alone" in mandatory_only
+    assert "raise max_context_chars" in mandatory_only
+    assert "Without your context it still needs" in mandatory_only
+    assert "artifact" not in mandatory_only
+
+    supplied = message_of(prepare_subagent(request(max_context_chars=8000, context=["x" * 3500] * 3)))
+    assert "without it the package fits" in supplied
+    # The remedy is an option, not a promise: a manifest carries its own mandatory text.
+    assert "a manifest adds mandatory text of its own" in supplied
+    for call in ("artifact_publish", "artifact_manifest_create"):
+        assert call in supplied, call
+    # `artifact_manifest` is a substring of `artifact_manifest_create`, so the loop above
+    # passes with the argument name missing. Assert the argument where it stands alone.
+    assert "then artifact_manifest;" in supplied
+    assert supplied.count("artifact_manifest") == 2
+    # The reported cost is the difference between two assemblies, not the sum of the raw
+    # entries: the assembly wraps them in its own headers and separators. Subtracting raw
+    # lengths instead would report exactly 10500 here and misjudge the cause near the
+    # budget boundary, so the strict inequality is what pins the measurement.
+    assert int(re.search(r"Context adds (\d+)", supplied).group(1)) > 3500 * 3
 
 
 def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
