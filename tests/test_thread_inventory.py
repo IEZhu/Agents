@@ -1437,6 +1437,28 @@ def test_a_windows_scratchpad_write_reaches_the_scratchpad_paths():
     assert inv["shell_writes"] == []
 
 
+def test_a_defined_body_keeps_its_forge_reference_and_performs_nothing():
+    """Two decisions on this helper meet here, and they point opposite ways for one text.
+
+    A body that is only defined performs nothing, so none of its commands is an action of the
+    thread. But a forge reference says what the thread was about rather than what succeeded, which
+    is why an unsupported PowerShell chain keeps its reference while its verdict is withheld. A
+    definition is the same case: the thread named that pull request. So the statements stop being
+    statements and stay as mentions, read for their references and for nothing else.
+    """
+    defined = thread_inventory.inventory(powershell("function Doc { gh pr view 650 }", "d1"))
+    assert [(r["kind"], r["number"]) for r in defined["github_refs"]] == [("pull", 650)]
+    assert defined["git_mutations"] == [] and defined["unclassified_commands"] == []
+    running = thread_inventory.inventory(powershell("if ($x) { gh pr view 650 }", "d2"))
+    assert [(r["kind"], r["number"]) for r in running["github_refs"]] == [("pull", 650)]
+    url = thread_inventory.inventory(powershell(
+        "function Doc { Write-Output 'https://github.com/o/r/pull/7' }", "d3"))
+    assert [(r["kind"], r["number"]) for r in url["github_refs"]] == [("pull", 7)]
+    # The body still performs nothing, which is the other decision this test holds together.
+    assert thread_inventory.inventory(powershell(
+        "function Publish { git push origin main }", "d4"))["git_mutations"] == []
+
+
 def test_a_quoted_scratchpad_path_with_a_space_is_still_reported():
     """A scratchpad write leaves `shell_writes` for `scratchpad_paths`, and the whole path has to
     arrive there, alone.

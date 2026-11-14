@@ -104,6 +104,7 @@ WRAPPERS = {
 SCOPE_IN, SCOPE_OUT = object(), object()
 CHDIR = object()  # (CHDIR, path) sets the directory the next commands of a scope run in
 DEFINE = object()  # (DEFINE, name) names a PowerShell body that was defined here and did not run
+MENTION = object()  # (MENTION, text) is a statement that was defined, not run: read for references only
 # Wrapper options that run no command: `command -v git` looks it up, `sudo -l` lists rights.
 NO_EXEC = {"command": {"-v", "-V"}, "sudo": {"-l", "--list", "-v", "--validate", "-k", "-K", "--reset-timestamp",
                                              "--remove-timestamp", "-V", "--version", "-h", "--help"}}
@@ -1110,6 +1111,15 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
         if isinstance(segment, tuple) and segment[0] is DEFINE:
             defined.add(segment[1])
             continue
+        if isinstance(segment, tuple) and segment[0] is MENTION:
+            # Defined, not run: its references are the thread's subject, its commands are not its
+            # actions. So the reference scans run and the classification does not.
+            text = segment[1]
+            _scan_refs(text, sink["refs"], ts)
+            mentioned = _powershell_tokens(text) if powershell else _command_tokens(text, [])
+            if mentioned[:1] == ["gh"]:
+                _gh_ref(mentioned, ts, sink)
+            continue
         _scan_refs(segment, sink["refs"], ts)
         dirs: list[str] = []
         tokens = _powershell_tokens(segment) if powershell else _command_tokens(segment, dirs)
@@ -1410,7 +1420,13 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
         elif char == "}":
             flush()
             if defining == braces:
-                del segments[mark:]  # a definition performs none of them
+                # A definition performs none of them, so they stop being statements. They are kept
+                # as mentions, because a forge reference says what the thread was about rather than
+                # what succeeded: the same reason an unsupported chain keeps its reference while its
+                # verdict is withheld. Nothing else is read from them.
+                taken = [item for item in segments[mark:] if isinstance(item, str)]
+                del segments[mark:]
+                segments.extend((MENTION, text) for text in taken)
                 defining = None
             braces = max(braces - 1, 0)
             index += 1
