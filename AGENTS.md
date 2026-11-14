@@ -130,6 +130,17 @@ plans and catalogs out of tracked repository files.
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.
+- A workflow that a `paths:` filter triggers for your file does not necessarily
+  run it. No workflow runs `tests/` whole: every step names its files, a couple
+  of them by shell glob, so a new test file executes only where a step's own
+  list or glob already covers it. On #604 a test written to guard
+  `newline="\n"` on Windows passed CI without ever executing there, because
+  `shared-runtime.yml` lists `tests/test_subagent*.py` under its `paths:` filter
+  while none of its step commands named the file. After adding a test, grep the
+  step commands rather than the filters
+  (`grep -rn "<basename>" .github/workflows/`), add it to the workflow whose
+  platforms the test needs, and run that step's own command before claiming the
+  platform is covered.
 - Run checks appropriate to the changed contract and report their actual result.
   Run only one heavy test or embedding process at a time.
 - In GitHub issue and PR descriptions, keep each prose paragraph and list item on one physical line. Do not hard-wrap text to a fixed width; preserve meaningful paragraph, list, table and code-block boundaries.
