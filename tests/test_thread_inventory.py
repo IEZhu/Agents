@@ -1454,6 +1454,10 @@ def test_a_defined_body_keeps_its_forge_reference_and_performs_nothing():
     url = thread_inventory.inventory(powershell(
         "function Doc { Write-Output 'https://github.com/o/r/pull/7' }", "d3"))
     assert [(r["kind"], r["number"]) for r in url["github_refs"]] == [("pull", 7)]
+    # The program name folds here exactly as it folds for dispatch: PowerShell resolves `GH` to
+    # the same executable, so a mention inside a definition must not depend on its spelling.
+    folded = thread_inventory.inventory(powershell("function Doc { GH pr view 650 }", "d5"))
+    assert [(r["kind"], r["number"]) for r in folded["github_refs"]] == [("pull", 650)]
     # The body still performs nothing, which is the other decision this test holds together.
     assert thread_inventory.inventory(powershell(
         "function Publish { git push origin main }", "d4"))["git_mutations"] == []

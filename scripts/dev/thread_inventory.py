@@ -1117,7 +1117,11 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             text = segment[1]
             _scan_refs(text, sink["refs"], ts)
             mentioned = _powershell_tokens(text) if powershell else _command_tokens(text, [])
-            if mentioned[:1] == ["gh"]:
+            # The program name is folded exactly as the dispatch above folds it, and for the same
+            # reason: PowerShell resolves `GH` to the same executable. Subcommands stay as written,
+            # because `gh` parses its own case sensitively.
+            program = mentioned[0].lower() if mentioned and powershell else (mentioned[:1] or [""])[0]
+            if program == "gh":
                 _gh_ref(mentioned, ts, sink)
             continue
         _scan_refs(segment, sink["refs"], ts)
