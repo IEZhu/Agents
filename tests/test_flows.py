@@ -131,6 +131,10 @@ def test_pr_review_looks_for_concurrent_sessions_without_requiring_the_coordinat
                    # An empty roster is not an absence of peers.
                    "Never read a missing roster as evidence that nobody else is active.",
                    "It lists who registered, not who pushed",
+                   # A clean push is not concurrency protection in a shared checkout.
+                   "what catches that depends on where it writes",
+                   "its commit is already on this HEAD so the push still fast-forwards",
+                   "Do not read a clean push as concurrency protection",
                    "A roster holding only `cancelled` or `suspect` participants proves nothing either",
                    "check the client's own list of live sessions in the same project as a second signal"):
         assert phrase in review, phrase

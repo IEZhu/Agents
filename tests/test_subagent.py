@@ -255,8 +255,12 @@ def test_the_budget_error_names_the_remedy_that_fits_its_cause(worker_tree):
 
     supplied = message_of(prepare_subagent(request(max_context_chars=8000, context=["x" * 3500] * 3)))
     assert "the rest fits" in supplied
-    for call in ("artifact_publish", "artifact_manifest_create", "artifact_manifest"):
+    for call in ("artifact_publish", "artifact_manifest_create"):
         assert call in supplied, call
+    # `artifact_manifest` is a substring of `artifact_manifest_create`, so the loop above
+    # passes with the argument name missing. Assert the argument where it stands alone.
+    assert "pass artifact_manifest." in supplied
+    assert supplied.count("artifact_manifest") == 2
 
 
 def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
