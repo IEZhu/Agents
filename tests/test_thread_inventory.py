@@ -837,3 +837,41 @@ def test_subagent_items_keep_their_place_in_time(tmp_path):
     assert [m["command"] for m in out["git_mutations"]] == ["git commit -m early", "git push origin x"]
     assert out["github_refs"][0]["first_seen"] == "2026-10-02T09:01:00Z"
     assert out["files_written"] == [{"path": "/w/a.py", "ts": "2026-10-02T09:02:00Z", "by": ["agent-c", "main"]}]
+
+
+GITLAB_MR = "https://git.example.org/grp/sub/proj/-/merge_requests/106"
+
+
+def test_gitlab_merge_request_keeps_its_own_kind_and_real_url():
+    entries = [{"type": "pr-link", "prNumber": 106, "prRepository": "grp/sub/proj", "prUrl": GITLAB_MR,
+                "timestamp": "2026-11-05T14:20:01Z"}]
+    refs = thread_inventory.inventory(entries)["github_refs"]
+    assert refs == [{"repository": "grp/sub/proj", "kind": "merge_request", "number": 106, "url": GITLAB_MR,
+                     "first_seen": "2026-11-05T14:20:01Z"}]
+
+
+def test_github_pull_request_keeps_its_github_url():
+    entries = [{"type": "pr-link", "prNumber": 7, "prRepository": "Owner/Repo",
+                "prUrl": "https://github.com/Owner/Repo/pull/7", "timestamp": "2026-11-05T14:20:01Z"}]
+    refs = thread_inventory.inventory(entries)["github_refs"]
+    assert [(r["repository"], r["kind"], r["url"]) for r in refs] == [
+        ("Owner/Repo", "pull", "https://github.com/Owner/Repo/pull/7")]
+
+
+def test_ref_with_an_undeterminable_host_is_left_out_not_invented():
+    entries = [{"type": "pr-link", "prNumber": 75, "prRepository": "grp/sub/subsub/proj",
+                "timestamp": "2026-11-04T10:00:00Z"}]
+    assert thread_inventory.inventory(entries)["github_refs"] == []
+
+
+def test_gitlab_merge_request_link_in_text_is_not_a_github_pull_request():
+    inv = thread_inventory.inventory([human(f"see {GITLAB_MR} please", "t1")])
+    assert [(r["kind"], r["url"]) for r in inv["github_refs"]] == [("merge_request", GITLAB_MR)]
+
+
+@pytest.mark.parametrize("command", [
+    'gh pr view 5 --repo "$R"', "gh pr view 5 -R $R", 'gh api repos/$OWNER/$R/pulls/5',
+])
+def test_repository_starting_with_a_dollar_sign_is_not_recorded(command):
+    refs = thread_inventory.inventory(bash(command, "r"))["github_refs"]
+    assert refs and all(r["repository"] is None and r["url"] is None for r in refs)

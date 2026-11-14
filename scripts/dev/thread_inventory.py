@@ -55,6 +55,7 @@ MAX_COMMAND = 200
 MAX_DEPTH = 20  # nested substitutions and subshells parsed recursively
 ARITHMETIC_SCAN = 4096  # how far `((` looks for its `))` before it is read as subshells
 GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
+GITLAB_MR_URL = re.compile(r"https://([\w.-]+(?::\d+)?)/((?:[\w.-]+/)+[\w.-]+)/-/merge_requests/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
 SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
 QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(r'["\\`]|\$\(')}
@@ -874,19 +875,50 @@ def _earlier(ts, than) -> bool:
     return bool(ts) and (not than or ts < than)
 
 
-def _add_ref(refs: dict, repository, kind: str, number: int, ts) -> None:
+def _add_ref(refs: dict, repository, kind: str, number: int, ts, url: str | None = None) -> None:
+    """Record a reference. A repository value that starts with `$` is an unexpanded shell variable and is
+    dropped. A pull request or issue gets a github.com URL only when the repository is `owner/repo`; a longer
+    path is a nested GitLab group whose host is unknown, so that reference is left out rather than invented.
+    A GitLab merge request keeps the URL its record or text carried."""
+    if isinstance(repository, str) and any(part.startswith("$") for part in repository.split("/")):
+        repository = None
+    if kind == "merge_request":
+        if not url:
+            return
+    elif repository and kind != "ref":
+        if repository.count("/") != 1:
+            return
+        url = f"https://github.com/{repository}/{kind}/{number}"
+    else:
+        url = None
     key = (repository, kind, number)
     ref = refs.get(key)
     if ref is None:
-        url = f"https://github.com/{repository}/{kind}/{number}" if repository and kind != "ref" else None
         refs[key] = {"repository": repository, "kind": kind, "number": number, "url": url, "first_seen": ts}
     elif _earlier(ts, ref["first_seen"]):
         ref["first_seen"] = ts  # subagent transcripts are read after the main one
 
 
+def _add_url_ref(refs: dict, url: str, ts) -> bool:
+    """Record the reference a link names: a github.com pull request or issue, or a merge request on any
+    other host. Returns whether the link was one of those."""
+    match = GITHUB_URL.search(url)
+    if match:
+        _add_ref(refs, match.group(1), match.group(2), int(match.group(3)), ts)
+        return True
+    match = GITLAB_MR_URL.search(url)
+    if match and match.group(1).lower() != "github.com":
+        _add_ref(refs, match.group(2), "merge_request", int(match.group(3)), ts, url=match.group(0))
+        return True
+    return False
+
+
 def _scan_refs(text: str, refs: dict, ts) -> None:
     for match in GITHUB_URL.finditer(text):
         _add_ref(refs, match.group(1), match.group(2), int(match.group(3)), ts)
+    for match in GITLAB_MR_URL.finditer(text):
+        if match.group(1).lower() != "github.com":
+            _add_ref(refs, match.group(2), "merge_request", int(match.group(3)), ts, url=match.group(0))
     for match in SHORT_REF.finditer(text):
         _add_ref(refs, match.group(1), "ref", int(match.group(2)), ts)
 
@@ -1180,7 +1212,10 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
         if number is None:
             sink["skipped"] += 1  # not a PR number, such as true or 1.9
         else:
-            _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", number, ts)
+            url = entry.get("prUrl")
+            if not (isinstance(url, str) and _add_url_ref(sink["refs"], url, ts)):
+                # no usable link: a plain owner/repo is taken as github.com, a nested path is left out
+                _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", number, ts)
     elif kind == "file-history-delta" and entry.get("trackingPath"):
         parent = (entry.get("backup") or {}).get("realParentDir")
         path = entry["trackingPath"]
