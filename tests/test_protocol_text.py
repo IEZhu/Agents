@@ -509,3 +509,54 @@ def test_progress_messages_are_defined_on_every_surface():
     rule = (ROOT / "rules/rule-answer-timestamp.mdc").read_text(encoding="utf-8")
     assert ("Applies only to the final answer that ends with the footer, never to progress messages "
             "(the protocol's \"Progress messages\" section defines them).") in rule
+
+
+def test_generated_surfaces_name_both_transcript_locations_before_the_output_file():
+    """Step 3 names the background agent's directory and the Workflow subdirectory, both before .output.
+
+    A Workflow worker's transcript is one level deeper, in subagents/workflows/wf_<id>/, so a
+    surface that names only the per-session directory sends the parent to a directory without an
+    agent-<id>.jsonl in it. The order is asserted, not just the presence: the directory is the
+    first location the parent reads, and .output is the fallback behind it.
+    """
+    directory = "projects/<project>/<session>/subagents/"
+    surfaces = {path.name: path.read_text(encoding="utf-8") for path in
+                (ROOT / "CLAUDE.md", ROOT / "scripts" / "templates" / "routing-protocol-core.md",
+                 ROOT / "scripts" / "templates" / "memory-routing.md")}
+    surfaces["server_instructions"] = protocol_text.server_instructions()
+    for name, text in surfaces.items():
+        assert directory in text, name
+        assert "workflows/wf_<id>/" in text, name
+        assert text.index(directory) < text.index(".output"), name
+        assert "only as a fallback when it is not empty" in text, name
+
+
+@pytest.mark.asyncio
+async def test_no_surface_names_the_transcript_by_a_home_relative_path():
+    """Every surface naming result_ref names a directory the parent can build an absolute path in.
+
+    read_result rejects a path that is not absolute, and `~` is not expanded, so a parent that
+    copied `~/.claude/projects/...` verbatim was answered invalid_result_ref. CLAUDE_CONFIG_DIR
+    is an accepted transcript root in subagent_exchange._transcript_roots and was named on no
+    surface at all, leaving a parent whose configuration directory is elsewhere with no path to
+    build and the inline result the same step forbids retyping.
+    """
+    import src.server as server_module
+    from src.engine import subagent_exchange
+
+    tools = {tool.name: tool for tool in await server_module.mcp.list_tools()}
+    surfaces = {
+        "routing-protocol-core.md": (ROOT / "scripts/templates/routing-protocol-core.md").read_text(encoding="utf-8"),
+        "memory-routing.md": (ROOT / "scripts/templates/memory-routing.md").read_text(encoding="utf-8"),
+        "server_instructions": protocol_text.server_instructions(),
+        "result_ref_description": tools["validate_subagent_result"].inputSchema[
+            "properties"]["result_ref"]["description"],
+        "result_ref_empty": subagent_exchange.EMPTY_REFERENCE,
+        "subagent-contract.md": (ROOT / "docs/subagent-contract.md").read_text(encoding="utf-8"),
+    }
+    for name, text in surfaces.items():
+        flat = _flat(text)
+        assert "~/.claude/projects" not in flat, name
+        assert "CLAUDE_CONFIG_DIR" in flat, name
+        assert "projects/<project>/<session>/subagents/" in flat, name
+        assert "absolute" in flat.lower(), name

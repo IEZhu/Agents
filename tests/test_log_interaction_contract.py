@@ -259,12 +259,21 @@ def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
     "Call validate_subagent_result for every returned or revised output",
     "Require valid: true before accepting",
     "Never edit identities or the contract to make a result pass.",
+    "Invalid output requires correction and revalidation",
+    "truncated.produced counts that stage's diagnostics before the cap of 20, not distinct problems.",
 ])
 def test_first_work_and_validation_stay_inside_the_current_window(phrase):
     """#508: current Claude Code shows 4,096 characters, enough after the per-turn directives
     for the first-work rule, which a session may need before its first activation, and the
     delegation exchange through its validation and acceptance rules and the rule that a result
-    never passes by editing identities or the contract."""
+    never passes by editing identities or the contract.
+
+    The last two phrases are pinned because the window cut them once already: a fix for this
+    very class grew the compact variant until "and revalidation" ended at 4,114 characters and
+    the marker's own explanation at 4,203, past the window, while the four phrases above it
+    stayed inside and every gate passed. Each rule the window must deliver belongs here, not
+    only the ones that were short enough on the day the list was written.
+    """
     text = server.mcp.instructions
     assert phrase in text and text.index(phrase) + len(phrase) < CLAUDE_CODE_WINDOW
 

@@ -1,6 +1,6 @@
 ---
-description: "Temporal Validation Skill: Logic for validating timestamps and event freshness"
-compiled: "Fresh ≤24h; Recent 24-48h; Stale >48h discard. Unknown→triple verify. UTC. No date on anomaly→assume old until proven."
+description: "Temporal Validation. Two modes: news freshness (hours) and state of the world (statutes, lists, registers, labels, enrolment statuses). A document describing an unfinished process expires on its outcome, not on a date. Role: Temporal Auditor."
+compiled: "Classify first: news or state of the world. News: fresh <=24h; recent 24-48h; stale >48h discard; unknown->triple verify; UTC; no date on anomaly->assume old. State of the world: the 48h gate does NOT apply and age alone settles nothing. Three kinds. An INSTRUMENT (statute, regulation, decision, licence, label) is in force until the whole of it is replaced, repealed or annulled, its own end date has passed (compare that date with the date you evaluate) or a later instrument from another authority occupies the same ground; an AMENDMENT or a partial repeal does not end it, it changes the version, so quote the consolidated text as of your date. An EDITIONED publication (list, register, tariff, gazette) speaks only for its edition date: ask the issuing body for the current edition and never infer a newer one from elapsed time. A LIVE record updated in place (docket, trial enrolment status, administrative file) has no editions at all: it carries only the keeper's last-updated date, so quote the status as posted on that date, and reading it today proves nothing about today. A pending, submitted or under-review process expires on its OUTCOME, not on a date. «Nothing found» establishes currency only if a completed search OF THE AUTHORITATIVE sources covering that source (register, gazette, issuing body) found nothing; a general web search and an unreachable register both leave currency not established. Record the date the SOURCE SPEAKS FOR (effective or decision date for an instrument, edition date for a publication, last-updated date for a live record; «unknown» when it carries none, never the retrieval date) and the date you read it."
 keywords:
   - triple verification
   - assume it is old news
@@ -11,6 +11,12 @@ keywords:
   - logic for validating timestamps
   - event freshness
   - nlp
+  - state of the world
+  - edition date
+  - pending procedure
+  - superseded document
+  - reimbursement list
+  - current until replaced
 ---
 # Temporal Validation Skill
 
@@ -18,9 +24,18 @@ keywords:
 Verify the freshness of information by analyzing timestamps, relative dates, and context markers.
 Prevent "Hallucination by Archive" where old news is treated as fresh.
 
+## Two Modes, Chosen Before Anything Else
+
+| Mode | Source kind | Question |
+|------|-------------|----------|
+| **A. News freshness** | reports of events: articles, posts, press releases, market moves | how old is it? |
+| **B. State of the world** | documents that *are* the state: instruments (statutes, regulations, decisions, labels), editioned publications (lists, registers, tariffs, gazettes) and live records updated in place (dockets, trial enrolment statuses, administrative files) | is it still in force, and in which version, edition or update? |
+
+Mode A is the rest of this file. **Mode B does not use the 48 hour gate at all**: a statute from 2015 is not stale for being eleven years old, though it counts as in force only once the Mode B checks below come back empty, and a list speaks only for its edition date, so the question is never how long ago it was published but what the issuing body publishes now. Applying the news gate to Mode B rejects every regulatory source and trains you to skip the temporal check entirely. Classify first; a press release *about* a decision is Mode A news about a Mode B document, so find the document.
+
 ## Core Concepts
 
-### 1. The "Freshness" Spectrum
+### 1. The "Freshness" Spectrum (Mode A only)
 | Class | Age Range | Action |
 |-------|-----------|--------|
 | 🟢 **Fresh** | 0-24 hours | Accept immediately |
@@ -28,7 +43,7 @@ Prevent "Hallucination by Archive" where old news is treated as fresh.
 | 🔴 **Stale** | > 48 hours | Reject (unless historical context) |
 | ⏰ **Unknown** | No date | Require **Triple Verification** |
 
-### 2. Validation Logic
+### 2. Validation Logic (Mode A)
 
 #### A. Explicit Timestamp Check
 ```python
@@ -51,14 +66,68 @@ Be skeptical of "Black Swans" (huge anomalies) without dates.
 *Example*: "Bitcoin drops 50%".
 *Action*: If no date is visible, **assume it is old news** until proven otherwise by a dated source.
 
-## Protocol: The Temporal Gate
+## Protocol: The Temporal Gate (Mode A)
 
 1.  **Extract**: Identify all dates in the snippet/page.
 2.  **Anchor**: Establish `Current Date (UTC)`.
 3.  **Compare**: Calculate `Delta = Current - Extracted`.
 4.  **Filter**:
     *   If `Delta > 48h` -> **DISCARD** source.
+    *   A **Mode B** source never reaches this filter: use [B1](#b1-an-instrument-statute-regulation-decision-licence-drug-label), [B2](#b2-an-editioned-publication-list-register-tariff-gazette-issue) or [B3](#b3-a-live-record-updated-in-place-docket-trial-enrolment-status-administrative-file-dashboard) instead.
     *   If `Delta` is invalid/future -> **FLAG** as suspicious.
+
+## Mode B: State of the World
+
+Three kinds of source live here and they have different lifecycles. Decide which one you are holding before asking whether it is current.
+
+### B1. An instrument: statute, regulation, decision, licence, drug label
+
+In force from its effective date until it is replaced, repealed, annulled, or its own end date has passed. Each of those is something to look for; none of them follows from the document's age.
+
+| What you find | What it means |
+|---|---|
+| a replacement, repeal or annulment **of the whole instrument** | not in force from the date that took effect |
+| a repeal or amendment of single provisions | the rest stays in force. Treat it as a version change, not an ending: quote the consolidated text and say which provisions went |
+| a later instrument from another authority | not in force **only if it occupies the same ground**. One that merely coexists, an implementing regulation beside the statute it implements, displaces nothing: say which one governs |
+| a sunset or end date | compare it with the date you are evaluating. A date still ahead leaves the instrument in force and tells you when it ends; only a date already passed ends it |
+| an amending instrument in force | **the instrument stays in force and the wording changed.** Amendment is not an ending event: quote the consolidated text as of your date and say which amendments you applied |
+| an amendment adopted but not yet in force | the provision you quote is unchanged for now. Quote the current wording and say when the new one starts |
+| a future effective date | not in force yet. Say from when |
+| a completed search **of the sources that would carry each of the above** (the register, the official gazette, the issuing body's own page) found none of them | in force **as of the date you checked**. Record that date, not only the date it was issued. A general web search is not that search: it misses a repeal as easily as it misses anything else |
+| a search that could not be completed | **currency not established.** A replaced or repealed instrument looks exactly like this when the register or gazette is unreachable: say so and name the source that would settle it |
+
+### B2. An editioned publication: list, register, tariff, gazette issue
+
+It is true as of its edition date and says nothing about any other date. It is never repealed or consolidated; it is superseded by the next edition.
+
+| What you find | What it means |
+|---|---|
+| an edition date stated by the issuing body | the snapshot speaks for that date only. Quote it with that date attached |
+| no stated edition date, only the date you retrieved it | **the date it describes is unknown.** Retrieval says when you read it and nothing more: say the date is unknown and look for the body's own dated edition |
+| the issuing body's current edition, read | that is the latest edition, and it speaks for **its own** date. A year-old latest edition does not establish today's state: limit the claim to its date unless another source establishes the present |
+| nothing about a newer edition | **unknown, not unchanged.** Elapsed time alone says nothing: a list can stay the latest edition for years, and a monthly list can change next week. Ask the body for its current edition instead of counting months |
+| the body's update cadence | useful for planning the next check, never evidence of what the current edition says |
+
+### B3. A live record updated in place: docket, trial enrolment status, administrative file, dashboard
+
+It has no editions. The keeper overwrites it, so the only date it carries is when the keeper last touched it, and reading it today proves nothing about today. Do not look for a "current edition" of one of these.
+
+| What you find | What it means |
+|---|---|
+| a last-updated or last-verified date on the record | it speaks for that date. Quote the status with that date attached, as posted, not as the present fact |
+| no last-updated date | the age of the record is unknown. Say so, and do not take a page that loads as a record that is live |
+| a status read today whose last-updated date is months old | what the keeper last posted, not necessarily what is true now. A trial marked recruiting may have closed since: say "as posted on that date" and, where the answer matters, ask the keeper |
+| an archived copy | it speaks for its capture date only |
+
+### All three kinds
+
+A source saying a process is pending, submitted, under review, in negotiation or not yet concluded expires on its outcome, not on a date. Assume a successor exists and look for it before using that source as the current state: it is the weakest possible ground for a claim about the present, and finding the outcome usually costs one query.
+
+Say "in force", "current edition" or "current status" only when the search that would show otherwise completed, and say it as of the date you checked. Record two dates in the deliverable: **the date the source speaks for** and the date you read it. The first is the effective or decision date for B1, the edition date for B2 and the keeper's last-updated date for B3. Where the source carries none, write that it is unknown: never supply a date the source does not give, and never use the date of retrieval as the date it describes.
+
+### Anti-Pattern
+
+A ministry answer stating that a reimbursement application has gone to price negotiations, read 27 months later, used as evidence that no programme exists. The programme had entered force six weeks after that answer. Nothing about the source was stale by the news gate; it had no successor only because nobody looked for one.
 
 ## Edge Cases
 - **Timezone Confusion**: Always normalize to UTC.

@@ -21,7 +21,8 @@ import tempfile
 import time
 
 from src.engine.subagent_validation import ContractError, canonical_json, contract_fingerprint
-from src.schemas.subagent import MAX_RESULT_CHARS, PreparedPackage, PreparedReceipt
+from src.schemas.subagent import (CONTEXT_BUDGET_REASON, MAX_RESULT_CHARS, PreparedPackage,
+                                  PreparedReceipt)
 
 RETENTION_SECONDS = 7 * 24 * 3600
 MAX_CONTRACT_BYTES = 256 * 1024
@@ -81,7 +82,10 @@ def store(package: PreparedPackage) -> PreparedReceipt:
         context_path=str(context_path), context_chars=package.context_chars,
         context_sha256=hashlib.sha256(package.worker_context.encode("utf-8")).hexdigest(),
         launch=launch_text(context_path, package.context_chars), descriptor=package.descriptor,
-        execution=package.execution)
+        execution=package.execution, omitted=[f"{decision.kind}/{decision.id}"
+                                              for decision in package.selection
+                                              if not decision.selected
+                                              and decision.reason == CONTEXT_BUDGET_REASON] or None)
 
 
 def load_contract(revision) -> dict:
@@ -128,23 +132,32 @@ def _transcript_roots() -> list[Path]:
     return _result_roots() + _resolved(homes)
 
 
-def _claude_text(record: dict) -> tuple[str | None, str | None]:
-    """(message id, text) of a Claude Code assistant record; a background hand-back counts as text."""
+def _claude_text(record: dict) -> tuple[str | None, str | None, bool]:
+    """(message id, text, hand-back) of a Claude Code assistant record.
+
+    A ``SubagentHandback`` message is the worker's result, so it is returned alone: the text
+    blocks of the same message are the worker's own narration, and a result preceded by a
+    sentence such as "Composing the envelope" would be read as malformed (#581). A hand-back
+    whose message is empty or blank carries no result and is not one of them, so a result in
+    the text blocks beside it is still read.
+    """
     message = record.get("message")
     if (record.get("type") != "assistant" or not isinstance(message, dict)
             or not isinstance(message.get("id"), str)):  # Claude message IDs are strings
-        return None, None
-    parts = []
+        return None, None, False
+    texts, handbacks = [], []
     content = message.get("content")
     for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict):
             continue
         if block.get("type") == "text" and isinstance(block.get("text"), str):
-            parts.append(block["text"])
+            texts.append(block["text"])
         elif (block.get("type") == "tool_use" and block.get("name") == "SubagentHandback"
-              and isinstance(block.get("input"), dict) and isinstance(block["input"].get("message"), str)):
-            parts.append(block["input"]["message"])
-    return message.get("id"), ("\n".join(parts) if parts else None)
+              and isinstance(block.get("input"), dict) and isinstance(block["input"].get("message"), str)
+              and block["input"]["message"].strip()):  # a blank hand-back carries no result
+            handbacks.append(block["input"]["message"])
+    parts = handbacks or texts
+    return message.get("id"), ("\n".join(parts) if parts else None), bool(handbacks)
 
 
 def _codex_text(record: dict) -> str | None:
@@ -162,9 +175,11 @@ def final_message(lines) -> str | None:
     """The last assistant message of a Claude Code or Codex transcript, given its lines.
 
     Claude Code writes one line per content block, so the text blocks of one message id are
-    joined; a later message without text leaves the earlier text as the final one.
+    joined; a later message without text leaves the earlier text as the final one. A
+    ``SubagentHandback`` message is the result of its own message: it replaces that message's
+    text blocks instead of joining them, whichever record carries them (#581).
     """
-    final, final_id = None, None
+    final, final_id, final_handback = None, None, False
     for line in lines:
         try:
             record = json.loads(line)
@@ -173,18 +188,28 @@ def final_message(lines) -> str | None:
         if not isinstance(record, dict):
             continue
         try:  # a record of any other shape is skipped whole, so a later valid one still counts
-            message_id, text = _claude_text(record)
+            message_id, text, handback = _claude_text(record)
             if text is None:
-                text, message_id = _codex_text(record), None
+                text, message_id, handback = _codex_text(record), None, False
         except (AttributeError, KeyError, TypeError):
             continue
         if text is None:
             continue
         if message_id is not None and message_id == final_id and final is not None:
-            final += "\n" + text
-        else:
-            final, final_id = text, message_id
+            if final_handback and not handback:
+                continue  # this message handed its result back; its narration is not part of it
+            if handback == final_handback:
+                final += "\n" + text
+                continue
+        final, final_id, final_handback = text, message_id, handback
     return final.strip() if final and final.strip() else None
+
+
+# The one place this sentence is written: diagnostic() cuts a message at 240 characters, so the
+# surface test that checks every result_ref wording reads it from here instead of a raised error.
+EMPTY_REFERENCE = ("result_ref holds no result yet: the worker may be running, or its .output is empty. "
+                   "Pass an absolute path: projects/<project>/<session>/subagents/agent-<id>.jsonl, "
+                   "or workflows/wf_<id>/ in it, under CLAUDE_CONFIG_DIR or the .claude home.")
 
 
 def read_result(reference) -> str:
@@ -224,6 +249,5 @@ def read_result(reference) -> str:
         except UnicodeDecodeError:
             raise ContractError("invalid_text", "The result file is not valid UTF-8 text.", "$.result_ref") from None
     if not text or not text.strip():
-        raise ContractError("result_ref_empty", "result_ref holds no result yet: the worker may still be "
-                            "running.", "$.result_ref")
+        raise ContractError("result_ref_empty", EMPTY_REFERENCE, "$.result_ref")
     return text
