@@ -372,6 +372,36 @@ cached, export it, for example
 or symlink the live `data/` directory just to make a documentation check run.
 Run one heavy test or embedding process at a time; start with focused checks.
 
+### The content guard's executing leg
+
+[test_content_checks_workflow.py](test_content_checks_workflow.py) and
+[test_project_manifests.py](test_project_manifests.py) do not only read the
+workflows. Some of their assertions execute a workflow's `run:` script, which
+is the only way to tell a step that really runs a check from one that mentions
+it, and executing a step means running that script with a shell on this
+machine. What bounds it: a throwaway copy of the repository's tracked path
+names with `HOME` inside it, a `PATH` holding recording shims for every
+spelling of pytest, pip and the interpreter plus `cat`, `chmod`, `ls`,
+`mkdir` and nothing else, and a refusal to start a step that would run another
+program, write a shim outside that copy, or redirect anywhere but a literal
+path inside it. The argv a shim records then goes to the installed pytest in a
+second throwaway tree, with a built environment, no path argument outside that
+tree and no option that would let the run write or import beyond it. Nothing is
+installed and nothing reaches the network.
+
+It is still a workflow's own script running here, so that half runs on CI and
+is opt-in anywhere else. `CONTENT_GUARD_EXECUTE=1` runs it on this machine
+whatever the platform, and `CONTENT_GUARD_EXECUTE=0` turns it off on a CI leg,
+which is what to reach for when a runner is contended:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false CONTENT_GUARD_EXECUTE=1 .venv/bin/python -m pytest \
+  tests/test_content_checks_workflow.py tests/test_project_manifests.py -q
+```
+
+Without the variable those assertions skip, carrying the reason, and every
+other case in both files still runs.
+
 When reusing another checkout's interpreter, run from the worktree root and use
 its absolute interpreter path. Confirm imports resolve to the worktree:
 

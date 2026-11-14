@@ -72,7 +72,8 @@ and a PATH holding the shims and that allowlist and nothing else. A step this
 guard refuses is a verdict about the step and fails; a runner that could not
 answer skips. What is still not bounded is what a shimmed program could be made
 to do with the tree it is given, what a program on the allowlist can do, or
-memory and time beyond the timeout.
+memory and time beyond the timeout -- and because this is what the half does to
+a machine, it is opt-in off CI.
 
 The recorder's own log is the other thing a step could reach: its path used to
 travel in the step's environment, so a step could write the line the guard then
@@ -81,9 +82,11 @@ against the invocations, which is arithmetic rather than secrecy -- a shebang
 script has to be readable to be executed, so what this stops is a forged line,
 not a step that goes looking.
 
-The executing half runs on one CI leg (`confined_to_the_executing_leg`). The
-steps are platform-neutral and the recorder's answer does not depend on the
-host, so three legs paid three times for one fact; the other two read.
+The executing half runs on one CI leg and is opt-in anywhere else
+(`confined_to_the_executing_leg`). The steps are platform-neutral and the
+recorder's answer does not depend on the host, so three legs paid three times
+for one fact; the other two read. Off CI it runs only for whoever asks for it,
+because running it is running a workflow's shell on your own machine.
 
 What stays open is named in #632 and not attempted here: a `runs-on` label no
 runner carries, a `strategy.matrix` that expands to nothing, and a glob given
@@ -920,28 +923,46 @@ def refused_step(reason):
 # what the recorder sees on macOS it sees on ubuntu. Measured, it cost +3.3 s on
 # every pull request here and +22.6 s on each of the three legs of the manifests
 # guard's matrix. So one leg executes and the others read, which is also what
-# stops the Windows leg running a `pwsh` step under `bash`.
+# stops the Windows leg running a `pwsh` step under `bash`. Cost is not the only
+# reason it is one leg: executing a step runs a workflow's shell on the machine
+# that runs this suite, so off CI it is nobody's default.
 EXECUTING_LEG = "linux"
 FORCE_EXECUTION = "CONTENT_GUARD_EXECUTE"
+# What says this run is CI's rather than somebody's own machine. `CI` is the
+# marker this repository already reads for that (`tests/test_installer_windows.py`),
+# and `GITHUB_RUN_ID` is one of the variables its own workflows consume from a
+# step's environment (`.github/workflows/issue-agent-bridge.yml`). Either is
+# enough; neither is set by running the suite at a prompt.
+CI_MARKERS = ("CI", "GITHUB_RUN_ID")
 CONFINED_REASON = (
     "the assertions that execute a workflow's shell run on the CI leg whose "
-    f"platform is {EXECUTING_LEG}, so the repository pays for them once; set "
-    f"{FORCE_EXECUTION}=1 to run them here as well"
+    f"platform is {EXECUTING_LEG}, so the repository pays for them once, and "
+    "they are opt-in anywhere else because running one runs that shell on this "
+    f"machine; set {FORCE_EXECUTION}=1 to run them here as well"
 )
 
 
 def confined_to_the_executing_leg(platform=None, environment=None):
     """True when this leg reads the workflows instead of executing their steps.
 
-    The platform decides it, because that is what a matrix leg is, and the
-    environment variable overrides it in both directions: a maintainer working
-    on this harness sets it and gets every assertion wherever they work.
+    Two things decide it and both have to hold: the platform, because that is
+    what a matrix leg is, and a CI marker, because executing a step runs a
+    workflow's own shell on whatever machine the suite runs on. The platform
+    alone used to decide, which put the half that touches the host on for a
+    Linux contributor, a Linux container and a downstream consumer who did
+    nothing but run the suite, and off on darwin, where this repository is
+    developed and where nobody was testing it. The variable overrides both
+    directions: a maintainer working on this harness sets it and gets every
+    assertion wherever they work, and an explicit 0 turns it off on the
+    executing leg too.
     """
     platform = sys.platform if platform is None else platform
     environment = os.environ if environment is None else environment
     if FORCE_EXECUTION in environment:
         return environment[FORCE_EXECUTION] not in ("1", "true", "yes")
-    return not platform.startswith(EXECUTING_LEG)
+    if not platform.startswith(EXECUTING_LEG):
+        return True
+    return not any(environment.get(marker) for marker in CI_MARKERS)
 
 
 def tracked_names(root=None):
@@ -2492,14 +2513,21 @@ def test_every_step_this_guard_executes_stays_inside_what_it_confines():
 
 
 @pytest.mark.parametrize("platform, environment, confined", [
-    ("linux", {}, False),
+    ("linux", {"CI": "true"}, False),
+    ("linux", {"GITHUB_RUN_ID": "17"}, False),
+    # Off CI the leg is opt-in on every platform, this one included: a Linux
+    # contributor, a Linux container and a downstream consumer used to execute
+    # a workflow's shell by running the suite.
+    ("linux", {}, True),
     ("darwin", {}, True),
-    ("win32", {}, True),
+    ("darwin", {"CI": "true"}, True),
+    ("win32", {"CI": "true"}, True),
     ("darwin", {"CONTENT_GUARD_EXECUTE": "1"}, False),
     ("win32", {"CONTENT_GUARD_EXECUTE": "1"}, False),
+    ("linux", {"CONTENT_GUARD_EXECUTE": "1"}, False),
     # Both directions: an explicit 0 turns it off on the executing leg too,
     # which is what a maintainer reaches for when a runner is contended.
-    ("linux", {"CONTENT_GUARD_EXECUTE": "0"}, True),
+    ("linux", {"CI": "true", "CONTENT_GUARD_EXECUTE": "0"}, True),
 ])
 def test_the_executing_assertions_are_confined_to_one_leg(platform, environment, confined):
     """Executing a step is what costs, and the repository pays for it once.
@@ -2518,6 +2546,22 @@ def test_the_executing_assertions_are_confined_to_one_leg(platform, environment,
     assertion, on any platform.
     """
     assert confined_to_the_executing_leg(platform, environment) is confined
+
+
+def test_the_switch_that_runs_the_host_touching_leg_is_documented():
+    """A variable that makes a suite run a workflow's shell has to be findable.
+
+    The leg is opt-in off CI, which means the only way to run it on a
+    maintainer's machine is this variable, and it was named in no workflow and
+    no README: the half of this module that touches the host was reachable only
+    by reading the module. `tests/README.md` is where this repository documents
+    what a selection does to the machine it runs on, so the name and the effect
+    belong there.
+    """
+    readme = (ROOT / "tests/README.md").read_text(encoding="utf-8")
+    assert FORCE_EXECUTION in readme, (
+        f"{FORCE_EXECUTION} turns on the assertions that run a workflow's shell "
+        "on this machine and tests/README.md does not mention it")
 
 
 @pytest.mark.parametrize("measured, problems, outcome, words", [
