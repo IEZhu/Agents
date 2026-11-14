@@ -205,6 +205,37 @@ def test_an_identity_and_a_status_diagnostic_survive_the_cap(worker_tree):
     assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 28
 
 
+def test_schema_errors_alone_over_the_cap_are_counted(worker_tree):
+    """The schema collector is the one the #589 case ran through: 25 schema errors, no text error.
+
+    With the cap back on that collector the response holds 20 of them and no marker, which is
+    the symptom the issue reports.
+    """
+    package = prepared()
+    ids = "\n".join(f"[^e{index} bad]: src/app.py:{index} — Identifier with a space"
+                     for index in range(25))
+    text = text_result(package).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header", ids)
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid
+    assert {error.code for error in response.errors} == {"string_pattern_mismatch"}, response.errors
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 25
+
+
+def test_json_evidence_rejects_over_the_cap_are_counted(worker_tree):
+    """The reject collector of the JSON route counts too; nothing else reaches it."""
+    from tests.test_subagent import report
+
+    package = prepared(result_type="research")
+    value = report(package)
+    value["result"]["conclusions"] = [{"claim": f"Claim {index}", "evidence_ids": [f"missing{index}"]}
+                                      for index in range(25)]
+    response = validate_result(package.contract.model_dump(mode="json"), value)
+    assert not response.valid
+    assert {error.code for error in response.errors} == {"unknown_evidence_id"}, response.errors
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 25
+
+
 def test_a_finding_may_cite_the_same_evidence_twice(worker_tree):
     """A repeated [^id] in one item is one reference; JSON results keep their own check."""
     from src.engine.subagent_text import parse_result
@@ -504,23 +535,34 @@ def test_the_array_diagnostic_names_the_list_path_and_its_length(worker_tree):
     assert len(messages) == 1 and "$.result.changes has 101" in messages[0], response.errors
 
 
-def test_a_rendered_package_states_the_first_lines_and_the_list_limit(worker_tree):
+def test_a_rendered_package_states_the_first_lines_and_the_list_limit_once(worker_tree):
+    """The #526 wording folded into the sentences and template lines that were already there.
+
+    The threat holds only where the reply text is read as the result: a hand-back drops its own
+    narration (#581), so the sentence says which path it is about and no longer tells a worker
+    that may write nothing to write a record first. The list cap is stated once, next to the
+    50-item one, instead of being contradicted by a later absolute sentence.
+    """
     from src.engine.subagent_text import render_result_format
 
     contract = prepared(result_type="research").contract.model_dump(mode="json")
     rendered = render_result_format(contract)
-    assert f"line 1 is `task: {contract['task_id']}`" in rendered
-    assert "The first character you emit is the letter `t`" in rendered
-    assert "No list may hold more than 100 items" in rendered
-    assert rendered.index("No list may hold") > rendered.index("## remaining_work")
-    assert "not remaining_work" in rendered and "evidence, not a failed check" in rendered
+    assert f"task: {contract['task_id']}" in rendered and f"attempt: {contract['attempt_id']}" in rendered
+    assert "lines 1 and 2 exactly as shown" in rendered and "nothing above line 1" in rendered
+    assert "a character above it discards a result read from the reply text" in rendered
+    assert "write any record" not in rendered
+    assert rendered.count("100 of any other list") == 1 and "No list may hold" not in rendered
+    assert "excluded work" in rendered and "failed before your change is evidence" in rendered
+    # The mandatory floor every package pays: 2627 as rendered here, against 2390 before the
+    # wording was added and 2976 when it was appended as four sentences instead of folded.
+    assert len(rendered) <= 2700, len(rendered)
 
 
 def test_a_rendered_package_says_an_empty_section_is_left_out(worker_tree):
     from src.engine.subagent_text import render_result_format
 
     rendered = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
-    assert "never fill one with a word such as 'none', 'n/a' or 'omitted'" in rendered
+    assert "never filling it with 'none', 'n/a' or 'omitted'" in rendered
 
 
 def test_consecutive_stray_lines_report_one_problem(worker_tree):
@@ -706,6 +748,20 @@ async def test_default_delivery_is_a_file_receipt(worker_tree):
 
 
 @pytest.mark.asyncio
+async def test_a_receipt_names_what_the_context_budget_dropped(worker_tree):
+    """The receipt carries no selection list, so a dropped component was invisible to the parent."""
+    receipt = await call("get_subagent_context", request())
+    assert "omitted" not in receipt
+    tight = request(max_context_chars=prepared(max_skills=0).context_chars + 35)
+    trimmed = await call("get_subagent_context", tight)
+    inline = await call("get_subagent_context", {**tight, "delivery": "inline"})
+    dropped = [f"{decision['kind']}/{decision['id']}" for decision in inline["selection"]
+               if not decision["selected"] and decision["reason"] == "context_budget"]
+    assert dropped and trimmed["omitted"] == dropped
+    assert len(json.dumps(trimmed)) < 2000
+
+
+@pytest.mark.asyncio
 async def test_validation_by_revision_and_reference(worker_tree, tmp_path):
     receipt = await call("get_subagent_context", request(result_type="research"))
     package = PreparedPackage.model_validate(await call("get_subagent_context",
@@ -775,6 +831,28 @@ def test_a_handback_is_the_result_without_the_narration_of_its_own_message(worke
     ]) + "\n", encoding="utf-8")
     assert subagent_exchange.read_result(str(per_block)) == text
     assert validate_result(contract, subagent_exchange.read_result(str(per_block))).valid
+
+
+def test_a_blank_handback_leaves_the_result_in_the_text_blocks(worker_tree, tmp_path):
+    """#581 regression: an empty or blank hand-back carries no result, so the text stays the result."""
+    package = prepared()
+    text = text_result(package)
+    contract = package.contract.model_dump(mode="json")
+    for name, blank in (("empty", ""), ("blank", "   \n ")):
+        one_record = tmp_path / f"agent-{name}.jsonl"
+        one_record.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "text", "text": text},
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": blank}}]}}) + "\n",
+            encoding="utf-8")
+        assert subagent_exchange.read_result(str(one_record)) == text
+        per_block = tmp_path / f"agent-{name}-blocks.jsonl"  # one line per content block
+        per_block.write_text("\n".join(json.dumps(record) for record in [
+            {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": text}]}},
+            {"type": "assistant", "message": {"id": "m1", "content": [
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": blank}}]}},
+        ]) + "\n", encoding="utf-8")
+        assert subagent_exchange.read_result(str(per_block)) == text
+        assert validate_result(contract, subagent_exchange.read_result(str(per_block))).valid
 
 
 def test_a_message_without_a_handback_still_joins_its_text_blocks(worker_tree, tmp_path):

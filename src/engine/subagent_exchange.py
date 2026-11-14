@@ -81,7 +81,10 @@ def store(package: PreparedPackage) -> PreparedReceipt:
         context_path=str(context_path), context_chars=package.context_chars,
         context_sha256=hashlib.sha256(package.worker_context.encode("utf-8")).hexdigest(),
         launch=launch_text(context_path, package.context_chars), descriptor=package.descriptor,
-        execution=package.execution)
+        execution=package.execution, omitted=[f"{decision.kind}/{decision.id}"
+                                              for decision in package.selection
+                                              if not decision.selected
+                                              and decision.reason == "context_budget"] or None)
 
 
 def load_contract(revision) -> dict:
@@ -133,7 +136,9 @@ def _claude_text(record: dict) -> tuple[str | None, str | None, bool]:
 
     A ``SubagentHandback`` message is the worker's result, so it is returned alone: the text
     blocks of the same message are the worker's own narration, and a result preceded by a
-    sentence such as "Composing the envelope" would be read as malformed (#581).
+    sentence such as "Composing the envelope" would be read as malformed (#581). A hand-back
+    whose message is empty or blank carries no result and is not one of them, so a result in
+    the text blocks beside it is still read.
     """
     message = record.get("message")
     if (record.get("type") != "assistant" or not isinstance(message, dict)
@@ -147,7 +152,8 @@ def _claude_text(record: dict) -> tuple[str | None, str | None, bool]:
         if block.get("type") == "text" and isinstance(block.get("text"), str):
             texts.append(block["text"])
         elif (block.get("type") == "tool_use" and block.get("name") == "SubagentHandback"
-              and isinstance(block.get("input"), dict) and isinstance(block["input"].get("message"), str)):
+              and isinstance(block.get("input"), dict) and isinstance(block["input"].get("message"), str)
+              and block["input"]["message"].strip()):  # a blank hand-back carries no result
             handbacks.append(block["input"]["message"])
     parts = handbacks or texts
     return message.get("id"), ("\n".join(parts) if parts else None), bool(handbacks)
@@ -236,7 +242,7 @@ def read_result(reference) -> str:
             raise ContractError("invalid_text", "The result file is not valid UTF-8 text.", "$.result_ref") from None
     if not text or not text.strip():
         raise ContractError("result_ref_empty", "result_ref holds no result yet: the worker may still be "
-                            "running, or a background agent's .output file is empty on this client; "
-                            "pass its transcript, agent-<id>.jsonl in the subagents directory under "
-                            "~/.claude/projects/<project>/<session>/subagents/.", "$.result_ref")
+                            "running, or its .output file is empty. Pass its transcript instead: "
+                            "~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl, "
+                            "or workflows/wf_<id>/ under it.", "$.result_ref")
     return text

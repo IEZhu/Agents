@@ -223,11 +223,9 @@ def render_result_format(contract: dict) -> str:
         "limitations or remaining_work items"
     return "\n".join([
         "## Result format",
-        "Reply with only a plain-text result in this form: no JSON, no code fence, nothing before or after it.",
-        f"The shape of your first two lines, exactly: line 1 is `task: {contract['task_id']}`, "
-        f"line 2 is `attempt: {contract['attempt_id']}`. The first character you emit is the "
-        "letter `t` of `task`; write any record to its file first, then begin the reply at `task:`. "
-        "A character above it discards the result.",
+        "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
+        "no code fence, nothing above line 1, and a character above it discards a result read from "
+        "the reply text.",
         "```text",
         f"task: {contract['task_id']}",
         f"attempt: {contract['attempt_id']}",
@@ -241,7 +239,7 @@ def render_result_format(contract: dict) -> str:
         *_payload_template(payload),
         "",
         "## checks",
-        "- <passed|failed|not_run>: <check actually run>[^e1]",
+        "- <passed|failed|not_run>: <check you ran; one that failed before your change is evidence>[^e1]",
         "",
         "## evidence",
         f"[^e1]: <command, path:line or URL>{WRITE_SEPARATOR.spelling}<what it showed>",
@@ -251,21 +249,19 @@ def render_result_format(contract: dict) -> str:
         f"- <path or artifact:// reference>{WRITE_SEPARATOR.spelling}<purpose>",
         "",
         "## limitations",
-        "- <assumption, gap or failure reason>",
+        "- <assumption, gap, excluded work or failure reason>",
         "",
         "## remaining_work",
         "- <unfinished work>",
         "```",
-        "Omit a section or the question line when it would be empty, and never fill one with a "
-        "word such as 'none', 'n/a' or 'omitted'; keep summary and "
+        "Omit a section or the question line when it would be empty, never filling it with 'none', "
+        "'n/a' or 'omitted'; keep summary and "
         f"{payload}. One list item per '- ' line; indent continuation lines by two spaces. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
-        f"4000 characters; at most 50 {short_lists} and 100 of any other list. "
+        f"4000 characters; at most 50 {short_lists} and 100 of any other list, grouping extras "
+        "into fewer items. "
         "completed: no remaining_work, no question. partial: remaining_work. failed: a "
-        "limitation saying why. input_required: question. "
-        "No list may hold more than 100 items: when you have more, group related items into one "
-        "item and keep every id. Work the assignment excludes is a limitation, not "
-        "remaining_work; a run that failed before your change is evidence, not a failed check.",
+        "limitation saying why. input_required: question.",
         "",
         *_separator_rules(),
         *_payload_rules(payload),

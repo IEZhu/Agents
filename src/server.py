@@ -1232,7 +1232,8 @@ async def get_subagent_context(
     validate_subagent_result; require valid: true before accepting or integrating it, then
     assess evidence/acceptance criteria yourself. Endpoint failure does not authorize an
     unprepared worker or unvalidated result. Missing compact sources or an insufficient
-    mandatory-context budget return an error with no partial package. With complexity, the
+    mandatory-context budget return an error with no partial package; a receipt's omitted
+    names every component the budget dropped. With complexity, the
     package carries execution: the tier after floors, the newest model of that tier for the
     client, and spawn, the arguments for the host's launching tool (Agent, spawn_agent or
     Task; a Claude Code Workflow agent takes the same model in agent() options). Floors may
@@ -1275,7 +1276,7 @@ async def validate_subagent_result(
     contract: ta.unparsed_arg("object", "The contract object retained from an inline package. Give this or contract_revision, never a worker replacement.") = None,
     contract_revision: ta.unparsed_arg("string", "The receipt's contract_revision: the server validates against the contract it stored at preparation. Give this or contract.") = None,
     result: ta.unparsed_arg("string", "The worker's output, unchanged: its text result, or a JSON result as an object or string (at most 128000 characters). Give this or result_ref.") = None,
-    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead: a result file, a Claude Code agent transcript (Workflow transcript dir agent-<id>.jsonl, or a background agent's .output file) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
+    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead: a result file, a Claude Code agent transcript (agent-<id>.jsonl in ~/.claude/projects/<project>/<session>/subagents/ for a background agent or in that directory's workflows/wf_<id>/ subdirectory for a Workflow agent, or the background agent's .output file only when it is not empty) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
 ) -> ValidationResponse:
     """Validate worker output structurally against the retained or server-stored contract.
 
@@ -1287,7 +1288,8 @@ async def validate_subagent_result(
     arguments. Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
     statuses and evidence references. Limits: 128000 characters, nesting 12, 10000 JSON nodes,
     100 items per result array (50 for text lists), strings 4000 characters, and at most 20
-    diagnostics. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
+    diagnostics, with identity and status ones reported first and truncated.produced counting
+    what the cap dropped. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
     establishes truth, authorization or issue completion. For a contract prepared with
     complexity, escalation names the next tier when the result is invalid, failed, partial or
     has a failed check. Prepare a new attempt with that complexity and a new attempt_id; for

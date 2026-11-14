@@ -336,10 +336,13 @@ class PreparedReceipt(StrictModel):
     launch: str
     descriptor: WorkerDescriptor
     execution: ExecutionPlan | None = None
+    # "<kind>/<id>" of every component the context budget cost this package, absent when none was
+    # dropped: the receipt carries no selection list, so without it the trade is invisible.
+    omitted: list[str] | None = None
 
     @model_serializer(mode="wrap")
     def omit_absent_execution(self, handler):
-        return _omit_none(handler(self), "execution")
+        return _omit_none(handler(self), "execution", "omitted")
 
 
 class PreparationError(StrictModel):

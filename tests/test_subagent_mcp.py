@@ -229,3 +229,29 @@ async def test_mcp_unknown_named_field_is_not_taken_for_a_wrapper(worker_tree):
     response = await raw_call(request(max_context_chars_typo=2000))
     assert [item["code"] for item in response["errors"]] == ["extra_forbidden"]
     assert response["errors"][0]["path"] == "$.max_context_chars_typo"
+
+
+@pytest.mark.asyncio
+async def test_mcp_empty_reference_names_both_transcript_locations_whole(worker_tree, tmp_path):
+    """#581: diagnostic() cuts a message at 240 characters, so the path has to fit in the response."""
+    package = await call("get_subagent_context", inline())
+    running = tmp_path / "agent-running.jsonl"
+    running.write_text(json.dumps({"type": "user", "message": {"content": "start"}}) + "\n", encoding="utf-8")
+    response = await call("validate_subagent_result",
+                          {"contract": package["contract"], "result_ref": str(running)})
+    assert not response["valid"]
+    message = next(item["message"] for item in response["errors"] if item["code"] == "result_ref_empty")
+    assert len(message) < 240 and message.endswith(".")
+    assert "~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl" in message
+    assert "workflows/wf_<id>/" in message  # the Workflow location, the tail a cut message loses
+
+
+@pytest.mark.asyncio
+async def test_the_tool_descriptions_carry_the_transcript_paths_and_the_marker(worker_tree):
+    """Neither gate generates these two texts, and they are what a calling model reads (#581, #589)."""
+    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    reference = tools["validate_subagent_result"].inputSchema["properties"]["result_ref"]["description"]
+    assert "~/.claude/projects/<project>/<session>/subagents/" in reference
+    assert "workflows/wf_<id>/" in reference and "Workflow transcript dir" not in reference
+    assert "truncated.produced" in tools["validate_subagent_result"].description
+    assert "omitted" in tools["get_subagent_context"].description

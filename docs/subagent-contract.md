@@ -133,8 +133,10 @@ files older than seven days; validation by `contract_revision` then returns
 `contract_unknown`, so validate a result within that time. The tool returns a
 receipt of under 2,000 characters instead of the package: `protocol`, `status`,
 `delivery: file`, `task_id`, `attempt_id`, `contract_revision`, `context_path`,
-`context_chars`, `context_sha256`, `launch`, `descriptor` and, with `complexity`,
-`execution`. The parent starts the worker with `launch` as its prompt (the worker
+`context_chars`, `context_sha256`, `launch`, `descriptor`, with `complexity`,
+`execution`, and, when the context budget dropped components, `omitted`, their
+`<kind>/<id>` (the receipt carries no selection list, so nothing else would say
+a skill was traded for the budget). The parent starts the worker with `launch` as its prompt (the worker
 reads the package file itself), keeps `contract_revision`, and never holds the
 package or the contract. If the files cannot be written, file delivery returns
 `exchange_unwritable`; retry with `delivery="inline"`. `delivery="inline"` returns
@@ -222,8 +224,12 @@ structured-output runners: the autodev launcher passes `result_schema` to the CL
 `contract_revision` (the stored copy, whose fingerprint is rechecked) or `contract`, and
 the output as `result_ref` or `result`, exactly one of each. `result_ref` is an absolute
 path the server reads: a result file, or the final assistant message of a Claude Code
-agent transcript (`agent-<id>.jsonl` in a Workflow's transcript directory, a background
-agent's `.output` file, including a `SubagentHandback`) or of a Codex `rollout-*.jsonl`.
+agent transcript (`agent-<id>.jsonl` in `~/.claude/projects/<project>/<session>/subagents/`
+for a background agent and in that directory's `workflows/wf_<id>/` subdirectory for a
+Workflow agent, or that agent's `.output` file while it is not empty) or of a Codex
+`rollout-*.jsonl`. A `SubagentHandback` in that message is the result on its own: the text
+blocks beside it are the worker's narration and are dropped, unless its message is empty or
+blank, which carries no result and leaves those text blocks the result.
 A result file must lie under a temporary directory or the exchange directory; a
 transcript (`.jsonl`, `.output`) may also lie in a `~/.claude*` or `~/.codex` home
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), whose settings and credentials stay

@@ -511,11 +511,21 @@ def test_progress_messages_are_defined_on_every_surface():
             "(the protocol's \"Progress messages\" section defines them).") in rule
 
 
-def test_generated_surfaces_name_the_subagents_transcript_before_the_output_file():
-    """Step 3 names the per-session transcript first; every generated surface carries it and is fresh."""
+def test_generated_surfaces_name_both_transcript_locations_before_the_output_file():
+    """Step 3 names the background agent's directory and the Workflow subdirectory, both before .output.
+
+    A Workflow worker's transcript is one level deeper, in subagents/workflows/wf_<id>/, so a
+    surface that names only the per-session directory sends the parent to a directory without an
+    agent-<id>.jsonl in it. The order is asserted, not just the presence: the directory is the
+    first location the parent reads, and .output is the fallback behind it.
+    """
     directory = "~/.claude/projects/<project>/<session>/subagents/"
-    assert protocol_text.stale_files() == []
-    for path in (ROOT / "CLAUDE.md", ROOT / "scripts" / "templates" / "routing-protocol-core.md"):
-        text = path.read_text(encoding="utf-8")
-        assert directory in text, path
-        assert "use it only as a fallback when it is not empty" in text, path
+    surfaces = {path.name: path.read_text(encoding="utf-8") for path in
+                (ROOT / "CLAUDE.md", ROOT / "scripts" / "templates" / "routing-protocol-core.md",
+                 ROOT / "scripts" / "templates" / "memory-routing.md")}
+    surfaces["server_instructions"] = protocol_text.server_instructions()
+    for name, text in surfaces.items():
+        assert directory in text, name
+        assert "workflows/wf_<id>/" in text, name
+        assert text.index(directory) < text.index(".output"), name
+        assert "only as a fallback when it is not empty" in text, name
