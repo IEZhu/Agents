@@ -1419,21 +1419,28 @@ def recorded_pytest_runs(commands, test_file):
 def executed_verdict(test_file, documents):
     """Execute every step that names this file and say what the recorder saw.
 
-    Returns `(evidence, measured, reasons, refusals)`: whether some step really
-    handed the file to pytest, how many steps gave an answer either way, why
-    the rest gave none, and which of them this guard refused to execute at all.
-    The four are what `require_a_recorded_run` decides on, and taking the
-    workflows as an argument is what lets a constructed one be asked the same
-    question as the committed ones. A refusal is kept apart because it is a
-    verdict about the step and fails, where a reason may be a runner that could
-    not answer and skips.
+    Returns `(evidence, measured, reasons, refusals, disqualified)`: whether
+    some step really handed the file to pytest, how many steps gave an answer
+    either way, why the rest gave none, which of them this guard refused to
+    execute at all, and which the workflow's own configuration disables. The
+    five are what `require_a_recorded_run` decides on, and taking the workflows
+    as an argument is what lets a constructed one be asked the same question as
+    the committed ones.
+
+    Three of them are kept apart because they are three different answers. A
+    refusal is a verdict about the step and fails. A disqualification is a
+    verdict about the configuration and fails too: a step a run never reaches
+    is one the repository wrote that way, which no runner can mend. Only a
+    reason may be this machine saying it could not measure, and only that
+    skips. The three were one list, which is how a lone `if: ${{ false }}`
+    produced no measurement and no complaint.
     """
-    reasons, refusals, measured = [], [], 0
+    reasons, refusals, disqualified, measured = [], [], [], 0
     for name, workflow in documents.items():
         for job_name, job, step in steps_passing_the_file(workflow, test_file):
             skipped = skip_reasons(workflow, job_name, step)
             if skipped:
-                reasons.append(
+                disqualified.append(
                     f"{name} ({job_name}): a run may not reach this step -- "
                     + ", ".join(skipped))
                 continue
@@ -1447,32 +1454,36 @@ def executed_verdict(test_file, documents):
                 where = f"{name} ({job_name}): {run.problem}"
                 (refusals if run.refused else reasons).append(where)
             elif recorded_pytest_runs(run.commands, test_file):
-                return True, measured + 1, reasons, refusals
+                return True, measured + 1, reasons, refusals, disqualified
             else:
                 measured += 1
                 reasons.append(
                     f"{name} ({job_name}): the script started "
                     f"{len(run.commands)} recorded command(s) and none of them ran "
                     f"{test_file}: {run.commands}")
-    return False, measured, reasons, refusals
+    return False, measured, reasons, refusals, disqualified
 
 
-def require_a_recorded_run(test_file, measured, problems, refusals=()):
+def require_a_recorded_run(test_file, measured, problems, refusals=(), disqualified=()):
     """Pass, skip or fail on what executing the candidate steps answered.
 
-    Four answers, not two. A step this guard will not execute is a verdict
+    Five answers, not two. A step this guard will not execute is a verdict
     about the step -- it names a program, a path or a redirection the harness
     does not cover -- so it fails: a workflow edit that reaches outside what
     the throwaway tree bounds has to break the build rather than quietly stop
     measuring, which is what it did when `grep` in a step read as a runner that
-    could not answer. A step that was executed and ran no pytest over the file
-    is the bypass this module exists to catch, and it fails. A candidate set
-    whose every answer was a problem is a measurement nobody made -- no bash on
-    PATH, a temp filesystem mounted `noexec`, a shim shebang the kernel
-    refuses, pytest refusing a committed argv, the timeout on a contended
-    runner -- and an unusable runner must not read as a bypass, so it skips
-    carrying those reasons. Nothing naming the file at all is the original
-    failure and stays one.
+    could not answer. A step a run never reaches is a verdict about the
+    configuration and fails as well: it is disabled in the repository's own
+    text, so no runner is going to answer differently tomorrow, and a lone
+    `if: ${{ false }}` over the only candidate used to leave this with nothing
+    measured and nothing to say. A step that was executed and ran no pytest
+    over the file is the bypass this module exists to catch, and it fails. A
+    candidate set whose every answer was a problem is a measurement nobody
+    made -- no bash on PATH, a temp filesystem mounted `noexec`, a shim shebang
+    the kernel refuses, pytest refusing a committed argv, the timeout on a
+    contended runner -- and an unusable runner must not read as a bypass, so it
+    skips carrying those reasons. Nothing naming the file at all is the
+    original failure and stays one.
     """
     if refusals:
         pytest.fail(
@@ -1480,14 +1491,15 @@ def require_a_recorded_run(test_file, measured, problems, refusals=()):
             "so whether a run really hands the file to pytest was never "
             "measured: " + "; ".join(refusals)
         )
-    if problems and not measured:
+    if problems and not measured and not disqualified:
         pytest.skip(
             f"this guard could not measure whether a step really runs {test_file}: "
             + "; ".join(problems)
         )
+    told = [*problems, *disqualified]
     pytest.fail(
         f"no step that names {test_file} really handed it to pytest when run. "
-        + ("; ".join(problems) if problems else "No workflow names it at all.")
+        + ("; ".join(told) if told else "No workflow names it at all.")
     )
 
 
@@ -1522,14 +1534,15 @@ def test_running_the_step_really_hands_the_file_to_pytest(test_file):
     about until review moved the three files into a second step carrying
     `if: ${{ false }}` and watched 252 cases pass while CI ran neither file. So
     every candidate goes through `skip_reasons` first, the same reader the
-    calendar case has always used, and a step it disqualifies is a reason rather
-    than a run.
+    calendar case has always used, and a step it disqualifies is its own answer:
+    the configuration's, which fails rather than waiting for a runner that will
+    never answer it.
     """
-    evidence, measured, reasons, refusals = executed_verdict(
+    evidence, measured, reasons, refusals, disqualified = executed_verdict(
         test_file, {path.name: load_workflow(path) for path in WORKFLOWS})
     if evidence:
         return
-    require_a_recorded_run(test_file, measured, reasons, refusals)
+    require_a_recorded_run(test_file, measured, reasons, refusals, disqualified)
 
 
 def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
@@ -2497,6 +2510,35 @@ def test_a_program_this_guard_does_not_cover_is_a_failure_not_a_skip():
                                ["w.yml (content): the script did not finish in 120s"])
 
 
+def test_a_configuration_that_disables_the_only_candidate_fails():
+    """Nothing measured and nothing wrong with the runner is still a verdict.
+
+    Moving the three files into a step carrying `if: ${{ false }}` is what
+    review did to this guard, and reading the `if:` was only half the answer. A
+    disqualified step gave a reason, a candidate set of nothing but reasons is
+    an unusable runner, and an unusable runner skips -- so the hole closed by
+    reading the `if:` reopened one line later, with the suite green and CI
+    running neither file. The configuration's own verdict is now its own
+    answer: no runner is going to reach that step tomorrow either.
+    """
+    gated = {"jobs": {"content": {"steps": [
+        {"run": CONTROL_COMMAND, "if": "${{ false }}"}]}}}
+    verdict = executed_verdict(SCHEDULED_BY_CALENDAR, {"gated.yml": gated})
+    assert verdict[0] is False
+    assert verdict[1] == 0, "a step a run never reaches must not be a measurement"
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as outcome:
+        require_a_recorded_run(SCHEDULED_BY_CALENDAR, *verdict[1:])
+    assert isinstance(outcome.value, pytest.fail.Exception), (
+        "a configuration that disables the only candidate has to fail rather "
+        f"than skip: {outcome.value}")
+    assert "may not reach this step" in str(outcome.value), outcome.value
+    # And the answer it must not swallow: a runner that really could not measure
+    # still skips, or this has traded one silent pass for a permanent failure.
+    with pytest.raises(pytest.skip.Exception):
+        require_a_recorded_run(SCHEDULED_BY_CALENDAR, 0,
+                               ["w.yml (content): the script did not finish in 120s"])
+
+
 def test_every_step_this_guard_executes_stays_inside_what_it_confines():
     """And the line is held by an assertion on every leg, not where steps run.
 
@@ -2624,16 +2666,19 @@ def test_a_step_a_run_never_reaches_is_not_evidence():
     into a second step carrying that condition: 252 cases passed while a run
     executed neither file. The step was executed here because nothing asked
     whether a run reaches it -- `skip_reasons` was applied to the calendar case
-    alone. Every candidate goes through it now, so the condition is a reason and
-    the step is not a measurement of anything.
+    alone. Every candidate goes through it now, so the condition disqualifies
+    the step and the step is not a measurement of anything. What that answer
+    then decides is the case beside this one.
     """
     gated = {"jobs": {"content": {"steps": [
         {"run": CONTROL_COMMAND, "if": "${{ false }}"}]}}}
-    evidence, measured, reasons, _ = executed_verdict(
+    evidence, measured, reasons, _, disqualified = executed_verdict(
         SCHEDULED_BY_CALENDAR, {"gated.yml": gated})
     assert evidence is False
     assert measured == 0, "a step a run never reaches measures nothing"
-    assert any("may not reach this step" in reason for reason in reasons), reasons
+    assert reasons == [], reasons
+    assert any("may not reach this step" in entry for entry in disqualified), (
+        disqualified)
     # The same step without the condition is evidence, or the case above is vacuous.
     reachable = {"jobs": {"content": {"steps": [{"run": CONTROL_COMMAND}]}}}
     assert executed_verdict(SCHEDULED_BY_CALENDAR, {"open.yml": reachable})[0] is True
