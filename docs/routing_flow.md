@@ -353,7 +353,9 @@ Cache clearing is an administrative action and is not required for persona chang
 HTTP repository memory uses `X-Agents-Workspace` with a registered workspace
 UUID. Global connections can route and load personas without that header; memory
 without a resolved project uses the fallback behavior below. A tool's `workspace`
-argument cannot replace a registered HTTP identity. Managed user-scope stdio
+argument cannot replace a registered HTTP identity. Repository-scoped tools refuse a
+`workspace` outside it with `workspace_mismatch`; history tools answer for the registered
+workspace and add `workspace_note`. Managed user-scope stdio
 bridges register the session's safe existing directory automatically, including an
 empty folder, and attach the header. They use Node when available and the
 standard-library Python bridge otherwise.

@@ -114,7 +114,8 @@ CHAT_HISTORY_DESC = "Optional relevant earlier conversation facts, as a JSON arr
 REPO_PATH_DESC = "Optional directory within the caller workspace; defaults to the workspace."
 WORKSPACE_DESC = (
     "Absolute path of your working directory, the project this session works in. Pass it "
-    "whenever you have one: one server can serve several sessions."
+    "whenever you have one. Over HTTP the registered workspace still answers; a different "
+    "path is never followed."
 )
 
 LOG_PERSONA_DESC = (

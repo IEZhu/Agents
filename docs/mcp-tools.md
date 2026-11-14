@@ -34,8 +34,10 @@ existing daemon endpoint; dynamic aliases do not add native registrations.
 ## Repository context and turn history
 
 Pass the caller's absolute `workspace` where supported. HTTP uses the registered
-workspace header; a `workspace` argument does not rebind that connection. Stdio
-has its own root-selection rules. See [workspace targeting](routing_flow.md).
+workspace header; a `workspace` argument does not rebind that connection. `describe_repo`,
+`write_repo_summary`, `run_flow` and `list_flows` (`scope=repo`) refuse an argument outside
+it with `workspace_mismatch`; `log_interaction` and `read_history` answer for the registered
+workspace and add `workspace_note`. Stdio has its own root-selection rules. See [workspace targeting](routing_flow.md).
 
 | Tool | Purpose and boundary | Reference |
 |---|---|---|

@@ -263,3 +263,17 @@ async def test_the_workspace_note_leaves_the_history_it_writes_in_the_registered
     assert await asyncio.to_thread(server.drain_pending_logs, 5)
     assert "note-check" in (registered / "history.md").read_text(encoding="utf-8")
     assert not (other / "history.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_the_workspace_parameter_says_http_keeps_the_registered_workspace():
+    """Every tool that takes `workspace` says so in its schema, where the caller reads it (#576)."""
+    described = {}
+    for tool in await server.mcp.list_tools():
+        properties = (tool.inputSchema or {}).get("properties", {})
+        if "workspace" in properties:
+            described[tool.name] = properties["workspace"]["description"]
+    assert len(described) >= 6, sorted(described)
+    for name, description in described.items():
+        assert "registered workspace" in description, name
+        assert "never followed" in description, name
