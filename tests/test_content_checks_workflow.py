@@ -44,23 +44,31 @@ Reading is no longer all this module does. Eight recorded forms satisfied every
 check above and ran nothing (#632): a leading `exit 0`, the command in a
 here-document, inside an `if` nobody sets, inside a quoted string whose `;` the
 reader splits on, after a shell function named pytest, through a stub the step
-writes itself, on the unreached side of `||`, and backgrounded with `&`. Six
+writes itself, on the unreached side of `||`, and backgrounded with `&`. Five
 are closed by running the step: its script goes to a file and the file to
 `bash -e`, in a throwaway tree of this repository's path names, with every
 program that could be pytest replaced by a shim that records its argv and exits
 0. So the content checks are never executed by the guard that checks them,
 nothing is installed and nothing reaches the network, while what pytest was
-handed is a recorded fact rather than an inference. The seventh is closed by
-reading after all: `&` hands the command to the background, where its failure
-can no longer redden the step, so a backgrounded command is not evidence -- and
-a single `|` is refused for the same reason under the shell the committed steps
-get, where the left side of a pipe loses its exit status. The left of a `||` is
-refused with them: measured under `bash -e`, `false || true` followed by another
-command exits 0, so the alternative answers the check's failure instead of the
-step. The eighth, a shell
-function under the name pytest, is refused before anything starts: the shell
-resolves a function before PATH, so the shim written for that name would never
-have answered and an empty log would have meant nothing.
+handed is a recorded fact rather than an inference.
+
+Two are closed by reading after all, by one conservative rule rather than by a
+list of positions that kept growing. A command is credited only where it is
+plain and unconditional: nothing beside it may withhold its failure, start it
+conditionally or answer it. So a `&` is refused, because the step never waits
+for the job; a pipeline is, because the shell decides whose exit status it
+keeps; and either side of a `||` or an `&&` list is, because the shell decides
+both whether the command starts and whose failure the list reports. Deciding
+those from the text was tried for two rounds and abandoned (#662): the findings
+were `||` on the left, `|| exit 1`, an `&&` list, a `||` over a whole pipeline
+and the right-hand side of both, each one a shape the previous reading had
+pronounced on. What the rule costs is a true credit it now refuses -- under
+`shell: bash` a pipeline really does carry the failure -- and that cost is
+measured rather than assumed: no committed workflow of this repository writes a
+pytest command beside any of these operators, on this branch or on `dev`. The
+eighth form, a shell function under the name pytest, is refused before anything
+starts: the shell resolves a function before PATH, so the shim written for that
+name would never have answered and an empty log would have meant nothing.
 
 What the shims and the pruned PATH are for is a confused step, not an
 adversarial one. They keep a step that reaches for a real program from doing
@@ -185,13 +193,36 @@ VALUE_OPTIONS = frozenset({
 # A `#` that begins a token comments out the rest of the line, and each of these
 # starts a new command, so a file name after either one is never pytest's argument.
 INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
-# A single `&`, a single `|` and a `||` are in the list for what they say about
-# the command they follow, which is why the group captures: `logical_commands`
-# keeps any of the three on that command, and `backgrounded`, `piped` and
-# `caught` read them back. The longer spelling comes first, because
-# `without_separator` takes the first of these that matches.
+# The group captures because the operator on *either* side of a command is what
+# says whether its failure can reach the step: `script_fragments` keeps both and
+# `masks_the_failure` is the one reader of them. Each two-character spelling
+# comes before its single-character half, so `&&` and `||` are never split into
+# two operators.
 COMMAND_SEPARATOR = re.compile(r"(;|&&|\|\||\||&)")
-KEPT_SEPARATORS = ("&", "||", "|")
+# What each operator does to the failure of the command beside it, and the words
+# the refusal carries. Measured under `bash -e`, with another command after the
+# list so that the script's last status is not the one asked about: `false ||
+# true` exits 0, `false && echo` exits 0, `false | cat` exits 0, and a
+# backgrounded failure never arrives at all.
+#
+# Judging reachability and masking from the text was tried for two review rounds
+# and abandoned (#662). Each round found another spelling -- a `||` on the left,
+# `|| exit 1`, an `&&` list, a `||` over a whole pipeline, the right-hand side of
+# both -- so the rule is now the conservative one: a command beside any of these
+# operators is refused and named, never credited, whatever the shell could be
+# shown to do with it.
+MASKS_THE_FAILURE = {
+    "&": "is backgrounded, so the step never waits for its failure",
+    "|": "is an element of a pipeline, whose exit status is the shell's to keep",
+    "||": "is one side of a `||` list, so whether it starts and whose failure "
+          "the step reports are the shell's",
+    "&&": "is one side of an `&&` list, so whether it starts and whose failure "
+          "the step reports are the shell's",
+}
+# The operators that say nothing about the command *after* them: `;` ends the one
+# before it and `&` hands that one to the background, leaving this one in the
+# foreground. The empty string is the start of a line.
+LEAVES_THE_NEXT_COMMAND_ALONE = ("", ";", "&")
 # Options that make pytest parse the file and run none of its tests: it is
 # collected, listed or described, and nothing in it executes. Spelled without
 # their dashes, because pytest answers to `--collectonly` and `--setuponly` as
@@ -241,12 +272,18 @@ def load_workflow(path):
     return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
 
 
-def logical_commands(script):
-    """Split one `run:` script into commands, as a shell would read them.
+# One command of a `run:` script with the operator on each side of it: `before`
+# and `after` are a separator `COMMAND_SEPARATOR` found or the empty string at
+# the start or end of a line.
+Fragment = namedtuple("Fragment", "before command after")
+
+
+def script_fragments(script):
+    """One `run:` script as commands, each with the operator on either side of it.
 
     Backslash continuations are joined first, so a step that wraps its arguments
     reads as one command. Then a comment is cut from the first `#` that begins a
-    token, and what is left is split on the separators that start a new command:
+    token, and what is left is split on the separators that end a command:
     `python -m pytest a.py # b.py` and `python -m pytest a.py; echo b.py` both
     name `b.py` in a place pytest never receives it, and a guard that kept the
     whole line would count either as evidence. Whitespace is normalised last,
@@ -254,34 +291,63 @@ def logical_commands(script):
     way. This models those forms rather than parsing a shell: a `#` or a `;`
     inside quotes is treated as if it were not.
 
-    A `&` separates too, and the command before it keeps it: `pytest x &` runs
-    pytest in the background, and `backgrounded` below is what reads that. A
-    single `|` is kept the same way and for the same reason: the left side of a
-    pipe loses its exit status under the shell the committed steps get, so
-    `piped` below has to be able to see it. A `||` is kept for the third form of
-    the same fact -- the alternative answers the left side's failure -- and
-    `caught` reads it back off the command it belongs to.
+    Both operators are kept, because keeping only the trailing one is what every
+    finding of the second review round came back to. `pytest x | cat || true`
+    leaves a `|` on the pytest command and the `||` on `cat`, so a reader of
+    trailing operators sees a pipeline and answers with the shell's `pipefail`,
+    while bash hands the whole pipeline's failure to `true`; and `true || pytest
+    x` leaves no operator on the pytest command at all, which read as an
+    unconditional run of a command bash never starts. `masks_the_failure` below
+    is the one reader of both sides.
     """
     joined = re.sub(r"\\\s*\n\s*", " ", script)
     out = []
     for line in joined.splitlines():
         pieces = COMMAND_SEPARATOR.split(INLINE_COMMENT.sub("", line))
+        before = ""
         for index in range(0, len(pieces), 2):
             command = " ".join(pieces[index].split())
-            if not command:
-                continue
-            separator = pieces[index + 1] if index + 1 < len(pieces) else ""
-            out.append(f"{command} {separator}"
-                       if separator in KEPT_SEPARATORS else command)
+            after = pieces[index + 1] if index + 1 < len(pieces) else ""
+            if command:
+                out.append(Fragment(before, command, after))
+            before = after
     return out
 
 
-def without_separator(command):
-    """The command without the `&`, `||` or `|` that `logical_commands` kept on it."""
-    for separator in KEPT_SEPARATORS:
-        if command.endswith(f" {separator}"):
-            return command[: -len(separator) - 1]
-    return command
+def logical_commands(script):
+    """Every command of this script, as a shell would read them, operators dropped.
+
+    What the readers that ask which program a command *starts* want: a shim to
+    write, a `cd` target, a redirection, a function definition. The readers that
+    ask whether a command's failure reaches the step want the operators too and
+    take `script_fragments` instead, so there is one split and two views of it.
+    """
+    return [fragment.command for fragment in script_fragments(script)]
+
+
+def masks_the_failure(fragment):
+    """Why this command's failure may not reach the step, or None when it must.
+
+    One rule for both sides and for all four operators, which is the whole
+    change of this round: a written command is credited only where nothing
+    beside it can withhold its failure, start it conditionally or answer it.
+    `;` ends the command before this one and `&` backgrounds that one, so
+    neither says anything about this one; every other position leaves the shell
+    deciding something this reader does not follow.
+
+    `shell: bash`, which GitHub expands with `-eo pipefail`, really does carry a
+    pipeline's failure to the step, and that is no longer asked. The `||` a
+    pipeline can be followed by is not inside the pipeline, so `pipefail`
+    answered a question nobody had: `pytest x | cat || true` fails nothing under
+    either template. A reading that cannot be completed is refused instead, and
+    the cost is named with controls -- no committed workflow writes a pytest
+    command beside any of these operators.
+    """
+    if fragment.after in MASKS_THE_FAILURE:
+        return MASKS_THE_FAILURE[fragment.after]
+    if fragment.before not in LEAVES_THE_NEXT_COMMAND_ALONE:
+        return MASKS_THE_FAILURE[fragment.before]
+    return None
 
 
 def command_position(tokens):
@@ -486,73 +552,6 @@ def deselects_the_file(args, test_file):
     return False
 
 
-def backgrounded(command):
-    """True when a trailing `&` handed this command to the background.
-
-    A backgrounded pytest does run, which is why the recorder below sees it.
-    What it no longer does is decide the step's exit status: `bash -e` returns
-    the job's immediate 0 and a failing content check cannot redden the step
-    (#632), so the run proves nothing about the check. A `wait` afterwards
-    would bind the status again and is deliberately not modelled -- writing the
-    command in the foreground says the same thing, and a reader that followed
-    `wait` would have to decide which job it waits for.
-    """
-    return command.split()[-1:] == ["&"]
-
-
-def piped(command):
-    """True when this command's output was handed to another one.
-
-    Which costs it its exit status under the template a step with no `shell` key
-    gets: GitHub starts `bash -e {0}`, where `false | cat` exits 0, so a content
-    check failing on the left of a pipe cannot redden the step -- measured
-    against both shells. It is the same objection the trailing `&` answers to,
-    and a pipeline was counted as evidence while the ampersand was refused.
-    `shell: bash` is the other answer: GitHub expands it with `-eo pipefail`,
-    the failure survives the pipe, and the command is evidence again.
-    """
-    return command.split()[-1:] == ["|"]
-
-
-def caught(command):
-    """True when a `||` handed this command's failure to an alternative.
-
-    `pytest x.py || true` runs pytest and the step cannot fail over it:
-    measured under `bash -e`, `false || true` with a command after it leaves
-    the script running and exits 0, because the list's status is the
-    alternative's. A check whose failure is swallowed is not a check, which is
-    the same objection the trailing `&` and the left of a pipe answer to -- and
-    `logical_commands` was dropping the `||` entirely, so both consumers of
-    this reader counted `pytest x.py || true` as a wired check.
-
-    The alternative itself is not read, so `pytest x.py || exit 1`, which does
-    carry the failure, is refused with the rest. That is the direction to err
-    in: reading the right-hand side means modelling what a shell does with a
-    list, and crediting a run whose failure nobody ever sees is the thing this
-    module exists to stop. `&&` is deliberately untouched, because the left of
-    one carries its failure when the list is the script's last command and
-    loses it otherwise -- measured both ways -- and that is a position this
-    reader does not track.
-    """
-    return command.split()[-1:] == ["||"]
-
-
-def pipefail_in_effect(shell):
-    """True when the shell GitHub starts for this `shell` value sets pipefail.
-
-    From the same table in GitHub's workflow-syntax documentation that
-    `SHELL_COMMANDS` comes from: no key is `bash -e {0}`, `shell: bash` is
-    `bash --noprofile --norc -eo pipefail {0}`, `shell: sh` is `sh -e {0}`, and
-    a value containing `{0}` is used as written, so a maintainer who spells the
-    option out gets it. A shell this guard cannot start sets nothing.
-    """
-    words = (shell or "").split()
-    if "{0}" in (shell or ""):
-        return any("pipefail" in word for word in words)
-    template = SHELL_COMMANDS.get(words[0] if words else None, ())
-    return any("pipefail" in word for word in template)
-
-
 def runs_the_file(argv, test_file, literal=False):
     """True when this argv is a pytest run of that file, by its own arguments.
 
@@ -576,32 +575,51 @@ def runs_the_file(argv, test_file, literal=False):
                for path in pytest_paths(args))
 
 
-def runs_as_pytest_argument(commands, test_file, pipefail=False):
-    """True when some written command runs pytest over this file as its argument.
+# What one script says about one file: the runs this reader credits, and the
+# ones it will not, each with the words that refused it.
+Reading = namedtuple("Reading", "credited unclassified")
 
-    Beyond what `runs_the_file` reads, three commands run and still prove
-    nothing: one the shell backgrounds, whose failure the step survives, one on
-    the left of a pipe unless the step's own shell sets pipefail, and one whose
-    failure a `||` hands to an alternative. None of them can redden the step.
-    `pipefail` is a keyword because the default is the template the committed
-    steps get, and a caller that knows the step's shell has to say so.
+
+def read_invocations(script, test_file):
+    """This script's written pytest runs of the file: credited, or named instead.
+
+    The conservative rule, read in one place for the two readers below and for
+    the manifests guard that borrows them. A run is credited only where it is a
+    plain unconditional command whose failure the step cannot avoid; every
+    other shape is named in `unclassified` with the operator that refused it,
+    because what this reading cannot establish must be neither counted as
+    evidence nor quietly dropped.
     """
-    for command in commands:
-        if (backgrounded(command) or caught(command)
-                or (piped(command) and not pipefail)):
+    credited, unclassified = [], []
+    for fragment in script_fragments(script):
+        if not runs_the_file(fragment.command.split(), test_file):
             continue
-        if runs_the_file(without_separator(command).split(), test_file):
-            return True
-    return False
+        masked = masks_the_failure(fragment)
+        if masked:
+            unclassified.append(f"`{fragment.command}` {masked}")
+        else:
+            credited.append(fragment.command)
+    return Reading(credited, unclassified)
 
 
-def invocations_the_step_survives(script, test_file, pipefail=False):
-    """This script's written runs of the file whose failure cannot reach the step.
+def runs_as_pytest_argument(script, test_file):
+    """True when this script writes a run of the file that the step could fail on.
 
-    The three positions `runs_as_pytest_argument` skips, collected instead of
-    skipped, because the recorder needs the other half of that question. Not
-    "is there an invocation that counts" but "is there one whose recording
-    cannot be told from the one that counts":
+    The script rather than a list of commands, because a command handed over on
+    its own has lost the operators that decide this: `runs_as_pytest_argument`
+    took the output of `logical_commands`, where `true || pytest x.py` arrived
+    as a bare `pytest x.py` and was credited as unconditional. The context
+    cannot be dropped on the way in any more.
+    """
+    return bool(read_invocations(script, test_file).credited)
+
+
+def refused_invocations(script, test_file):
+    """This script's written runs of the file that are not credited, with why.
+
+    The other half of the same reading, which the recorder needs: not "is there
+    an invocation that counts" but "is there one whose recording cannot be told
+    from the one that counts":
 
         python -B -m pytest tests/test_skill_freshness.py &
         exit 0
@@ -626,22 +644,13 @@ def invocations_the_step_survives(script, test_file, pipefail=False):
     it, and the shell has been over that text in between -- an expanded glob no
     longer spells the argument the step wrote. That inference is the one the
     recorder exists to replace. The step that pays for it is the step that
-    writes both, which no correct workflow does: a step with only an invocation
-    the shell survives is not a candidate here at all.
+    writes one of these shapes at all, which no committed workflow here does.
     """
-    survived = []
-    for command in logical_commands(script):
-        if not (backgrounded(command) or caught(command)
-                or (piped(command) and not pipefail)):
-            continue
-        bare = without_separator(command)
-        if runs_the_file(bare.split(), test_file):
-            survived.append(bare)
-    return survived
+    return read_invocations(script, test_file).unclassified
 
 
-def steps_passing_the_file(workflow, test_file):
-    """Every (job name, job, step) of this parsed workflow that passes the file on.
+def run_steps(workflow):
+    """Every `(job name, job, step)` of this parsed workflow that runs a script.
 
     A mapping rather than a path, so the assertions below can be asked about a
     constructed workflow as well as about the committed ones -- which is how the
@@ -652,13 +661,21 @@ def steps_passing_the_file(workflow, test_file):
         if not isinstance(job, dict):
             continue
         for step in job.get("steps") or []:
-            if not (isinstance(step, dict) and step.get("run")):
-                continue
-            pipefail = pipefail_in_effect(effective_shell(workflow, job, step)[0])
-            if runs_as_pytest_argument(
-                    logical_commands(step["run"]), test_file, pipefail=pipefail):
+            if isinstance(step, dict) and step.get("run"):
                 found.append((job_name, job, step))
     return found
+
+
+def steps_passing_the_file(workflow, test_file):
+    """Every (job name, job, step) of this workflow with a credited run of the file.
+
+    The step's own `shell:` used to decide this through `pipefail`, and does
+    not any more: a command in a pipeline is refused under either template,
+    because the `||` a pipeline can be followed by is outside the pipeline and
+    no reading of the shell's options answers it.
+    """
+    return [(job_name, job, step) for job_name, job, step in run_steps(workflow)
+            if runs_as_pytest_argument(step["run"], test_file)]
 
 
 def pytest_steps(path, test_file):
@@ -1436,7 +1453,7 @@ def defines_a_function(script):
     """
     found = []
     for command in logical_commands(without_here_documents(script)):
-        tokens = without_separator(command).split()
+        tokens = command.split()
         index = command_position(tokens)
         words = [unquoted(token) for token in tokens[index : index + 2]]
         if not words:
@@ -1468,7 +1485,7 @@ def changes_directory_outside_the_tree(script):
     """
     escaping = []
     for command in logical_commands(without_here_documents(script)):
-        tokens = without_separator(command).split()
+        tokens = command.split()
         index = command_position(tokens)
         if index >= len(tokens) or unquoted(tokens[index]) != "cd":
             continue
@@ -1773,35 +1790,40 @@ def executed_verdict(test_file, documents):
     refusal is a verdict about the step and fails. A disqualification is a
     verdict about the configuration and fails too: a step a run never reaches
     is one the repository wrote that way, which no runner can mend, and so is
-    one that writes an invocation of the file its own shell survives, where a
-    recorded run cannot be told from that one. Only a reason may be this
-    machine saying it could not measure, and only that skips. The three were
-    one list, which is how a lone `if: ${{ false }}` produced no measurement
-    and no complaint.
+    one whose written run of the file this reader will not credit, where a
+    recorded run cannot be told from the refused command. Only a reason may be
+    this machine saying it could not measure, and only that skips. The three
+    were one list, which is how a lone `if: ${{ false }}` produced no
+    measurement and no complaint.
+
+    Every step that runs a script is asked, not only the ones with a credited
+    invocation, so a step whose only run of the file is a refused shape is
+    named here instead of leaving the failure to report that no workflow names
+    the file at all.
     """
     reasons, refusals, disqualified, measured = [], [], [], 0
     for name, workflow in documents.items():
-        for job_name, job, step in steps_passing_the_file(workflow, test_file):
+        for job_name, job, step in run_steps(workflow):
+            reading = read_invocations(step["run"], test_file)
+            if not (reading.credited or reading.unclassified):
+                continue
             skipped = skip_reasons(workflow, job_name, step)
             if skipped:
                 disqualified.append(
                     f"{name} ({job_name}): a run may not reach this step -- "
                     + ", ".join(skipped))
                 continue
-            shell = effective_shell(workflow, job, step)[0]
-            survived = invocations_the_step_survives(
-                step["run"], test_file, pipefail=pipefail_in_effect(shell))
-            if survived:
+            if reading.unclassified:
                 disqualified.append(
-                    f"{name} ({job_name}): "
-                    + ", ".join(f"`{command}`" for command in survived)
-                    + f" runs {test_file} where the step survives its failure, "
-                    "so a recorded run here cannot be told from that one and is "
-                    "not credited")
+                    f"{name} ({job_name}): " + ", ".join(reading.unclassified)
+                    + f", so this step credits no written run of {test_file} "
+                    "and a recorded one cannot be told from the refused "
+                    "command; write the run as a command of its own, where the "
+                    "step fails with it")
                 continue
             run = recorded_step(
                 step["run"],
-                shell,
+                effective_shell(workflow, job, step)[0],
                 tuple(sorted(step_environment(workflow, job, step).items())),
                 run_default(workflow, job, step, "working-directory")[0],
             )
@@ -1979,7 +2001,7 @@ def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
 ])
 def test_the_matcher_accepts_a_real_pytest_invocation(command):
     """The forms this repository actually writes: python -m, bare, mid-list, absolute."""
-    assert runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
+    assert runs_as_pytest_argument(command, "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("command", [
@@ -1997,7 +2019,7 @@ def test_the_matcher_accepts_a_real_pytest_invocation(command):
 ])
 def test_the_matcher_rejects_what_does_not_run_the_file(command):
     """Naming it is not running it: an echo, a neighbouring path, a suffix, another tool."""
-    assert not runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
+    assert not runs_as_pytest_argument(command, "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("command", [
@@ -2043,7 +2065,7 @@ def test_a_command_that_never_runs_the_file_is_not_evidence(command):
     whole-file `--deselect` spell the path out in order to leave it out. A guard
     that read only the command and the path would count all of these.
     """
-    assert not runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
+    assert not runs_as_pytest_argument(command, "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("command", [
@@ -2073,7 +2095,7 @@ def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     and `-m` are not read as refusals to run. Excluding a different file, or one
     test out of this one, leaves this file running and still counts.
     """
-    assert runs_as_pytest_argument([command], "tests/test_skill_freshness.py")
+    assert runs_as_pytest_argument(command, "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("script, expected", [
@@ -2087,26 +2109,61 @@ def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     ("pytest tests/a.py; echo tests/b.py", ["pytest tests/a.py", "echo tests/b.py"]),
     ("pytest tests/a.py && pytest tests/b.py",
      ["pytest tests/a.py", "pytest tests/b.py"]),
-    ("pytest tests/a.py | tee log # tests/b.py", ["pytest tests/a.py |", "tee log"]),
-    # A `&` separates like the rest, and the command before it keeps it.
-    ("pytest tests/a.py &", ["pytest tests/a.py &"]),
-    ("pytest tests/a.py & echo b", ["pytest tests/a.py &", "echo b"]),
+    ("pytest tests/a.py | tee log # tests/b.py", ["pytest tests/a.py", "tee log"]),
+    # Every operator separates, and none of them is part of a command.
+    ("pytest tests/a.py &", ["pytest tests/a.py"]),
+    ("pytest tests/a.py & echo b", ["pytest tests/a.py", "echo b"]),
     ("pytest tests/a.py &\npytest tests/b.py",
-     ["pytest tests/a.py &", "pytest tests/b.py"]),
-    # And so does a `||`, where the command keeps the whole two-character
-    # spelling rather than half of it.
-    ("pytest tests/a.py || true", ["pytest tests/a.py ||", "true"]),
-    ("true || pytest tests/a.py", ["true ||", "pytest tests/a.py"]),
+     ["pytest tests/a.py", "pytest tests/b.py"]),
+    ("pytest tests/a.py || true", ["pytest tests/a.py", "true"]),
+    ("true || pytest tests/a.py", ["true", "pytest tests/a.py"]),
 ])
 def test_the_parser_reads_a_script_the_way_a_shell_would(script, expected):
-    """A comment is not a command, and a continuation is not two of them."""
+    """A comment is not a command, and a continuation is not two of them.
+
+    The commands alone, which is what the readers of what a command *starts*
+    ask for: a program to shim, a `cd` target, a redirection. What the shell
+    would do with each command's failure is the case beside this one.
+    """
     assert logical_commands(script) == expected
+
+
+@pytest.mark.parametrize("script, expected", [
+    ("pytest tests/a.py", [("", "pytest tests/a.py", "")]),
+    ("pytest tests/a.py; echo b",
+     [("", "pytest tests/a.py", ";"), (";", "echo b", "")]),
+    ("pytest tests/a.py\npytest tests/b.py",
+     [("", "pytest tests/a.py", ""), ("", "pytest tests/b.py", "")]),
+    ("pytest tests/a.py &", [("", "pytest tests/a.py", "&")]),
+    ("pytest tests/a.py & echo b",
+     [("", "pytest tests/a.py", "&"), ("&", "echo b", "")]),
+    ("pytest tests/a.py || true",
+     [("", "pytest tests/a.py", "||"), ("||", "true", "")]),
+    ("true || pytest tests/a.py",
+     [("", "true", "||"), ("||", "pytest tests/a.py", "")]),
+    ("pytest tests/a.py && echo done",
+     [("", "pytest tests/a.py", "&&"), ("&&", "echo done", "")]),
+    # The shape of the finding: the `||` belongs to the pipeline and not to
+    # `cat`, and the pytest command carries the `|` on one side only.
+    ("pytest tests/a.py | cat || true",
+     [("", "pytest tests/a.py", "|"), ("|", "cat", "||"), ("||", "true", "")]),
+])
+def test_each_command_keeps_the_operator_on_both_sides_of_it(script, expected):
+    """The fact the old reader did not have, and every finding came back to it.
+
+    A trailing operator alone cannot answer the question asked of it: a command
+    at the end of a `||` list carries nothing, and a command inside a pipeline
+    carries a `|` while the operator that decides the step's status sits after
+    the pipeline. Both sides are kept here, and `masks_the_failure` is what
+    reads them.
+    """
+    assert [tuple(fragment) for fragment in script_fragments(script)] == expected
 
 
 def test_a_commented_out_pytest_line_is_not_evidence():
     """The whole point of the parser: the file is named, and still not run."""
     script = "# python -m pytest tests/test_skill_freshness.py -q\necho done"
-    assert not runs_as_pytest_argument(logical_commands(script), "tests/test_skill_freshness.py")
+    assert not runs_as_pytest_argument(script, "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("script", [
@@ -2122,7 +2179,7 @@ def test_a_name_outside_the_pytest_command_is_not_evidence(script):
     The matcher reads one command, so without the parser splitting these the pytest
     token and the file token would sit in the same string and the guard would pass.
     """
-    assert not runs_as_pytest_argument(logical_commands(script), "tests/test_skill_freshness.py")
+    assert not runs_as_pytest_argument(script, "tests/test_skill_freshness.py")
 
 
 @pytest.mark.parametrize("schedule, crons, problem_words", [
@@ -2435,9 +2492,9 @@ def test_the_parser_reads_the_steps_of_the_workflow_it_is_given():
 # content checks never execute, so each was verified by applying it to the
 # committed workflow, running this guard, and then running the step's script
 # the way Actions runs one with argv-recording shims in place of python and
-# pytest. `closed_by` says what refuses it: `running` for the six whose pytest
-# line is never reached, `reading` for the one that does reach it and still is
-# not evidence, and `refusing` for the function definition, which the executor
+# pytest. `closed_by` says what refuses it: `running` for the five whose pytest
+# line is never reached, `reading` for the two the conservative rule refuses
+# where they stand, and `refusing` for the function definition, which the executor
 # will not start at all -- the shell resolves a function name before PATH, so
 # the shim for that name would never have answered.
 CONTROL_COMMAND = (
@@ -2466,7 +2523,9 @@ RECORDED_BYPASSES = (
      "chmod +x .tools/pytest\n"
      ".tools/pytest tests/test_skill_freshness.py tests/test_skill_invariants.py"
      " tests/test_source_check_classification.py -q\n", "running"),
-    ("the unreached side of `||`", "cd docs || " + CONTROL_COMMAND + "\n", "running"),
+    # Was closed by running the step, and the conservative rule closes it by
+    # reading: the right-hand side of a `||` is a command bash may never start.
+    ("the unreached side of `||`", "cd docs || " + CONTROL_COMMAND + "\n", "reading"),
     ("a trailing `&`", CONTROL_COMMAND + " &\n", "reading"),
 )
 
@@ -2481,16 +2540,16 @@ def test_a_recorded_bypass_hands_nothing_to_pytest(name, script, closed_by):
     to `reading` rather than left looking like proof that the recorder works.
     Then the script is executed and its log holds no pytest over the file.
 
-    Two are a different answer. The trailing `&` runs pytest and is refused by
-    reading, because the step no longer waits for it. The function definition
-    is refused before anything starts, since a name the shell resolves to a
-    function never reaches the shim that was written for it -- the recorder
+    Three are a different answer. The trailing `&` runs pytest and is refused
+    by reading, because the step no longer waits for it, and the right-hand
+    side of the `||` moved here in the second review round: it is a command
+    bash may never start, and crediting it was the finding. The function
+    definition is refused before anything starts, since a name the shell
+    resolves to a function never reaches the shim written for it -- the recorder
     could only ever have reported an empty log there, which is the answer this
     module must not confuse with a step that ran nothing.
     """
-    read_as_evidence = runs_as_pytest_argument(
-        logical_commands(script), SCHEDULED_BY_CALENDAR
-    )
+    read_as_evidence = runs_as_pytest_argument(script, SCHEDULED_BY_CALENDAR)
     if closed_by == "reading":
         assert not read_as_evidence, name
         return
@@ -2672,47 +2731,69 @@ def test_a_step_this_guard_cannot_execute_is_reported_not_read_as_an_empty_log(
     assert run.problem and words in run.problem, run.problem
 
 
-@pytest.mark.parametrize("script, evidence", [
-    ("python -m pytest tests/test_skill_freshness.py -q", True),
-    ("python -m pytest tests/test_skill_freshness.py -q &", False),
-    ("python -m pytest tests/test_skill_freshness.py -q & echo done", False),
-    ("python -m pytest tests/test_skill_freshness.py -q && echo done", True),
-    # Refused under the template the committed steps get: see `piped`, and the
-    # cases above it that give the same script both verdicts, one key apart.
-    ("python -m pytest tests/test_skill_freshness.py -q | tee log", False),
-    # Refused although a `wait` would bind the status again: see `backgrounded`.
-    ("python -m pytest tests/test_skill_freshness.py -q &\nwait", False),
-    # The left of a `||`, whose failure the alternative answers; the right of
-    # one is a command the step does fail on, and the forged-record case below
-    # rests on its still counting.
-    ("python -m pytest tests/test_skill_freshness.py -q || true", False),
-    ("python -m pytest tests/test_skill_freshness.py -q || exit 1", False),
-    ("true || python -m pytest tests/test_skill_freshness.py -q", True),
+@pytest.mark.parametrize("script, evidence, words", [
+    ("python -m pytest tests/test_skill_freshness.py -q", True, None),
+    ("python -m pytest tests/test_skill_freshness.py -q; echo done", True, None),
+    ("echo starting\npython -m pytest tests/test_skill_freshness.py -q", True, None),
+    ("python -m pytest tests/test_skill_freshness.py -q &", False, "backgrounded"),
+    ("python -m pytest tests/test_skill_freshness.py -q & echo done",
+     False, "backgrounded"),
+    # Refused although a `wait` would bind the status again: writing the command
+    # in the foreground says the same thing, and a reader that followed `wait`
+    # would have to decide which job it waits for.
+    ("python -m pytest tests/test_skill_freshness.py -q &\nwait",
+     False, "backgrounded"),
+    # A pipeline, from either side of the pipe and whatever the step's shell:
+    # the `||` a pipeline can be followed by is not inside the pipeline.
+    ("python -m pytest tests/test_skill_freshness.py -q | tee log",
+     False, "element of a pipeline"),
+    ("ls | python -m pytest tests/test_skill_freshness.py -q",
+     False, "element of a pipeline"),
+    ("python -m pytest tests/test_skill_freshness.py -q | cat || true",
+     False, "element of a pipeline"),
+    # Both sides of a `||` and both sides of an `&&`.
+    ("python -m pytest tests/test_skill_freshness.py -q || true", False, "`||` list"),
+    ("python -m pytest tests/test_skill_freshness.py -q || exit 1", False, "`||` list"),
+    ("true || python -m pytest tests/test_skill_freshness.py -q", False, "`||` list"),
+    ("python -m pytest tests/test_skill_freshness.py -q && echo done",
+     False, "`&&` list"),
+    ("false && python -m pytest tests/test_skill_freshness.py -q", False, "`&&` list"),
 ])
-def test_a_backgrounded_command_is_not_evidence(script, evidence):
-    """The one of the eight that reading closes, and `&&` is not `&`.
+def test_only_a_plain_unconditional_command_is_evidence(script, evidence, words):
+    """The conservative rule, in every position two review rounds found.
 
     A backgrounded pytest does run, so the recorder sees it; what the step no
     longer does is wait for it, so `bash -e` returns 0 whatever the content
-    checks say. `&&` and the other separators have to keep counting, which is
-    the half of this worth getting wrong-way-round. A single `|` is the one that
-    moved: under `bash -e` it discards the left side's status exactly as `&`
-    does, and the cases above decide it by the step's own shell.
+    checks say. A pipeline is the same objection with the shell deciding whose
+    status survives, and either side of a `||` or an `&&` list adds a second
+    thing the shell decides: whether the command starts at all. `true || pytest
+    x` and `false && pytest x` start nothing, which is what made the right-hand
+    side of both a finding against the previous reading.
 
-    The left of a `||` moved for the same reason and one case above is the
-    price: `|| exit 1` really does carry the failure and is refused anyway,
-    because `caught` does not read the alternative.
+    Three cases are the rule costing a credit a measurement would allow, named
+    here rather than carved out: `|| exit 1` really does carry the failure, so
+    does the left of an `&&` list that ends the script, and so does a pipeline
+    under `shell: bash`. Reading any of them means modelling what a shell does
+    with a list, which is the modelling that failed twice; the control for the
+    cost is that no committed workflow writes those shapes.
+
+    Each refusal also has to be named, or the credit is not refused but lost.
     """
-    assert runs_as_pytest_argument(
-        logical_commands(script), SCHEDULED_BY_CALENDAR
-    ) is evidence
+    assert runs_as_pytest_argument(script, SCHEDULED_BY_CALENDAR) is evidence
+    refused = refused_invocations(script, SCHEDULED_BY_CALENDAR)
+    if words is None:
+        assert refused == [], refused
+        return
+    assert len(refused) == 1 and words in refused[0], refused
 
 
 # The recorder's own integrity, because the step it judges can write files. The
 # log path used to travel in the step's environment under a fixed variable name,
 # and review built the step that appends the line the guard then reads: the
-# printf below, with a right-hand side that satisfies the static reader and a
-# shell that never reaches it. 252 cases passed with nothing started.
+# printf below, with a right-hand side that satisfied the static reader and a
+# shell that never reaches it. 252 cases passed with nothing started. The
+# reading refuses that right-hand side now, as one side of a `||` list, so the
+# construction has three answers against it rather than two.
 FORGED_RECORD = (
     "printf 'pytest tests/test_skill_freshness.py tests/test_skill_invariants.py"
     " tests/test_source_check_classification.py\\n'"
@@ -2726,19 +2807,24 @@ FORGED_RECORD = (
 def test_the_step_cannot_name_the_recorder_s_log():
     """The forged construction, verbatim, and the two answers that stop it.
 
-    Reading cannot refuse the construction: the right side of `||` is a real
-    pytest command over all three files, so the static half says yes and must
-    -- bash never reaches it, which is exactly what executing the step is for.
-    Two things stop it. Its redirection target is a variable, which is not a
-    path this guard can place inside the throwaway tree, so the step is not
-    executed at all. And the step would have no way to address the log even if
-    it were: the paths are baked into each shim's own text per run and no
-    variable in the step's environment holds either of them, which the second
-    step below is what measures.
+    Reading could not refuse the construction when it was built: the right side
+    of the `||` is a real pytest command over all three files, so the static
+    half said yes -- while bash never reaches it, which is exactly what
+    executing the step is for. The conservative rule refuses it by reading now,
+    and the case is kept because neither answer below depends on that: the
+    first is about where the step writes and the second about what it can
+    address, and a construction spelt without a `||` reaches both the same way.
+    Its redirection target is a variable, which is not a path this guard can
+    place inside the throwaway tree, so the step is not executed at all. And
+    the step would have no way to address the log even if it were: the paths
+    are baked into each shim's own text per run and no variable in the step's
+    environment holds either of them, which the second step below is what
+    measures.
     """
-    assert runs_as_pytest_argument(
-        logical_commands(FORGED_RECORD), SCHEDULED_BY_CALENDAR
-    ), "the static half is supposed to be satisfied; that is the premise here"
+    assert not runs_as_pytest_argument(FORGED_RECORD, SCHEDULED_BY_CALENDAR)
+    assert refused_invocations(FORGED_RECORD, SCHEDULED_BY_CALENDAR), (
+        "the refused run has to be named, or the reading has not refused it "
+        "but lost it")
     run = execute_step(FORGED_RECORD)
     assert run.commands == [], (
         f"a step forged the recorder's log: {run.commands}")
@@ -3279,7 +3365,7 @@ def test_a_recorded_run_the_step_survives_is_not_the_foreground_one():
     what makes this refusal about something.
     """
     assert runs_as_pytest_argument(
-        logical_commands(SHADOWED_BY_A_BACKGROUND_RUN), SCHEDULED_BY_CALENDAR
+        SHADOWED_BY_A_BACKGROUND_RUN, SCHEDULED_BY_CALENDAR
     ), "the static half is supposed to be satisfied; that is the premise here"
     built = {"jobs": {"content": {"steps": [
         {"run": SHADOWED_BY_A_BACKGROUND_RUN}]}}}
@@ -3287,17 +3373,16 @@ def test_a_recorded_run_the_step_survives_is_not_the_foreground_one():
         SCHEDULED_BY_CALENDAR, {"shadowed.yml": built})
     assert evidence is False, "a run nothing waits for is not a run of the file"
     assert (measured, reasons, refusals) == (0, [], [])
-    assert any("survives its failure" in entry for entry in disqualified), (
+    assert any("credits no written run" in entry for entry in disqualified), (
         disqualified)
     with pytest.raises(pytest.fail.Exception, match="really handed"):
         require_a_recorded_run(
             SCHEDULED_BY_CALENDAR, measured, reasons, refusals, disqualified)
     # The committed command writes no such invocation, which is what keeps this
-    # from refusing every step; and `&&`, the separator beside the two refused
-    # ones, leaves the step carrying the failure and is not collected.
-    for innocent in (CONTROL_COMMAND, CONTROL_COMMAND + " && echo done"):
-        assert invocations_the_step_survives(
-            innocent, SCHEDULED_BY_CALENDAR) == []
+    # from refusing every step; a `;` after it is the one separator that says
+    # nothing about the command before it, and it is not collected either.
+    for innocent in (CONTROL_COMMAND, CONTROL_COMMAND + "; echo done"):
+        assert refused_invocations(innocent, SCHEDULED_BY_CALENDAR) == []
 
 
 @EXECUTES_STEPS
@@ -3326,67 +3411,48 @@ def test_the_recorder_cannot_tell_a_backgrounded_run_from_the_foreground_one():
         "which is the coincidence the reading above refuses to credit")
 
 
-@pytest.mark.parametrize("shell, pipefail", [
-    (None, False),                      # the committed steps: `bash -e {0}`
-    ("bash", True),                     # GitHub expands this one with pipefail
-    ("sh", False),
-    ("bash -eo pipefail {0}", True),    # a command line given as written
-    ("pwsh", False),
+@pytest.mark.parametrize("script", [
+    "python -m pytest tests/test_skill_freshness.py -q | tee log",
+    "python -m pytest tests/test_skill_freshness.py -q | cat | cat",
+    "ls | python -m pytest tests/test_skill_freshness.py -q",
+    "python -m pytest tests/test_skill_freshness.py -q | cat || true",
 ])
-def test_whether_a_pipeline_can_redden_the_step_comes_from_its_shell(shell, pipefail):
-    """`bash -e` is not `bash --noprofile --norc -eo pipefail`, measured on both.
+def test_a_pipeline_is_refused_whatever_shell_the_step_asks_for(script):
+    """The step's own `shell:` used to decide this, and cannot decide it.
 
-    A step with no `shell` key gets the first, where `false | cat` exits 0, so a
-    content check that fails on the left of a pipe cannot redden the step --
-    which is the same reason a trailing `&` is refused, and the pipe was pinned
-    as evidence while the ampersand was refused. `shell: bash` gets the second,
-    where the pipeline carries the failure, and GitHub's own table is what says
-    which template a step gets.
+    `shell: bash` is expanded with `-eo pipefail`, so a pipeline really does
+    carry its failure to the step, and the previous round credited a pipeline
+    there for that reason. What it could not see is the operator *after* the
+    pipeline: `pytest x | cat || true` leaves a `|` on the pytest command and
+    the `||` on `cat`, so pipefail exempted a command whose failure bash hands
+    to `true`. The `||` applies to the whole pipeline, which a reader of one
+    trailing operator per command cannot say, so every element of a pipeline is
+    refused instead -- under every template, including the one where the
+    pipeline would have carried the failure.
+
+    `ls | pytest <file>` is refused with them although it is the last command
+    of its pipeline: whether the pipeline's status reaches the step is the same
+    unanswerable question one operator further along.
     """
-    assert pipefail_in_effect(shell) is pipefail
-
-
-@pytest.mark.parametrize("script, pipefail, evidence", [
-    ("python -m pytest tests/test_skill_freshness.py -q", False, True),
-    ("python -m pytest tests/test_skill_freshness.py -q | tee log", False, False),
-    ("python -m pytest tests/test_skill_freshness.py -q | tee log", True, True),
-    ("python -m pytest tests/test_skill_freshness.py -q | cat | cat", False, False),
-    ("ls | python -m pytest tests/test_skill_freshness.py -q", False, True),
-    ("python -m pytest tests/test_skill_freshness.py -q && echo done", False, True),
-    ("python -m pytest tests/test_skill_freshness.py -q &", True, False),
-])
-def test_a_pipeline_is_evidence_only_where_a_failure_survives_it(
-    script, pipefail, evidence
-):
-    """The left of a pipe is the position that loses its exit status, not the right.
-
-    `ls | pytest <file>` is the last command of the pipeline, so its failure is
-    the pipeline's and the step's under either template. A backgrounded command
-    stays refused with pipefail, because `&` is not `|`: nothing waits for it.
-    """
-    assert runs_as_pytest_argument(
-        logical_commands(script), SCHEDULED_BY_CALENDAR, pipefail=pipefail
-    ) is evidence
-
-
-def test_the_committed_template_and_a_pipefail_step_reach_different_verdicts():
-    """The same script, one step key apart, and the guard must not agree with itself.
-
-    This is what the finding was: the module already resolves a step's shell
-    three levels up for the calendar case, and the reader that decides evidence
-    ignored it, so `| tee log` counted under a template where the content
-    check's failure is discarded.
-    """
-    piped = CONTROL_COMMAND + " | tee log"
-    bare = {"jobs": {"content": {"steps": [{"run": piped}]}}}
-    with_pipefail = {"jobs": {"content": {"steps": [{"run": piped, "shell": "bash"}]}}}
-    inherited = {"defaults": {"run": {"shell": "bash"}},
-                 "jobs": {"content": {"steps": [{"run": piped}]}}}
-    assert steps_passing_the_file(bare, SCHEDULED_BY_CALENDAR) == [], (
-        "a failing content check on the left of a pipe cannot redden a `bash -e` step")
-    assert steps_passing_the_file(with_pipefail, SCHEDULED_BY_CALENDAR), (
-        "under `shell: bash` the pipeline carries the failure, so it is evidence")
-    assert steps_passing_the_file(inherited, SCHEDULED_BY_CALENDAR), (
+    for shell in (None, "bash", "sh", "bash -eo pipefail {0}"):
+        workflow = {"jobs": {"content": {"steps": [{"run": script, "shell": shell}]}}}
+        if shell is None:
+            workflow["jobs"]["content"]["steps"][0].pop("shell")
+        assert steps_passing_the_file(workflow, SCHEDULED_BY_CALENDAR) == [], shell
+    assert refused_invocations(script, SCHEDULED_BY_CALENDAR), (
+        "a refused pipeline has to be named, not dropped")
+    # And the control, so this does not pass by refusing every step: the same
+    # command out of the pipeline is a candidate under every one of those keys.
+    for shell in (None, "bash", "sh"):
+        step = {"run": CONTROL_COMMAND}
+        if shell is not None:
+            step["shell"] = shell
+        assert steps_passing_the_file(
+            {"jobs": {"content": {"steps": [step]}}}, SCHEDULED_BY_CALENDAR), shell
+    assert steps_passing_the_file(
+        {"defaults": {"run": {"shell": "bash"}},
+         "jobs": {"content": {"steps": [{"run": CONTROL_COMMAND}]}}},
+        SCHEDULED_BY_CALENDAR), (
         "and the shell is resolved from `defaults.run` like everything else here")
 
 

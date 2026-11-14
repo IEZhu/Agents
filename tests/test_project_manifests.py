@@ -99,11 +99,10 @@ import yaml
 from tests.test_content_checks_workflow import (  # the #632 harness, not a second one
     EXECUTES_STEPS,
     effective_shell,
-    invocations_the_step_survives,
-    pipefail_in_effect,
     pytest_arguments,
     recorded_argv,
     recorded_step,
+    refused_invocations,
     run_default,
     skip_reasons,
     step_environment,
@@ -580,24 +579,25 @@ def executed_files(arguments, stubs, directory=None) -> Executed:
     return Executed(frozenset(executed), None)
 
 
-def cannot_redden_the_step(script: str, path: str, shell) -> list[str]:
-    """This script's pytest commands over `path`, when the step survives all of them.
+def not_credited_here(script: str, path: str) -> list[str]:
+    """This script's pytest runs of `path` that the shared rule will not credit.
 
-    Three commands run and prove nothing. A backgrounded one hands its failure
-    to a job the step no longer waits for; one on the left of a pipe loses its
-    exit status under `bash -e {0}`, the template a step with no `shell:` key
-    gets; and one on the left of a `||` has its failure answered by the
-    alternative -- so a content check failing in any of the three cannot redden
-    the step, whatever the recorder saw it start. `shell: bash` is the other
-    answer for the pipe alone, because GitHub expands it with `-eo pipefail`.
+    The rule is the other module's, read in one place for both guards: a run is
+    credited only where it is a plain unconditional command whose failure the
+    step cannot avoid. A backgrounded one hands its failure to a job the step no
+    longer waits for; an element of a pipeline loses its exit status to whatever
+    the shell keeps; and either side of a `||` or an `&&` list leaves the shell
+    deciding both whether the command starts and whose failure the list
+    reports. A content check in any of those positions cannot redden the step,
+    whatever the recorder saw it start.
 
-    The other module has read the first two from the start, and this consumer
-    did not: `pytest x.py | cat` reached the recorder, the inner pytest
-    confirmed the file ran, and the workflow was credited with a run whose
-    failure nobody would ever see. The `||` was read by neither, because
-    `logical_commands` dropped it, so `pytest x.py || true` counted as a wired
-    check in both. It is read from the script's text because the shell's
-    plumbing is not in the argv the shim was handed.
+    The other module read the first two from the start and this consumer did
+    not: `pytest x.py | cat` reached the recorder, the inner pytest confirmed
+    the file ran, and the workflow was credited with a run whose failure nobody
+    would ever see. The `||` was read by neither, because the split dropped it,
+    so `pytest x.py || true` counted as a wired check in both. It is read from
+    the script's text because the shell's plumbing is not in the argv the shim
+    was handed.
 
     One such command is enough, even where the script also writes one whose
     failure the step does carry. This used to answer with an empty list there
@@ -605,15 +605,14 @@ def cannot_redden_the_step(script: str, path: str, shell) -> list[str]:
     measurement: a `pytest x.py &` before an `exit 0` and a bare `pytest x.py`
     after it record the same line, so the recorded run was credited to the
     command that never ran. The reader is the other module's
-    `invocations_the_step_survives`, where that is stated at length.
+    `refused_invocations`, where that is stated at length.
 
     An empty list still means the recorder decides alone, for the one case
     where it has to: no written command names the path at all, which is every
     one of the eight bypasses #632 recorded, where only executing the step
     finds the command.
     """
-    return invocations_the_step_survives(
-        script, path, pipefail=pipefail_in_effect(shell))
+    return refused_invocations(script, path)
 
 
 def invocation(path: str, documents: dict) -> Invocation:
@@ -626,7 +625,7 @@ def invocation(path: str, documents: dict) -> Invocation:
     the only thing that knows which of its arguments select a file. The reading
     left between them is which recorded program was started, by the same
     `pytest_arguments` the #632 guard uses on the same log lines, and what the
-    step's own shell would do with its failure, which `cannot_redden_the_step`
+    step's own shell would do with its failure, which `not_credited_here`
     reads from the script because the argv does not carry it.
     """
     hosts, problems, refusals, measured = [], [], [], 0
@@ -644,16 +643,17 @@ def invocation(path: str, documents: dict) -> Invocation:
                 continue
             shell = effective_shell(document, job, step)[0]
             directory = run_default(document, job, step, "working-directory")[0]
-            swallowed = cannot_redden_the_step(step["run"], path, shell)
-            if swallowed:
-                # An answer, not a measurement nobody made: the step runs the
-                # file where its own shell drops the failure, so it is no cover.
+            refused = not_credited_here(step["run"], path)
+            if refused:
+                # An answer, not a measurement nobody made: the step writes the
+                # run in a position this reader will not credit, so it is no
+                # cover whatever the recorder then sees.
                 measured += 1
                 problems.append(
-                    f"{name} ({job_name}): "
-                    + ", ".join(f"`{command}`" for command in swallowed)
-                    + f" cannot redden the step, so a run of {path} there is no "
-                    "evidence that anything checks it")
+                    f"{name} ({job_name}): " + ", ".join(refused)
+                    + f", so a run of {path} there is no evidence that "
+                    "anything checks it; write the run as a command of its "
+                    "own, where the step fails with it")
                 continue
             run = recorded_step(
                 step["run"],
@@ -938,8 +938,14 @@ def test_a_real_invocation_counts_however_it_is_spelt():
     a bypass, so each form below is one a workflow here commits or `tests/README.md`
     prescribes, and each is executed rather than recognised: the shell expands the
     glob against real names, `python -B -m pytest` reaches pytest through the
-    interpreter, a leading assignment is the documented form, and `&&` runs what
-    follows it.
+    interpreter, a leading assignment is the documented form, and a `;` ends
+    the command before it without touching the one after it.
+
+    The `&&` spelling of that last case was asserted to count and does not any
+    more: the conservative rule refuses either side of an `&&` list, so a
+    step that writes `make deps && pytest x` is named and told to write the run
+    as a command of its own. That is the cost of the rule, and the control for
+    it is that no committed workflow here writes one.
 
     `pytest -k install <file>` used to be here, asserted to count. It is neither
     refused nor counted now: the stub cannot answer a selection, so the case
@@ -951,7 +957,7 @@ def test_a_real_invocation_counts_however_it_is_spelt():
         "pytest tests/test_install_*.py",
         f"python -B -m pytest {wanted} -q -p no:cacheprovider",
         f"LANGFUSE_TRACING_ENABLED=false pytest {wanted}",
-        f"ls tests > /dev/null && pytest {wanted}",
+        f"ls tests > /dev/null; pytest {wanted}",
     ):
         assert invoked_by(wanted, {"w.yml": step(command)}) == ["w.yml"], command
 
@@ -1029,7 +1035,7 @@ def test_a_candidate_set_whose_every_answer_is_a_problem_is_unmeasured():
 
 
 @EXECUTES_STEPS
-def test_a_run_whose_failure_the_step_survives_is_not_a_host():
+def test_a_run_the_shared_rule_will_not_credit_is_not_a_host():
     """A pipe and the background were evidence here and refused in the other module.
 
     `pytest x.py | cat` really runs pytest, so the recorder sees it and the
@@ -1040,10 +1046,12 @@ def test_a_run_whose_failure_the_step_survives_is_not_a_host():
     were credited as a workflow that runs the file, which is a run nobody would
     ever see fail.
 
-    `pytest x.py || true` is the third position and was read by neither module,
-    because `logical_commands` dropped the `||` and left a command that looks
-    bare: measured under `bash -e`, the alternative answers the left side's
-    failure and the script carries on, so the check cannot fail the step either.
+    `pytest x.py || true` was read by neither module, because the split dropped
+    the `||` and left a command that looks bare: measured under `bash -e`, the
+    alternative answers the left side's failure and the script carries on, so
+    the check cannot fail the step either. The round after that found a `||`
+    over a whole pipeline and both sides of both list operators, which is why
+    the rule is now one refusal rather than a list of positions.
 
     The reading is the other module's and comes from the script's text, because
     what the shell did with the command is not in the argv the shim recorded.
@@ -1051,6 +1059,11 @@ def test_a_run_whose_failure_the_step_survives_is_not_a_host():
     wanted = "tests/test_install_setup_options.py"
     for command in (f"pytest {wanted} | cat", f"pytest {wanted} &",
                     f"pytest {wanted} || true",
+                    f"pytest {wanted} && echo done",
+                    f"true || pytest {wanted}",
+                    # The `||` applies to the pipeline, not to `cat`, so the
+                    # pytest command is refused under either shell template.
+                    f"pytest {wanted} | cat || true",
                     # And the mixed script, where this used to leave the
                     # recorder deciding alone: the foreground line is never
                     # reached and the log holds the backgrounded one.
@@ -1058,22 +1071,24 @@ def test_a_run_whose_failure_the_step_survives_is_not_a_host():
         run = invocation(wanted, {"w.yml": step(command)})
         assert run.hosts == [], command
         assert run.measured == 1, (command, run.problems)
-        assert any("cannot redden the step" in problem for problem in run.problems), (
-            command, run.problems)
+        assert any("no evidence that anything checks it" in problem
+                   for problem in run.problems), (command, run.problems)
         with pytest.raises(pytest.fail.Exception, match="handed"):
             require_a_host(wanted, run)
-    # `shell: bash` is expanded with `-eo pipefail`, so the failure survives the
-    # pipe and the same step is a host again -- or the cases above refuse a pipe
-    # on principle rather than for the reason they give.
+    # `shell: bash` is expanded with `-eo pipefail`, so the pipeline really does
+    # carry the failure there -- and buys no credit any more, because the
+    # operator that decides the step's status can sit after the pipeline, where
+    # no reading of the shell's options finds it.
     with_pipefail = {"jobs": {"tests": {"steps": [
         {"run": f"pytest {wanted} | cat", "shell": "bash"}]}}}
-    assert invocation(wanted, {"w.yml": with_pipefail}).hosts == ["w.yml"]
-    # And a command whose failure the step does carry is untouched, including
-    # one the text cannot see at all, where the recorder is the only answer.
-    assert invoked_by(wanted, {"w.yml": step(f"pytest {wanted} && echo done")}) == [
+    assert invocation(wanted, {"w.yml": with_pipefail}).hosts == []
+    # And the control, or the cases above pass by refusing everything: a
+    # command of its own is a host, including one the text cannot see at all,
+    # where the recorder is the only answer.
+    assert invoked_by(wanted, {"w.yml": step(f"pytest {wanted}; echo done")}) == [
         "w.yml"]
     hidden = f'eval "pytest {wanted}"'
-    assert cannot_redden_the_step(hidden, wanted, None) == [], (
+    assert not_credited_here(hidden, wanted) == [], (
         "a command this reader cannot see must leave the recorder deciding")
 
 
