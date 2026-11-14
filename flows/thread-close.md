@@ -254,10 +254,14 @@ subagent or user), and what the thread claimed about it. Cover:
 - **Memory** written during the thread: files and what changed. `memory_writes`
   lists only the writes an edit tool made, which the helper observed.
   `memory_files_detected` lists memory files whose modification time falls inside
-  the session, such as a file a script wrote; it is a lower bound found by
+  the session, up to one second past its last entry, and within five minutes of one
+  of its entries, such as a file a script wrote; it is a lower bound found by
   modification time, not an observed tool call, and can include another session's
-  file. Read `memory_scan_notes` for a memory directory that was missing or
-  unreadable.
+  file. Read `memory_scan_notes` for every memory directory: a `scanned` note gives
+  the files the directory holds beside the files listed, the session's span and that
+  window, so a session open for days is not read as a report on the whole directory,
+  while `missing`, `unreadable` and `no session span` each mean nothing was listed
+  from it.
 - **External systems** the thread wrote to: trackers, chat, published pages,
   remote triggers. Use `external_writes`. Also inspect `unclassified_tools`:
   these are MCP calls whose names did not say whether they write. Most tools of

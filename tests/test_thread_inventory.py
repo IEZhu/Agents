@@ -900,6 +900,32 @@ def test_ref_with_an_undeterminable_host_is_left_out_not_invented():
     assert thread_inventory.inventory(entries)["github_refs"] == []
 
 
+GHE_PULL = "https://ghe.example.com/Owner/Repo/pull/9"
+BITBUCKET_PULL = "https://bitbucket.example.org/team/sub/proj/pull-requests/75"
+
+
+def test_a_pull_request_on_another_forge_keeps_the_url_of_its_record():
+    """Neither github.com nor a `/-/merge_requests/` link: the record's own URL names the host."""
+    enterprise = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 9, "prRepository": "Owner/Repo", "prUrl": GHE_PULL,
+         "timestamp": "2026-11-05T14:20:01Z"}])
+    assert [(r["repository"], r["kind"], r["number"], r["url"]) for r in enterprise["github_refs"]] == [
+        ("Owner/Repo", "forge_pull_request", 9, GHE_PULL)]  # not an invented github.com URL
+    bitbucket = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 75, "prRepository": "team/sub/proj", "prUrl": BITBUCKET_PULL,
+         "timestamp": "2026-11-05T14:20:01Z"}])
+    assert [(r["repository"], r["kind"], r["number"], r["url"]) for r in bitbucket["github_refs"]] == [
+        ("team/sub/proj", "forge_pull_request", 75, BITBUCKET_PULL)]  # a nested path is kept, not dropped
+
+
+def test_a_pr_link_whose_url_is_not_a_link_falls_back_to_the_repository_rule():
+    inv = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 3, "prRepository": "Owner/Repo", "prUrl": "(none)",
+         "timestamp": "2026-11-05T14:20:01Z"}])
+    assert [(r["kind"], r["url"]) for r in inv["github_refs"]] == [
+        ("pull", "https://github.com/Owner/Repo/pull/3")]
+
+
 def test_gitlab_merge_request_link_in_text_is_not_a_github_pull_request():
     inv = thread_inventory.inventory([human(f"see {GITLAB_MR} please", "t1")])
     assert [(r["kind"], r["url"]) for r in inv["github_refs"]] == [("merge_request", GITLAB_MR)]
@@ -922,7 +948,9 @@ WIN_MEMORY = "C:\\Users\\u\\.claude\\projects\\p\\memory\\"
 ])
 def test_memory_writes_accept_windows_backslash_paths(tool_name, data):
     inv = thread_inventory.inventory(assistant([tool(tool_name, data, "w1")], "2026-10-02T09:00:00Z", "m1"))
-    assert [m["path"] for m in inv["memory_writes"]] == [WIN_MEMORY + "fact.md"]
+    # one spelling: the path is resolved as a shell write's path is, so a report holds it once
+    assert [m["path"] for m in inv["memory_writes"]] == [WIN_MEMORY.replace("\\", "/") + "fact.md"]
+    assert "C:/Users/u/.claude/projects/p/memory" in inv["directories"]
 
 
 def _session_with_memory(tmp_path, command_ts="2026-10-02T09:00:00Z"):
@@ -951,7 +979,10 @@ def test_memory_files_written_by_a_script_are_detected_by_modification_time(tmp_
     assert result["memory_writes"] == []  # nothing was observed as a tool call
     assert [(m["path"], m["detected_by"]) for m in result["memory_files_detected"]] == [
         (str(inside), "modification time")]
-    assert result["memory_scan_notes"] == []
+    assert result["memory_scan_notes"] == [
+        {"directory": str(project / "memory"), "status": "scanned", "files": 3, "listed": 1,
+         "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T09:05:00Z"},
+         "window_seconds": 300}]
 
 
 def test_a_memory_file_seen_as_a_tool_call_is_not_listed_again_as_detected(tmp_path):
@@ -960,19 +991,65 @@ def test_a_memory_file_seen_as_a_tool_call_is_not_listed_again_as_detected(tmp_p
     known.write_text("x")
     os.utime(known, (_mtime("2026-10-02T09:03:00Z"),) * 2)
     result = thread_inventory.detect_memory_files([project / "memory"], "2026-10-02T09:00:00Z",
-                                                  "2026-10-02T09:05:00Z", {str(known)})
+                                                  "2026-10-02T09:05:00Z", {str(known)},
+                                                  ["2026-10-02T09:03:00Z"])
     assert result["memory_files_detected"] == []
+
+
+def test_a_memory_file_written_by_an_edit_tool_is_not_detected_again_through_collect(tmp_path):
+    """The exclusion through `collect`, which is what passes the observed writes to the scan."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    known, script = (project / "memory" / name for name in ("known.md", "script.md"))
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        human("go", "2026-10-02T09:00:00Z"),
+        *assistant([tool("Write", {"file_path": str(known), "content": "x"}, "w1")],
+                   "2026-10-02T09:01:00Z", "m1"),
+        human("thanks", "2026-10-02T09:02:00Z"),
+    ]) + "\n", encoding="utf-8")
+    for path, stamp in ((known, "2026-10-02T09:01:00Z"), (script, "2026-10-02T09:01:30Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    result = thread_inventory.collect([transcript])
+    assert [m["path"] for m in result["memory_writes"]] == [str(known)]
+    assert [m["path"] for m in result["memory_files_detected"]] == [str(script)]
+    assert result["memory_scan_notes"][0]["listed"] == 1
+
+
+def test_a_memory_file_far_from_every_entry_is_not_attributed_to_the_session(tmp_path):
+    """A session open for days spans a whole directory: only its own activity bounds the scan."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        human("go", "2026-10-02T09:00:00Z"),
+        *bash("python3 -c pass", "b1", ts="2026-10-02T09:01:00Z"),
+        human("still here", "2026-10-02T17:00:00Z"),  # an eight-hour pause the scan must not claim
+    ]) + "\n", encoding="utf-8")
+    near, far = (project / "memory" / name for name in ("near.md", "far.md"))
+    for path, stamp in ((near, "2026-10-02T09:05:00Z"), (far, "2026-10-02T13:00:00Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    result = thread_inventory.collect([transcript])
+    assert [m["path"] for m in result["memory_files_detected"]] == [str(near)]  # 240s after an entry
+    assert result["memory_scan_notes"] == [
+        {"directory": str(project / "memory"), "status": "scanned", "files": 2, "listed": 1,
+         "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T17:00:00Z"},
+         "window_seconds": 300}]
 
 
 def test_a_missing_or_unreadable_memory_directory_is_a_note_not_a_failure(tmp_path):
     missing = thread_inventory.detect_memory_files([tmp_path / "nope"], "2026-10-02T09:00:00Z",
-                                                   "2026-10-02T09:05:00Z", set())
+                                                   "2026-10-02T09:05:00Z", set(),
+                                                   ["2026-10-02T09:00:00Z"])
     assert missing == {"memory_files_detected": [],
                        "memory_scan_notes": [{"directory": str(tmp_path / "nope"), "status": "missing"}]}
     plain_file = tmp_path / "file"
     plain_file.write_text("x")
     not_a_dir = thread_inventory.detect_memory_files([plain_file], "2026-10-02T09:00:00Z",
-                                                     "2026-10-02T09:05:00Z", set())
+                                                     "2026-10-02T09:05:00Z", set(),
+                                                     ["2026-10-02T09:00:00Z"])
     assert not_a_dir["memory_files_detected"] == [] and not_a_dir["memory_scan_notes"][0]["status"] == "missing"
     _, transcript = _session_with_memory(tmp_path / "other")
     (transcript.parent / "memory").rmdir()
@@ -1019,6 +1096,8 @@ def test_queued_command_attachments_count_only_when_origin_says_human():
 
 
 WIN_CWD = "C:\\work\\repo"
+WIN_SCRATCH = "C:\\Users\\u\\AppData\\Local\\Temp\\claude-501\\-proj\\scratchpad"
+WIN_SCRATCH_POSIX = WIN_SCRATCH.replace("\\", "/")
 
 
 def powershell(command, tool_id, ts="2026-10-02T09:00:00Z", cwd=WIN_CWD, **extra):
@@ -1080,6 +1159,45 @@ def test_powershell_writes_cmdlet_targets_and_redirections():
     plain = thread_inventory.inventory(powershell(
         "git log 2>&1; git log *>&1; git log > $null; Write-Output 'a > b.txt'; Get-Content a.txt", "w2"))
     assert plain["shell_writes"] == []  # a duplicated stream, $null and quoted text write no file
+
+
+def test_a_powershell_variable_target_keeps_its_literal_and_only_null_writes_nothing():
+    """A write whose path is a variable is still a write, as it is in Bash: only `$null` is no file."""
+    kept = thread_inventory.inventory(powershell(
+        'Add-Content -Path "$env:TEMP\\a.txt" -Value x\ngit log > $out\nSet-Content $M -Value y', "v1"))
+    assert [(w["command"], w["files"]) for w in kept["shell_writes"]] == [
+        ('Add-Content -Path "$env:TEMP\\a.txt" -Value x', ["$env:TEMP\\a.txt"]),
+        ("git log > $out", ["$out"]),
+        ("Set-Content $M -Value y", ["$M"])]
+    dropped = thread_inventory.inventory(powershell(
+        "git log > $NULL\nSet-Content -Path $null -Value x", "v2"))
+    assert dropped["shell_writes"] == []  # the bit bucket, in either case
+    braced = thread_inventory.inventory(powershell("Add-Content ${null} y", "v3"))
+    assert [w["files"] for w in braced["shell_writes"]] == [["${…}"]]  # a brace form names no variable
+
+
+def test_a_windows_scratchpad_write_reaches_the_scratchpad_paths():
+    """As a POSIX one does: it is session-local, so it is listed there instead of in shell_writes."""
+    inv = thread_inventory.inventory(powershell(
+        f"Set-Content -Path {WIN_SCRATCH}\\notes.md -Value done\ngit log > {WIN_SCRATCH}\\out.txt", "sp1"))
+    assert inv["scratchpad_paths"] == [f"{WIN_SCRATCH_POSIX}/notes.md", f"{WIN_SCRATCH_POSIX}/out.txt"]
+    assert inv["shell_writes"] == []
+
+
+def test_a_windows_edit_path_has_one_spelling_and_names_its_directory():
+    """The same file written by an edit tool and by the shell is one entry of files_written."""
+    inv = thread_inventory.inventory([
+        *powershell("Set-Content -Path C:\\work\\repo\\doc\\a.md -Value x", "sp2"),
+        *[{**entry, "cwd": WIN_CWD} for entry in assistant([
+            tool("Edit", {"file_path": "C:\\work\\repo\\doc\\a.md", "old_string": "x", "new_string": "y"}, "e1"),
+            tool("Write", {"file_path": WIN_SCRATCH + "\\plan.md", "content": "p"}, "e2")],
+            "2026-10-02T09:01:00Z", "m_e")],
+    ])
+    assert [f["path"] for f in inv["files_written"]] == [
+        f"{WIN_SCRATCH_POSIX}/plan.md", "C:/work/repo/doc/a.md"]
+    assert [w["files"] for w in inv["shell_writes"]] == [["C:/work/repo/doc/a.md"]]
+    assert "C:/work/repo/doc" in inv["directories"]  # an edit tool's Windows path names its directory
+    assert inv["scratchpad_paths"] == [f"{WIN_SCRATCH_POSIX}/plan.md"]
 
 
 def test_powershell_backslash_is_a_path_separator_and_a_backtick_escapes():

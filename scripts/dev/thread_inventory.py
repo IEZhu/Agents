@@ -47,6 +47,7 @@ An entry of an unexpected shape is counted in `skipped_entries` and never stops 
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import os
 import posixpath
@@ -62,9 +63,12 @@ MAX_TEXT = 500
 MAX_COMMAND = 200
 MAX_DEPTH = 20  # nested substitutions and subshells parsed recursively
 ARITHMETIC_SCAN = 4096  # how far `((` looks for its `))` before it is read as subshells
+HTTP_URL = re.compile(r"https?://\S+\Z")
 GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
 GITLAB_MR_URL = re.compile(r"https://([\w.-]+(?::\d+)?)/((?:[\w.-]+/)+[\w.-]+)/-/merge_requests/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
+# A pull request on a forge that is neither github.com nor GitLab: only its own link names the host.
+FORGE_PULL_REQUEST = "forge_pull_request"
 SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
 QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(r'["\\`]|\$\(')}
 HEREDOC = re.compile(r"<<(-?)[ \t]*((?:'[^'\n]*'|\"[^\"\n]*\"|\\.|[^\s;&|<>()'\"\\])+)")
@@ -121,6 +125,9 @@ PS_PATH_PARAMETERS = {"-path", "-literalpath", "-filepath"}
 # switches are not enumerated: another parameter with a value can still shift the positional pick.
 PS_VALUE_PARAMETERS = {"-value", "-encoding", "-width", "-delimiter", "-stream", "-filter",
                        "-include", "-exclude", "-inputobject"}
+# PowerShell's bit bucket, as `/dev/null` is a POSIX shell's. Its brace form `${null}` is not here:
+# `_ps_word` elides a brace expression to `${…}`, which no longer says which variable was written.
+PS_NULL = {"$null"}
 PS_EXECUTABLE = re.compile(r"\.(?:exe|cmd|bat|com|ps1)$", re.IGNORECASE)
 WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])")  # a drive, as in C:\dir, or a UNC share
 SHELL_TOOLS = {"Bash": "bash", "PowerShell": "powershell"}  # the client tools whose input is a command
@@ -141,6 +148,10 @@ STARTED = {
 STOPPED = re.compile(r"Successfully stopped task: (\w+)")  # in TaskStop results
 # Either separator: a Windows client records `C:\Users\u\.claude\projects\p\memory\x.md`.
 MEMORY_PATH = re.compile(r"[/\\]projects[/\\][^/\\]+[/\\]memory[/\\]")
+SCRATCHPAD_PATH = re.compile(r"[/\\]scratchpad")  # either separator, as `MEMORY_PATH` has
+# How near an entry of the transcript a memory file's modification time must fall to count as this
+# session's: a session open for days spans its whole memory directory, whoever wrote what is in it.
+MEMORY_ACTIVITY_WINDOW = 300
 # Phrases with which a model takes back its own earlier statement. They are candidates
 # for the audit, not conclusions: the flow reads each one in context.
 CORRECTION = re.compile(
@@ -928,20 +939,21 @@ def _earlier(ts, than) -> bool:
 
 def _add_ref(refs: dict, repository, kind: str, number: int, ts, url: str | None = None) -> None:
     """Record a reference. A repository value that starts with `$` is an unexpanded shell variable and is
-    dropped. A pull request or issue gets a github.com URL only when the repository is `owner/repo`; a longer
-    path is a nested GitLab group whose host is unknown, so that reference is left out rather than invented.
-    A GitLab merge request keeps the URL its record or text carried."""
+    dropped. A reference given with a URL keeps it, because its record or text is the only authority on the
+    host: a GitLab merge request and a pull request on another forge are never rewritten to github.com.
+    Without one, a pull request or issue gets a github.com URL only when the repository is `owner/repo`; a
+    longer path is a nested GitLab group whose host is unknown, so that reference is left out rather than
+    invented, and a merge request or another forge's pull request is not recorded at all."""
     if isinstance(repository, str) and any(part.startswith("$") for part in repository.split("/")):
         repository = None
-    if kind == "merge_request":
-        if not url:
+    url = url or None
+    if url is None:
+        if kind in ("merge_request", FORGE_PULL_REQUEST):
             return
-    elif repository and kind != "ref":
-        if repository.count("/") != 1:
-            return
-        url = f"https://github.com/{repository}/{kind}/{number}"
-    else:
-        url = None
+        if repository and kind != "ref":
+            if repository.count("/") != 1:
+                return
+            url = f"https://github.com/{repository}/{kind}/{number}"
     key = (repository, kind, number)
     ref = refs.get(key)
     if ref is None:
@@ -1041,7 +1053,8 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
                 sink["directories"].setdefault(run_dir, ts)
         targets = _powershell_writes(segment, tokens) if powershell else _written_files(segment, tokens)
         written = [_resolve(target, run_dir) or target for target in targets]
-        written = [path for path in dict.fromkeys(written) if "/scratchpad" not in path]  # listed there already
+        written = [path for path in dict.fromkeys(written)
+                   if not SCRATCHPAD_PATH.search(path)]  # listed in `scratchpad_paths` already
         for path in written:
             parent = _parent_directory(path)
             if parent:
@@ -1090,8 +1103,9 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             elif kind == "unknown":
                 sink["unclassified_commands"].append({"ts": ts, "command": shown, "by": actor})
     for token in TOKEN_SPLIT.split(command):  # heredoc bodies too: a script there may write the file
-        if token.startswith("/") and "/scratchpad" in token:
-            sink["scratch"].setdefault(token.rstrip(".,:"), ts)
+        path = token.rstrip(".,:")
+        if SCRATCHPAD_PATH.search(path) and (path.startswith("/") or WINDOWS_PATH.match(path)):
+            sink["scratch"].setdefault(_resolve(path, None) or path, ts)  # one spelling for a Windows path
 
 
 def _written_files(segment: str, tokens: list[str]) -> list[str]:
@@ -1374,7 +1388,8 @@ def _powershell_tokens(segment: str) -> list[str]:
 def _powershell_writes(segment: str, tokens: list[str]) -> list[str]:
     """Files one PowerShell statement writes: the targets of its unquoted `>` and `>>`
     redirections and the path of a `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only
-    redirects one stream into another, and an unexpanded variable such as `$null` is no file."""
+    redirects one stream into another, and `$null` is the bit bucket rather than a file. Any other
+    variable keeps its unexpanded literal, as a Bash redirection does, so the write is not lost."""
     files, index, quote = [], 0, None
     while index < len(segment):
         char = segment[index]
@@ -1393,13 +1408,13 @@ def _powershell_writes(segment: str, tokens: list[str]) -> list[str]:
                 index += 1
                 continue  # 2>&1 and *>&1 duplicate a stream
             target, index = _ps_word(segment, index)
-            if target and not target.startswith("$"):
+            if target and target.lower() not in PS_NULL:
                 files.append(target)
             continue
         index += 1
     if tokens[:1] and tokens[0].lower() in PS_WRITE_CMDLETS:
         target = _ps_target(tokens[1:])
-        if target and not target.startswith("$"):
+        if target and target.lower() not in PS_NULL:
             files.append(target)
     return files
 
@@ -1474,9 +1489,11 @@ def load_entries(paths: list[Path]) -> tuple[list, int]:
 
 def _file(sink: dict, path: str, ts, actor: str) -> None:
     """Every writer of a path, with the time of its first write there. The file's directory
-    joins the directories, so a repository edited outside the working directory is found."""
-    if path.startswith("/"):
-        sink["directories"].setdefault(os.path.dirname(path), ts)
+    joins the directories, so a repository edited outside the working directory is found; a
+    Windows path has one too, which is why the directory comes from `_parent_directory`."""
+    parent = _parent_directory(path)
+    if parent:
+        sink["directories"].setdefault(parent, ts)
     writers = sink["files"].setdefault(path, {})
     if actor not in writers or _earlier(ts, writers[actor]):
         writers[actor] = ts
@@ -1497,6 +1514,7 @@ def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
             "logging": 0, "client_local": Counter(), "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
+            "activity": [],  # the times of the transcript's entries, which bound the memory scan
             "unclassified_commands": [], "skipped": 0, "shell_writes": [],
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
@@ -1520,6 +1538,8 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
     kind, ts, cwd = entry.get("type"), entry.get("timestamp"), entry.get("cwd")
     ts = ts if isinstance(ts, str) else None  # times are compared and sorted as text
     cwd = cwd if isinstance(cwd, str) else None
+    if ts:
+        sink["activity"].append(ts)  # when the session was working, which bounds the memory scan
     if ts and actor == "main":  # transcript parts may be given in any order
         sink["first"] = ts if _earlier(ts, sink["first"]) else sink["first"]
         sink["last"] = ts if not sink["last"] or ts > sink["last"] else sink["last"]
@@ -1537,9 +1557,14 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
             sink["skipped"] += 1  # not a PR number, such as true or 1.9
         else:
             url = entry.get("prUrl")
-            if not (isinstance(url, str) and _add_url_ref(sink["refs"], url, ts)):
+            url = url if isinstance(url, str) and HTTP_URL.match(url) else None
+            if url is None:
                 # no usable link: a plain owner/repo is taken as github.com, a nested path is left out
                 _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", number, ts)
+            elif not _add_url_ref(sink["refs"], url, ts):
+                # neither github.com nor a merge request: the record's own link names the host
+                _add_ref(sink["refs"], repository if isinstance(repository, str) else None,
+                         FORGE_PULL_REQUEST, number, ts, url=url)
     elif kind == "file-history-delta" and entry.get("trackingPath"):
         parent = (entry.get("backup") or {}).get("realParentDir")
         path = entry["trackingPath"]
@@ -1665,11 +1690,12 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
     if name in WRITE_TOOLS:
         path = data.get("file_path") or data.get("notebook_path")
         if isinstance(path, str) and path:
+            path = _resolve(path, cwd) or path  # one spelling, as a path written through the shell has
             _file(sink, path, ts, actor)
             if MEMORY_PATH.search(path):  # either separator
                 if path not in sink["memory"] or _earlier(ts, sink["memory"][path]["ts"]):
                     sink["memory"][path] = {"ts": ts, "by": actor}
-            if "/scratchpad" in path:
+            if SCRATCHPAD_PATH.search(path):
                 sink["scratch"].setdefault(path, ts)
     elif name in SHELL_TOOLS:  # Bash, and the PowerShell tool of a Windows client
         command = data.get("command")
@@ -1759,14 +1785,19 @@ def summarize(sink: dict) -> dict:
     }
 
 
-def detect_memory_files(directories: list[Path], first: str | None, last: str | None, known: set[str]) -> dict:
-    """Memory files whose modification time falls inside the session's span, whoever wrote them.
+def detect_memory_files(directories: list[Path], first: str | None, last: str | None, known: set[str],
+                        activity: list[str]) -> dict:
+    """Memory files changed inside the session's span and near one of its entries, whoever wrote them.
 
     A script that opens and writes a file itself is neither an edit-tool call nor a redirection, so
     ``memory_writes`` cannot see it. This is a lower bound found by modification time, not an observed
-    tool call: a file changed by another session in the same span is listed too, and a file written
-    in the span and changed again later is missed. A directory that is missing or cannot be read adds
-    a note instead of a failure.
+    tool call: a file changed by another session while this one worked is listed too, and a file written
+    in the span and changed again later is missed. ``activity`` holds the times of the transcript's own
+    entries, and a file counts only when its modification time falls within ``MEMORY_ACTIVITY_WINDOW``
+    seconds of one of them: the span alone accepts nearly every file of the directory on a session that
+    stayed open for days. Every directory scanned adds a note with the files it holds, the files listed,
+    the span and that window, so the list is read against them; one that is missing or cannot be read
+    adds a note instead of a failure.
     """
     from datetime import datetime, timezone
 
@@ -1777,6 +1808,14 @@ def detect_memory_files(directories: list[Path], first: str | None, last: str | 
             return None
 
     start, end = epoch(first), epoch(last)
+    moments = sorted(moment for moment in map(epoch, activity) if moment is not None)
+
+    def worked_near(mtime: float) -> bool:
+        """Whether an entry of the transcript stands within the window of a modification time."""
+        index = bisect.bisect_left(moments, mtime)
+        return any(abs(mtime - moments[other]) <= MEMORY_ACTIVITY_WINDOW
+                   for other in (index - 1, index) if 0 <= other < len(moments))
+
     found, notes = [], []
     seen = {path.replace("\\", "/") for path in known}
     for directory in dict.fromkeys(directories):
@@ -1793,10 +1832,14 @@ def detect_memory_files(directories: list[Path], first: str | None, last: str | 
         if start is None or end is None:
             notes.append({"directory": str(directory), "status": "no session span"})
             continue
+        listed = 0
         for path, mtime in sorted(stamped):
-            if start <= mtime <= end + 1 and str(path).replace("\\", "/") not in seen:
+            if start <= mtime <= end + 1 and worked_near(mtime) and str(path).replace("\\", "/") not in seen:
                 stamp = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 found.append({"path": str(path), "mtime": stamp, "detected_by": "modification time"})
+                listed += 1
+        notes.append({"directory": str(directory), "status": "scanned", "files": len(stamped), "listed": listed,
+                      "span": {"first": first, "last": last}, "window_seconds": MEMORY_ACTIVITY_WINDOW})
     return {"memory_files_detected": found, "memory_scan_notes": notes}
 
 
@@ -1886,7 +1929,8 @@ def collect(paths: list[Path]) -> dict:
     # The memory directory sits beside the transcripts: <config>/projects/<project>/memory.
     memory_dirs = [Path(path).parent / "memory" for path in paths]
     result.update(detect_memory_files(memory_dirs, result["first"], result["last"],
-                                      {item["path"] for item in result["memory_writes"]}))
+                                      {item["path"] for item in result["memory_writes"]},
+                                      sink["activity"]))
     return _masked(result)
 
 
