@@ -36,6 +36,23 @@ def test_catalog_preserves_all_dense_model_variants():
         runtime.TextEmbedding._spec("missing/model")
 
 
+# The dense catalog is a class-level list, so a registration outlives the test that made it
+# unless tests/conftest.py restores it. These two run in file order: the second one fails if
+# that fixture is removed, which is how the full-run-only catalog failure reached dev.
+_LEAK_PROBE = "tests/leak-probe"
+
+
+def test_a_custom_model_registers_into_the_catalog():
+    runtime.TextEmbedding.add_custom_model(
+        model=_LEAK_PROBE, pooling=runtime.PoolingType.DISABLED, normalization=True,
+        sources=runtime.ModelSource(hf=_LEAK_PROBE), dim=8)
+    assert any(m["model"] == _LEAK_PROBE for m in runtime.TextEmbedding.list_supported_models())
+
+
+def test_the_previous_registration_did_not_leak_into_this_test():
+    assert all(m["model"] != _LEAK_PROBE for m in runtime.TextEmbedding.list_supported_models())
+
+
 @pytest.mark.parametrize("pooling,normalized,expected", [
     (runtime.PoolingType.CLS, False, [[3, 4], [2, 0]]),
     (runtime.PoolingType.MEAN, False, [[4, 2], [4, 0]]),
