@@ -1,6 +1,6 @@
 ---
 description: "Temporal Validation. Two modes: news freshness (hours) and state of the world (statutes, lists, registers, labels, enrolment statuses). A document describing an unfinished process expires on its outcome, not on a date. Role: Temporal Auditor."
-compiled: "Classify first: news or state of the world. News: fresh <=24h; recent 24-48h; stale >48h discard; unknown->triple verify; UTC; no date on anomaly->assume old. State of the world: the 48h gate does NOT apply and age alone settles nothing. Two kinds. An INSTRUMENT (statute, regulation, decision, licence, label) is in force until replaced, repealed, annulled or its own end date has passed, so compare that date with the date you evaluate; an AMENDMENT does not end it, it changes the version, so quote the consolidated text as of your date. A SNAPSHOT (list, register, tariff, docket, enrolment status) speaks only for its edition date: ask the issuing body for the current edition and never infer a newer one from elapsed time. A pending, submitted or under-review process expires on its OUTCOME, not on a date. «Nothing found» establishes currency only if the search completed; unreachable register = currency not established. Record both dates: issued and read."
+compiled: "Classify first: news or state of the world. News: fresh <=24h; recent 24-48h; stale >48h discard; unknown->triple verify; UTC; no date on anomaly->assume old. State of the world: the 48h gate does NOT apply and age alone settles nothing. Two kinds. An INSTRUMENT (statute, regulation, decision, licence, label) is in force until the whole of it is replaced, repealed or annulled, its own end date has passed (compare that date with the date you evaluate) or a later instrument from another authority occupies the same ground; an AMENDMENT or a partial repeal does not end it, it changes the version, so quote the consolidated text as of your date. A SNAPSHOT (list, register, tariff, docket, enrolment status) speaks only for its edition date: ask the issuing body for the current edition and never infer a newer one from elapsed time. A pending, submitted or under-review process expires on its OUTCOME, not on a date. «Nothing found» establishes currency only if a completed search OF THE AUTHORITATIVE sources covering that source (register, gazette, issuing body) found nothing; a general web search and an unreachable register both leave currency not established. Record both dates: issued and read."
 keywords:
   - triple verification
   - assume it is old news
@@ -86,13 +86,14 @@ In force from its effective date until it is replaced, repealed, annulled, or it
 
 | What you find | What it means |
 |---|---|
-| a replacement, a repeal or an annulment | not in force from the date that took effect |
+| a replacement, repeal or annulment **of the whole instrument** | not in force from the date that took effect |
+| a repeal or amendment of single provisions | the rest stays in force. Treat it as a version change, not an ending: quote the consolidated text and say which provisions went |
 | a later instrument from another authority | not in force **only if it occupies the same ground**. One that merely coexists, an implementing regulation beside the statute it implements, displaces nothing: say which one governs |
 | a sunset or end date | compare it with the date you are evaluating. A date still ahead leaves the instrument in force and tells you when it ends; only a date already passed ends it |
 | an amending instrument in force | **the instrument stays in force and the wording changed.** Amendment is not an ending event: quote the consolidated text as of your date and say which amendments you applied |
 | an amendment adopted but not yet in force | the provision you quote is unchanged for now. Quote the current wording and say when the new one starts |
 | a future effective date | not in force yet. Say from when |
-| a completed search that found none of the above | in force **as of the date you checked**. Record that date, not only the date it was issued |
+| a completed search **of the sources that would carry each of the above** (the register, the official gazette, the issuing body's own page) found none of them | in force **as of the date you checked**. Record that date, not only the date it was issued. A general web search is not that search: it misses a repeal as easily as it misses anything else |
 | a search that could not be completed | **currency not established.** A replaced or repealed instrument looks exactly like this when the register or gazette is unreachable: say so and name the source that would settle it |
 
 ### B2. A snapshot: list, register, tariff, docket, enrolment status, administrative file
@@ -101,8 +102,9 @@ It is true as of its edition or retrieval date and says nothing about any other 
 
 | What you find | What it means |
 |---|---|
-| an edition or retrieval date | the snapshot speaks for that date only. Quote it with that date attached |
-| the issuing body's current edition, read | that edition is the state now |
+| an edition date stated by the issuing body | the snapshot speaks for that date only. Quote it with that date attached |
+| no stated edition date, only the date you retrieved it | **the date it describes is unknown.** Retrieval says when you read it and nothing more: say the date is unknown and look for the body's own dated edition |
+| the issuing body's current edition, read | that is the latest edition, and it speaks for **its own** date. A year-old latest edition does not establish today's state: limit the claim to its date unless another source establishes the present |
 | nothing about a newer edition | **unknown, not unchanged.** Elapsed time alone says nothing: a list can stay the latest edition for years, and a monthly list can change next week. Ask the body for its current edition instead of counting months |
 | the body's update cadence | useful for planning the next check, never evidence of what the current edition says |
 
