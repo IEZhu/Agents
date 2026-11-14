@@ -152,12 +152,20 @@ SELECTING_OPTIONS = frozenset({"-k", "-m"})
 # reads, and `-o` sets any ini option, `addopts` included. The trigger is
 # ordinary: a workflow step that records `--basetemp=<dir>`, or a `--junitxml`
 # a maintainer types.
+# `--override-ini` is `-o` spelt long -- `-o, --override-ini OVERRIDE_INI` in
+# the installed pytest's own help, not recalled -- and was absent, so an argv
+# carrying it went to the real inner pytest with `cache_dir` or `addopts` set
+# from a workflow's text (Copilot on PR 662). Both spellings of one option
+# belong to one refusal.
 # `--pyargs` is here because it changes what the positional values are: with it they are
 # Python package names rather than paths, so `outside_the_stub_tree` reads a name such as
 # `pytest` as an in-tree path, finds nothing to refuse, and the inner interpreter imports
 # the installed package instead. The containment check is about paths, so an option that
 # stops them being paths bounds nothing.
-UNBOUNDED_OPTIONS = frozenset({"--basetemp", "--junitxml", "--rootdir", "-c", "-o", "--pyargs"})
+UNBOUNDED_OPTIONS = frozenset({
+    "--basetemp", "--junitxml", "--rootdir", "-c", "-o", "--override-ini",
+    "--pyargs",
+})
 # `-p` is the sixth and the one with a measurable exception. `-p NAME` imports a
 # module as a plugin, which is arbitrary code; `-p no:NAME` only blocks one and
 # imports nothing (`_pytest/config/__init__.py`, `consider_pluginarg`). The
@@ -1240,9 +1248,10 @@ def test_an_argv_that_reaches_outside_the_stub_tree_is_never_handed_to_pytest(tm
     bound on what a path argument could name. pytest removes a given
     `--basetemp` recursively before recreating it, writes `--junitxml` wherever
     it is told, reads its configuration from `-c` and `--rootdir`, sets any ini
-    option from `-o`, and imports a module named by `-p`. Measured at the head
-    of this branch: `--junitxml` wrote a report outside the stub tree and the
-    guard reported the file as run. Such an argv is a measurement this guard
+    option from `-o` or its long spelling `--override-ini`, and imports a
+    module named by `-p`. Measured at the head of this branch: `--junitxml`
+    wrote a report outside the stub tree and the guard reported the file as
+    run, and `--override-ini` was handed over while `-o` was refused. Such an argv is a measurement this guard
     does not make, which is the answer it already has for a question it cannot
     put to pytest.
     """
@@ -1255,6 +1264,10 @@ def test_an_argv_that_reaches_outside_the_stub_tree_is_never_handed_to_pytest(tm
         ("--rootdir=/", wanted),
         ("-c", "/dev/null", wanted),
         ("-o", "addopts=--collect-only", wanted),
+        # `-o` spelt long, in both forms pytest takes it, because one spelling
+        # of an option refused and the other handed over is no refusal.
+        ("--override-ini=addopts=--collect-only", wanted),
+        ("--override-ini", "cache_dir=/tmp/guard-cache", wanted),
         ("-p", "tests.ci_shard", wanted),
         ("-pno_such_plugin", wanted),
         ("--ignore=../..", wanted),
