@@ -128,11 +128,19 @@ LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest -q tests/test_tool_ann
 checklist](https://claude.com/docs/plugins/pre-submission-checklist)). Results for this plugin,
 expected and observed:
 
-- **Blocking checks**: none expected. The folder has `.claude-plugin/plugin.json`, a README of
+- **Structural checks**: expected to pass. The folder has `.claude-plugin/plugin.json`, a README of
   more than 40 words, a `LICENSE`, a lowercase ASCII name, regular files only (no symlinks,
   `.DS_Store` or binaries other than the icon), and every path in its manifest and `.mcp.json` stays inside the
   plugin folder, written from `${CLAUDE_PLUGIN_ROOT}`.
-- **Blocked on 2026-10-28**, the check of `26.10.28.1144` at `5f59fdb`, read in the portal on
+- **Blocked since 2026-11-11**, read in the portal on 2026-11-14: *Directory policy failed* with two
+  findings, *Local MCP servers accepted only from Verified organizations* and *Files outside the
+  allowed types accepted only from Verified organizations*. They reach `.mcp.json`, which declares
+  the stdio server, and `scripts/start-server.sh`, which begins with `#!`. Both gate on the
+  organization rather than on the version, so neither a bump nor another check clears them, and the
+  portal states that Anthropic chooses who is a Verified organization and that there is no way to
+  ask to become one yet. The [submission ledger](distribution.md#submission-record) carries the
+  evidence and the follow-up channels.
+- **Blocked earlier, on 2026-10-28**, the check of `26.10.28.1144` at `5f59fdb`, read in the portal on
   2026-11-08: *Directory policy failed* with `LOCAL_CODE_NOT_CHECKED`, "the scan of this version
   didn't confirm that it read the whole plugin". The version stays unpublished and the submission
   sits at **Needs changes**. The portal's own remedy is another check: a pushed commit is checked
@@ -141,8 +149,8 @@ expected and observed:
   setup hint of `scripts/start-server.sh` names the README's Setup section instead of printing an
   installer command line; the `curl ... install.sh | bash` left in the plugin README is
   documentation, which that finding exempts. It also reported that `.claude-plugin/icon.png` was
-  let through without being read as code.
-- **Starting the installed server was not a policy failure.** That check listed "The plugin starts
+  let through without being read as code. The findings above have since replaced this one.
+- **Starting the installed server was not a policy failure then.** That check listed "The plugin starts
   an MCP server ... as a program on the user's machine", and the local stdio transport, for
   information only, so the "everything inside the plugin folder" rule did not stop this version.
   The launcher does run a file outside the plugin (`$installation/.venv/bin/python` on
@@ -150,7 +158,9 @@ expected and observed:
   reviewer reads the script. Say so in the submission notes: the plugin is a launcher for a
   separately installed local server, and the README's Setup section installs it. A reviewer may
   still decline it under that rule; then the server stays available through `install.sh` and
-  `scripts/init_repo.sh`, which register it with Claude Code directly.
+  `scripts/init_repo.sh`, which register it with Claude Code directly. Since 2026-11-05 a local
+  server is refused outright from an organization that is not Verified, which is the first finding
+  above; that refusal is a separate rule from the one described here.
 - **Not met, by design**: claude.ai chat does not start local MCP servers, so the plugin adds
   nothing there; on Windows the shell start script does not run (the README sends Windows users
   to `scripts\init_repo.bat`).
