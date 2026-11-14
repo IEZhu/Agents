@@ -1000,6 +1000,16 @@ FORCE_EXECUTION = "CONTENT_GUARD_EXECUTE"
 # step's environment (`.github/workflows/issue-agent-bridge.yml`). Either is
 # enough; neither is set by running the suite at a prompt.
 CI_MARKERS = ("CI", "GITHUB_RUN_ID")
+# What says this is a runner without asking the two names above, so that the
+# gate can be checked against something other than itself. One name can be
+# dropped by the platform and one is what a developer exports for the `gh` CLI,
+# but a workflow run carries a whole family of both prefixes -- this
+# repository's own steps read `GITHUB_RUN_ID` and `GITHUB_SERVER_URL`
+# (`issue-agent-bridge.yml`) and `RUNNER_TEMP` (`windows-installer.yml`), and a
+# runner sets many more. So the witness is the count: four of them together is
+# a runner, and one or two is a shell with a token in it.
+RUNNER_PREFIXES = ("GITHUB_", "RUNNER_")
+RUNNER_WITNESSES = 4
 CONFINED_REASON = (
     "the assertions that execute a workflow's shell run on the CI leg whose "
     f"platform is {EXECUTING_LEG}, so the repository pays for them once, and "
@@ -2713,6 +2723,45 @@ def test_the_executing_assertions_are_confined_to_one_leg(platform, environment,
     assertion, on any platform.
     """
     assert confined_to_the_executing_leg(platform, environment) is confined
+
+
+def test_the_executing_leg_really_executed_on_this_runner():
+    """The guarantee rests on a CI marker, so the marker has to be checked on CI.
+
+    Everything the executing half of these two modules is worth now depends on
+    one reading: that a GitHub runner sets `CI` or `GITHUB_RUN_ID`. That was
+    taken from this repository's own use of the two names and not from the
+    platform, and if a runner set neither, `confined_to_the_executing_leg`
+    would answer yes, every executing assertion would skip, and the guard would
+    be gone from CI without a word -- which is precisely the failure this
+    branch exists to have fixed once already.
+
+    So this case asks the question the other way round and from a different
+    witness: when the environment holds a runner's family of `GITHUB_` and
+    `RUNNER_` variables, and the platform is the executing leg, the leg has to
+    be enabled. Off a runner it passes without asserting anything, and an
+    explicit `CONTENT_GUARD_EXECUTE` is somebody's deliberate choice either
+    way, so neither is this case's business. On a runner it turns a silent
+    disappearance into a red build.
+    """
+    if FORCE_EXECUTION in os.environ:
+        pytest.skip(f"{FORCE_EXECUTION} decides this run, whichever way it is set")
+    witnesses = sorted(name for name in os.environ
+                       if name.startswith(RUNNER_PREFIXES))
+    if len(witnesses) < RUNNER_WITNESSES:
+        pytest.skip(
+            f"not a runner: {len(witnesses)} of the {RUNNER_PREFIXES} variables "
+            f"a workflow run carries, which is fewer than {RUNNER_WITNESSES}")
+    if not sys.platform.startswith(EXECUTING_LEG):
+        pytest.skip(
+            f"this runner is {sys.platform} and the executing leg is "
+            f"{EXECUTING_LEG}, so reading the workflows is its whole job")
+    assert not confined_to_the_executing_leg(), (
+        f"this is a runner -- {witnesses} -- on the executing leg, and the "
+        f"assertions that execute a step are off, so none of {CI_MARKERS} is "
+        "set here any more and the half of these modules that executes "
+        "workflow steps has stopped running in CI"
+    )
 
 
 def test_the_switch_that_runs_the_host_touching_leg_is_documented():
