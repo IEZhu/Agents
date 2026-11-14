@@ -1,6 +1,6 @@
 ---
 description: "Temporal Validation. Two modes: news freshness (hours) and state of the world (statutes, lists, registers, labels, enrolment statuses). A document describing an unfinished process expires on its outcome, not on a date. Role: Temporal Auditor."
-compiled: "Classify first: news or state of the world. News: fresh ≤24h; recent 24-48h; stale >48h discard; unknown→triple verify; UTC; no date on anomaly→assume old. State of the world (statute, list, register, tariff, label, docket, enrolment status): the 48h gate does NOT apply. Current until the issuing body replaces it. A source saying a process is pending, submitted, under review or in negotiation expires on its OUTCOME, not on a date: assume a successor exists and look for it. Lists carry an edition date: find it and the update cadence. Record both dates: issued and read."
+compiled: "Classify first: news or state of the world. News: fresh ≤24h; recent 24-48h; stale >48h discard; unknown→triple verify; UTC; no date on anomaly→assume old. State of the world (statute, list, register, tariff, label, docket, enrolment status): the 48h gate does NOT apply. Current until the issuing body replaces it. A source saying a process is pending, submitted, under review or in negotiation expires on its OUTCOME, not on a date: assume a successor exists and look for it. Lists carry an edition date: find it and the update cadence. Check termination too, not only replacement: sunset or expiry date, repeal, annulment, displacement by a later instrument from another authority. «No successor found» establishes currency ONLY if the successor search completed; inaccessible or inconclusive search = currency not established. Record both dates: issued and read."
 keywords:
   - triple verification
   - assume it is old news
@@ -80,17 +80,20 @@ Be skeptical of "Black Swans" (huge anomalies) without dates.
 
 ### What expires and what does not
 
-| The source says | Expiry rule |
+| What you find | Expiry rule |
 |---|---|
 | a process is pending, submitted, under review, in negotiation, not yet concluded | **Expires on its outcome, not on a date.** Assume a successor exists and look for it before using this source as the current state |
 | a list, register, tariff or label, carrying an edition date | current only as of that edition. Find the edition date and the body's update cadence: a monthly list read a year later is a different list |
 | a decision with a future effective date | not in force yet. Say from when |
-| a decision in force, no successor found | current. Record the date you checked it, not only the date it was issued |
+| a decision in force, a completed search found no successor and no termination event | current. Record the date you checked it, not only the date it was issued |
+| a decision whose successor search was inaccessible or inconclusive | **currency not established.** A replaced decision also shows no successor when the search fails |
+| a sunset or expiry date, a repeal, an annulment, or a later instrument from another authority | not current, whether or not the issuing body published a replacement |
 
 ### Protocol
 
 1. Classify the source as Mode A or Mode B.
-2. For a Mode B source, find its edition or decision date, then ask what replaced it. The question is never "is this old" but "has the next one come out".
+2. For a Mode B source, find its edition or decision date, then ask what ended it. Replacement is only one of the ways: check the instrument's own sunset or expiry date, a repeal or annulment, and displacement by a later instrument from another authority. The question is never "is this old" but "is it still in force".
+2a. Say "current" only when that search completed and found nothing. When the register, gazette or docket that would show a successor or a repeal is itself unreachable, currency is not established: say so and name the source that would settle it.
 3. A source describing an unfinished process is the weakest possible ground for a claim about the present. Finding its outcome costs one query.
 4. Record both dates in the deliverable: when the source was issued and when you read it.
 
