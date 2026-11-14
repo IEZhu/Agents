@@ -230,6 +230,16 @@ def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
     assert all(name + " instructions" in result.worker_context for name in subagent.WORKER_RULE_IDS)
 
 
+def test_the_budget_error_points_at_artifacts_rather_than_a_bigger_budget(worker_tree):
+    """The caller meets this error exactly where an artifact is the answer, so it says so."""
+    response = prepare_subagent(request(max_context_chars=2000))
+    assert "context_budget_exceeded" in codes(response)
+    message = " ".join(error.message for error in response.errors)
+    for call in ("artifact_publish", "artifact_manifest_create", "artifact_manifest"):
+        assert call in message, call
+    assert "characters" in message and "2000" in message
+
+
 def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
     path = worker_tree / "rules/subagents/rule-worker-cooperation.mdc"
     path.write_text(path.read_text() + "\n" + "Mandatory cooperation instruction. " * 500)

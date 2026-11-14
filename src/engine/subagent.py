@@ -240,7 +240,11 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
         if len(mandatory_context) > request.max_context_chars:
             raise ContractError("context_budget_exceeded",
                                 f"Mandatory context needs {len(mandatory_context)} characters; "
-                                f"budget is {request.max_context_chars}.")
+                                f"budget is {request.max_context_chars}. Raising the budget is "
+                                "not the first answer: publish the large input with "
+                                "artifact_publish, pin it with artifact_manifest_create and pass "
+                                "that manifest as artifact_manifest, so the worker reads it "
+                                "instead of carrying it.")
         while True:
             context, contract, descriptor = _assemble(request, task_id, body, rules, components, schema,
                                                       execution)
