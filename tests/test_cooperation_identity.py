@@ -102,6 +102,27 @@ def test_resource_normalization_aliases_escape_and_nested_repository(checkouts):
     assert resolve_identity(context(main), str(nested), authority_path=authority).repository_id != identity.repository_id
 
 
+def test_external_allowance_keys_are_canonical_and_free_of_repository_identity(checkouts):
+    main, _, authority = checkouts
+    identity = resolve_identity(context(main), authority_path=authority)
+    resource = {"resource_type": "external_quota", "access": "write",
+                "resource_key": "GitHub.com/IEZhu:Nebula-Reviewer[bot]"}
+    canonical = normalize_resource(resource, identity)
+    # The server, not the caller, decides the identity, so two sessions reading
+    # the reviewer from different platform surfaces claim one allowance.
+    assert canonical.resource_key == "github.com/iezhu:nebula-reviewer"
+    assert normalize_resource({**resource, "resource_key": "github.com/iezhu:nebula-reviewer"},
+                              identity) == canonical
+    # The allowance is the account's, so no repository or checkout is prefixed.
+    assert identity.repository_id not in canonical.resource_key
+    assert identity.checkout_id not in canonical.resource_key
+    for key in ("github.com", "github.com/iezhu", "iezhu:nebula", "github.com/iezhu:two reviewers",
+                "github.com/iezhu:", "github.com/../dev:nebula",
+                "https://github.com/iezhu:nebula", "github.com/iezhu/agents:nebula"):
+        with pytest.raises(IdentityError, match="allowance"):
+            normalize_resource({**resource, "resource_key": key}, identity)
+
+
 def test_case_aliases_collide_without_collapsing_distinct_files(checkouts):
     main, _, authority = checkouts
     (main / "Mixed.txt").write_text("first")

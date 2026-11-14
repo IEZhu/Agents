@@ -20,6 +20,9 @@ RESOURCE_TYPE = "external_quota"
 ACCESS = "write"
 #: Used when the reviewer states no wait and no rule knows its reset.
 DEFAULT_BACKOFF_SECONDS = 3600.0
+#: A reviewer's own number is untrusted text; a week is already far past any
+#: observed reset, so an absurd or garbled wait is capped rather than believed.
+MAX_WAIT_SECONDS = 7 * 86400.0
 #: GitHub appends this to an app's login on reviews but not on check runs.
 BOT_SUFFIX = "[bot]"
 
@@ -113,6 +116,13 @@ class WaitRule:
             raise ValueError("a rule either extracts a wait or states a fixed one")
 
     def matches_reviewer(self, reviewer: str) -> bool:
+        """Match the identity exactly, or as the first segment of a longer slug.
+
+        One reviewer ships under several slugs, as ``copilot`` and
+        ``copilot-pull-request-reviewer`` are the same budget. A row that
+        matches too widely only changes how long a pause lasts; it can never
+        let a session spend an allowance it did not claim.
+        """
         return (self.reviewer is None or reviewer == self.reviewer
                 or reviewer.startswith(self.reviewer + "-"))
 
@@ -131,15 +141,15 @@ class WaitRule:
 #: Observed on this repository's pull requests in 2026-09, 2026-10 and 2026-11.
 WAIT_RULES: tuple[WaitRule, ...] = (
     WaitRule("coderabbit_included_review", reviewer="coderabbitai",
-             pattern=r"next included review available in\s*(\d+)\s*minutes?", unit_seconds=60.0),
+             pattern=r"next included review available in\s*(\d{1,9})\s*minutes?", unit_seconds=60.0),
     WaitRule("copilot_account_quota", reviewer="copilot",
              pattern=r"reached their quota limit", fixed_seconds=86400.0),
     WaitRule("stated_seconds", unit_seconds=1.0,
-             pattern=r"(?:retry after|retry in|try again in|available in|wait)\s*(\d+)\s*seconds?"),
+             pattern=r"(?:retry after|retry in|try again in|available in|wait)\s*(\d{1,9})\s*seconds?"),
     WaitRule("stated_minutes", unit_seconds=60.0,
-             pattern=r"(?:retry after|retry in|try again in|available in|wait|in)\s*(\d+)\s*minutes?"),
+             pattern=r"(?:retry after|retry in|try again in|available in|wait|in)\s*(\d{1,9})\s*minutes?"),
     WaitRule("stated_hours", unit_seconds=3600.0,
-             pattern=r"(?:retry after|retry in|try again in|available in|wait|in)\s*(\d+)\s*hours?"),
+             pattern=r"(?:retry after|retry in|try again in|available in|wait|in)\s*(\d{1,9})\s*hours?"),
 )
 
 
@@ -168,14 +178,15 @@ def observed_pause(reviewer: object, evidence: object, *, observed_at: float,
     The wait is measured from ``observed_at``, the time the evidence itself
     carries, not from now: a pause read minutes later must not be extended.
     An unmatched wording returns ``default_seconds`` with ``source="default"``
-    and the evidence quoted verbatim, never no pause at all.
+    and the evidence quoted verbatim, never no pause at all. A stated wait is
+    capped at ``MAX_WAIT_SECONDS``; the quote keeps what the reviewer said.
     """
     identity = reviewer_identity(reviewer)
     text = _text(evidence, "evidence")
     if not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool) or observed_at < 0:
         raise ValueError("observed_at must be a nonnegative timestamp")
-    if default_seconds <= 0:
-        raise ValueError("the default backoff must be positive")
+    if not 0 < default_seconds <= MAX_WAIT_SECONDS:
+        raise ValueError("the default backoff must be positive and at most MAX_WAIT_SECONDS")
     for rule in WAIT_RULES:
         if not rule.matches_reviewer(identity):
             continue
@@ -183,9 +194,10 @@ def observed_pause(reviewer: object, evidence: object, *, observed_at: float,
         if found is None:
             continue
         seconds, quote = found
+        seconds = min(float(seconds), MAX_WAIT_SECONDS)
         source: WaitSource = "stated" if rule.unit_seconds is not None else "rule"
-        return Pause(identity, float(observed_at), float(seconds),
-                     float(observed_at) + float(seconds), source, rule.rule_id, quote)
+        return Pause(identity, float(observed_at), seconds,
+                     float(observed_at) + seconds, source, rule.rule_id, quote)
     return Pause(identity, float(observed_at), float(default_seconds),
                  float(observed_at) + float(default_seconds), "default", None, text)
 

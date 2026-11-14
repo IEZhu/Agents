@@ -161,7 +161,10 @@ commit can land on the branch between a read and a push, and its reasoning never
 reaches this one. Where the Agents-Core coordinator is available, register
 bounded scope with `cooperation_register`, read the roster with
 `cooperation_read` on the `repository_id` that registration returns, and read
-whether an active participant holds a file this change touches.
+whether an active participant holds a file this change touches. Include the
+reviewer allowance keys of
+[step 3](#claim-a-reviewers-allowance-before-requesting) in that scope, because
+a claim can only name a resource the registered scope already covers.
 
 Registration reserves nothing. Finding such a participant gates the edit only
 through the repository's own cooperation requirements: a persisted agreement
@@ -253,11 +256,14 @@ while the request sent at 00:10:13Z was already redundant. What suppresses a
 request is a run still going or a completed review of that head, and nothing
 else: a rate-limited, paused or skipped status is a run of a kind and not a
 review, and those are exactly the states the rows above tell you to retry once
-their wait has passed.
+their wait has passed. An automatic pass cannot be held back, so publish it as
+consumed allowance rather than claiming it afterwards.
 After each push of fixes, once the remote head updates, **explicitly
 re-request Copilot review when the integration is available and Copilot is not
 paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
-using the current platform's supported action. Do not assume a push requests it
+using the current platform's supported action. Claim its allowance first, as
+[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)
+describes: the budget is the account's, and other sessions are spending it. Do not assume a push requests it
 again. Confirm that a review was queued for the current head. If an earlier
 review is still running, wait for it to finish, then request again if the current
 head has no queued or completed review. A successful API response alone does not
@@ -336,9 +342,27 @@ says which of them need an independent review. Unavailability is not approval.
 
 ### Quota, rate limits and errors
 
-Recognize these bot responses by their text (observed on this repository's PRs in
-2026-09 and 2026-10). A quota or error response is not a review of the head: it
+A reviewer's allowance is not a property of this pull request, so the rules below
+have two halves. The generic half holds for every reviewer: claim the allowance
+before spending it (see
+[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)),
+and turn whatever the reviewer answered into one next free time. The
+reviewer-specific half is the matcher below, and it is data, not logic.
+
+Read the matcher as four parts: the **reviewer identity** (its login or app slug
+as the review or the check run spells it, case-folded, with a `[bot]` suffix
+dropped, so one reviewer read from either surface is one entry), the **evidence**
+pattern, the **wait** that pattern extracts, and the resulting next free time,
+which is the evidence's own time plus that wait. The same rows exist in machine
+form in [src/cooperation/quota.py](../src/cooperation/quota.py), whose
+`observed_pause` returns the wait, its source and the verbatim quote that
+produced it. The rows below were observed on this repository's PRs in 2026-09,
+2026-10 and 2026-11. A quota or error response is not a review of the head: it
 neither approves nor clears findings.
+
+The last row is the default branch and it is not optional. A reviewer with no
+row above still gets claimed and still gets a published next free time. There is
+no "no rule, so request freely" case.
 
 | Bot | Evidence | Meaning | Next action |
 |---|---|---|---|
@@ -348,12 +372,85 @@ neither approves nor clears findings.
 | CodeRabbit | The status `Review paused`, and "Reviews paused" in its summary comment | Not a quota pause: CodeRabbit is available but stopped reviewing new pushes on its own because the branch received many commits | Do not record a pause. Request one review of the current head with `@coderabbitai review` when the head needs one, and wait for it like any other review. Do not send `@coderabbitai resume`, which reviews every later push. |
 | Copilot | A review body "...the user who requested the review has reached their quota limit." | Account quota exhausted; no reset time is given (in 2026-09 it returned within days, not at a fixed date) | Pause Copilot. While paused, request a review at most once per 24 hours, and only when the current head still needs one. A normal review ends the pause. |
 | Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
+| **Any reviewer with no row above** | Any quota, rate-limit, budget or allowance response, in whatever words it uses | An allowance pause with the wait it states, or with none stated | Pause that reviewer. Read the wait from its own response when it states one ("in N minutes", "retry after N seconds", "available in N hours"); when it states none, pause for one hour from the evidence time, which is `quota.DEFAULT_BACKOFF_SECONDS`. Publish the next free time with the evidence quoted verbatim, and record which of the two it was. Never treat an unrecognised reviewer as unlimited. |
 
-Review allowances are shared across PRs. CodeRabbit's review attempts of the past
-seven days set its hourly allowance (in 2026-10, 92 to 93 attempts set it to one
-review per hour). Request a review only for a head that needs one; batching
+The two CodeRabbit rows that say "Not a quota pause" are exactly that: do not run
+them through the matcher and do not record a pause for them.
+
+Review allowances are shared across PRs and across sessions. CodeRabbit's review
+attempts of the past seven days set its hourly allowance (in 2026-10, 92 to 93
+attempts set it to one review per hour; on 2026-11-14, 60 attempts over 31 pull
+requests set it to four reviews per hour, and a request for
+[#653](https://github.com/IEZhu/Agents/pull/653) found all four already spent by
+other sessions). Request a review only for a head that needs one; batching
 fixes into one push per round, as in
 [Resolve findings](#4-resolve-findings-and-repeat), keeps those heads few.
+
+### Claim a reviewer's allowance before requesting
+
+The allowance belongs to the account or installation that owns it, and every
+session in every pull request spends from the same one. Where the Agents-Core
+coordinator is available, treat it as a claimed resource, like a shared file.
+
+The resource is `external_quota` and its key is `<host>/<account>:<reviewer>`:
+the platform host, the account that owns the allowance (the requesting account
+for a reviewer invoked with it, the installation owner otherwise), and the
+reviewer's login or app slug as the review or the check run reports it. The key
+carries no repository, because the allowance does not. Derive it rather than
+spelling it by hand, from the Agents-Core source checkout:
+
+```bash
+.venv/bin/python -c "from src.cooperation import quota; print(quota.quota_key('github.com', 'OWNER', 'coderabbitai[bot]'))"
+```
+
+Register those keys in the scope passed to `cooperation_register`, then:
+
+1. **Acquire before an explicit request or re-request.** One `acquire` names
+   every reviewer this round will ask, because a claim set is all-or-none.
+   Nothing else in this flow needs the claim: reading check runs, waiting for a
+   review already running and resolving findings spend no allowance.
+2. **When the key is held, do not send the request.** The refusal carries the
+   holder, the `resource_key` and, when the holder published one, its
+   `next_free_at`. Record both, read any published observation from the
+   participants in a `cooperation_read` snapshot, continue with the other
+   reviewers, and treat that reviewer as unavailable for this round if the
+   recorded time has not passed. Do not wait on another session's claim in a
+   loop.
+3. **Heartbeat while you hold it.** A claim whose holder goes quiet past the
+   120-second soft-stale threshold stops excluding other sessions, so a crashed
+   session cannot freeze a reviewer for everyone. The reverse also holds: let
+   the claim lapse while still alive and another session may spend the budget
+   you were waiting on.
+4. **Publish and release when the round ends.** Record a release-ready
+   `checkpoint` and release the claims as soon as the round completes or a pause
+   is published; never hold the allowance across a wait for findings to be
+   fixed. A pause goes into `checkpoint.external_quota` as a `paused`
+   observation with its next free time, the verbatim evidence and whether the
+   wait was `stated`, came from a `rule` or was the `default`:
+
+```bash
+.venv/bin/python -c "
+from src.cooperation import quota
+pause = quota.observed_pause('coderabbitai[bot]', 'Review limit reached. Next included review available in 23 minutes.', observed_at=1763150400)
+print(quota.pause_observation('github.com/OWNER:coderabbitai', pause))
+"
+```
+
+5. **Publish an automatic review as consumed.** A reviewer that runs itself on a
+   push cannot be queued, and its run still spends the allowance. Publish a
+   `consumed` observation (`quota.consumed_observation`) with the evidence after
+   you observe it instead of claiming it after the fact.
+
+Two reviewers on one pull request are separate allowances and are claimed
+separately; the same reviewer in another pull request is the same allowance.
+Claims are scoped to one repository, so sessions working on the same account in
+another repository are not serialised by this and have to coordinate out of band.
+
+The coordinator is optional, exactly as in
+[step 1](#1-establish-the-current-state). When it is unavailable,
+report that, keep every rule above that does not need it — one request per head
+that needs one, the matcher, the published next free time in the working record —
+and say in the final report that the allowance was not serialised.
 
 Keep each pause with its evidence (the comment or review link), the time it was
 seen and the earliest next attempt. Read the current time from the clock
@@ -472,7 +569,10 @@ pushed head the bots review is a new round.
    Do not mark unresolved human approval requirements as satisfied by a reply.
 7. Re-request Copilot after every push of fixes when the integration is
    available and Copilot is not paused, using the current platform's supported
-   action. Request a review from a paused bot only once its recorded next attempt
+   action. Claim each reviewer's allowance before the request and release it when
+   the round ends
+   ([Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)).
+   Request a review from a paused bot only once its recorded next attempt
    time has passed. Check CodeRabbit's automatic review or explicit quota result.
    Wait for the available bots to review the current head, read the new results,
    and repeat when there are actionable findings.

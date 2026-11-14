@@ -80,6 +80,16 @@ def test_a_pause_needs_a_real_time_and_a_positive_default(observed_at, default_s
         quota.observed_pause(UNKNOWN, "limit reached", observed_at=observed_at, default_seconds=default_seconds)
 
 
+def test_an_absurd_stated_wait_is_capped_while_its_quote_is_kept():
+    pause = quota.observed_pause(UNKNOWN, "Limit reached, retry after 999999999 minutes.", observed_at=0.0)
+    assert pause.wait_seconds == quota.MAX_WAIT_SECONDS
+    assert pause.next_free_at == quota.MAX_WAIT_SECONDS
+    assert pause.quote == "retry after 999999999 minutes"
+    with pytest.raises(ValueError):
+        quota.observed_pause(UNKNOWN, "limit", observed_at=0.0,
+                             default_seconds=quota.MAX_WAIT_SECONDS + 1)
+
+
 def test_every_rule_either_extracts_a_wait_or_states_a_fixed_one():
     for rule in quota.WAIT_RULES:
         assert (rule.unit_seconds is None) != (rule.fixed_seconds is None), rule.rule_id

@@ -959,10 +959,15 @@ def _release(h, actor, *, reason="round complete"):
 def test_unknown_reviewer_allowance_queues_sessions_on_a_published_default_backoff(h):
     allowance = _allowance(UNKNOWN_REVIEWER)
     first, second = h.register("pr-653", scope=[allowance]), h.register("pr-661", scope=[allowance])
-    assert h.acquire(first, allowance)["status"] == "ok"
+    acquired = h.acquire(first, allowance)
+    assert acquired["status"] == "ok"
+    assert acquired["claims"][0]["resource"]["resource_key"] == "github.com/iezhu:nebula-reviewer"
     # Another pull request, another session, the same account-wide allowance,
     # named from a different platform surface: still one claimed resource.
-    refused = h.acquire(second, quota.resource("GitHub.com/iezhu:nebula-reviewer"))
+    # A raw key from a client that never called the helper: the service is what
+    # makes two spellings of one reviewer the same claimed allowance.
+    refused = h.acquire(second, {"resource_type": "external_quota", "access": "write",
+                                 "resource_key": "GitHub.com/IEZhu:Nebula-Reviewer[bot]"})
     assert refused["error"] == "claim_conflict"
     assert refused["owner"] == first["participant_id"]
     assert refused["resource_key"] == allowance["resource_key"]
