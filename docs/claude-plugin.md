@@ -1,8 +1,9 @@
 # Claude plugin
 
 `plugins/agents-core` is the Claude plugin submitted to Anthropic's plugin directory (#362).
-The owner's last recorded portal evidence (2026-11-08) showed **Needs changes**, not a published
-listing: an automatic check stopped version `26.10.28.1144` on 2026-10-28.
+The owner's last recorded portal evidence (2026-11-14) showed **Directory policy failed**, not a
+published listing: the directory takes a local MCP server, and a file outside its allowed types,
+only from a Verified organization, and this one is not.
 See the [submission ledger](distribution.md#submitted-destinations) for dates, evidence and follow-up links. The
 Connectors Directory takes only remote `https://` MCP servers and no longer takes MCPB
 extensions, so a local server like Agents-Core can be listed only inside a plugin.
