@@ -255,6 +255,35 @@ def test_mcp_tool_classification(name, expected):
     assert thread_inventory.classify_tool(name, {}) == expected
 
 
+@pytest.mark.parametrize("name, expected", [
+    ("mcp__ccd_turn__update_plan", "client_local"),
+    ("mcp__ccd_session__mark_chapter", "client_local"),
+    ("mcp__ccd_session_mgmt__set_session_title", "client_local"),
+    ("mcp__ccd_turn__wrap_up", "client_local"),
+    ("mcp__Agents-Core__run_flow", "read"),
+    ("mcp__Agents-Core__validate_subagent_result", "read"),
+    ("mcp__gitlab__get_merge_request_notes", "read"),
+    ("mcp__gitlab__list_merge_requests", "read"),
+    ("mcp__db__readonly_execute", "read"),
+    ("mcp__db__execute_read_only_query", "read"),
+    ("mcp__gitlab__create_merge_request_note", "write"),
+])
+def test_read_verbs_and_client_local_tools_are_not_external_writes(name, expected):
+    assert thread_inventory.classify_tool(name, {}) == expected
+
+
+def test_client_local_calls_are_reported_apart_from_external_writes():
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "c1"),
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "c2"),
+        tool("mcp__ccd_turn__wrap_up", {"recap": "x"}, "c3"),
+        tool("mcp__gitlab__create_merge_request_note", {"id": 1}, "c4"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert [w["tool"] for w in inv["external_writes"]] == ["mcp__gitlab__create_merge_request_note"]
+    assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 2, "mcp__ccd_turn__wrap_up": 1}
+    assert inv["unclassified_tools"] == {}
+
+
 def test_artifact_tools_and_unclassified_tools_are_reported():
     inv = thread_inventory.inventory(assistant([
         tool("Artifact", {"file_path": "/tmp/page.html"}, "x1"),

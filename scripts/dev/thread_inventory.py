@@ -131,6 +131,11 @@ WRITE_VERBS = {
 READ_VERBS = {
     "browse", "check", "count", "describe", "explore", "fetch", "filter", "find", "get", "guide", "history", "list",
     "load", "lookup", "query", "read", "retrieve", "search", "select", "show", "status", "view"}
+# Servers the host application itself provides (task list, chat title, chapters, panes): their
+# calls change the app's own UI, not an external system, so they are counted apart.
+CLIENT_LOCAL_SERVER = re.compile(r"^mcp__ccd_")
+# Tools whose name starts with a write verb but which only return text or a verdict.
+READ_ONLY_TOOLS = {"run_flow", "validate_subagent_result"}
 TARGET_KEYS = ("trigger_id", "id", "task_id", "list_id", "doc_id", "url", "owner", "repo", "pullNumber",
                "issue_number", "number", "path", "file_path", "name", "title", "collection", "channel")
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
@@ -648,7 +653,7 @@ def _target(data) -> str:
 
 
 def classify_tool(name: str, data) -> str:
-    """write, read, logging or unclassified, for tools other than files and shell."""
+    """write, read, logging, client_local or unclassified, for tools other than files and shell."""
     data = data if isinstance(data, dict) else {}
     action = data.get("action")
     if name.endswith("log_interaction"):
@@ -661,7 +666,14 @@ def classify_tool(name: str, data) -> str:
         return "read" if not action or action in ARTIFACT_READ_ACTIONS else "write"
     if not name.startswith("mcp__"):
         return "read"
+    if CLIENT_LOCAL_SERVER.match(name):
+        return "client_local"
     words = _name_words(name)
+    pairs = {"".join(pair) for pair in zip(words, words[1:])}  # read_only reads as read + only
+    if name.rsplit("__", 1)[-1].lower() in READ_ONLY_TOOLS or "readonly" in words or "readonly" in pairs:
+        return "read"
+    if words and words[0] in READ_VERBS:  # a leading read verb names the action; later words are its object
+        return "read"
     if any(word in WRITE_VERBS for word in words):
         return "write"
     if any(word in READ_VERBS for word in words):
@@ -1127,7 +1139,7 @@ def _in_time_order(items: list[dict]) -> list[dict]:
 
 def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
-            "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
+            "logging": 0, "client_local": Counter(), "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
             "unclassified_commands": [], "skipped": 0, "shell_writes": [],
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
@@ -1287,6 +1299,8 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
                                      "summary": " ".join(filter(None, [data.get("action"), _target(data)]))})
         elif kind == "logging":
             sink["logging"] += 1
+        elif kind == "client_local":
+            sink["client_local"][name] += 1
         elif kind == "unclassified":
             sink["unclassified"][name] += 1
         if name.startswith("mcp__"):
@@ -1352,6 +1366,7 @@ def summarize(sink: dict) -> dict:
         "scheduled": _in_time_order(sink["scheduled"]),
         "unclassified_tools": dict(sink["unclassified"]),
         "logging_calls": sink["logging"],
+        "client_local_calls": dict(sink["client_local"]),
         "background_tasks": background,
         "scratchpad_paths": sorted(sink["scratch"]),
         "corrections": _in_time_order(sink["corrections"]),
