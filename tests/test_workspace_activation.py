@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import src.server as server
-from src.daemon.workspaces import resolve_client_context
+from src.daemon.workspaces import WorkspaceRegistry, resolve_client_context
 from src.engine import config as engine_config
 from src.engine import persona
 from src.memory.describer import RepoDescriber
@@ -676,6 +676,71 @@ async def test_a_summary_file_symlinked_inside_the_checkout_is_still_read(bundle
     report = (await _http_activate(http_context(root)))["repo_context"]
     assert report["status"] == "up-to-date" and report["hash"] == written["hash"]
     assert "Project Identity" in report["summary_preview"]
+
+
+@pytest.mark.asyncio
+async def test_the_lookup_record_holds_no_advice_that_belongs_to_one_caller(bundle, repositories,
+                                                                           tmp_path, monkeypatch):
+    """The record says what the checkout is; what differs per caller is added after it (CR1 F4).
+
+    One installation can hold both registrations of the same checkout: `workspace register
+    <worktree>` records it as its own memory root, which is the action every refusal's remedy
+    names, and setup registers the main checkout with that worktree as its physical grant. One
+    daemon serves both, so both reach one lookup record. The record carried the first caller's
+    `registered_workspace` and its persistence advice, so whichever called first decided what
+    the other was told: a write advised where the caller's own workspace guard refuses it, or an
+    `other_checkout` restriction imposed on a caller that has no other checkout.
+    """
+    main, _other, _inside = repositories
+    worktree = linked_worktree(main, tmp_path / "worktree")
+    registry = WorkspaceRegistry(tmp_path / "service")
+    rooted_id = registry.register(main, physical_root=worktree)
+    direct_id = registry.register(worktree)
+    assert registry.resolve(rooted_id) == main and registry.resolve(direct_id) == worktree
+    assert registry.cooperation_roots(rooted_id) == registry.cooperation_roots(direct_id) == (
+        worktree,), "both registrations describe the same checkout"
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+
+    def direct(identity):
+        return http_context(worktree, identity=identity, grants=(worktree,))
+
+    def rooted(identity):
+        return http_context(main, identity=identity, grants=(worktree,))
+
+    def assert_direct(report):
+        assert report["repo_path"] == str(worktree), "its own memory root is the checkout"
+        assert "registered_workspace" not in report
+        assert "to persist the overview" in report["instruction"], "this caller can write here"
+        assert "other_checkout" not in report["instruction"]
+
+    def assert_rooted(report):
+        assert report["repo_path"] == str(worktree)
+        assert report["registered_workspace"] == str(main), "the root its write would resolve in"
+        assert "other_checkout" in report["instruction"]
+        assert "to persist the overview" not in report["instruction"]
+
+    for order in ((direct, assert_direct, rooted, assert_rooted),
+                  (rooted, assert_rooted, direct, assert_direct)):
+        persona._reported_workspaces.clear()
+        persona._reported_callers.clear()
+        first_context, assert_first, second_context, assert_second = order
+        first = (await _http_activate(first_context("first")))["repo_context"]
+        assert first["status"] == "needs_summary"
+        assert_first(first)
+        second = (await _http_activate(second_context("second")))["repo_context"]
+        assert second["status"] == "needs_summary"
+        assert second["repo_hash"] == first["repo_hash"], "the checkout data is the same"
+        assert_second(second)
+    # A described checkout reads the same way: the note belongs to the caller, not to the record.
+    _write_summary(worktree)
+    described = (await _http_activate(rooted("described-rooted")))["repo_context"]
+    assert described["status"] == "up-to-date"
+    assert described["registered_workspace"] == str(main)
+    assert "This report describes" in described["instruction"]
+    own = (await _http_activate(direct("described-direct")))["repo_context"]
+    assert own["status"] == "up-to-date" and own["hash"] == described["hash"]
+    assert "registered_workspace" not in own
+    assert "This report describes" not in own["instruction"]
 
 
 @pytest.mark.asyncio

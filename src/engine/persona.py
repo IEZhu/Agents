@@ -255,13 +255,19 @@ MAX_REPORT_PREVIEW_CHARS = 800
 class _ReportRecord:
     """What a workspace's lookup last decided, and the cheap inputs it was decided from.
 
-    ``report`` holds the payload every caller of this workspace gets, without any field that
-    belongs to one caller: the ``workspace_id`` of a pending report is added per caller, so a
-    second session is never handed the first one's (#576 pre-mortem P-C1).
+    ``report`` holds what is true of the checkout and nothing that belongs to one caller: the
+    ``workspace_id`` of a pending report (#576 pre-mortem P-C1), the ``registered_workspace`` of
+    a caller whose memory root is elsewhere and the instruction that follows from it are all
+    added in ``_answer``, per caller. One checkout can be both a session's own memory root and
+    another registration's granted checkout, and a record that kept the first caller's advice
+    decided what the second was told (CR1 F4). ``write_rejection`` is the checkout's own
+    rejection reason, which that instruction needs and which a caller cannot change; None for a
+    described checkout, where no write is advised at all.
     """
     repo_hash: str
     described: bool
     report: dict
+    write_rejection: str | None
     inputs: tuple[str, ...]
     marks: tuple[tuple[int, int] | None, ...]
     checked_at: float
@@ -460,7 +466,7 @@ def _describe_workspace(root, workspace_id=None, caller="", registered=None) -> 
     if record is not None and time.monotonic() - record.checked_at < _RECHECK_SECONDS \
             and _stat_marks(record.inputs) == record.marks:
         # Nothing the last decision was read from has changed: answer from the record.
-        return _answer(key, record, workspace_id, caller)
+        return _answer(key, record, workspace_id, caller, registered)
     describer = RepoDescriber(repo_path=key)
     decision = describer.plan()
     inputs = _report_inputs(describer)
@@ -470,58 +476,67 @@ def _describe_workspace(root, workspace_id=None, caller="", registered=None) -> 
         # later activation carries it again until it is (#459, #600). The record repeats it
         # instead of walking the tree for an answer that cannot have changed.
         report = {"status": "needs_summary", "workspace": key, "repo_path": describer.repo_path,
-                  "repo_hash": decision.current_hash,
-                  "instruction": _undescribed_instruction(describer, registered)}
+                  "repo_hash": decision.current_hash}
+        rejection = describer.write_rejection_reason()
     else:
         report = {**describer.up_to_date_response(decision,
                                                   preview_chars=MAX_REPORT_PREVIEW_CHARS),
-                  "workspace": key, "instruction": DESCRIBED_INSTRUCTION}
-        if registered is not None:
-            report["instruction"] += " " + OTHER_CHECKOUT_NOTE.format(described=key,
-                                                                      registered=registered)
-    if registered is not None:
-        # Which root the path, hash and preview belong to is part of the report, not left to
-        # the caller to infer from a workspace it did not name (#576 pre-mortem P-C2).
-        report["registered_workspace"] = str(registered)
-    record = _ReportRecord(decision.current_hash, not decision.needs_refresh, report, inputs,
-                           marks, time.monotonic())
+                  "workspace": key}
+        rejection = None
+    record = _ReportRecord(decision.current_hash, not decision.needs_refresh, report, rejection,
+                           inputs, marks, time.monotonic())
     _remember(key, record)
-    return _answer(key, record, workspace_id, caller)
+    return _answer(key, record, workspace_id, caller, registered)
 
 
-def _answer(key: str, record: "_ReportRecord", workspace_id, caller: str) -> dict | None:
+def _answer(key: str, record: "_ReportRecord", workspace_id, caller: str,
+            registered=None) -> dict | None:
     """What *caller* is told for the workspace *key*, given its current lookup record.
 
     A described repository is reported once per caller and per hash, so a second session of
     the same process is told as well, and a described tree that moved is told again. A pending
     needs_summary is reported on every activation until the summary is written (#600), with
     this caller's own ``workspace_id`` rather than the one the record was built for.
+
+    Everything that depends on *registered*, this caller's memory root when the described
+    checkout is not it, is composed here and never cached: the record is shared by every
+    session in the process, and a checkout can be one session's own memory root and another
+    registration's granted checkout at the same time (CR1 F4).
     """
     if record.described:
         if not _tell_once((key, caller), record.repo_hash):
             return None
-        return dict(record.report)
-    report = dict(record.report)
-    if workspace_id:
-        # write_repo_summary refuses an HTTP call without the workspace_id its own
-        # needs_summary carries, so the instruction above is followable only with it.
-        report["workspace_id"] = workspace_id
+        report = {**record.report, "instruction": DESCRIBED_INSTRUCTION}
+        if registered is not None:
+            report["instruction"] += " " + OTHER_CHECKOUT_NOTE.format(described=key,
+                                                                      registered=registered)
+    else:
+        report = {**record.report,
+                  "instruction": _undescribed_instruction(key, record.write_rejection, registered)}
+        if workspace_id:
+            # write_repo_summary refuses an HTTP call without the workspace_id its own
+            # needs_summary carries, so the instruction above is followable only with it.
+            report["workspace_id"] = workspace_id
+    if registered is not None:
+        # Which root the path, hash and preview belong to is part of the report, not left to
+        # the caller to infer from a workspace it did not name (#576 pre-mortem P-C2).
+        report["registered_workspace"] = str(registered)
     return report
 
 
-def _undescribed_instruction(describer, registered=None) -> str:
+def _undescribed_instruction(described: str, rejection: str | None, registered=None) -> str:
     """What to do about a repository with no current description.
 
     A workspace write_repo_summary always refuses — the running installation and its runtime
     source — is never advised to persist one: describe_repo's own instruction says what to do
-    with the overview there instead. A checkout that is not the session's memory root is the
-    same case: `workspace_target` resolves a write inside the memory root, so a summary
+    with the overview there instead. That *rejection* is the described checkout's own and is
+    read with it. A checkout that is not the calling session's memory root is the same case,
+    decided per caller: `workspace_target` resolves a write inside the memory root, so a summary
     written from this report would not be the described checkout's (#576 pre-mortem P-C2).
     """
     if registered is not None:
         return PROTECTED_INSTRUCTION.format(reason=OTHER_CHECKOUT_REASON.format(
-            registered=registered, described=describer.repo_path))
-    rejection = describer.write_rejection_reason()
+            registered=registered, described=described))
     return PROTECTED_INSTRUCTION.format(reason=rejection) if rejection else UNDESCRIBED_INSTRUCTION
 
 
