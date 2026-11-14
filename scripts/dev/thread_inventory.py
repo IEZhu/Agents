@@ -35,7 +35,9 @@ Commands of the Windows `PowerShell` tool go through the same classification wit
 PowerShell syntax: statements separate on `;`, a newline, a pipe and the braces of a
 block, Windows PowerShell 5.1 has neither `&&` nor `||`, the escape character is a
 backtick so a backslash stays a path separator, a here-string is a body, and
-`Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files. A `@'…'@` body is
+`Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files, the first two of
+them one per element of a path array and `Out-File` the one destination its
+parameter declares. A `@'…'@` body is
 literal throughout; in a `@"…"@` one the text is data as well, but its `$(…)`
 subexpressions run and are read, as those of a `"…"` string are. An output capture such
 as `$sha = git rev-parse HEAD` is still a git command. Braces that only define a body,
@@ -135,6 +137,12 @@ PS_KEYWORDS = {"if", "elseif", "else", "while", "do", "foreach", "for", "switch"
 PS_CHDIR = {"cd", "chdir", "sl", "set-location"}
 PS_WRITE_CMDLETS = {"set-content", "add-content", "out-file"}
 PS_PATH_PARAMETERS = {"-path", "-literalpath", "-filepath"}
+# Of those cmdlets, the one whose destination is a single file: `Set-Content` and `Add-Content`
+# declare `-Path` and `-LiteralPath` as `string[]`, so each element they name is written, while
+# `Out-File` declares its destination as one `string`, which cannot hold an array. A comma there
+# builds an array all the same, and a `string` parameter takes an array as its elements joined by
+# `$OFS`, a single space by default: one file of that name, never one file per element.
+PS_SCALAR_PATH = {"out-file"}
 # Parameters of those cmdlets that take a value, so their value is not read as the path. The
 # switches are not enumerated: another parameter with a value can still shift the positional pick.
 PS_VALUE_PARAMETERS = {"-value", "-encoding", "-width", "-delimiter", "-stream", "-filter",
@@ -1578,7 +1586,7 @@ def _powershell_writes(segment: str) -> list[str]:
     # elements of an array: `Set-Content -Path a.txt,b.txt` writes both of the files it names
     for command in _ps_statements(_powershell_tokens(segment, commas=True)):
         if command[:1] and command[0].lower() in PS_WRITE_CMDLETS:
-            for target in _ps_targets(command[1:]):
+            for target in _ps_targets(command[1:], command[0].lower() in PS_SCALAR_PATH):
                 if target and target.lower() not in PS_NULL:
                     files.append(target)
     return files
@@ -1624,15 +1632,20 @@ def _ps_array(args: list[str], index: int) -> tuple[list[str], int]:
     return values, index
 
 
-def _ps_targets(args: list[str]) -> list[str]:
+def _ps_targets(args: list[str], scalar: bool = False) -> list[str]:
     """The files a `Set-Content`, `Add-Content` or `Out-File` call writes: the value of `-Path`,
-    `-LiteralPath` or `-FilePath`, or else its first positional argument. Each of them takes an
-    array, and every file it names is written, so every element is a target of its own."""
+    `-LiteralPath` or `-FilePath`, or else its first positional argument.
+
+    A `string[]` destination names one file per element, and every one of them is written. With
+    ``scalar`` the destination is a single `string`, which no array reaches: its elements arrive
+    joined, so the call writes that one name and reporting one file per element would name writes
+    the cmdlet never performs. `PS_SCALAR_PATH` holds the cmdlets whose destination is scalar.
+    """
     positional, index = [], 0
     while index < len(args):
         name = args[index].lower()
         if name in PS_PATH_PARAMETERS:
-            return _ps_array(args, index + 1)[0]
+            return _ps_destination(_ps_array(args, index + 1)[0], scalar)
         if name.startswith("-"):
             index += 1
             if name in PS_VALUE_PARAMETERS:
@@ -1641,7 +1654,13 @@ def _ps_targets(args: list[str]) -> list[str]:
             index += 1
         else:
             positional, index = _ps_array(args, index)
-    return positional
+    return _ps_destination(positional, scalar)
+
+
+def _ps_destination(values: list[str], scalar: bool) -> list[str]:
+    """The files an array of destination elements writes: all of them, or, for a parameter that
+    takes one `string`, the single name its elements are joined into by `$OFS`, one space."""
+    return [" ".join(values)] if scalar and len(values) > 1 else values
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:

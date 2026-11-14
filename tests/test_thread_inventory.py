@@ -1375,25 +1375,43 @@ def test_powershell_writes_cmdlet_targets_and_redirections():
 
 
 def test_a_cmdlet_path_array_names_every_file_it_writes():
-    """A path parameter of `Set-Content`, `Add-Content` and `Out-File` takes an array, and every
-    element of it is written. Reading the whole value as one word reported a single file called
-    `a.txt,b.txt`, which no write created, and lost the two that it did. The array is split at
-    unquoted commas only, so a comma inside a quoted name stays part of the name, and the value of
-    another parameter is never mistaken for a path."""
+    """The `-Path` and `-LiteralPath` of `Set-Content` and `Add-Content` are declared `string[]`,
+    and every element of such an array is written. Reading the whole value as one word reported a
+    single file called `a.txt,b.txt`, which no write created, and lost the two that it did. The
+    array is split at unquoted commas only, so a comma inside a quoted name stays part of the
+    name, a comma may have blanks around it, and the value of another parameter is never mistaken
+    for a path. `Out-File` declares one destination instead, and has its own case below."""
     inv = thread_inventory.inventory(powershell(
-        "Set-Content -Path a.txt,b.txt -Value hi\nOut-File -FilePath c.txt , d.txt\n"
+        "Set-Content -Path a.txt,b.txt -Value hi\nAdd-Content -Path c.txt , d.txt -Value hi\n"
         'Add-Content -LiteralPath "my file.txt","other,name.txt" -Value x\n'
-        "Set-Content e.txt,f.txt hi", "arr1"))
+        "Set-Content e.txt,f.txt hi\nOut-File -FilePath g.txt", "arr1"))
     assert [w["files"] for w in inv["shell_writes"]] == [
         ["C:/work/repo/a.txt", "C:/work/repo/b.txt"],
         ["C:/work/repo/c.txt", "C:/work/repo/d.txt"],
         ["C:/work/repo/my file.txt", "C:/work/repo/other,name.txt"],
-        ["C:/work/repo/e.txt", "C:/work/repo/f.txt"]]
+        ["C:/work/repo/e.txt", "C:/work/repo/f.txt"],
+        ["C:/work/repo/g.txt"]]
     single = thread_inventory.inventory(powershell(
         "Set-Content -Value one,two -Path a.txt\nSet-Content -Encoding utf8,ascii -Path b.txt -Value x\n"
         "Set-Content -Path $null,c.txt -Value x", "arr2"))
     assert [w["files"] for w in single["shell_writes"]] == [
         ["C:/work/repo/a.txt"], ["C:/work/repo/b.txt"], ["C:/work/repo/c.txt"]]
+
+
+def test_out_file_writes_the_one_destination_its_parameter_declares():
+    """`Out-File` declares its destination as a single `string`, not a `string[]`: a comma builds
+    an array all the same, and a `string` parameter takes one as its elements joined by `$OFS`, a
+    single space. So `Out-File -FilePath c.txt , d.txt` writes one file named `c.txt d.txt`, and
+    splitting that value the way a `string[]` is split named two writes the cmdlet never performs.
+    Its positional destination is the same parameter, so it is read the same way."""
+    inv = thread_inventory.inventory(powershell(
+        "Out-File -FilePath c.txt , d.txt\nOut-File -LiteralPath e.txt,f.txt\nOut-File g.txt,h.txt\n"
+        "Out-File -FilePath one.txt", "of1"))
+    assert [w["files"] for w in inv["shell_writes"]] == [
+        ["C:/work/repo/c.txt d.txt"],
+        ["C:/work/repo/e.txt f.txt"],
+        ["C:/work/repo/g.txt h.txt"],
+        ["C:/work/repo/one.txt"]]
 
 
 def test_a_powershell_variable_target_keeps_its_literal_and_only_null_writes_nothing():
