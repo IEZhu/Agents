@@ -454,6 +454,7 @@ async def test_a_resolution_only_the_installation_fallback_answers_is_unavailabl
 async def test_the_record_of_reported_workspaces_stays_bounded(bundle, tmp_path, monkeypatch):
     """Past the bound the oldest workspace is evicted and reports again (C-T3)."""
     monkeypatch.setattr(persona, "_reported_workspaces", {})
+    assert 0 < persona._MAX_REPORTED_WORKSPACES <= 1024, "the shipped bound must stay small"
     monkeypatch.setattr(persona, "_MAX_REPORTED_WORKSPACES", 2)
     for name in ("CLAUDE_PROJECT_DIR", "AGENTS_TRANSPORT"):
         monkeypatch.delenv(name, raising=False)
