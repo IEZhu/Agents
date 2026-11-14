@@ -114,8 +114,10 @@ CHAT_HISTORY_DESC = "Optional relevant earlier conversation facts, as a JSON arr
 REPO_PATH_DESC = "Optional directory within the caller workspace; defaults to the workspace."
 WORKSPACE_DESC = (
     "Absolute path of your working directory, the project this session works in. Pass it "
-    "whenever you have one. Over HTTP the registered workspace still answers; a different "
-    "path is never followed."
+    "whenever you have one. It never widens this session's grant: over HTTP the workspace "
+    "registered for the connection decides, and over stdio the path must lie inside the "
+    "client's own MCP roots. Each tool's description says what it does with a path that "
+    "grant does not cover."
 )
 
 LOG_PERSONA_DESC = (

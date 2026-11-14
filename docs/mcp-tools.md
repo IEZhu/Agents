@@ -34,10 +34,17 @@ existing daemon endpoint; dynamic aliases do not add native registrations.
 ## Repository context and turn history
 
 Pass the caller's absolute `workspace` where supported. HTTP uses the registered
-workspace header; a `workspace` argument does not rebind that connection. `describe_repo`,
-`write_repo_summary`, `run_flow` and `list_flows` (`scope=repo`) refuse an argument outside
-it with `workspace_mismatch`; `log_interaction` and `read_history` answer for the registered
-workspace and add `workspace_note`. Stdio has its own root-selection rules. See [workspace targeting](routing_flow.md).
+workspace header; a `workspace` argument does not rebind that connection. It is covered
+by the registered root or by one of the owner-registered physical checkouts beside it, so a
+session in a linked worktree of the registered repository is answered for that repository.
+`describe_repo`, `write_repo_summary`, `run_flow` and `list_flows` (`scope=repo`) refuse an
+argument outside all of them with `workspace_mismatch`; `get_flow`, `save_flow`,
+`delete_flow` and `set_flow_persona` keep answering for `builtin:` and `user:` flows and
+carry the same code and both roots when a `repo:` flow is wanted; `log_interaction` and
+`read_history` answer for the registered workspace and add `workspace_note`; the two
+activation tools report it in `repo_context`. The nine cooperation tools do follow the
+argument as the physical checkout, inside an owner-registered checkout grant. Stdio has its
+own root-selection rules. See [workspace targeting](routing_flow.md).
 
 | Tool | Purpose and boundary | Reference |
 |---|---|---|

@@ -44,11 +44,38 @@ def repositories(tmp_path, monkeypatch):
     engine_config._reset_client_repo_root_cache()
 
 
-def http_context(root, identity="workspace-a"):
-    """An MCP context for an HTTP request bound to the workspace registered for *root*."""
+def http_context(root, identity="workspace-a", grants=()):
+    """An MCP context for an HTTP request bound to the workspace registered for *root*.
+
+    ``grants`` are the owner-registered physical checkouts the middleware carries beside the
+    memory root (``cooperation_roots``), which is where a linked worktree's own path lives.
+    """
     return SimpleNamespace(request_context=SimpleNamespace(request=SimpleNamespace(
         state=SimpleNamespace(client_context=ClientContext(
-            "request", "http", workspace_id=identity, root=root)))))
+            "request", "http", workspace_id=identity, root=root,
+            cooperation_roots=tuple(grants))))))
+
+
+def linked_worktree(main, worktree, name="wt"):
+    """The on-disk shape of a linked worktree: a `.git` file pointing into the main checkout."""
+    administrative = main / ".git" / "worktrees" / name
+    administrative.mkdir(parents=True)
+    (administrative / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {administrative}\n", encoding="utf-8")
+    _seed_repo(worktree)
+    return worktree
+
+
+@pytest.fixture
+def flow_library(tmp_path, monkeypatch):
+    """One built-in flow and an empty personal library, so the flow tools can answer."""
+    install = tmp_path / "install" / "flows"
+    install.mkdir(parents=True)
+    (install / "check.md").write_text("# Check repository\n\nInspect README.md.\n", encoding="utf-8")
+    monkeypatch.setattr(server, "FlowCatalog", lambda: FlowCatalog(install))
+    monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "library"))
+    return install
 
 
 def assert_mismatch(payload, registered, requested):
@@ -265,15 +292,114 @@ async def test_the_workspace_note_leaves_the_history_it_writes_in_the_registered
     assert not (other / "history.md").exists()
 
 
+COOPERATION_TOOLS = frozenset(f"cooperation_{name}" for name in (
+    "register", "read", "apply", "send", "receive", "ack", "request_status", "request_update",
+    "wait"))
+REPOSITORY_TOOLS = frozenset({"describe_repo", "write_repo_summary", "run_flow", "list_flows"})
+FLOW_TOOLS = frozenset({"get_flow", "save_flow", "delete_flow", "set_flow_persona"})
+ACTIVATION_TOOLS = frozenset({"route_and_load", "get_agent_context"})
+HISTORY_TOOLS = frozenset({"log_interaction", "read_history"})
+WORKSPACE_TOOLS = (COOPERATION_TOOLS | REPOSITORY_TOOLS | FLOW_TOOLS | ACTIVATION_TOOLS
+                   | HISTORY_TOOLS)
+
+
 @pytest.mark.asyncio
-async def test_the_workspace_parameter_says_http_keeps_the_registered_workspace():
-    """Every tool that takes `workspace` says so in its schema, where the caller reads it (#576)."""
-    described = {}
+async def test_the_workspace_parameter_is_true_for_every_tool_that_shares_it():
+    """The shared text must hold for all of them; the consequence is each tool's own (#576).
+
+    The expected set is pinned by name: a tool that loses the parameter, or a new one that
+    takes it without saying what it does with a path outside the grant, fails here rather
+    than passing a floor.
+    """
+    descriptions, docstrings = {}, {}
     for tool in await server.mcp.list_tools():
         properties = (tool.inputSchema or {}).get("properties", {})
         if "workspace" in properties:
-            described[tool.name] = properties["workspace"]["description"]
-    assert len(described) >= 6, sorted(described)
-    for name, description in described.items():
-        assert "registered workspace" in description, name
-        assert "never followed" in description, name
+            descriptions[tool.name] = properties["workspace"]["description"]
+            docstrings[tool.name] = tool.description or ""
+    assert set(descriptions) == set(WORKSPACE_TOOLS), sorted(descriptions)
+    for name, description in descriptions.items():
+        assert "never widens" in description, name
+        assert "MCP roots" in description, name
+        # False for the nine cooperation tools, which do follow the argument inside a grant.
+        assert "never followed" not in description, name
+    for name in COOPERATION_TOOLS:
+        assert "checkout grant" in docstrings[name], name
+    for name in REPOSITORY_TOOLS | FLOW_TOOLS:
+        assert "workspace_mismatch" in docstrings[name], name
+    for name in ACTIVATION_TOOLS:
+        assert "repo_context" in docstrings[name], name
+    for name in HISTORY_TOOLS:
+        assert "workspace_note" in docstrings[name], name
+
+
+@pytest.mark.asyncio
+async def test_a_linked_worktree_of_the_registered_repository_is_answered(repositories, tmp_path,
+                                                                         flow_library):
+    """A worktree session naming its own directory is one repository, not a foreign one (#576).
+
+    The memory root is the main checkout because history normalizes a linked worktree to it,
+    and the physical checkout stays beside it as the owner-registered grant this request
+    already reads the project's instruction files from.
+    """
+    main, other, _inside = repositories
+    worktree = linked_worktree(main, tmp_path / "worktree")
+    registry = WorkspaceRegistry(tmp_path / "service")
+    identity = registry.register(main, physical_root=worktree)
+    assert engine_config._main_checkout(worktree) == main, "the normalization that causes this"
+    assert registry.cooperation_roots(identity) == (worktree,)
+    ctx = http_context(main, grants=(worktree,))
+    for named in (str(worktree), str(worktree / "src")):
+        context = await resolve_client_context(ctx, named)
+        assert context.root == main, "the grant still decides the root"
+        assert context.mismatch is None, named
+        context.require_workspace_match()
+        assert context.workspace_note() is None, named
+    described = json.loads(await server.describe_repo(ctx=ctx, workspace=str(worktree)))
+    assert described["status"] == "needs_summary" and described["repo_path"] == str(main)
+    written = json.loads(await server.write_repo_summary(
+        summary=_valid_summary(), repo_hash=described["repo_hash"],
+        repo_path=described["repo_path"], workspace_id=described["workspace_id"],
+        ctx=ctx, workspace=str(worktree)))
+    assert written["status"] == "refreshed" and written["path"] == str(main / "CLAUDE.md")
+    started = json.loads(await server.run_flow("check", ctx=ctx, workspace=str(worktree)))
+    assert started["status"] == "needs_execution" and started["repo_path"] == str(main)
+    listed = json.loads(await server.list_flows(scope="repo", ctx=ctx, workspace=str(worktree)))
+    assert listed["status"] == "success" and listed["repo"]["status"] == "available"
+    assert listed["repo"]["path"] == str(main)
+    wide = json.loads(await server.list_flows(ctx=ctx, workspace=str(worktree)))
+    assert [flow["id"] for flow in wide["flows"]] == ["check"]
+    # A repository no authorized root covers is still refused, with both roots.
+    refused = json.loads(await server.describe_repo(ctx=ctx, workspace=str(other)))
+    assert_mismatch(refused, main, other)
+
+
+@pytest.mark.asyncio
+async def test_the_four_flow_tools_keep_the_mismatch_code_and_both_roots(repositories,
+                                                                        flow_library):
+    """A repo: flow of another workspace must not flatten the refusal into one string (#576)."""
+    registered, other, _inside = repositories
+    ctx = http_context(registered)
+    calls = {
+        "get_flow": server.get_flow("repo:own", ctx=ctx, workspace=str(other)),
+        "save_flow": server.save_flow("own", "# Own\n\nSteps.\n", scope="repo", ctx=ctx,
+                                      workspace=str(other)),
+        "delete_flow": server.delete_flow("repo:own", "r1", ctx=ctx, workspace=str(other)),
+        "set_flow_persona": server.set_flow_persona("repo:own", agent="software_engineer",
+                                                    ctx=ctx, workspace=str(other)),
+    }
+    for name, call in calls.items():
+        payload = json.loads(await call)
+        assert payload["status"] == "error", name
+        assert payload["code"] == "workspace_mismatch", name
+        assert payload["registered_workspace"] == str(registered), name
+        assert payload["requested_workspace"] == str(other), name
+        assert f"migrate --workspace {other}" in payload["remedy"], name
+        # Three fail for want of the repository scope; set_flow_persona finds no flow in a
+        # library it cannot search, and says so, with the same roots and remedy beside it.
+        expected = ("flow_not_found: " if name == "set_flow_persona" else
+                    "repo_scope_unavailable: workspace_mismatch: ")
+        assert payload["error"].startswith(expected), (name, payload["error"])
+    # A built-in flow needs no repository scope, so the same call still answers.
+    answered = json.loads(await server.get_flow("check", ctx=ctx, workspace=str(other)))
+    assert answered["status"] == "success"

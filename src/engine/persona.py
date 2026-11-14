@@ -5,8 +5,10 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as replace_fields
+from pathlib import Path
 
 from src.engine import protocol_text
 from src.engine.persona_bundle import ComponentSelection, build_persona_bundle
@@ -212,18 +214,42 @@ REPO_CONTEXT_FIELD = "repo_context"
 # Statuses whose response applies or keeps an activation. ROUTE_REQUIRED is an intermediate
 # result and ERROR activated nothing, so neither carries a repository report.
 _ACTIVATED_STATUSES = ("SUCCESS", "NO_CHANGE")
-# The workspaces this process has already reported as described, each with the repository hash
-# it reported them at. A pending needs_summary is never recorded: it is reported on every
-# activation until the summary is written. A different workspace, a changed hash or a restarted process reports again.
+# What this process last reported for a workspace: the decision, the repository hash it was
+# taken at, and the paths that decision was read from with their stat marks. The record is
+# consulted BEFORE anything is hashed, because the lookup walks the tree on every SUCCESS and
+# NO_CHANGE otherwise — 4.5 ms on this repository, 420 ms on a 13,779-directory one (#459).
+# A pending needs_summary is recorded too and repeated from the record, because it must be
+# reported until the summary is written (#600) and hashing again would not change it.
 #
 # This records the reporting, not the activation: protocol 2 keeps activation state in the
 # caller's dialogue, and no block, descriptor, footer or revision depends on this mapping.
-# Losing it costs one extra report, never a missed one.
-_reported_workspaces: dict[str, str] = {}
+# Losing it costs one extra lookup, never a missed report.
+_reported_workspaces: dict[str, "_ReportRecord"] = {}
 _report_lock = threading.Lock()
 # One server process serves the few workspaces its client registered; the bound only keeps a
 # long-lived process from growing a report per path it ever resolved.
 _MAX_REPORTED_WORKSPACES = 64
+# How long a record may answer on its own. Its stat marks catch a changed top level, a
+# rewritten or deleted CLAUDE.md and a new stored hash at once; a directory created deeper
+# than they reach is picked up at the next recheck instead of on the next activation.
+_RECHECK_SECONDS = 30.0
+# What the report embeds of the stored summary. describe_repo, which a caller asks for
+# deliberately, keeps returning the stored head whole: an activation must not spend a
+# small-context caller's budget on it (a six-paragraph summary yielded 10,301 characters).
+MAX_REPORT_PREVIEW_CHARS = 800
+
+
+@dataclass(frozen=True)
+class _ReportRecord:
+    """What was reported for one workspace, and the cheap inputs it was decided from."""
+    repo_hash: str
+    described: bool
+    # The pending report to repeat verbatim; None once the workspace is described.
+    report: dict | None
+    inputs: tuple[str, ...]
+    marks: tuple[tuple[int, int] | None, ...]
+    checked_at: float
+
 
 DESCRIBED_INSTRUCTION = (
     "This repository is described: the preview above is the head of the managed Repository "
@@ -231,8 +257,12 @@ DESCRIBED_INSTRUCTION = (
     "first; call describe_repo for a subdirectory or with force_refresh.")
 UNDESCRIBED_INSTRUCTION = (
     "This repository has no current description. Call describe_repo for its context bundle and "
-    "prompt before exploring files, then write_repo_summary with the repo_hash above to persist "
-    "the overview.")
+    "prompt before exploring files, then write_repo_summary with the repo_hash and repo_path "
+    "above, and over HTTP the workspace_id above as well, to persist the overview.")
+PROTECTED_INSTRUCTION = (
+    "This repository has no current description, and a summary cannot be persisted here: "
+    "{reason} Call describe_repo for its context bundle and prompt before exploring files, "
+    "then follow the instruction it returns instead of writing a summary.")
 NO_WORKSPACE_INSTRUCTION = (
     "No workspace resolved, so nothing was described and no repository was assumed: the "
     "installation checkout is never described in a workspace's place. Start the session in the "
@@ -275,51 +305,112 @@ async def _repo_context(ctx, workspace) -> dict | None:
         return None
     try:
         client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
-        # A workspace the grant does not cover is never described in the registered one's place:
+        # A workspace no authorized root covers is never described in the registered one's place:
         # the caller gets the refusal the repository-scoped tools raise for it (#576).
         client.require_workspace_match()
         root = client.workspace_root()
+        workspace_id = client.workspace_id
     except WorkspaceMismatch as mismatch:
         return {"status": "workspace_mismatch", "error": str(mismatch), **mismatch.details()}
     except (WorkspaceError, OSError, RuntimeError) as failure:
         return {"status": "unavailable", "error": str(failure),
                 "instruction": NO_WORKSPACE_INSTRUCTION}
-    return await asyncio.to_thread(_describe_workspace, root)
+    return await asyncio.to_thread(_describe_workspace, root, workspace_id)
 
 
-def _describe_workspace(root) -> dict | None:
+def _describe_workspace(root, workspace_id=None) -> dict | None:
     """The read-only half of describe_repo for *root*, or None when it was already reported.
 
-    ``plan`` hashes the tree and reads the managed section; nothing is written, so an activation
-    never starts a repository write. The describer always receives the resolved workspace as its
-    ``repo_path``: without one it would describe the installation's own checkout, which is why an
-    unresolved workspace never reaches this function. The prompt stays with describe_repo, whose
-    instruction names it — a context bundle is budgeted at 24,000 characters.
+    The record of the last report is consulted first, and while its inputs are unchanged the
+    answer comes from it without hashing anything: only a stat of the repository root, its
+    CLAUDE.md, its stored hash and the manifests the hash reads. ``plan`` hashes the tree and
+    reads the managed section; nothing is written, so an activation never starts a repository
+    write. The describer always receives the resolved workspace as its ``repo_path``: without
+    one it would describe the installation's own checkout, which is why an unresolved workspace
+    never reaches this function. The prompt stays with describe_repo, whose instruction names
+    it — a context bundle is budgeted at 24,000 characters.
     """
     from src.memory.describer import RepoDescriber
     key = str(root)
+    with _report_lock:
+        record = _reported_workspaces.get(key)
+    if record is not None and time.monotonic() - record.checked_at < _RECHECK_SECONDS \
+            and _stat_marks(record.inputs) == record.marks:
+        # Nothing the last decision was read from has changed: answer from the record.
+        return dict(record.report) if record.report is not None else None
     describer = RepoDescriber(repo_path=key)
     decision = describer.plan()
-    with _report_lock:
-        if _reported_workspaces.get(key) == decision.current_hash:
-            return None
-    report = (
-        {"status": "needs_summary", "workspace": key, "repo_path": describer.repo_path,
-         "repo_hash": decision.current_hash, "instruction": UNDESCRIBED_INSTRUCTION}
-        if decision.needs_refresh else
-        {**describer.up_to_date_response(decision), "workspace": key,
-         "instruction": DESCRIBED_INSTRUCTION}
-    )
+    inputs = _report_inputs(describer)
+    marks = _stat_marks(inputs)
     if decision.needs_refresh:
-        # A pending needs_summary is not completed work: the summary was not written, so the
-        # next activation reports it again until it is (#459). Nothing depends on the hash
-        # staying stable here, because nothing is recorded for it.
-        return report
+        # A pending needs_summary is not completed work: the summary was not written, so every
+        # later activation carries it again until it is (#459, #600). The record repeats it
+        # instead of walking the tree for an answer that cannot have changed.
+        report = {"status": "needs_summary", "workspace": key, "repo_path": describer.repo_path,
+                  "repo_hash": decision.current_hash,
+                  "instruction": _undescribed_instruction(describer)}
+        if workspace_id:
+            # write_repo_summary refuses an HTTP call without the workspace_id its own
+            # needs_summary carries, so the instruction above is followable only with it.
+            report["workspace_id"] = workspace_id
+        _remember(key, _ReportRecord(decision.current_hash, False, report, inputs, marks,
+                                     time.monotonic()))
+        return dict(report)
+    if record is not None and record.described and record.repo_hash == decision.current_hash:
+        # Reported already, and the tree still agrees with what was reported. Keep the record
+        # fresh so the next activation stops at the stat marks again.
+        _remember(key, replace_fields(record, inputs=inputs, marks=marks,
+                                      checked_at=time.monotonic()))
+        return None
+    report = {**describer.up_to_date_response(decision, preview_chars=MAX_REPORT_PREVIEW_CHARS),
+              "workspace": key, "instruction": DESCRIBED_INSTRUCTION}
+    _remember(key, _ReportRecord(decision.current_hash, True, None, inputs, marks,
+                                 time.monotonic()))
+    return report
+
+
+def _undescribed_instruction(describer) -> str:
+    """What to do about a repository with no current description.
+
+    A workspace write_repo_summary always refuses — the running installation and its runtime
+    source — is never advised to persist one: describe_repo's own instruction says what to do
+    with the overview there instead.
+    """
+    rejection = describer.write_rejection_reason()
+    return PROTECTED_INSTRUCTION.format(reason=rejection) if rejection else UNDESCRIBED_INSTRUCTION
+
+
+def _report_inputs(describer) -> tuple[str, ...]:
+    """The paths the decision for a workspace was read from, in a fixed order.
+
+    The repository root covers its top-level entries, which is what the hash reads there;
+    CLAUDE.md carries the managed section and the manifests and README head are hashed by
+    content. A directory created below the root's own entries is not visible here and waits
+    for the recheck.
+    """
+    from src.memory.describer import _KEY_MANIFEST_FILES
+    repo = Path(describer.repo_path)
+    return (describer.repo_path, describer.claude_md_path, describer.hash_file,
+            *(str(repo / name) for name in (*_KEY_MANIFEST_FILES, "README.md")))
+
+
+def _stat_marks(paths) -> tuple:
+    """A stat mark per path; None for one that does not exist, so its appearance shows."""
+    marks = []
+    for path in paths:
+        try:
+            status = os.stat(path)
+            marks.append((status.st_mtime_ns, status.st_size))
+        except OSError:
+            marks.append(None)
+    return tuple(marks)
+
+
+def _remember(key: str, record: "_ReportRecord") -> None:
     with _report_lock:
-        _reported_workspaces[key] = decision.current_hash
+        _reported_workspaces[key] = record
         while len(_reported_workspaces) > _MAX_REPORTED_WORKSPACES:
             _reported_workspaces.pop(next(iter(_reported_workspaces)))
-    return report
 
 
 async def load_persona(

@@ -179,10 +179,12 @@ class ClientContext:
     # records it with the turn and nothing is written there (#292).
     claimed: str | None = None
     # Explicit physical grants retained before history normalizes linked worktrees.
-    # Only cooperation uses these; workspace_target continues to enforce root.
+    # Cooperation resolves a checkout in them, and `_ignored_workspace` accepts one as
+    # covering a named workspace; `workspace_target` continues to enforce root alone.
     cooperation_roots: tuple[Path, ...] = ()
-    # The `workspace` a call named that `root` does not cover (#576). Recorded, never
-    # followed: tools that answer about a repository refuse, history tools note it.
+    # The `workspace` a call named that no authorized root of this session covers (#576).
+    # Recorded, never followed: tools that answer about a repository refuse, history tools
+    # note it. A linked worktree of the registered repository is covered by its grant.
     mismatch: str | None = None
 
     def workspace_root(self):
@@ -316,18 +318,33 @@ async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fall
 
 
 def _ignored_workspace(context, workspace):
-    """The repository a call named that the registered root does not cover, else None (#576).
+    """The repository a call named that no authorized root covers, else None (#576).
+
+    An authorized root is the registered memory root or one of the owner-registered physical
+    checkouts beside it. Both are needed because history normalizes a linked worktree to its
+    main checkout (`config._main_checkout`): the memory root of a worktree session is the main
+    checkout, while the directory the session actually runs in is kept as a grant, which this
+    same request already reads the project's instruction files from. A worktree session naming
+    its own working directory, as the parameter asks it to, therefore names one repository and
+    not another one; only a path outside every authorized root is recorded.
 
     Only HTTP keeps a registered root against the argument; a stdio workspace is checked
     against the client's own MCP roots above and answered as named, so it never mismatches.
     """
     if context.transport != "http" or workspace is None or context.error is not None or context.root is None:
         return None
-    return None if _covers(context.root, workspace) else workspace
+    authorized = (context.root, *context.cooperation_roots)
+    return None if any(_covers(root, workspace) for root in authorized) else workspace
 
 
 def _covers(root, requested):
-    """True when *requested* names *root* itself or a directory inside it."""
+    """True when *requested* names *root* itself or a directory inside it.
+
+    *root* is compared unresolved on purpose: every root reaching this point is already
+    strictly resolved — `WorkspaceRegistry.resolve` accepts a record only when the stored
+    string equals its own `resolve(strict=True)`, and `_existing_checkouts` holds a grant to
+    the same equality — so resolving it again could only differ if that invariant broke.
+    """
     try:
         target = Path(requested).expanduser()
         if not target.is_absolute():
