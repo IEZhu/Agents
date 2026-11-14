@@ -1337,6 +1337,23 @@ def test_a_windows_scratchpad_write_reaches_the_scratchpad_paths():
     assert inv["shell_writes"] == []
 
 
+def test_a_quoted_scratchpad_path_with_a_space_is_still_reported():
+    """A scratchpad write leaves `shell_writes` for `scratchpad_paths`, and the whole path has to
+    arrive there. The token scan that fills that field splits the command at blanks and quotes, so
+    it only ever saw `…/scratchpad/my`; dropping the parsed target as well left the write with no
+    trace of it in the report at all. Both shells record the target they parsed."""
+    posix = thread_inventory.inventory(bash(f"echo done > '{SCRATCH}/my notes.md'", "sp3"))
+    assert f"{SCRATCH}/my notes.md" in posix["scratchpad_paths"]
+    assert posix["shell_writes"] == []
+    windows = thread_inventory.inventory(powershell(
+        f"Set-Content -Path '{WIN_SCRATCH}\\my notes.md' -Value done", "sp4"))
+    assert f"{WIN_SCRATCH_POSIX}/my notes.md" in windows["scratchpad_paths"]
+    assert windows["shell_writes"] == []
+    outside = thread_inventory.inventory(bash("echo done > '/work/repo/my notes.md'", "sp5"))
+    assert outside["scratchpad_paths"] == []  # a path outside the scratchpad stays a shell write
+    assert [w["files"] for w in outside["shell_writes"]] == [["/work/repo/my notes.md"]]
+
+
 def test_a_windows_edit_path_has_one_spelling_and_names_its_directory():
     """The same file written by an edit tool and by the shell is one entry of files_written."""
     inv = thread_inventory.inventory([

@@ -1096,9 +1096,17 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
         targets = _powershell_writes(segment, tokens) if powershell else _written_files(segment, tokens)
-        written = [_resolve(target, run_dir) or target for target in targets]
-        written = [path for path in dict.fromkeys(written)
-                   if not SCRATCHPAD_PATH.search(path)]  # listed in `scratchpad_paths` already
+        kept = []
+        for path in dict.fromkeys(_resolve(target, run_dir) or target for target in targets):
+            if not SCRATCHPAD_PATH.search(path):
+                kept.append(path)
+            else:
+                # A session-local write belongs to `scratchpad_paths` rather than `shell_writes`, and
+                # it is recorded here from the parsed target: the token scan below reads the command
+                # as blanks-separated words, so a quoted path with a space reaches it cut at that
+                # space. Dropping the target would lose the write with no trace of it anywhere.
+                sink["scratch"].setdefault(path, ts)
+        written = kept
         for path in written:
             parent = _parent_directory(path)
             if parent:
