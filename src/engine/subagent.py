@@ -238,13 +238,22 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
                                      if request.artifact_manifest is not None else str(uuid.uuid4()))
         mandatory_context, _, _ = _assemble(request, task_id, body, rules, [], schema, execution)
         if len(mandatory_context) > request.max_context_chars:
+            # Both causes raise here, and only one of them has an artifact for an answer:
+            # mandatory role, rule and schema text cannot be published away, and a manifest
+            # adds its own mandatory instructions. Dropping the supplied context is the test
+            # that separates them, so the error says which case the caller is in.
+            supplied = sum(len(entry) for entry in request.context)
+            if len(mandatory_context) - supplied <= request.max_context_chars:
+                remedy = (f"Your context is {supplied} of that and the rest fits: publish it with "
+                          "artifact_publish, pin with artifact_manifest_create, pass "
+                          "artifact_manifest.")
+            else:
+                remedy = (f"Only {supplied} of that is your context, so role, rules and schema do "
+                          "not fit alone: shorten them or raise max_context_chars; an artifact "
+                          "cannot shrink mandatory text.")
             raise ContractError("context_budget_exceeded",
                                 f"Mandatory context needs {len(mandatory_context)} characters; "
-                                f"budget is {request.max_context_chars}. Raising the budget is "
-                                "not the first answer: publish the large input with "
-                                "artifact_publish, pin it with artifact_manifest_create and pass "
-                                "that manifest as artifact_manifest, so the worker reads it "
-                                "instead of carrying it.")
+                                f"budget is {request.max_context_chars}. {remedy}")
         while True:
             context, contract, descriptor = _assemble(request, task_id, body, rules, components, schema,
                                                       execution)

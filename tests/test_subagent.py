@@ -230,14 +230,33 @@ def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
     assert all(name + " instructions" in result.worker_context for name in subagent.WORKER_RULE_IDS)
 
 
-def test_the_budget_error_points_at_artifacts_rather_than_a_bigger_budget(worker_tree):
-    """The caller meets this error exactly where an artifact is the answer, so it says so."""
-    response = prepare_subagent(request(max_context_chars=2000))
-    assert "context_budget_exceeded" in codes(response)
-    message = " ".join(error.message for error in response.errors)
+def test_the_budget_error_names_the_remedy_that_fits_its_cause(worker_tree):
+    """Two causes raise one code, and only one of them has an artifact for an answer.
+
+    Review found the first version of this advice unconditional: it offered the
+    artifact path even where the mandatory role, rule and schema text was what
+    overflowed, which publishing cannot shrink and a manifest only enlarges. The
+    error now applies the test that separates the two -- would the package fit
+    without the context the caller supplied -- and says so either way, inside the
+    240 characters a diagnostic keeps.
+    """
+    def message_of(response):
+        assert "context_budget_exceeded" in codes(response)
+        text = " ".join(error.message for error in response.errors)
+        assert len(text) <= 240, len(text)
+        assert text.endswith("."), text[-40:]
+        return text
+
+    mandatory_only = message_of(prepare_subagent(request(max_context_chars=2000)))
+    assert "do not fit alone" in mandatory_only
+    assert "raise max_context_chars" in mandatory_only
+    assert "cannot shrink mandatory text" in mandatory_only
+    assert "artifact_publish" not in mandatory_only
+
+    supplied = message_of(prepare_subagent(request(max_context_chars=8000, context=["x" * 3500] * 3)))
+    assert "the rest fits" in supplied
     for call in ("artifact_publish", "artifact_manifest_create", "artifact_manifest"):
-        assert call in message, call
-    assert "characters" in message and "2000" in message
+        assert call in supplied, call
 
 
 def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
