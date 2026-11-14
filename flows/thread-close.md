@@ -76,6 +76,7 @@ thread only from the transcript and the live state, and its report must say so.
       workflow agents and marks their items with `by`.
     - Its `prompts` list contains timestamps only, without user message text or
       previews; use the sanitized primary-evidence procedure above when text is needed.
+      A prompt the user sent while a turn was running carries `"queued": true`.
   - **Finding the helper from another repository.** Derive `AGENTS_CORE_ROOT` as
     the [pr-review helpers](pr-review.md#optional-github-helpers-from-the-agents-core-installation)
     describe:
@@ -250,10 +251,18 @@ subagent or user), and what the thread claimed about it. Cover:
   - Decisions with their reasons, and options rejected and why.
   - Preferences the user stated.
   - Lessons from mistakes; open questions.
-- **Memory** written during the thread: files and what changed (`memory_writes`).
+- **Memory** written during the thread: files and what changed. `memory_writes`
+  lists only the writes an edit tool made, which the helper observed.
+  `memory_files_detected` lists memory files whose modification time falls inside
+  the session, such as a file a script wrote; it is a lower bound found by
+  modification time, not an observed tool call, and can include another session's
+  file. Read `memory_scan_notes` for a memory directory that was missing or
+  unreadable.
 - **External systems** the thread wrote to: trackers, chat, published pages,
   remote triggers. Use `external_writes`. Also inspect `unclassified_tools`:
-  these are MCP calls whose names did not say whether they write. Likewise,
+  these are MCP calls whose names did not say whether they write. The tools of
+  the host's own `mcp__ccd_` servers act on the client, not on an external system,
+  and are counted apart in `client_local_calls`. Likewise,
   `unclassified_commands` lists git and gh commands the helper could not
   classify as reads or writes.
 - **Scheduled work**: wake-ups and cron jobs, from `scheduled`.
