@@ -104,6 +104,7 @@ from tests.test_content_checks_workflow import (  # the #632 harness, not a seco
     recorded_step,
     refused_invocations,
     run_default,
+    selects_the_file,
     skip_reasons,
     step_environment,
     tracked_names,
@@ -611,8 +612,15 @@ def not_credited_here(script: str, path: str) -> list[str]:
     where it has to: no written command names the path at all, which is every
     one of the eight bypasses #632 recorded, where only executing the step
     finds the command.
+
+    Which arguments count as being about the path is this guard's own answer
+    and not the other module's: what it replays is handed to a real pytest,
+    which collects a directory. `selects_the_file` is that reading, and without
+    it `pytest tests || true` was refused by neither guard -- the filename
+    matcher did not see the directory, so this returned nothing, and the
+    recorder then confirmed the file ran.
     """
-    return refused_invocations(script, path)
+    return refused_invocations(script, path, selects=selects_the_file)
 
 
 def invocation(path: str, documents: dict) -> Invocation:
@@ -1064,6 +1072,12 @@ def test_a_run_the_shared_rule_will_not_credit_is_not_a_host():
                     # The `||` applies to the pipeline, not to `cat`, so the
                     # pytest command is refused under either shell template.
                     f"pytest {wanted} | cat || true",
+                    # The selector a real pytest accepts and a filename matcher
+                    # does not: the replay reports the file as run, and the
+                    # step hands the failure to `true`, so this was refused by
+                    # neither guard.
+                    "pytest tests || true",
+                    "pytest . || true",
                     # And the mixed script, where this used to leave the
                     # recorder deciding alone: the foreground line is never
                     # reached and the log holds the backgrounded one.
@@ -1090,6 +1104,16 @@ def test_a_run_the_shared_rule_will_not_credit_is_not_a_host():
     hidden = f'eval "pytest {wanted}"'
     assert not_credited_here(hidden, wanted) == [], (
         "a command this reader cannot see must leave the recorder deciding")
+    # A directory selector is a selector here and not in the other module,
+    # which is the one reading the two guards do not share.
+    assert not_credited_here("pytest tests || true", wanted) == [
+        "`pytest tests` is one side of a `||` list, so whether it starts and "
+        "whose failure the step reports are the shell's"]
+    assert refused_invocations("pytest tests || true", wanted) == [], (
+        "the filename reading is what this module credits, and a bare "
+        "directory is not a name for the file")
+    # And a directory that does not hold the file is not a selector for it.
+    assert not_credited_here("pytest scripts || true", wanted) == []
 
 
 @EXECUTES_STEPS

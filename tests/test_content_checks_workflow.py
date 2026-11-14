@@ -514,6 +514,33 @@ def names_the_file(path, test_file, literal=False):
             and fnmatch.fnmatch(test_file, cleaned))
 
 
+def selects_the_file(path, test_file, literal=False):
+    """True when this pytest argument could collect that file, a directory too.
+
+    The other reading of the same arguments, for the guard that replays a
+    recorded argv instead of crediting a name. Being *named* is what makes
+    dropping a file visible, so `names_the_file` above requires the name and
+    this module credits nothing else -- while `tests/test_project_manifests.py`
+    hands the argv to a real pytest, and a real pytest collects `tests` as
+    readily as `tests/test_install_setup_options.py`.
+
+    So a selector that guard accepts has to reach the refusal set under the
+    same rule, or a shape is refused by neither reader: `pytest tests || true`
+    hands its failure to `true`, the filename matcher does not see the
+    directory, and the replay reports the file as run (CodeRabbit on PR 662).
+    A `.` and a `./` are the whole tree, which holds every file in it.
+    """
+    if names_the_file(path, test_file, literal):
+        return True
+    cleaned = path if literal else unquoted(path)
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    directory = cleaned.rstrip("/")
+    if directory in ("", "."):
+        return True
+    return test_file.startswith(f"{directory}/")
+
+
 def normalised_option(token):
     """An option's spelling without its dashes.
 
@@ -585,7 +612,7 @@ def unreadable_positionals(args):
                    and normalised_option(arg) in POSITIONALS_ARE_NOT_PATHS})
 
 
-def reading_of(argv, test_file, literal=False):
+def reading_of(argv, test_file, literal=False, selects=names_the_file):
     """What this reader can say about this argv over this file.
 
     Three answers, as `(verdict, options)`. `RUNS` when the argv is a pytest run
@@ -604,7 +631,7 @@ def reading_of(argv, test_file, literal=False):
     args = None if argv is None else pytest_arguments(argv)
     if args is None:
         return None, ()
-    if not any(names_the_file(path, test_file, literal)
+    if not any(selects(path, test_file, literal)
                for path in pytest_paths(args)):
         return None, ()
     if suppresses_the_run(args):
@@ -643,7 +670,7 @@ def runs_the_file(argv, test_file, literal=False):
 Reading = namedtuple("Reading", "credited unclassified")
 
 
-def read_invocations(script, test_file):
+def read_invocations(script, test_file, selects=names_the_file):
     """This script's written pytest runs of the file: credited, or named instead.
 
     The conservative rule, read in one place for the two readers below and for
@@ -655,7 +682,8 @@ def read_invocations(script, test_file):
     """
     credited, unclassified = [], []
     for fragment in script_fragments(script):
-        verdict, options = reading_of(fragment.command.split(), test_file)
+        verdict, options = reading_of(
+            fragment.command.split(), test_file, selects=selects)
         if verdict is None:
             continue
         if verdict == UNREADABLE:
@@ -684,7 +712,7 @@ def runs_as_pytest_argument(script, test_file):
     return bool(read_invocations(script, test_file).credited)
 
 
-def refused_invocations(script, test_file):
+def refused_invocations(script, test_file, selects=names_the_file):
     """This script's written runs of the file that are not credited, with why.
 
     The other half of the same reading, which the recorder needs: not "is there
@@ -715,8 +743,13 @@ def refused_invocations(script, test_file):
     longer spells the argument the step wrote. That inference is the one the
     recorder exists to replace. The step that pays for it is the step that
     writes one of these shapes at all, which no committed workflow here does.
+
+    `selects` is which arguments count as being about the file, and the one
+    thing the two guards do not share: this module credits a name and the
+    manifests guard replays whatever a real pytest would collect, so it passes
+    `selects_the_file`. The rule applied to them is the same rule.
     """
-    return read_invocations(script, test_file).unclassified
+    return read_invocations(script, test_file, selects).unclassified
 
 
 def run_steps(workflow):
