@@ -387,7 +387,7 @@ def unbounded_options(arguments) -> list[str]:
     return sorted(set(found))
 
 
-def outside_the_stub_tree(arguments, tree) -> list[str]:
+def outside_the_stub_tree(arguments, tree, directory=None) -> list[str]:
     """Every argument of this argv that spells a path the stub tree does not hold.
 
     A path is what an inner run can reach, and the argv is a workflow's own
@@ -397,15 +397,21 @@ def outside_the_stub_tree(arguments, tree) -> list[str]:
     absolute path, a `..` that climbs out and a symlink are one question; a
     value that is no path at all, such as the `short` of `--tb=short`, names
     something inside the tree and is left alone.
+
+    A relative path is resolved from the directory the step ran in, which is
+    where the shell resolved it, while staying inside the tree is still asked
+    of the tree's own root: the step's directory moves where a path starts, not
+    how far out of the tree it may reach.
     """
     root = tree.resolve()
+    base = root if directory is None else (root / directory).resolve()
     found = []
     for argument in arguments:
         spelled = argument.partition("=")[2] if argument.startswith("-") else argument
         spelled = spelled.partition("::")[0]
         if not spelled:
             continue
-        if not (root / spelled).resolve().is_relative_to(root):
+        if not (base / spelled).resolve().is_relative_to(root):
             found.append(argument)
     return sorted(set(found))
 
@@ -446,7 +452,7 @@ def inner_environment(tree) -> dict:
 
 
 @lru_cache(maxsize=None)
-def executed_files(arguments, stubs) -> Executed:
+def executed_files(arguments, stubs, directory=None) -> Executed:
     """Which of these files the real pytest executes a test in, given this argv.
 
     pytest is the one asked. Each file is written with a single test that records
@@ -482,6 +488,15 @@ def executed_files(arguments, stubs) -> Executed:
     would turn "could not ask" into "no", which is the distinction #632 insisted
     on. Which exit codes answer is the list above, not the one number a usage
     error happens to carry in this release.
+
+    `directory` is the step's `working-directory`, because a relative argument
+    means what the shell made of it: a step running `pytest x.py` in `tests`
+    records `x.py`, which from the tree's root is a path no checkout holds --
+    pytest answered the usage error, this guard reported a measurement it could
+    not make, and the workflow ran the file perfectly well. The replay stands
+    where the step stood. A directory that is not one inside the tree is the
+    third answer rather than a run from somewhere else; that is this reader's
+    own bound and not a claim about where the step executor may be sent.
     """
     selecting = selects_a_subset(arguments)
     if selecting:
@@ -500,7 +515,12 @@ def executed_files(arguments, stubs) -> Executed:
     tree, problem = stub_tree()
     if problem:
         return Executed(frozenset(), problem)
-    outside = outside_the_stub_tree(arguments, tree)
+    working = tree if directory is None else tree / directory
+    if not (working.resolve().is_relative_to(tree.resolve()) and working.is_dir()):
+        return Executed(frozenset(), (
+            f"`working-directory: {directory}` is not a directory inside the tree "
+            "this guard gives pytest, so the recorded argv is not replayed"))
+    outside = outside_the_stub_tree(arguments, tree, directory)
     if outside:
         return Executed(frozenset(), (
             "`" + " ".join(arguments) + "` names "
@@ -517,7 +537,7 @@ def executed_files(arguments, stubs) -> Executed:
     try:
         finished = subprocess.run(
             [sys.executable, "-m", "pytest", *arguments],
-            cwd=tree, env=inner_environment(tree),
+            cwd=working, env=inner_environment(tree),
             capture_output=True, text=True, timeout=PYTEST_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
@@ -602,6 +622,7 @@ def invocation(path: str, documents: dict) -> Invocation:
                     + ", ".join(skipped))
                 continue
             shell = effective_shell(document, job, step)[0]
+            directory = run_default(document, job, step, "working-directory")[0]
             swallowed = cannot_redden_the_step(step["run"], path, shell)
             if swallowed:
                 # An answer, not a measurement nobody made: the step runs the
@@ -617,7 +638,7 @@ def invocation(path: str, documents: dict) -> Invocation:
                 step["run"],
                 shell,
                 tuple(sorted(step_environment(document, job, step).items())),
-                run_default(document, job, step, "working-directory")[0],
+                directory,
             )
             if run.problem:
                 where = f"{name} ({job_name}): {run.problem}"
@@ -633,7 +654,7 @@ def invocation(path: str, documents: dict) -> Invocation:
                 if arguments is None:
                     continue               # pip, or an interpreter running something else
                 answer = executed_files(
-                    tuple(arguments), RECORDED_FILES | frozenset({path}))
+                    tuple(arguments), RECORDED_FILES | frozenset({path}), directory)
                 if answer.problem:
                     unmeasured.append(f"{name} ({job_name}): {answer.problem}")
                     continue
@@ -1179,6 +1200,34 @@ def test_an_argv_that_reaches_outside_the_stub_tree_is_never_handed_to_pytest(tm
     measured = executed_files((wanted, "-q", "-p", "no:cacheprovider"), stubs)
     assert measured.problem is None, measured.problem
     assert wanted in measured.files, sorted(measured.files)
+
+
+@EXECUTES_STEPS
+def test_a_recorded_argument_is_replayed_from_the_working_directory_it_was_made_in():
+    """A relative path means what the shell made of it, and this replayed it elsewhere.
+
+    The step executor already runs a step in its `working-directory`, so a step
+    running `pytest test_install_setup_options.py` in `tests` records exactly
+    that argument. Handing it to pytest in the tree's root makes it a path no
+    checkout holds: pytest answers with its usage error, this guard reports a
+    measurement it could not make, and the workflow runs the file perfectly
+    well. The replay stands where the step stood.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    document = {"jobs": {"tests": {"steps": [
+        {"run": f"pytest {Path(wanted).name}", "working-directory": "tests"}]}}}
+    run = invocation(wanted, {"w.yml": document})
+    assert run.hosts == ["w.yml"], (run.hosts, run.problems, run.refusals)
+    # The same argument without the directory is the path that is not there,
+    # or the case above is not about the directory at all.
+    assert invocation(wanted, {"w.yml": step(f"pytest {Path(wanted).name}")}).hosts == []
+    # And the replay's own bound: a directory that is not one inside the tree is
+    # the third answer rather than a run from somewhere else. This is the
+    # reader's bound and says nothing about where the step executor may be sent.
+    for elsewhere in ("../..", "no/such/directory"):
+        answer = executed_files((Path(wanted).name,), RECORDED_FILES, elsewhere)
+        assert answer.files == frozenset(), elsewhere
+        assert answer.problem and "working-directory" in answer.problem, elsewhere
 
 
 @EXECUTES_STEPS
