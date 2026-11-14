@@ -239,7 +239,8 @@ def render_result_format(contract: dict) -> str:
         *_payload_template(payload),
         "",
         "## checks",
-        "- <passed|failed|not_run>: <check you ran; one that failed before your change is evidence>[^e1]",
+        "- <passed|failed|not_run>: <check you ran, as it stands after your change; a run that "
+        "failed before it is evidence, not a failed check>[^e1]",
         "",
         "## evidence",
         f"[^e1]: <command, path:line or URL>{WRITE_SEPARATOR.spelling}<what it showed>",

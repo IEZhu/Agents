@@ -619,7 +619,11 @@ def test_a_rendered_package_states_the_first_lines_and_the_list_limit_once(worke
     assert "a character above it discards a result read from the reply text" in rendered
     assert "write any record" not in rendered
     assert rendered.count("100 of any other list") == 1 and "No list may hold" not in rendered
-    assert "excluded work" in rendered and "failed before your change is evidence" in rendered
+    assert "excluded work" in rendered
+    # A check reports the outcome now: a run that was red before the change belongs in
+    # evidence, because `failed` here is counted and escalates an otherwise completed result.
+    assert "evidence, not a failed check" in rendered
+    assert "failed before your change is evidence" not in rendered
     # The mandatory floor every package pays: 2627 as rendered here, against 2390 before the
     # wording was added and 2976 when it was appended as four sentences instead of folded.
     assert len(rendered) <= 2700, len(rendered)
