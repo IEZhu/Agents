@@ -83,7 +83,8 @@ import yaml
 from tests.test_content_checks_workflow import (  # the #632 harness, not a second one
     EXECUTES_STEPS,
     effective_shell,
-    pytest_invocation,
+    pytest_arguments,
+    recorded_argv,
     recorded_step,
     run_default,
     skip_reasons,
@@ -572,7 +573,11 @@ def invocation(path: str, documents: dict) -> Invocation:
                 continue
             ran, answered, unmeasured = False, 0, []
             for command in run.commands:
-                arguments = pytest_invocation(command)
+                # The recorded line holds one shell-quoted word per argument, so
+                # the argv pytest is handed below is the argv the step's own
+                # program was handed -- not a space-joined line re-split here.
+                argv = recorded_argv(command)
+                arguments = None if argv is None else pytest_arguments(argv)
                 if arguments is None:
                     continue               # pip, or an interpreter running something else
                 answer = executed_files(

@@ -284,7 +284,18 @@ def command_word(command):
 
 
 def pytest_invocation(command):
-    """pytest's own arguments when this command runs pytest, otherwise None.
+    """pytest's own arguments when this written command runs pytest, else None.
+
+    Whitespace is the only split a script's text gets, which is the modelling
+    this module states rather than a parse of the shell. A recorded line is the
+    other caller and knows its own boundaries: `recorded_argv` gives it the
+    argv, and `pytest_arguments` is what both of them ask.
+    """
+    return pytest_arguments(command.split())
+
+
+def pytest_arguments(tokens):
+    """pytest's own arguments when this argv runs pytest, otherwise None.
 
     The command position decides it. Three prefixes are stepped over first,
     because all three are how pytest is really invoked here and refusing them
@@ -295,7 +306,6 @@ def pytest_invocation(command):
     names pytest. `python -m pip install pytest` fails on that `-m`, which is
     the one other place these workflows write the word.
     """
-    tokens = command.split()
     index = command_position(tokens)
     if index >= len(tokens):
         return None
@@ -477,27 +487,38 @@ def pipefail_in_effect(shell):
     return any("pipefail" in word for word in template)
 
 
-def runs_as_pytest_argument(commands, test_file, pipefail=False):
-    """True when some command runs pytest over this file as its own argument.
+def runs_the_file(argv, test_file):
+    """True when this argv is a pytest run of that file, by its own arguments.
 
     Calling pytest is not running its tests: `--collect-only` and its relatives
     parse the file and execute nothing, and a whole-file `--deselect` names it
     in order to drop it. Neither is evidence, however plainly the path is spelt.
-    Nor is a command the shell backgrounds, whose failure the step survives, nor
-    one on the left of a pipe unless the step's own shell sets pipefail: both
-    run, and neither can redden the step. `pipefail` is a keyword because the
-    default is the template the committed steps get, and a caller that knows the
-    step's shell has to say so.
+    One reader for a written command and for a recorded one, so the two cannot
+    answer differently about the same arguments; what differs is where the argv
+    came from, and an argv `recorded_argv` could not read is no argv at all.
+    """
+    args = None if argv is None else pytest_arguments(argv)
+    if args is None:
+        return False
+    if suppresses_the_run(args) or deselects_the_file(args, test_file):
+        return False
+    return any(names_the_file(path, test_file) for path in pytest_paths(args))
+
+
+def runs_as_pytest_argument(commands, test_file, pipefail=False):
+    """True when some written command runs pytest over this file as its argument.
+
+    Beyond what `runs_the_file` reads, two commands run and still prove
+    nothing: one the shell backgrounds, whose failure the step survives, and
+    one on the left of a pipe unless the step's own shell sets pipefail.
+    Neither can redden the step. `pipefail` is a keyword because the default is
+    the template the committed steps get, and a caller that knows the step's
+    shell has to say so.
     """
     for command in commands:
         if backgrounded(command) or (piped(command) and not pipefail):
             continue
-        args = pytest_invocation(without_separator(command))
-        if args is None:
-            continue
-        if suppresses_the_run(args) or deselects_the_file(args, test_file):
-            continue
-        if any(names_the_file(path, test_file) for path in pytest_paths(args)):
+        if runs_the_file(without_separator(command).split(), test_file):
             return True
     return False
 
@@ -871,9 +892,38 @@ ARGV_SHIM = (
     "# count accounts for.\n"
     "log={log}\n"
     "calls={calls}\n"
+    "# One shell-quoted word per argument, because a space-joined line loses the\n"
+    "# argument boundaries: `pytest 'a.py b.py'` hands pytest one path that no\n"
+    "# tree holds and was recorded as the two paths `a.py b.py`, which read back\n"
+    "# as a run of both. A word of safe characters is written as it stands, so an\n"
+    "# ordinary command is recorded as it was typed; anything else is single\n"
+    "# quoted with its own quotes spliced the way `shlex.quote` splices them,\n"
+    "# which is what `shlex.split` reads back exactly. Measured round-tripping\n"
+    "# under sh, dash, bash and zsh, including an embedded quote, an empty\n"
+    "# argument, a backslash and a tab. A newline inside an argument is the one\n"
+    "# shape this format cannot carry: it ends the record, and the count below\n"
+    "# then reports the log instead of letting it read as evidence.\n"
+    "quote() {{\n"
+    "  case ${{1:-}} in\n"
+    "    '') printf \"''\" ;;\n"
+    "    *[!A-Za-z0-9_@%+=:,./-]*)\n"
+    "      rest=$1\n"
+    "      printf \"'\"\n"
+    "      while :; do\n"
+    "        case $rest in\n"
+    "          *\\'*) printf \"%s'\\\"'\\\"'\" \"${{rest%%\\'*}}\";"
+    " rest=${{rest#*\\'}} ;;\n"
+    "          *) break ;;\n"
+    "        esac\n"
+    "      done\n"
+    "      printf \"%s'\" \"$rest\"\n"
+    "      ;;\n"
+    "    *) printf '%s' \"$1\" ;;\n"
+    "  esac\n"
+    "}}\n"
     "printf '.' >> \"$calls\"\n"
-    "{{ printf '%s' \"${{0##*/}}\"\n"
-    "  for argument in \"$@\"; do printf ' %s' \"$argument\"; done\n"
+    "{{ quote \"${{0##*/}}\"\n"
+    "  for argument in \"$@\"; do printf ' '; quote \"$argument\"; done\n"
     "  printf '\\n'\n"
     "}} >> \"$log\"\n"
     "exit 0\n"
@@ -883,6 +933,22 @@ ARGV_SHIM = (
 def shim_text(log, calls):
     """The recording shim with this run's own two paths quoted into it."""
     return ARGV_SHIM.format(log=shlex.quote(str(log)), calls=shlex.quote(str(calls)))
+
+
+def recorded_argv(line):
+    """The argv a shim recorded, or None when this line is not one it wrote.
+
+    `shlex` rather than `split()`, because the line holds one shell-quoted word
+    per argument and the quoting is the whole point: `split()` reads
+    `pytest 'a.py b.py'` as two paths, which is the question the recorder was
+    asked and the answer it used to get wrong. A line this cannot parse is a
+    line no shim wrote -- every word it writes is balanced -- so it is not an
+    argv, and `None` is never evidence of a run.
+    """
+    try:
+        return shlex.split(line)
+    except ValueError:
+        return None
 
 
 def recorded(log, calls):
@@ -1406,14 +1472,15 @@ def recorded_step(script, shell, environment, working_directory):
 def recorded_pytest_runs(commands, test_file):
     """The recorded commands that really handed this file to pytest.
 
-    The static reader again, over the argv the shims saw instead of over the
-    script's text. The same refusals apply for the same reasons: a recorded
+    The same reader, over the argv the shims saw instead of over the script's
+    text. The same refusals apply for the same reasons: a recorded
     `--collect-only` collected the file and ran none of it, and a recorded
-    whole-file `--deselect` dropped it. A recorded command carries no `&`,
-    because the shell consumed it before starting anything.
+    whole-file `--deselect` dropped it. What the shell did with the command --
+    an `&`, a pipe -- is not in the argv it handed over, so it is read from the
+    script's text instead, where `runs_as_pytest_argument` is what reads it.
     """
     return [command for command in commands
-            if runs_as_pytest_argument([command], test_file)]
+            if runs_the_file(recorded_argv(command), test_file)]
 
 
 def executed_verdict(test_file, documents):
@@ -2157,6 +2224,39 @@ def test_the_recorder_sees_the_command_a_real_step_runs():
     assert run.commands == [CONTROL_COMMAND], run.output
     for test_file in CONTENT_CHECKS:
         assert recorded_pytest_runs(run.commands, test_file) == [CONTROL_COMMAND]
+
+
+@EXECUTES_STEPS
+def test_the_recording_keeps_the_argument_boundaries_the_shell_made():
+    """One quoted path is not two paths, and the log spelt them the same way.
+
+    The shim joined its argv with spaces, so `pytest 'a.py b.py'` -- one
+    argument naming a file no tree holds, which pytest answers with `file or
+    directory not found` -- was recorded as `pytest a.py b.py` and read back as
+    a run of both. Everything downstream reads that line: this module's own
+    verdict and the manifests guard, which hands the argv to a real pytest. One
+    shell-quoted word per argument now, which `shlex` reads back exactly.
+    """
+    joined = f"{SCHEDULED_BY_CALENDAR} tests/test_skill_invariants.py"
+    run = execute_step(f"python -B -m pytest '{joined}' -q\n")
+    assert run.problem is None, run.problem
+    [line] = run.commands
+    assert recorded_argv(line) == ["python", "-B", "-m", "pytest", joined, "-q"], line
+    assert recorded_pytest_runs(run.commands, SCHEDULED_BY_CALENDAR) == [], (
+        f"one quoted argument was read as two paths: {line}")
+    # The two real arguments are still a run of both, or the case above would
+    # pass by refusing everything.
+    separate = execute_step(f"python -B -m pytest {joined} -q\n")
+    assert separate.problem is None, separate.problem
+    for test_file in (SCHEDULED_BY_CALENDAR, "tests/test_skill_invariants.py"):
+        assert recorded_pytest_runs(separate.commands, test_file) == separate.commands
+    # And a word the shell kept whole survives the log however it is spelt:
+    # the quoting is only around what needs it, so an ordinary command is
+    # recorded as it was written.
+    assert separate.commands == [f"python -B -m pytest {joined} -q"]
+    quoted = execute_step("python -B -m pytest \"it's a path\" -q\n")
+    assert quoted.problem is None, quoted.problem
+    assert recorded_argv(quoted.commands[0])[4] == "it's a path", quoted.commands
 
 
 @EXECUTES_STEPS
