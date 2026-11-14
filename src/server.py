@@ -68,7 +68,7 @@ from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
-                                   WorkspaceError, HistoryStores, calling_app)
+                                   WorkspaceError, WorkspaceMismatch, HistoryStores, calling_app)
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
@@ -357,24 +357,36 @@ def _is_within(candidate: str, boundary: str) -> bool:
 
 # --- Tools ---
 
-async def _flow_library(ctx: Context | None, workspace: str | None = None) -> FlowLibrary:
-    """Built-in plus personal flows; repo: flows need the caller's workspace."""
+async def _flow_library(ctx: Context | None, workspace: str | None = None,
+                        *, repo_only: bool = False) -> FlowLibrary:
+    """Built-in plus personal flows; repo: flows need the caller's workspace.
+
+    A call naming a workspace the grant does not cover gets no repository scope (#576).
+    ``repo_only`` — the caller asked for that repository alone — raises the mismatch
+    instead, so the answer names the registered root rather than listing nothing.
+    """
     try:
         client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
+        client.require_workspace_match()
         root, error = client.workspace_root(), None
+    except WorkspaceMismatch as mismatch:
+        if repo_only:
+            raise
+        root, error = None, str(mismatch)
     except (WorkspaceError, OSError, RuntimeError) as failure:
         root, error = None, str(failure)
     return FlowLibrary(FlowCatalog(), repo_root=root, repo_error=error)
 
 
-def _workspace_error_details(inputs: dict | None) -> dict:
-    """What a workspace error adds: what the user can do about it (#292, #253) and, over stdio, the
-    PID, the inputs and, for a desktop-started server, a hint (#231)."""
-    if inputs is None:
-        return {"remedy": fallback.REMEDY}
-    details = {"remedy": fallback.REMEDY, "pid": os.getpid(), "workspace_inputs": inputs}
-    if hint := desktop_started_hint(inputs):
-        details["hint"] = hint
+def _workspace_error_details(inputs: dict | None, error: Exception | None = None) -> dict:
+    """What a workspace error adds: for a call that named another workspace, both roots and how
+    to reach the other repository (#576); otherwise what the user can do about an unresolved one
+    (#292, #253); over stdio the PID, the inputs and, for a desktop-started server, a hint (#231)."""
+    details = error.details() if isinstance(error, WorkspaceMismatch) else {"remedy": fallback.REMEDY}
+    if inputs is not None:
+        details.update({"pid": os.getpid(), "workspace_inputs": inputs})
+        if hint := desktop_started_hint(inputs):
+            details["hint"] = hint
     return details
 
 
@@ -382,7 +394,7 @@ def _flow_error(error: Exception, ctx: Context | None = None) -> str:
     payload = {"status": "error", "error": str(error)}
     # A repo: flow without a workspace fails as FlowError repo_scope_unavailable (user_flows.py).
     if isinstance(error, WorkspaceError) or str(error).startswith("repo_scope_unavailable:"):
-        payload.update(_workspace_error_details(workspace_inputs(ctx)))
+        payload.update(_workspace_error_details(workspace_inputs(ctx), error))
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -821,12 +833,14 @@ async def list_flows(
     replaced by a local copy; upstream_changed marks a copy whose built-in has
     changed since it was saved. sync_conflicts marks a flow whose versions from
     two machines library sync could not merge: tell the user. No workspace is
-    needed except for repo flows.
+    needed except for repo flows. Over HTTP the registered workspace answers: a
+    scope=repo listing for another one returns workspace_mismatch, and a wider
+    scope lists what it can with that mismatch in repo.error.
     """
     try:
-        library = await _flow_library(ctx, workspace)
+        library = await _flow_library(ctx, workspace, repo_only=scope == "repo")
         return json.dumps(await asyncio.to_thread(library.list, scope), ensure_ascii=False)
-    except (FlowError, OSError, RuntimeError) as error:
+    except (FlowError, WorkspaceError, OSError, RuntimeError) as error:
         return _flow_error(error, ctx)
 
 
@@ -924,10 +938,12 @@ async def run_flow(
     create a background task, sample a model or claim the workflow is complete.
     Returns status=error for an invalid source or unavailable caller workspace; over
     stdio a workspace error adds pid, workspace_inputs and, when the Claude desktop
-    app started this server, hint.
+    app started this server, hint. Over HTTP a workspace outside the registered root
+    returns workspace_mismatch with both roots instead of running there.
     """
     try:
         client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
+        client.require_workspace_match()
         target = client.workspace_target(repo_path)
         library = FlowLibrary(FlowCatalog(), repo_root=client.workspace_root())
         loaded = await asyncio.to_thread(library.resolve, flow)
@@ -1833,12 +1849,15 @@ async def describe_repo(
       needs_summary (refresh required; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
       error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
-        and, from a server the Claude desktop app started, hint
+        and, from a server the Claude desktop app started, hint; a workspace outside
+        the registered root adds code=workspace_mismatch, registered_workspace,
+        requested_workspace and remedy, and describes nothing
     Follow instruction before persisting. When a write is allowed, pass
     workspace_id, repo_path and repo_hash unchanged to write_repo_summary.
     """
     try:
         client = await resolve_client_context(ctx, workspace)
+        client.require_workspace_match()
         repo_path = str(client.target(repo_path))
 
         debug_log("describe_repo", "req", {
@@ -1881,8 +1900,8 @@ async def describe_repo(
         debug_log("describe_repo", "res", payload)
         return json.dumps(payload, ensure_ascii=False)
     except WorkspaceError as e:
-        # A known condition (no usable workspace): no traceback per call.
-        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx))}
+        # A known condition (no usable workspace, or one the call did not name): no traceback per call.
+        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx), e)}
         debug_log("describe_repo", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
@@ -1918,10 +1937,13 @@ async def write_repo_summary(
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
       error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
-        and, from a server the Claude desktop app started, hint
+        and, from a server the Claude desktop app started, hint; a workspace outside
+        the registered root adds code=workspace_mismatch, registered_workspace,
+        requested_workspace and remedy, and writes nothing
     """
     try:
         client = await resolve_client_context(ctx, workspace)
+        client.require_workspace_match()
         client.require_root()
         if client.transport == "http" and (workspace_id != client.workspace_id or repo_path is None):
             raise WorkspaceError("workspace_invalid: pass the original workspace_id and repo_path from describe_repo")
@@ -1940,8 +1962,8 @@ async def write_repo_summary(
         debug_log("write_repo_summary", "res", payload)
         return json.dumps(payload, ensure_ascii=False)
     except WorkspaceError as e:
-        # A known condition (no usable workspace): no traceback per call.
-        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx))}
+        # A known condition (no usable workspace, or one the call did not name): no traceback per call.
+        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx), e)}
         debug_log("write_repo_summary", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:

@@ -33,6 +33,30 @@ class WorkspaceError(ValueError):
     pass
 
 
+class WorkspaceMismatch(WorkspaceError):
+    """A call named a workspace the registered root does not cover (#576).
+
+    The grant still decides the root: an argument never widens it. A tool that answers
+    *about* a repository raises this instead of answering for the registered one, so the
+    caller learns that its argument was not followed and how to reach the other project.
+    """
+
+    def __init__(self, registered, requested):
+        self.registered, self.requested = str(registered), str(requested)
+        super().__init__(
+            f"workspace_mismatch: this session is registered for the workspace {self.registered}, "
+            f"and {self.requested} is outside it. A workspace argument never widens that grant, so "
+            f"nothing was answered for {self.requested}.")
+
+    def details(self):
+        """The fields a tool adds beside the message: both roots and the two remedies."""
+        return {"code": "workspace_mismatch", "registered_workspace": self.registered,
+                "requested_workspace": self.requested, "remedy": (
+                    f"To work on {self.requested}, register it with `python -m src.daemon migrate "
+                    f"--workspace {self.requested}` and reconnect MCP, or start a session in it. "
+                    "Until then read that repository's own CLAUDE.md or AGENTS.md instead.")}
+
+
 class WorkspaceRegistry:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -157,6 +181,9 @@ class ClientContext:
     # Explicit physical grants retained before history normalizes linked worktrees.
     # Only cooperation uses these; workspace_target continues to enforce root.
     cooperation_roots: tuple[Path, ...] = ()
+    # The `workspace` a call named that `root` does not cover (#576). Recorded, never
+    # followed: tools that answer about a repository refuse, history tools note it.
+    mismatch: str | None = None
 
     def workspace_root(self):
         if self.error or self.root is None:
@@ -169,6 +196,11 @@ class ClientContext:
             if not (self.root / relative).resolve().is_relative_to(self.root):
                 raise WorkspaceError("workspace_invalid: memory path escapes workspace")
         return self.root
+
+    def require_workspace_match(self):
+        """Refuse to answer about a repository the call named but the grant does not cover (#576)."""
+        if self.mismatch is not None:
+            raise WorkspaceMismatch(self.workspace_root(), self.mismatch)
 
     def target(self, requested=None):
         self.require_root()
@@ -267,7 +299,31 @@ async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fall
             context = replace(context, error=f"{context.error} {NO_ROOTS_HINT}")
     if (context.error is not None or context.root is None) and workspace is not None:
         context = replace(context, claimed=workspace)  # what the call names says more than the start directory
+    if (mismatch := _ignored_workspace(context, workspace)) is not None:
+        context = replace(context, mismatch=mismatch)
     return context
+
+
+def _ignored_workspace(context, workspace):
+    """The repository a call named that the registered root does not cover, else None (#576).
+
+    Only HTTP keeps a registered root against the argument; a stdio workspace is checked
+    against the client's own MCP roots above and answered as named, so it never mismatches.
+    """
+    if context.transport != "http" or workspace is None or context.error is not None or context.root is None:
+        return None
+    return None if _covers(context.root, workspace) else workspace
+
+
+def _covers(root, requested):
+    """True when *requested* names *root* itself or a directory inside it."""
+    try:
+        target = Path(requested).expanduser()
+        if not target.is_absolute():
+            target = root / target
+        return target.resolve().is_relative_to(root)
+    except (OSError, ValueError, RuntimeError):
+        return False
 
 
 async def _workspace_context(session, workspace=None):
