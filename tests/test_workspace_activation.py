@@ -272,3 +272,52 @@ async def test_a_lookup_that_failed_is_reported_again_once_it_works(bundle, work
     assert "repo_context" not in await activate()
     monkeypatch.setattr(persona, "_describe_workspace", real)
     assert (await activate())["repo_context"]["status"] == "needs_summary"
+
+
+@pytest.mark.asyncio
+async def test_an_http_session_gets_the_report_on_its_first_activation_and_not_the_second(
+        bundle, repositories, describers, monkeypatch):
+    """The tool bodies forward the request context: HTTP reads the workspace only from it."""
+    registered, _other, _inside = repositories
+    _write_summary(registered)
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    ctx = http_context(registered)
+    first = json.loads(await server.get_agent_context(
+        "software_engineer", "Fix the failing import", protocol_version=2, ctx=ctx))
+    assert first["repo_context"]["status"] == "up-to-date"
+    assert first["repo_context"]["workspace"] == str(registered)
+    second = json.loads(await server.get_agent_context(
+        "software_engineer", "Fix it again", protocol_version=2, ctx=ctx,
+        current_persona=PersonaDescriptor.model_validate(first["persona"])))
+    assert second["status"] == "NO_CHANGE" and "repo_context" not in second
+
+
+@pytest.mark.asyncio
+async def test_route_and_load_forwards_the_context_and_the_workspace(bundle, repositories,
+                                                                    monkeypatch):
+    registered, _other, _inside = repositories
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    ctx = http_context(registered)
+    forwarded = AsyncMock(return_value=json.dumps({"status": "NO_CHANGE"}))
+    monkeypatch.setattr(server, "route_persona", forwarded)
+    await server.route_and_load("Fix the failing import", protocol_version=2, ctx=ctx,
+                                workspace=str(registered))
+    assert forwarded.await_args.kwargs["ctx"] is ctx
+    assert forwarded.await_args.kwargs["workspace"] == str(registered)
+
+
+@pytest.mark.asyncio
+async def test_a_tool_call_naming_an_uncovered_workspace_gets_the_c1_refusal(
+        bundle, repositories, describers, monkeypatch):
+    registered, other, _inside = repositories
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    response = json.loads(await server.get_agent_context(
+        "software_engineer", "q", protocol_version=2, ctx=http_context(registered),
+        workspace=str(other)))
+    assert response["status"] == "SUCCESS", "the activation itself is never refused"
+    report = response["repo_context"]
+    assert report["status"] == "workspace_mismatch" and report["code"] == "workspace_mismatch"
+    assert report["registered_workspace"] == str(registered)
+    assert report["requested_workspace"] == str(other)
+    assert f"migrate --workspace {other}" in report["remedy"]
+    assert "summary_preview" not in report and describers == []

@@ -200,7 +200,7 @@ with a conversation's first activation (`current_persona` null) and with a resto
 refresh, carries a short pointer to it instead, with the same
 `instruction_revision` and the names of the rules it stands for; a client that
 lost the full text restores it (#433), and `run_flow` takes `force_reload=True`
-with `current_persona` for a flow's persona. A first activation's `SUCCESS` also
+with `current_persona` for a flow's persona. `route_and_load` and `get_agent_context` take the optional `workspace` argument and forward it with the request context, so over HTTP and in a stdio server shared by several sessions the `repo_context` of a `SUCCESS` or `NO_CHANGE` is resolved from the caller's own workspace; a `workspace` the registered grant does not cover is answered with the `workspace_mismatch` report, never described. A first activation's `SUCCESS` also
 lists in `warnings` each managed routing section that differs from the
 installation's template among the files the client loads and the server can
 resolve: for Claude Code the registered workspace's `CLAUDE.md` and

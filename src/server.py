@@ -1325,13 +1325,16 @@ async def route_and_load(
     chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
     protocol_version: Annotated[int, Field(description="Persona protocol version; always 2.")] = PROTOCOL_VERSION,
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
+    workspace: ta.unparsed_arg("string", ta.WORKSPACE_DESC) = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Route to a specialist. Call only for initial selection or a needed
     specialization change; keep the active role locally on continuations. Pass
     protocol_version=2 and current_persona. Returns separate instruction blocks.
     ROUTE_REQUIRED needs get_agent_context with the same version and descriptor.
-    Explicit known roles can be loaded directly.
+    Explicit known roles can be loaded directly. Pass workspace, your working
+    directory: a SUCCESS or NO_CHANGE carries the repository context in repo_context.
     """
     call_id = await _persona_debug_request(
         "route_and_load", query=query, chat_history=chat_history,
@@ -1344,6 +1347,7 @@ async def route_and_load(
     else:
         response = await route_persona(
             router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query,
+            ctx=ctx, workspace=workspace,
         )
     return await _persona_debug_response("route_and_load", call_id, await _with_drift_warnings(response))
 
@@ -1357,6 +1361,8 @@ async def get_agent_context(
     protocol_version: Annotated[int, Field(description="Persona protocol version; always 2.")] = PROTOCOL_VERSION,
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
     force_reload: Annotated[bool, Field(description="True to restore lost instructions of the same agent.")] = False,
+    workspace: ta.unparsed_arg("string", ta.WORKSPACE_DESC) = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Load an explicitly chosen agent or a ROUTE_REQUIRED selection.
@@ -1365,6 +1371,8 @@ async def get_agent_context(
     instructions; use refresh_persona_context to refresh the same role's skills.
     SUCCESS contains separate blocks and a descriptor; apply only when its
     replaces_activation_id matches your current activation. Preserve the dialogue.
+    Pass workspace, your working directory: a SUCCESS or NO_CHANGE carries the
+    repository context in repo_context.
     """
     call_id = await _persona_debug_request(
         "get_agent_context", agent_name=agent_name, query=query, reasoning=reasoning,
@@ -1379,6 +1387,7 @@ async def get_agent_context(
         response = await load_persona(
             router, agent_name, query, _normalize_chat_history(chat_history),
             current_persona, force_reload=force_reload, reasoning=reasoning,
+            ctx=ctx, workspace=workspace,
         )
     return await _persona_debug_response("get_agent_context", call_id, await _with_drift_warnings(response))
 
