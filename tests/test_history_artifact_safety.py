@@ -220,15 +220,23 @@ def test_an_archive_directory_swapped_before_the_replace_is_refused(journals, mo
     directory = path.parent / "history"
     directory.mkdir()
     (directory / f"{month}.md").write_text("kept", encoding="utf-8")
-    real_copy = history.shutil.copyfileobj
+    # The swap has to land after both streams close: renaming a directory that
+    # still holds the open temporary file is denied on Windows (WinError 5), and
+    # the merge reads the directory exactly twice, to validate it before the
+    # write and to re-identify it before the move. The second read is that
+    # moment, so the injection rides on it.
+    real_lstat = history.os.lstat
+    looks = []
 
-    def swap_then_copy(source, destination, *args, **kwargs):
-        if not directory.is_symlink():
-            directory.rename(path.parent / "original")
-            directory.symlink_to(elsewhere, target_is_directory=True)
-        return real_copy(source, destination, *args, **kwargs)
+    def swap_on_the_second_look(target, *args, **kwargs):
+        if os.fspath(target) == str(directory):
+            looks.append(1)
+            if len(looks) == 2:
+                directory.rename(path.parent / "original")
+                directory.symlink_to(elsewhere, target_is_directory=True)
+        return real_lstat(target, *args, **kwargs)
 
-    monkeypatch.setattr(history.shutil, "copyfileobj", swap_then_copy)
+    monkeypatch.setattr(history.os, "lstat", swap_on_the_second_look)
     with pytest.raises(PermissionError, match="archive directory changed"):
         history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
     assert list(elsewhere.iterdir()) == []
