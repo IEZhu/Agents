@@ -495,6 +495,34 @@ def test_a_structural_limit_arrives_with_the_format_errors(worker_tree):
     assert codes(response) >= {"array_too_large", "separator_required"}, response.errors
 
 
+def test_the_array_diagnostic_names_the_list_path_and_its_length(worker_tree):
+    package = prepared(result_type="implementation")
+    bullets = "\n".join(f"- src/app{index}.py — Change {index}" for index in range(101))
+    response = validate_result(package.contract.model_dump(mode="json"),
+                               text_result(package, payload=f"## changes\n{bullets}"))
+    messages = [error.message for error in response.errors if error.code == "array_too_large"]
+    assert len(messages) == 1 and "$.result.changes has 101" in messages[0], response.errors
+
+
+def test_a_rendered_package_states_the_first_lines_and_the_list_limit(worker_tree):
+    from src.engine.subagent_text import render_result_format
+
+    contract = prepared(result_type="research").contract.model_dump(mode="json")
+    rendered = render_result_format(contract)
+    assert f"line 1 is `task: {contract['task_id']}`" in rendered
+    assert "The first character you emit is the letter `t`" in rendered
+    assert "No list may hold more than 100 items" in rendered
+    assert rendered.index("No list may hold") > rendered.index("## remaining_work")
+    assert "not remaining_work" in rendered and "evidence, not a failed check" in rendered
+
+
+def test_a_rendered_package_says_an_empty_section_is_left_out(worker_tree):
+    from src.engine.subagent_text import render_result_format
+
+    rendered = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
+    assert "never fill one with a word such as 'none', 'n/a' or 'omitted'" in rendered
+
+
 def test_consecutive_stray_lines_report_one_problem(worker_tree):
     package = prepared(result_type="review")
     text = text_result(package).replace("## checks\n", "## checks\nfirst stray\nsecond stray\nthird stray\n")

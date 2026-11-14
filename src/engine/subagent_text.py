@@ -224,6 +224,10 @@ def render_result_format(contract: dict) -> str:
     return "\n".join([
         "## Result format",
         "Reply with only a plain-text result in this form: no JSON, no code fence, nothing before or after it.",
+        f"The shape of your first two lines, exactly: line 1 is `task: {contract['task_id']}`, "
+        f"line 2 is `attempt: {contract['attempt_id']}`. The first character you emit is the "
+        "letter `t` of `task`; write any record to its file first, then begin the reply at `task:`. "
+        "A character above it discards the result.",
         "```text",
         f"task: {contract['task_id']}",
         f"attempt: {contract['attempt_id']}",
@@ -252,12 +256,16 @@ def render_result_format(contract: dict) -> str:
         "## remaining_work",
         "- <unfinished work>",
         "```",
-        "Omit a section or the question line when it would be empty; keep summary and "
+        "Omit a section or the question line when it would be empty, and never fill one with a "
+        "word such as 'none', 'n/a' or 'omitted'; keep summary and "
         f"{payload}. One list item per '- ' line; indent continuation lines by two spaces. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
         f"4000 characters; at most 50 {short_lists} and 100 of any other list. "
         "completed: no remaining_work, no question. partial: remaining_work. failed: a "
-        "limitation saying why. input_required: question.",
+        "limitation saying why. input_required: question. "
+        "No list may hold more than 100 items: when you have more, group related items into one "
+        "item and keep every id. Work the assignment excludes is a limitation, not "
+        "remaining_work; a run that failed before your change is evidence, not a failed check.",
         "",
         *_separator_rules(),
         *_payload_rules(payload),

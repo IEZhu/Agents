@@ -112,7 +112,7 @@ def bounded_object(value: Any, *, max_chars: int, allow_json: bool = False) -> d
     nodes = 0
     char_count = 0
 
-    def visit(item: Any, depth: int) -> None:
+    def visit(item: Any, depth: int, path: str = "$") -> None:
         nonlocal nodes, char_count
         nodes += 1
         if nodes > MAX_JSON_NODES or depth > MAX_JSON_DEPTH:
@@ -124,12 +124,14 @@ def bounded_object(value: Any, *, max_chars: int, allow_json: bool = False) -> d
                 if type(key) is not str or len(key) > 128:
                     raise ContractError("invalid_key", "JSON keys must be strings up to 128 characters.")
                 char_count += len(key)
-                visit(child, depth + 1)
+                visit(child, depth + 1, f"{path}.{key}")
         elif type(item) is list:
             if len(item) > 100:
-                raise ContractError("array_too_large", "JSON arrays may have at most 100 items.")
-            for child in item:
-                visit(child, depth + 1)
+                raise ContractError(
+                    "array_too_large",
+                    f"JSON arrays may have at most 100 items; {path} has {len(item)}.")
+            for index, child in enumerate(item):
+                visit(child, depth + 1, f"{path}[{index}]")
         elif type(item) is str:
             char_count += len(item)
         elif item is None or type(item) in (bool, int):
