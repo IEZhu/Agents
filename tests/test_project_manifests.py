@@ -117,6 +117,11 @@ WORKFLOWS = workflow_paths(ROOT / ".github/workflows")
 INSTALLERS = sorted((ROOT / "scripts").glob("install_*.py"))
 INSTALLER_TESTS = sorted((ROOT / "tests").glob("test_install_*.py"))
 NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+# What makes a `paths:` entry a pattern rather than a literal spelling. Not a
+# translation of GitHub's glob syntax -- this module interprets none -- only the
+# question of whether there is any syntax in the entry to interpret, which is
+# what decides between reading an exclusion and reporting that it is unread.
+GLOB = re.compile(r"[*?\[\]]")
 # The files this module asks about. Every inner pytest run writes a recording
 # test into all of them at once, so one run answers for all and the answers are
 # cached by the argv alone.
@@ -266,8 +271,8 @@ def trigger_paths(document) -> set[str]:
     return {entry for entries in trigger_filters(document) for entry in entries}
 
 
-def starts_a_run(entries: list[str], path: str) -> bool:
-    """True when this event's own `paths` list really starts a run for `path`.
+def starts_a_run(entries: list[str], path: str) -> bool | None:
+    """Whether this event's own `paths` list really starts a run for `path`.
 
     Naming the path verbatim is still what counts, and the list is read in
     GitHub's order: the last entry that matches decides, so `["x.py", "!x.py"]`
@@ -275,21 +280,29 @@ def starts_a_run(entries: list[str], path: str) -> bool:
     nothing. Reading the list as a set is the one thing an ordered rule with a
     negation cannot be.
 
-    What a later exclusion of any other spelling means is a question about
-    GitHub's glob syntax, which this module answers nowhere: `!tests/**` after
-    the path cancels it at GitHub and no translation of that syntax is going to
-    be read here. So an exclusion that follows the entry drops the credit
-    whether or not it is the entry's own negation, and the remedy is the one
-    this module already gives for a glob -- name the file again after the
-    exclusion, where its order says what it means.
+    Three answers, because two of them were one. An exclusion of a literal
+    spelling is read where it stands: the path's own negation cancels it, and
+    any other literal cannot match it and leaves the credit alone -- neither
+    needs a glob syntax to settle. An exclusion holding a glob after a credited
+    entry is `None`, this reader saying it cannot tell: `!scripts/**` really
+    does cancel `scripts/install_x.py` at GitHub while `!docs/**` does not, and
+    whether one matches is a question about GitHub's syntax that this module
+    interprets nowhere. Reading every exclusion as a cancellation reported a
+    correctly wired workflow as triggering nothing (Copilot on PR 662).
+
+    The remedy for an unread list is the one a glob already gets: name the file
+    again after the exclusion, where its order says what it means, and a later
+    verbatim entry settles the list for this reader as well.
     """
-    credited = False
+    credited, unmeasured = False, False
     for entry in entries:
         if entry == path:
-            credited = True
-        elif entry.startswith("!"):
-            credited = False
-    return credited
+            credited, unmeasured = True, False
+        elif entry == f"!{path}":
+            credited, unmeasured = False, False
+        elif entry.startswith("!") and GLOB.search(entry) and credited:
+            unmeasured = True
+    return None if unmeasured else credited
 
 
 def triggered_by(path: str, documents: dict) -> list[str]:
@@ -306,9 +319,26 @@ def triggered_by(path: str, documents: dict) -> list[str]:
     glob. An entry that begins with `!` is an exclusion, and `starts_a_run`
     reads it where it stands: a path credited to its own earlier entry while a
     later line cancelled it was cover for a run GitHub never starts.
+
+    A list `starts_a_run` cannot read is not a trigger here and not evidence
+    that nothing triggers either; `unmeasured_triggers` below is what names
+    those, so an assertion that finds no trigger can say which lists it could
+    not read instead of reporting that nothing names the file.
     """
     return [name for name, document in documents.items()
-            if any(starts_a_run(entries, path)
+            if any(starts_a_run(entries, path) is True
+                   for entries in trigger_filters(document))]
+
+
+def unmeasured_triggers(path: str, documents: dict) -> list[str]:
+    """The workflows whose `paths:` list this reader cannot read for `path`.
+
+    A list with a glob exclusion after the entry: neither cover nor proof that
+    the path is excluded, because whether that glob matches is GitHub's answer
+    to give. Reported rather than decided, and named in the failure.
+    """
+    return [name for name, document in documents.items()
+            if any(starts_a_run(entries, path) is None
                    for entries in trigger_filters(document))]
 
 
@@ -781,11 +811,29 @@ def test_every_core_dependency_is_installable_from_requirements():
     # pytest-asyncio, which the package declares under its extras instead.
 
 
+def require_a_trigger(path: str, documents: dict | None = None) -> None:
+    """Fail unless some workflow's `paths:` list starts a run for this path.
+
+    A list this reader could not read is named in the failure rather than read
+    as a no: it is not cover, and it is not evidence that nothing names the
+    file either, so the message says which lists to go and look at. The
+    documents are an argument for the same reason every other reader here takes
+    them, so a constructed list can be asked what a committed one is asked.
+    """
+    documents = DOCUMENTS if documents is None else documents
+    if triggered_by(path, documents):
+        return
+    unread = unmeasured_triggers(path, documents)
+    pytest.fail(
+        f"no workflow's `paths:` names {path}; {NAME_IT}"
+        + (f". These lists hold an exclusion this guard does not read, so they "
+           f"are neither cover nor proof that nothing names it: {unread}"
+           if unread else ""))
+
+
 def test_this_guard_is_itself_a_workflow_trigger():
     """A change to it has to start something; reading that needs no execution."""
-    wanted = f"tests/{Path(__file__).name}"
-    assert triggered_by(wanted, DOCUMENTS), (
-        f"no workflow's `paths:` names {wanted}; {NAME_IT}")
+    require_a_trigger(f"tests/{Path(__file__).name}")
 
 
 @EXECUTES_STEPS
@@ -811,9 +859,7 @@ def test_this_guard_is_itself_run_by_the_workflow_its_change_triggers():
 @pytest.mark.parametrize("installer", INSTALLERS, ids=lambda path: path.name)
 def test_every_installer_script_is_a_workflow_trigger(installer):
     """An installer no `paths:` names can change without any workflow running."""
-    wanted = f"scripts/{installer.name}"
-    assert triggered_by(wanted, DOCUMENTS), (
-        f"no workflow's `paths:` names {wanted}; {NAME_IT}")
+    require_a_trigger(f"scripts/{installer.name}")
 
 
 @pytest.mark.parametrize("test", INSTALLER_TESTS, ids=lambda path: path.name)
@@ -889,20 +935,38 @@ def test_an_exclusion_after_the_entry_cancels_it():
     direction that matters -- an installer whose tests nothing runs, reported as
     triggered.
 
-    An exclusion of some other spelling is the same answer for a reason this
-    module states rather than solves: whether `!tests/**` cancels the path is a
-    question about GitHub's glob syntax, which is interpreted nowhere here. The
-    remedy is the one a glob already gets, name the file after the exclusion,
-    and the case below is that remedy working.
+    An exclusion holding a glob is a third answer, and used to be this one:
+    whether `!scripts/**` cancels the path is a question about GitHub's glob
+    syntax, which is interpreted nowhere here, and `!docs/**` after the same
+    entry cancels nothing at all -- so reading either as a cancellation
+    reported a workflow that really does trigger as triggering nothing. Those
+    lists are unread now, which is neither cover nor a no. An exclusion of some
+    other *literal* spelling needs no syntax to settle and leaves the credit
+    where it is.
+
+    The remedy for an unread list is the one a glob already gets, name the file
+    after the exclusion, and the case below is that remedy working.
     """
     wanted = "scripts/install_x.py"
-    for entries in (
-        [wanted, f"!{wanted}"],
-        [wanted, "!scripts/**"],
-        [wanted, "!**"],
-    ):
+    # The path's own negation, which cancels it at GitHub and here.
+    documents = {"w.yml": {"on": {"push": {"paths": [wanted, f"!{wanted}"]}}}}
+    assert starts_a_run([wanted, f"!{wanted}"], wanted) is False
+    assert triggered_by(wanted, documents) == []
+    assert unmeasured_triggers(wanted, documents) == []
+    # A glob exclusion after the entry: unread, and named as unread.
+    for entries in ([wanted, "!scripts/**"], [wanted, "!**"], [wanted, "!docs/**"]):
         documents = {"w.yml": {"on": {"push": {"paths": entries}}}}
+        assert starts_a_run(entries, wanted) is None, entries
         assert triggered_by(wanted, documents) == [], entries
+        assert unmeasured_triggers(wanted, documents) == ["w.yml"], entries
+        with pytest.raises(pytest.fail.Exception, match="does not read"):
+            require_a_trigger(wanted, documents)
+    # A literal exclusion of some other path cannot match this one, so the
+    # entry still covers it and nothing is unread.
+    for entries in ([wanted, "!docs/index.md"], [wanted, "!scripts/other.py"]):
+        documents = {"w.yml": {"on": {"push": {"paths": entries}}}}
+        assert starts_a_run(entries, wanted) is True, entries
+        assert triggered_by(wanted, documents) == ["w.yml"], entries
     # Order is what decides it, in both directions: named after the exclusion
     # the entry is cover again, and that is what a maintainer is told to write.
     for entries in ([f"!{wanted}", wanted], ["!scripts/**", wanted]):
