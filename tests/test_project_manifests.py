@@ -156,7 +156,12 @@ SELECTING_OPTIONS = frozenset({"-k", "-m"})
 # reads, and `-o` sets any ini option, `addopts` included. The trigger is
 # ordinary: a workflow step that records `--basetemp=<dir>`, or a `--junitxml`
 # a maintainer types.
-UNBOUNDED_OPTIONS = frozenset({"--basetemp", "--junitxml", "--rootdir", "-c", "-o"})
+# `--pyargs` is here because it changes what the positional values are: with it they are
+# Python package names rather than paths, so `outside_the_stub_tree` reads a name such as
+# `pytest` as an in-tree path, finds nothing to refuse, and the inner interpreter imports
+# the installed package instead. The containment check is about paths, so an option that
+# stops them being paths bounds nothing.
+UNBOUNDED_OPTIONS = frozenset({"--basetemp", "--junitxml", "--rootdir", "-c", "-o", "--pyargs"})
 # `-p` is the sixth and the one with a measurable exception. `-p NAME` imports a
 # module as a plugin, which is arbitrary code; `-p no:NAME` only blocks one and
 # imports nothing (`_pytest/config/__init__.py`, `consider_pluginarg`). The

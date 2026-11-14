@@ -394,7 +394,7 @@ and nothing reaches the network.
 That is a noise filter and not a security boundary. `PATH` decides a bare
 command name, so an allowlisted program's own arguments, an absolute path to
 one, a command substitution inside an argument, a `shell:` template,
-`working_directory` and the workflow's own `env` all reach past it; the list is
+`working-directory` and the workflow's own `env` all reach past it; the list is
 kept in one place, in the module docstring of
 [test_content_checks_workflow.py](test_content_checks_workflow.py). So the
 executing half runs where the step's own code already runs -- on CI, where both

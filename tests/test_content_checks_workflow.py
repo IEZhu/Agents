@@ -82,7 +82,7 @@ reader of this module does not have to find them again:
   command position this reader reads;
 * a `shell:` value containing `{0}`, which GitHub uses as written and this
   passes through;
-* `working_directory`, which the executor joins to the tree, so an absolute or
+* `working-directory`, which the executor joins to the tree, so an absolute or
   climbing value moves the step out of it;
 * the workflow's own `env`, which reaches the shell this starts, startup hooks
   such as `BASH_ENV` included;
@@ -1519,6 +1519,14 @@ def step_environment(workflow, job, step):
 def execute_step(script, *, shell=None, env=None, working_directory=None, timeout=120):
     """Run one step's script the way Actions runs one, and report what it started.
 
+    The leg gate is enforced here, on the line that starts a shell, and not only
+    by the marker on each test that means to execute one. A review found a test
+    reaching this through `executed_verdict` without that marker, which would
+    have executed a workflow's shell off CI against the contract this module and
+    `tests/README.md` now state. A list of decorated tests is the same shape of
+    promise as a list of shell words, and it fails the same way: the rule
+    belongs where the action is.
+
     The script goes to a file and the file to the shell, which is how Actions
     runs a `run:` block and why `exit 0` on its first line ends the step. It
     runs in a throwaway copy of this repository's path names, so a glob expands
@@ -1547,7 +1555,9 @@ def execute_step(script, *, shell=None, env=None, working_directory=None, timeou
     """
     refusals = why_this_guard_refuses(script)
     if refusals:
-        return refused_step("; ".join(refusals))
+        return refused_step("; ".join(refusals))  # a reading, so it answers on every leg
+    if UNEXECUTABLE is not None:
+        pytest.skip(f"the executing leg is off here: {UNEXECUTABLE}")
     names, inside, _ = shim_plan(script)
     with tempfile.TemporaryDirectory() as scratch:
         scratch = Path(scratch)
@@ -2998,7 +3008,7 @@ def test_the_shapes_that_walk_past_the_shims_are_named_in_one_place():
         "its own arguments",
         "a command substitution inside an argument",
         "a `shell:` value containing `{0}`",
-        "`working_directory`",
+        "`working-directory`",
         "the workflow's own `env`",
     ):
         assert shape in (__doc__ or ""), (
