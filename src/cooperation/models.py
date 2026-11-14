@@ -12,6 +12,8 @@ from typing import Annotated, Any, ClassVar, Literal, TypeVar
 from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, RootModel,
                       StringConstraints, model_validator)
 
+from .quota import canonical_quota_key
+
 PROTOCOL = "agents-core/cooperation/1"
 MAX_REQUEST_BYTES = 32 * 1024
 MAX_EVENT_BYTES = MAX_REQUEST_BYTES
@@ -29,6 +31,8 @@ Text = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=40
                  AfterValidator(_nonblank)]
 Identifier = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=128,
                                              pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")]
+QuotaKey = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=512),
+                     AfterValidator(canonical_quota_key)]
 Digest = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
 RevisionNumber = Annotated[int, Field(strict=True, ge=0)]
 MailboxCursor = Annotated[int, Field(strict=True, ge=0, le=2**63 - 1)]
@@ -39,7 +43,8 @@ IDList = Annotated[list[Identifier], Field(max_length=MAX_ITEMS)]
 Protocol = Literal["agents-core/cooperation/1"]
 Access = Literal["snapshot_read", "write", "integrate"]
 ResourceType = Literal["physical_file", "physical_subtree", "logical_intent",
-                       "integration_target", "shared_git", "heavy_execution"]
+                       "integration_target", "shared_git", "heavy_execution",
+                       "external_quota"]
 PriorityValue = Literal["background", "normal", "urgent"]
 Pattern = Literal["inform_reuse", "partition_join", "producer_consumer",
                   "single_writer_reviewers", "handoff", "duplicate_adoption",
@@ -234,12 +239,40 @@ class Heartbeat(StrictModel):
     checkpoint_id: Identifier | None = None
 
 
+class ExternalQuotaObservation(StrictModel):
+    """A published observation about a shared external allowance.
+
+    ``paused`` is a limit response with the next free time derived from its own
+    evidence; ``consumed`` is allowance spent by a run nobody requested, which
+    cannot be queued and is therefore recorded after the fact. The key is
+    canonicalized so sessions reading different platform surfaces agree.
+    """
+
+    resource_key: QuotaKey
+    kind: Literal["paused", "consumed"]
+    evidence: Text
+    observed_at: Timestamp
+    next_free_at: Timestamp | None = None
+    wait_source: Literal["stated", "rule", "default"] | None = None
+
+    @model_validator(mode="after")
+    def published_wait(self) -> ExternalQuotaObservation:
+        if self.kind == "paused" and (self.next_free_at is None or self.wait_source is None):
+            raise ValueError("a paused allowance must publish its next free time and where the wait came from")
+        if self.wait_source is not None and self.next_free_at is None:
+            raise ValueError("a stated wait requires the next free time it produced")
+        if self.next_free_at is not None and self.next_free_at < self.observed_at:
+            raise ValueError("the next free time cannot precede its evidence")
+        return self
+
+
 class Checkpoint(StrictModel):
     kind: Literal["checkpoint"]
     checkpoint_id: Identifier
     artifacts: Annotated[list[Artifact], Field(max_length=MAX_ITEMS)] = Field(default_factory=list)
     checks: Checks = Field(default_factory=list)
     limitations: TextList = Field(default_factory=list)
+    external_quota: Annotated[list[ExternalQuotaObservation], Field(max_length=MAX_ITEMS)] = Field(default_factory=list)
     release_ready: bool = False
     agreement_id: Identifier | None = None
 
@@ -554,6 +587,8 @@ class ErrorResponse(StrictModel):
     claim_ids: IDList = Field(default_factory=list)
     owner: Identifier | None = None
     participant_id: Identifier | None = None
+    resource_key: Text | None = None
+    next_free_at: Timestamp | None = None
 
 
 class IdentityProjection(StrictModel):

@@ -15,7 +15,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -859,6 +860,14 @@
               "title": "Limitations",
               "type": "array"
             },
+            "external_quota": {
+              "items": {
+                "$ref": "#/$defs/ExternalQuotaObservation"
+              },
+              "maxItems": 50,
+              "title": "External Quota",
+              "type": "array"
+            },
             "release_ready": {
               "default": false,
               "title": "Release Ready",
@@ -1060,6 +1069,75 @@
           "title": "ExecutionEvidence",
           "type": "object"
         },
+        "ExternalQuotaObservation": {
+          "additionalProperties": false,
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "properties": {
+            "resource_key": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Resource Key",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "paused",
+                "consumed"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "evidence": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Evidence",
+              "type": "string"
+            },
+            "observed_at": {
+              "minimum": 0,
+              "title": "Observed At",
+              "type": "number"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
+            },
+            "wait_source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "stated",
+                    "rule",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Wait Source"
+            }
+          },
+          "required": [
+            "resource_key",
+            "kind",
+            "evidence",
+            "observed_at"
+          ],
+          "title": "ExternalQuotaObservation",
+          "type": "object"
+        },
         "Handoff": {
           "additionalProperties": false,
           "properties": {
@@ -1169,7 +1247,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -1488,7 +1567,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -2294,6 +2374,14 @@
               "title": "Limitations",
               "type": "array"
             },
+            "external_quota": {
+              "items": {
+                "$ref": "#/$defs/ExternalQuotaObservation"
+              },
+              "maxItems": 50,
+              "title": "External Quota",
+              "type": "array"
+            },
             "release_ready": {
               "default": false,
               "title": "Release Ready",
@@ -2495,6 +2583,75 @@
           "title": "ExecutionEvidence",
           "type": "object"
         },
+        "ExternalQuotaObservation": {
+          "additionalProperties": false,
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "properties": {
+            "resource_key": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Resource Key",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "paused",
+                "consumed"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "evidence": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Evidence",
+              "type": "string"
+            },
+            "observed_at": {
+              "minimum": 0,
+              "title": "Observed At",
+              "type": "number"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
+            },
+            "wait_source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "stated",
+                    "rule",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Wait Source"
+            }
+          },
+          "required": [
+            "resource_key",
+            "kind",
+            "evidence",
+            "observed_at"
+          ],
+          "title": "ExternalQuotaObservation",
+          "type": "object"
+        },
         "Handoff": {
           "additionalProperties": false,
           "properties": {
@@ -2604,7 +2761,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -3008,7 +3166,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -3345,7 +3504,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -3768,7 +3928,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -4135,7 +4296,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -4592,6 +4754,33 @@
           ],
           "default": null,
           "title": "Participant Id"
+        },
+        "resource_key": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource Key"
+        },
+        "next_free_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Free At"
         }
       },
       "required": [
@@ -4757,6 +4946,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -5608,6 +5824,14 @@
               "title": "Limitations",
               "type": "array"
             },
+            "external_quota": {
+              "items": {
+                "$ref": "#/$defs/ExternalQuotaObservation"
+              },
+              "maxItems": 50,
+              "title": "External Quota",
+              "type": "array"
+            },
             "release_ready": {
               "default": false,
               "title": "Release Ready",
@@ -6019,6 +6243,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -6290,6 +6541,75 @@
           "title": "ExecutionEvidence",
           "type": "object"
         },
+        "ExternalQuotaObservation": {
+          "additionalProperties": false,
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "properties": {
+            "resource_key": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Resource Key",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "paused",
+                "consumed"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "evidence": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Evidence",
+              "type": "string"
+            },
+            "observed_at": {
+              "minimum": 0,
+              "title": "Observed At",
+              "type": "number"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
+            },
+            "wait_source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "stated",
+                    "rule",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Wait Source"
+            }
+          },
+          "required": [
+            "resource_key",
+            "kind",
+            "evidence",
+            "observed_at"
+          ],
+          "title": "ExternalQuotaObservation",
+          "type": "object"
+        },
         "Handoff": {
           "additionalProperties": false,
           "properties": {
@@ -6472,7 +6792,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -7352,6 +7673,14 @@
               "title": "Limitations",
               "type": "array"
             },
+            "external_quota": {
+              "items": {
+                "$ref": "#/$defs/ExternalQuotaObservation"
+              },
+              "maxItems": 50,
+              "title": "External Quota",
+              "type": "array"
+            },
             "release_ready": {
               "default": false,
               "title": "Release Ready",
@@ -7513,7 +7842,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -8753,6 +9083,14 @@
               "title": "Limitations",
               "type": "array"
             },
+            "external_quota": {
+              "items": {
+                "$ref": "#/$defs/ExternalQuotaObservation"
+              },
+              "maxItems": 50,
+              "title": "External Quota",
+              "type": "array"
+            },
             "release_ready": {
               "default": false,
               "title": "Release Ready",
@@ -9302,6 +9640,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -9573,6 +9938,75 @@
           "title": "ExecutionEvidence",
           "type": "object"
         },
+        "ExternalQuotaObservation": {
+          "additionalProperties": false,
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "properties": {
+            "resource_key": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Resource Key",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "paused",
+                "consumed"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "evidence": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Evidence",
+              "type": "string"
+            },
+            "observed_at": {
+              "minimum": 0,
+              "title": "Observed At",
+              "type": "number"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
+            },
+            "wait_source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "stated",
+                    "rule",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Wait Source"
+            }
+          },
+          "required": [
+            "resource_key",
+            "kind",
+            "evidence",
+            "observed_at"
+          ],
+          "title": "ExternalQuotaObservation",
+          "type": "object"
+        },
         "Handoff": {
           "additionalProperties": false,
           "properties": {
@@ -9801,7 +10235,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -10409,7 +10844,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -11118,6 +11554,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -11465,6 +11928,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -11893,6 +12383,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -12542,6 +13059,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -12897,6 +13441,33 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "resource_key": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resource Key"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
             }
           },
           "required": [
@@ -13195,7 +13766,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -13474,7 +14046,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -13833,7 +14406,8 @@
                 "logical_intent",
                 "integration_target",
                 "shared_git",
-                "heavy_execution"
+                "heavy_execution",
+                "external_quota"
               ],
               "title": "Resource Type",
               "type": "string"
@@ -14112,6 +14686,75 @@
           ],
           "title": "Check",
           "type": "object"
+        },
+        "ExternalQuotaObservation": {
+          "additionalProperties": false,
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "properties": {
+            "resource_key": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Resource Key",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "paused",
+                "consumed"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "evidence": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Evidence",
+              "type": "string"
+            },
+            "observed_at": {
+              "minimum": 0,
+              "title": "Observed At",
+              "type": "number"
+            },
+            "next_free_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Free At"
+            },
+            "wait_source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "stated",
+                    "rule",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Wait Source"
+            }
+          },
+          "required": [
+            "resource_key",
+            "kind",
+            "evidence",
+            "observed_at"
+          ],
+          "title": "ExternalQuotaObservation",
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -14152,6 +14795,14 @@
           },
           "maxItems": 50,
           "title": "Limitations",
+          "type": "array"
+        },
+        "external_quota": {
+          "items": {
+            "$ref": "#/$defs/ExternalQuotaObservation"
+          },
+          "maxItems": 50,
+          "title": "External Quota",
           "type": "array"
         },
         "release_ready": {

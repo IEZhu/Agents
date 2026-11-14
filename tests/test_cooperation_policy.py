@@ -38,7 +38,8 @@ def test_snapshot_reads_and_logical_overlap_do_not_exclude_writers():
 
 
 @pytest.mark.parametrize("kind,key", [("integration_target", "repo:refs/heads/dev"),
-                                      ("shared_git", "repo:refs"), ("heavy_execution", "host:heavy")])
+                                      ("shared_git", "repo:refs"), ("heavy_execution", "host:heavy"),
+                                      ("external_quota", "github.com/iezhu:coderabbitai")])
 def test_exclusive_shared_resources(kind, key):
     assert resources_conflict(resource(kind, key), resource(kind, key, "integrate"))
     assert not resources_conflict(resource(kind, key), resource(kind, key + "2"))

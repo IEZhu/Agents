@@ -12,6 +12,7 @@ import pytest
 
 from src.cooperation.admin import cleanup
 from src.cooperation.identity import CooperationIdentity
+from src.cooperation import quota
 from src.cooperation.models import PROTOCOL, ApplyResponse, ReadResponse, parse_apply, parse_read, parse_register
 from src.cooperation.service import CooperationService
 from src.cooperation.store import CooperationError, Store, canonical
@@ -938,3 +939,93 @@ def test_terminal_agreement_cancel_refuses_inconsistent_execution_state(h, incon
     assert after["revision"] == before["revision"]
     assert after["claims"] == before["claims"]
     assert after["agreements"] == before["agreements"]
+
+
+# A reviewer identity this source knows nothing about, used to prove that the
+# allowance queue needs no entry for the reviewer it is protecting.
+UNKNOWN_REVIEWER = "Nebula-Reviewer[bot]"
+
+
+def _allowance(reviewer, account="IEZhu", host="github.com"):
+    return quota.resource(quota.quota_key(host, account, reviewer))
+
+
+def _release(h, actor, *, reason="round complete"):
+    claims = [c for c in h.read()["claims"] if c["participant_id"] == actor["participant_id"]]
+    return h.apply(actor, {"kind": "release", "reason": reason,
+                           "claims": [{"claim_id": c["claim_id"], "expected_revision": c["revision"]} for c in claims]})
+
+
+def test_unknown_reviewer_allowance_queues_sessions_on_a_published_default_backoff(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    first, second = h.register("pr-653", scope=[allowance]), h.register("pr-661", scope=[allowance])
+    assert h.acquire(first, allowance)["status"] == "ok"
+    # Another pull request, another session, the same account-wide allowance,
+    # named from a different platform surface: still one claimed resource.
+    refused = h.acquire(second, quota.resource("GitHub.com/iezhu:nebula-reviewer"))
+    assert refused["error"] == "claim_conflict"
+    assert refused["owner"] == first["participant_id"]
+    assert refused["resource_key"] == allowance["resource_key"]
+    assert refused.get("next_free_at") is None
+    pause = quota.observed_pause(UNKNOWN_REVIEWER, "Nebula: this account's review budget is spent.", observed_at=h.now)
+    assert (pause.source, pause.wait_seconds) == ("default", quota.DEFAULT_BACKOFF_SECONDS)
+    assert h.checkpoint(first, external_quota=[quota.pause_observation(allowance["resource_key"], pause)])["status"] == "ok"
+    published = h.acquire(second, allowance)
+    assert published["error"] == "claim_conflict"
+    assert published["next_free_at"] == h.now + quota.DEFAULT_BACKOFF_SECONDS
+    assert _release(h, first, reason="pause published")["status"] == "ok"
+    assert h.acquire(second, allowance)["status"] == "ok"
+
+
+def test_two_reviewers_on_one_pull_request_are_held_independently(h):
+    known, unknown = _allowance("coderabbitai[bot]"), _allowance(UNKNOWN_REVIEWER)
+    scope = [known, unknown]
+    a, b, c = h.register("a", scope=scope), h.register("b", scope=scope), h.register("c", scope=scope)
+    assert h.acquire(a, known)["status"] == "ok"
+    assert h.acquire(b, unknown)["status"] == "ok"
+    assert [claim["resource"]["resource_key"] for claim in h.read()["claims"]] == [
+        known["resource_key"], unknown["resource_key"]]
+    assert h.acquire(c, known)["error"] == "claim_conflict"
+    assert h.acquire(c, unknown)["error"] == "claim_conflict"
+    assert h.checkpoint(a, name="round-a")["status"] == "ok"
+    assert _release(h, a)["status"] == "ok"
+    assert h.acquire(c, known)["status"] == "ok"
+
+
+def test_heartbeat_expiry_frees_an_allowance_without_freeing_a_file(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    dead, live = h.register("dead", scope=[allowance, file]), h.register("live", scope=[allowance, file])
+    assert h.acquire(dead, allowance, file)["status"] == "ok"
+    for _ in range(3):
+        h.now += 60
+        assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    quarantined = {c["resource"]["resource_key"]: c["quarantined"] for c in h.read()["claims"]}
+    assert quarantined == {allowance["resource_key"]: True, "checkout_test:src/a.py": True}
+    # The dead session's edits are still in the checkout, so its file claim holds.
+    assert h.acquire(live, file)["error"] == "claim_conflict"
+    taken = h.acquire(live, allowance)
+    assert taken["status"] == "ok", taken
+    # A session that comes back has to acquire again, and now finds it held.
+    assert h.recover(dead)["status"] == "ok"
+    assert h.acquire(dead, allowance)["error"] == "claim_conflict"
+
+
+def test_a_quarantined_holder_that_is_still_alive_keeps_its_allowance(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    assert h.apply(holder, {"kind": "cancel", "reason": "stop this round"})["cancel_pending"] is True
+    assert [c["quarantined"] for c in h.read()["claims"]] == [True]
+    assert h.acquire(other, allowance)["error"] == "claim_conflict"
+
+
+def test_an_automatic_review_nobody_requested_is_published_as_consumed_allowance(h):
+    allowance = _allowance("coderabbitai[bot]")
+    observer = h.register("observer", scope=[allowance])
+    record = quota.consumed_observation(allowance["resource_key"],
+                                        "CodeRabbit reviewed the push automatically; nobody requested it.",
+                                        observed_at=h.now)
+    assert h.checkpoint(observer, external_quota=[record])["status"] == "ok"
+    participant = [p for p in h.read()["participants"] if p["participant_id"] == observer["participant_id"]][0]
+    assert participant["checkpoint"]["external_quota"] == [record]
+    assert not h.read()["claims"]

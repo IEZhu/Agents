@@ -11,8 +11,12 @@ import uuid
 from .identity import CooperationIdentity, IdentityError, normalize_resource
 from .models import PROTOCOL, EventEnvelope, ApplyResponse
 from .policy import resources_conflict, find_cycle, cyclic_components, ordered_ready, effective_priorities
+from .quota import RESOURCE_TYPE as EXTERNAL_QUOTA
 from .store import AdministrationLock, CooperationError, Store, bodies, canonical
 from src.daemon.state import private_dir
+
+#: Soft-stale liveness threshold; a participant quiet for longer is suspected.
+HEARTBEAT_DEADLINE_SECONDS = 120
 
 
 def digest(value):
@@ -25,6 +29,27 @@ def _dict(value):
 
 def _task(participant):
     return participant["task_id"] + "/" + participant["attempt_id"]
+
+
+def _lapsed_allowance(holder, claim, now):
+    """Whether a quarantined external-allowance claim no longer excludes others.
+
+    Silence never transfers ownership of a file, because the dead holder's edits
+    are still in the checkout. An external allowance holds nothing locally: a
+    session that died mid-round leaves only its claim behind, so one crash would
+    otherwise freeze that reviewer for every other session. A quarantine with a
+    live heartbeat still excludes: that holder may have just spent the budget.
+    """
+    return (claim["resource"]["resource_type"] == EXTERNAL_QUOTA and claim["quarantined"]
+            and now - holder["last_seen"] > HEARTBEAT_DEADLINE_SECONDS)
+
+
+def _published_next_free(holder, resource_key):
+    """The latest next free time the holder published for this allowance."""
+    checkpoint = holder.get("checkpoint") or {}
+    published = [observation["next_free_at"] for observation in checkpoint.get("external_quota", ())
+                 if observation["resource_key"] == resource_key and observation["next_free_at"] is not None]
+    return max(published) if published else None
 
 
 def _error(error):
@@ -209,7 +234,7 @@ class CooperationService:
 
     def _reconcile(self, db, repo, now):
         for participant in bodies(db, "participants", repo):
-            if participant["status"] == "active" and now - participant["last_seen"] > 120:
+            if participant["status"] == "active" and now - participant["last_seen"] > HEARTBEAT_DEADLINE_SECONDS:
                 self._suspect(db, participant, "heartbeat_overdue")
                 self._reconciliation_event(db, participant, "heartbeat_overdue", now)
         for agreement in bodies(db, "agreements", repo):
@@ -477,7 +502,7 @@ class CooperationService:
                 if kind == "acquire":
                     resources = self._normalize(action["resources"], CooperationIdentity(**subject["identity"]))
                     self._scope(resources, subject)
-                    self._claim_conflicts(db, repo, subject, resources)
+                    self._claim_conflicts(db, repo, subject, resources, now)
                 if data["expected_revision"] != revision:
                     raise CooperationError("stale_revision", revision=revision)
                 revision += 1
@@ -513,10 +538,26 @@ class CooperationService:
         except CooperationError as error:
             return _error(error)
 
-    def _claim_conflicts(self, db, repo, participant, resources):
+    def _claim_conflicts(self, db, repo, participant, resources, now):
+        holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
         for claim in bodies(db, "claims", repo):
-            if claim["participant_id"] != participant["participant_id"] and any(resources_conflict(resource, claim["resource"]) for resource in resources):
-                raise CooperationError("claim_conflict", "Resource held, including quarantined claims", claim_ids=[claim["claim_id"]], owner=claim["participant_id"])
+            if claim["participant_id"] == participant["participant_id"]:
+                continue
+            if not any(resources_conflict(resource, claim["resource"]) for resource in resources):
+                continue
+            holder = holders[claim["participant_id"]]
+            if _lapsed_allowance(holder, claim, now):
+                continue
+            details = {"claim_ids": [claim["claim_id"]], "owner": claim["participant_id"]}
+            if claim["resource"]["resource_type"] != EXTERNAL_QUOTA:
+                raise CooperationError("claim_conflict", "Resource held, including quarantined claims", **details)
+            details["resource_key"] = claim["resource"]["resource_key"]
+            published = _published_next_free(holder, claim["resource"]["resource_key"])
+            if published is not None:
+                details["next_free_at"] = published
+            raise CooperationError("claim_conflict",
+                                   "External allowance held by another session; wait for its published next free time",
+                                   **details)
 
     def _declare_intent(self, db, subject, actor, action, now, revision):
         repo = subject["repository_id"]
@@ -672,7 +713,7 @@ class CooperationService:
                         if resources_conflict(resource, claim["resource"]) and claim["participant_id"] not in agreement["required_participants"]:
                             raise CooperationError("claim_conflict")
                 else:
-                    self._claim_conflicts(db, repo, owner, [resource])
+                    self._claim_conflicts(db, repo, owner, [resource], now)
             for other in bodies(db, "agreements", repo):
                 if other["agreement_id"] == agreement["agreement_id"] or other["state"] not in ("committed", "active", "checkpointed", "suspended"):
                     continue
@@ -727,7 +768,7 @@ class CooperationService:
                 for owned in other["terms"]["resources"]:
                     if owned["owner"] != subject["participant_id"] and any(resources_conflict(resource, owned) for resource in resources):
                         raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
-        self._claim_conflicts(db, repo, subject, resources)
+        self._claim_conflicts(db, repo, subject, resources, now)
         claims = []
         for resource in resources:
             claim = {"claim_id": str(uuid.uuid4()), "repository_id": repo, "participant_id": subject["participant_id"],
