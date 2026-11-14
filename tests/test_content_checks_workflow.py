@@ -2395,6 +2395,30 @@ def test_a_shim_path_that_climbs_out_of_the_tree_is_refused(tmp_path, monkeypatc
     assert run.problem and "../../escaped/pytest" in run.problem, run.problem
 
 
+def test_a_shim_is_never_written_outside_the_tree_it_is_given(tmp_path):
+    """The check at the line that writes, where nothing stood at all.
+
+    `shim_plan` refuses the `..` spelling above by reading, so this is the
+    answer for a path that arrives here anyway: a spelling that reader does not
+    model, or a symlink inside the tree, which no reading of a workflow's text
+    can see. The write is a parents `mkdir`, a `write_text` and a `chmod 0o755`
+    -- nothing to take back afterwards -- so containment is decided before it
+    rather than regretted after.
+    """
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tmp_path / "beside").mkdir()
+    (tree / "out").symlink_to(tmp_path / "beside")
+    for path in ("../escaped/pytest", "out/pytest"):
+        problem = write_shim(tree, path, ARGV_SHIM)
+        assert problem and path in problem, (path, problem)
+    assert not (tmp_path / "escaped").exists(), "a shim was written beside the tree"
+    assert list((tmp_path / "beside").iterdir()) == [], "a symlink led out of the tree"
+    # A path inside the tree is still written, and still executable.
+    assert write_shim(tree, ".venv/bin/pytest", ARGV_SHIM) is None
+    assert (tree / ".venv/bin/pytest").stat().st_mode & 0o777 == 0o755
+
+
 @EXECUTES_STEPS
 def test_an_absolute_program_this_guard_cannot_shim_is_refused(tmp_path):
     """The refusal covered the three interpreter spellings and nothing else.
