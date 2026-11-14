@@ -250,16 +250,18 @@ def test_the_budget_error_names_the_remedy_that_fits_its_cause(worker_tree):
     mandatory_only = message_of(prepare_subagent(request(max_context_chars=2000)))
     assert "do not fit alone" in mandatory_only
     assert "raise max_context_chars" in mandatory_only
-    assert "cannot shrink mandatory text" in mandatory_only
-    assert "artifact_publish" not in mandatory_only
+    assert "Without your context it still needs" in mandatory_only
+    assert "artifact" not in mandatory_only
 
     supplied = message_of(prepare_subagent(request(max_context_chars=8000, context=["x" * 3500] * 3)))
-    assert "the rest fits" in supplied
+    assert "without it the package fits" in supplied
+    # The remedy is an option, not a promise: a manifest carries its own mandatory text.
+    assert "a manifest adds mandatory text of its own" in supplied
     for call in ("artifact_publish", "artifact_manifest_create"):
         assert call in supplied, call
     # `artifact_manifest` is a substring of `artifact_manifest_create`, so the loop above
     # passes with the argument name missing. Assert the argument where it stands alone.
-    assert "pass artifact_manifest." in supplied
+    assert "then artifact_manifest;" in supplied
     assert supplied.count("artifact_manifest") == 2
 
 

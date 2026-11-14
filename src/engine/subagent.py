@@ -242,15 +242,21 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
             # mandatory role, rule and schema text cannot be published away, and a manifest
             # adds its own mandatory instructions. Dropping the supplied context is the test
             # that separates them, so the error says which case the caller is in.
-            supplied = sum(len(entry) for entry in request.context)
-            if len(mandatory_context) - supplied <= request.max_context_chars:
-                remedy = (f"Your context is {supplied} of that and the rest fits: publish it with "
-                          "artifact_publish, pin with artifact_manifest_create, pass "
-                          "artifact_manifest.")
+            # Both causes raise here and only one has an artifact for an answer: mandatory
+            # role, rule and schema text cannot be published away. Which case this is cannot
+            # be read off the raw entry lengths, because the assembly adds its own headers,
+            # bullets or JSON syntax around them, so the context-free package is assembled
+            # and measured instead.
+            bare, _, _ = _assemble(request.model_copy(update={"context": []}), task_id, body,
+                                   rules, [], schema, execution)
+            if len(bare) <= request.max_context_chars:
+                cost = len(mandatory_context) - len(bare)
+                remedy = (f"Context adds {cost}; without it the package fits. Consider "
+                          "artifact_publish, artifact_manifest_create, then artifact_manifest; "
+                          "a manifest adds mandatory text of its own.")
             else:
-                remedy = (f"Only {supplied} of that is your context, so role, rules and schema do "
-                          "not fit alone: shorten them or raise max_context_chars; an artifact "
-                          "cannot shrink mandatory text.")
+                remedy = (f"Without your context it still needs {len(bare)}, so role, rules and "
+                          "schema do not fit alone: shorten them or raise max_context_chars.")
             raise ContractError("context_budget_exceeded",
                                 f"Mandatory context needs {len(mandatory_context)} characters; "
                                 f"budget is {request.max_context_chars}. {remedy}")

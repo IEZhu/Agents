@@ -127,6 +127,10 @@ def test_pr_review_looks_for_concurrent_sessions_without_requiring_the_coordinat
                    "`cooperation_read` on the `repository_id` that registration returns",
                    # The coordinator is optional, so the step cannot gate the git checks.
                    "The coordinator is optional, so this step must not become a prerequisite.",
+                   # Registration is not an agreement, and an informal exchange is not one either.
+                   "Registration reserves nothing.",
+                   "a persisted agreement through `cooperation_apply` and compatible resource claims",
+                   "An informal exchange of messages does not satisfy that",
                    "answers `store_unavailable`, report the unavailable coordinator and continue",
                    # An empty roster is not an absence of peers.
                    "Never read a missing roster as evidence that nobody else is active.",

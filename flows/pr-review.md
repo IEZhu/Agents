@@ -160,9 +160,15 @@ second session editing the same files is not a conflict to resolve later: its
 commit can land on the branch between a read and a push, and its reasoning never
 reaches this one. Where the Agents-Core coordinator is available, register
 bounded scope with `cooperation_register`, read the roster with
-`cooperation_read` on the `repository_id` that registration returns, and treat an
-active participant on this checkout as a peer to agree with before touching a
-file both hold.
+`cooperation_read` on the `repository_id` that registration returns, and read
+whether an active participant holds a file this change touches.
+
+Registration reserves nothing. Finding such a participant gates the edit only
+through the repository's own cooperation requirements: a persisted agreement
+through `cooperation_apply` and compatible resource claims before conflicting
+work, with one integrator named. An informal exchange of messages does not
+satisfy that and does not make the edit safe. Where those requirements cannot be
+met, say so and leave the shared file alone rather than editing it first.
 
 The coordinator is optional, so this step must not become a prerequisite. When
 either call answers `store_unavailable`, report the unavailable coordinator and
