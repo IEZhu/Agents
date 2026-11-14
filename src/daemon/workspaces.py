@@ -198,14 +198,12 @@ class ClientContext:
     # Recorded, never followed: tools that answer about a repository refuse, history tools
     # note it. A linked worktree of the registered repository is covered by its grant.
     mismatch: str | None = None
-    # The authorized root that covers the `workspace` this call named: an owner-registered
-    # physical checkout, such as the worktree a session runs in and history normalizes to its
-    # main checkout, or the memory root itself. Only a repository *report* follows it, so that
-    # the description and hash belong to the tree the call named and not to another branch's
-    # (#576 pre-mortem P-C2); every write and target still resolves inside `root`. Set
-    # whenever a named workspace matched, including a match on the memory root, because that
-    # is an explicit choice and must not fall into the fallback for a call that named nothing
-    # (CR1 F1).
+    # The authorized root a report of this call follows: an owner-registered physical
+    # checkout, such as the worktree a session runs in and history normalizes to its main
+    # checkout, or the memory root where the call named it and `_single_grant` would otherwise
+    # answer about a grant instead (CR1 F1). Only a repository *report* follows it, so that the
+    # description and hash belong to the tree the call named and not to another branch's
+    # (#576 pre-mortem P-C2); every write and target still resolves inside `root`.
     covering_root: Path | None = None
     # The `workspace` a call named that is an authorized root under another spelling: the
     # same real directory, which `Path.resolve()` does not normalize the case of. Noted like
@@ -252,18 +250,15 @@ class ClientContext:
         be another branch's, so a report follows the authorized physical checkout the call
         named instead (#576 pre-mortem P-C2). Targets, writes and history are unchanged.
 
-        Only a call that named no workspace falls back: it still has one checkout when the
-        registration carries a single physical grant beside the memory root, which is the
-        directory the registration was made from. Several grants name no one checkout, so the
-        memory root stands. A call that named the memory root recorded it as `covering_root`
-        and is answered about it, because naming a root is a choice and the fallback stands in
-        for the absence of one (CR1 F1).
+        Only a call that named no workspace falls back on `_single_grant`, which stands in for
+        the absence of a choice. A call that named the memory root made that choice, and
+        `_workspace_argument` records it where this fallback would otherwise override it with a
+        grant the call did not name (CR1 F1).
         """
         root = self.workspace_root()
         if self.covering_root is not None:
             return self.covering_root
-        grants = [grant for grant in self.cooperation_roots if grant != root]
-        return grants[0] if len(grants) == 1 else root
+        return _single_grant(root, self.cooperation_roots) or root
 
     def target(self, requested=None):
         self.require_root()
@@ -378,12 +373,9 @@ def _workspace_argument(context, workspace):
     its own working directory, as the parameter asks it to, therefore names one repository and
     not another one; only a path outside every authorized root is a `mismatch`.
 
-    The authorized root that covers the named path is reported as `covering_root`, which only
-    a repository report follows, and a path that names an authorized root under another
-    spelling as `respelled`, which is noted and never refused. The memory root is recorded
-    like any other match, so that an explicit choice of it is not left to `report_root`'s
-    fallback for a call that named nothing (CR1 F1). An empty mapping leaves the context as it
-    is.
+    The authorized root a report then follows is reported as `covering_root` (`_named_root`),
+    and a path that names an authorized root under another spelling as `respelled`, which is
+    noted and never refused. An empty mapping leaves the context as it is.
 
     Only HTTP keeps a registered root against the argument; a stdio workspace is checked
     against the client's own MCP roots above and answered as named, so it never mismatches.
@@ -393,11 +385,36 @@ def _workspace_argument(context, workspace):
     authorized = (context.root, *context.cooperation_roots)
     for root in authorized:
         if _covers(root, workspace):
-            return {"covering_root": root}
+            return _named_root(context, root)
     for root in authorized:
         if _same_directory(root, workspace):
-            return {"respelled": workspace, "covering_root": root}
+            return {"respelled": workspace, **_named_root(context, root)}
     return {"mismatch": workspace}
+
+
+def _named_root(context, root):
+    """What records *root* as the root a report of this call follows, as fields (CR1 F1).
+
+    A grant is always recorded: a report of it describes a different tree from the memory
+    root. The memory root is recorded where `report_root` would otherwise fall back on the
+    session's single grant, which stands in for a call that named no workspace at all — the
+    case this call is not. With no single grant to override it the field would carry no
+    information, and the context is left as it is, so an HTTP request whose argument names its
+    own registered root is answered with the very context it carried.
+    """
+    if root != context.root or _single_grant(root, context.cooperation_roots) is not None:
+        return {"covering_root": root}
+    return {}
+
+
+def _single_grant(root, grants):
+    """The one owner-registered checkout beside *root*, or None when there is no single one.
+
+    A registration carries a single physical grant beside its memory root when that grant is
+    the directory the registration was made from; several grants name no one checkout.
+    """
+    beside = [grant for grant in grants if grant != root]
+    return beside[0] if len(beside) == 1 else None
 
 
 def _covers(root, requested):

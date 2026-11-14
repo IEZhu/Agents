@@ -656,6 +656,12 @@ async def test_a_call_that_names_the_memory_root_is_described_from_the_memory_ro
                                                 grants=(worktree,))))["repo_context"]
     assert silent["workspace"] == str(worktree)
     assert silent["registered_workspace"] == str(main)
+    # With no grant to override the choice the match records nothing, so a request whose
+    # argument names its own registered root is still answered with the context it carried.
+    plain = http_context(main)
+    carried = plain.request_context.request.state.client_context
+    assert await resolve_client_context(plain, str(main)) is carried
+    assert carried.report_root() == main
 
 
 @pytest.mark.asyncio
