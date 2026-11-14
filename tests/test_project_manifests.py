@@ -33,12 +33,23 @@ that own them.
 
 The cost is the point of the trade and worth naming: each distinct step is
 executed once under the shims and each distinct pytest argv once under the real
-pytest, so this module starts subprocesses where it used to split strings. A
-step this guard cannot execute, and an argv pytest refuses, are reported as
-measurements that could not be made -- never as a file that does not run.
+pytest, so this module starts subprocesses where it used to split strings. It
+pays for the steps that could reach the file under test, not for every step in
+the repository that mentions pytest, and only on the CI leg that executes --
+measured, the two together were +22.6 s on each of three matrix legs.
+
+A step this guard cannot execute, an argv pytest refuses, and a step a run
+never reaches are reported as measurements that could not be made, never as a
+file that does not run; a candidate set where every answer is one of those is an
+unusable runner rather than a bypass, and skips. Where the stubs stop is stated
+too: they share the path and nothing else, holding one test called
+`test_executed` and no marks, so an argv that selects with `-k` or `-m` asks
+about the real file's names and markers and is unmeasurable here. A path reaches
+pytest as itself; anything inside the file does not.
 """
 
 from collections import namedtuple
+from fnmatch import fnmatch
 from functools import lru_cache
 from pathlib import Path
 import re
@@ -46,22 +57,26 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import warnings
 
 import pytest
 import yaml
 
 from tests.test_content_checks_workflow import (  # the #632 harness, not a second one
+    EXECUTES_STEPS,
     effective_shell,
-    execute_step,
     pytest_invocation,
+    recorded_step,
     run_default,
+    skip_reasons,
     step_environment,
     tracked_names,
+    workflow_paths,
     write_tree,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = sorted((ROOT / ".github/workflows").glob("*.yml"))
+WORKFLOWS = workflow_paths(ROOT / ".github/workflows")
 INSTALLERS = sorted((ROOT / "scripts").glob("install_*.py"))
 INSTALLER_TESTS = sorted((ROOT / "tests").glob("test_install_*.py"))
 NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -78,16 +93,52 @@ RECORDING_TEST = (
     "    with open({log}, 'a', encoding='utf-8') as log:\n"
     "        log.write({name} + '\\n')\n"
 )
-# pytest's own exit code for a command it refuses, including a path no checkout
-# of this repository holds and an option no installed plugin provides.
-USAGE_ERROR = 4
+# pytest's own exit codes that answer the question this module puts to it: tests
+# ran and passed, tests ran and failed, or nothing was collected -- in each case
+# the log says what executed. Anything else is a run that did not answer: a
+# usage error (4 today), an interruption, an internal error, a signal. Reading
+# the list of answers rather than asserting the number of one refusal is what
+# keeps a pytest release from redefining this guard's verdict.
+ANSWERING_EXIT_CODES = frozenset({0, 1, 5})
+# Options whose value selects part of what a file holds, rather than naming the
+# file. The stub shares only the path with the file it stands for -- one test
+# called `test_executed`, no marks -- so pytest's answer about a selection is an
+# answer about the stub, and it was measured wrong in both directions. Neither
+# is read as a verdict now; both are the measurement this guard cannot make.
+SELECTING_OPTIONS = frozenset({"-k", "-m"})
 PYTEST_TIMEOUT = 120
+# The modes that make pytest parse a file and run none of its tests, each one
+# measured on every run by the pytest that is installed rather than listed here
+# from a reading of its help. Six were lost when the two parsers were deleted:
+# `--setuponly`, `--setupplan`, `--funcargs`, `--fixtures-per-test`, `-h` and
+# `-V`, four of them added deliberately for pytest's de-hyphenated aliases.
+# `-k` and `-m` are not modes: they select, and `SELECTING_OPTIONS` has them.
+NON_RUNNING_MODES = (
+    "--collect-only", "--collectonly", "--co",
+    "--setup-only", "--setuponly", "--setup-plan", "--setupplan",
+    "--fixtures", "--funcargs", "--fixtures-per-test",
+    "--markers", "--help", "-h", "--version", "-V",
+)
 # `files` is what really executed, `problem` why pytest could not be asked.
 Executed = namedtuple("Executed", "files problem")
 # `hosts` the workflows that really run the file; `problems` the steps and
-# commands this guard could not measure, which is a third answer and not a no.
-Invocation = namedtuple("Invocation", "hosts problems")
+# commands this guard could not measure, which is a third answer and not a no;
+# `measured` how many of them pytest did answer, because a candidate set that
+# answered nothing at all is an unusable runner rather than a bypass.
+Invocation = namedtuple("Invocation", "hosts problems measured")
 SCRATCH = []
+
+
+class UnmeasuredCandidate(UserWarning):
+    """A candidate step or argv this guard could not measure, on a passing run.
+
+    A problem that another workflow's positive answer made irrelevant to the
+    assertion is still a workflow this guard cannot see into, and it was being
+    discarded in silence: `workspace-bindings.yml` commits an argv pytest
+    refuses on every run and nothing ever printed it. pytest collects these in
+    its warnings summary, so the gap is visible without failing a repository
+    that is wired correctly.
+    """
 
 
 def normalise(name: str) -> str:
@@ -159,22 +210,39 @@ def pytest_candidates(document) -> list[tuple]:
     return found
 
 
-@lru_cache(maxsize=None)
-def recorded_step(script, shell, environment, working_directory):
-    """What the recording shims saw when this step's script was executed.
+def mentions_the_file(script: str, path: str) -> bool:
+    """True when some token of this script could reach this path.
 
-    `execute_step` is the harness of `tests/test_content_checks_workflow.py`: the
-    script goes to a file and the file to the shell GitHub documents for it, in a
-    throwaway tree of tracked path names, with every program that could be pytest
-    replaced by a shim that records its argv. Cached because one step answers for
-    every file this module asks about and executing it is the expensive half.
+    What it decides is which steps are worth executing, and nothing else: a
+    step that cannot be read as naming the file cannot hand it to pytest under
+    any of the eight bypasses #632 recorded, because all eight hide the command
+    and none hides the path. So the reading is generous on purpose -- a glob, a
+    directory, a `./` spelling, a quoted token and the bare basename all count,
+    and so does a name inside a here-document, since catching that is what the
+    recorder is for. A candidate wrongly dropped would be a bypass; a candidate
+    wrongly kept is only a second of someone's time.
+
+    Without this the candidate set was every step whose script mentions pytest
+    anywhere under `.github/workflows` -- 26 steps and 22 inner pytest runs to
+    answer about one path, growing with every pytest step the repository adds.
     """
-    return execute_step(script, shell=shell, env=dict(environment),
-                        working_directory=working_directory)
+    name = Path(path).name
+    for token in script.replace(";", " ").split():
+        token = token.strip("'\"")
+        cleaned = token[2:] if token.startswith("./") else token
+        if cleaned in (path, name, ".", "./"):
+            return True
+        if any(character in cleaned for character in "*?[") and (
+                fnmatch(path, cleaned) or fnmatch(name, cleaned)):
+            return True
+        directory = cleaned.rstrip("/")
+        if directory and path.startswith(f"{directory}/"):
+            return True
+    return False
 
 
 @lru_cache(maxsize=1)
-def stub_tree() -> Path:
+def stub_tree() -> tuple:
     """A tree of this repository's tracked path names, kept for the session.
 
     Built once: the names are what a glob expands against and what pytest finds
@@ -188,10 +256,18 @@ def stub_tree() -> Path:
     holder = tempfile.TemporaryDirectory(prefix="manifest-guard-")
     SCRATCH.append(holder)                 # removed when the interpreter exits
     tree = Path(holder.name)
-    write_tree(tree)
+    problem = write_tree(tree)
+    if problem:
+        return None, problem              # no work tree, so no tree of its names
     (tree / "pyproject.toml").write_text(
         (ROOT / "pyproject.toml").read_text(encoding="utf-8"), encoding="utf-8")
-    return tree
+    return tree, None
+
+
+def selects_a_subset(arguments) -> list[str]:
+    """The selecting options in this argv, in the order pytest would read them."""
+    return sorted({argument.partition("=")[0] for argument in arguments
+                   if argument.partition("=")[0] in SELECTING_OPTIONS})
 
 
 @lru_cache(maxsize=None)
@@ -205,14 +281,33 @@ def executed_files(arguments, stubs) -> Executed:
     relatives collect and execute nothing, and an option that consumes its value
     consumes it, with no table of such options anywhere here.
 
-    A usage error is a measurement this guard could not make and is reported as
-    that: an argument naming a path no checkout holds, an option from a plugin
-    this interpreter lacks, or a node id whose class an empty stub does not hold
-    -- `workspace-bindings.yml` commits one, and pytest refuses the whole command
-    over it. Reading any of those as a file that did not run would turn "could
-    not ask" into "no", which is the distinction #632 insisted on.
+    What pytest is not asked is a selection. `-k` and `-m` choose by test name
+    and by marker, which are properties of the real file's contents, and the
+    stub holds one test called `test_executed` and no marks -- so the answer
+    would be about the stub. It is reported as unmeasured instead, which is the
+    stub-fidelity limit of this module stated in one place: a path reaches
+    pytest as itself, and everything inside the file is a name this tree does
+    not have.
+
+    A run that did not answer is a measurement this guard could not make and is
+    reported as that: an argument naming a path no checkout holds, an option
+    from a plugin this interpreter lacks, or a node id whose class an empty stub
+    does not hold -- `workspace-bindings.yml` commits one, and pytest refuses
+    the whole command over it. Reading any of those as a file that did not run
+    would turn "could not ask" into "no", which is the distinction #632 insisted
+    on. Which exit codes answer is the list above, not the one number a usage
+    error happens to carry in this release.
     """
-    tree = stub_tree()
+    selecting = selects_a_subset(arguments)
+    if selecting:
+        return Executed(frozenset(), (
+            "`" + " ".join(arguments) + "` selects a subset with "
+            + ", ".join(f"`{option}`" for option in selecting)
+            + ", which is a question about the real file's test names and markers; "
+            "this guard's stub shares only its path, so what ran is unknown"))
+    tree, problem = stub_tree()
+    if problem:
+        return Executed(frozenset(), problem)
     log = tree / RECORD
     log.unlink(missing_ok=True)
     for name in stubs:
@@ -227,16 +322,17 @@ def executed_files(arguments, stubs) -> Executed:
         )
     finally:
         for name in stubs:
-            if name in tracked_names():
+            if name in tracked_names()[0]:
                 (tree / name).write_text("", encoding="utf-8")
             else:
                 (tree / name).unlink()
     executed = log.read_text(encoding="utf-8").split() if log.exists() else []
-    if finished.returncode == USAGE_ERROR and not executed:
+    if finished.returncode not in ANSWERING_EXIT_CODES and not executed:
         output = (finished.stdout + finished.stderr).strip().splitlines()
         return Executed(frozenset(), (
-            "pytest refused `" + " ".join(arguments) + "`, so what it would have run "
-            "is unknown: " + (output[-1] if output else "no output")))
+            "pytest refused `" + " ".join(arguments) + "` and exited "
+            f"{finished.returncode}, so what it would have run is unknown: "
+            + (output[-1] if output else "no output")))
     return Executed(frozenset(executed), None)
 
 
@@ -251,9 +347,19 @@ def invocation(path: str, documents: dict) -> Invocation:
     left between them is which recorded program was started, by the same
     `pytest_invocation` the #632 guard uses on the same log lines.
     """
-    hosts, problems = [], []
+    hosts, problems, measured = [], [], 0
     for name, document in documents.items():
         for job_name, job, step in pytest_candidates(document):
+            # The narrowing: a step that names no spelling of this path is not
+            # executed, which is where this module's cost used to come from.
+            if not mentions_the_file(step["run"], path):
+                continue
+            skipped = skip_reasons(document, job_name, step)
+            if skipped:
+                problems.append(
+                    f"{name} ({job_name}): a run may not reach this step -- "
+                    + ", ".join(skipped))
+                continue
             run = recorded_step(
                 step["run"],
                 effective_shell(document, job, step)[0],
@@ -263,23 +369,57 @@ def invocation(path: str, documents: dict) -> Invocation:
             if run.problem:
                 problems.append(f"{name} ({job_name}): {run.problem}")
                 continue
-            ran, unmeasured = False, []
+            ran, answered, unmeasured = False, 0, []
             for command in run.commands:
                 arguments = pytest_invocation(command)
                 if arguments is None:
                     continue               # pip, or an interpreter running something else
-                measured = executed_files(
+                answer = executed_files(
                     tuple(arguments), RECORDED_FILES | frozenset({path}))
-                if path in measured.files:
+                if answer.problem:
+                    unmeasured.append(f"{name} ({job_name}): {answer.problem}")
+                    continue
+                answered += 1
+                if path in answer.files:
                     ran = True
                     break
-                if measured.problem:
-                    unmeasured.append(f"{name} ({job_name}): {measured.problem}")
             if ran:
                 hosts.append(name)
                 break
+            # A step that was executed and recorded no pytest at all is a
+            # measurement -- it ran nothing -- and so is one whose argv pytest
+            # answered. A step whose every recorded argv pytest refused is not.
+            if answered or not unmeasured:
+                measured += 1
             problems.extend(unmeasured)
-    return Invocation(hosts, problems)
+    return Invocation(hosts, problems, measured)
+
+
+def require_a_host(path: str, run: Invocation) -> None:
+    """Pass, skip or fail on what the candidate steps answered about this path.
+
+    The same three answers the #632 harness makes: a step that was executed and
+    whose argv pytest did answer, with the file not among what ran, is the
+    failure this module exists for; a candidate set where every answer was a
+    problem is a measurement that was not made, and an unusable runner -- no
+    bash, a `noexec` temp filesystem, a shim the kernel refuses, a 120 s timeout
+    on a contended runner, an argv pytest rejects -- must not read as a bypass.
+    """
+    if run.hosts:
+        if run.problems:
+            warnings.warn(
+                f"{len(run.problems)} candidate(s) for {path} could not be "
+                "measured; another workflow answered instead: "
+                + "; ".join(run.problems),
+                UnmeasuredCandidate, stacklevel=2)
+        return
+    if run.problems and not run.measured:
+        pytest.skip(
+            f"this guard could not measure whether a workflow runs {path}: "
+            + "; ".join(run.problems))
+    pytest.fail(
+        f"no workflow's run command handed {path} to pytest when executed. "
+        + ("; ".join(run.problems) if run.problems else "No step names it at all."))
 
 
 def invoked_by(path: str, documents: dict) -> list[str]:
@@ -315,15 +455,31 @@ def test_every_core_dependency_is_installable_from_requirements():
     # pytest-asyncio, which the package declares under its extras instead.
 
 
-def test_this_guard_is_itself_triggered_and_run():
-    """A guard no workflow runs is a guard that holds only on the author's machine."""
+def test_this_guard_is_itself_a_workflow_trigger():
+    """A change to it has to start something; reading that needs no execution."""
     wanted = f"tests/{Path(__file__).name}"
     assert triggered_by(wanted, DOCUMENTS), (
         f"no workflow's `paths:` names {wanted}; {NAME_IT}")
+
+
+@EXECUTES_STEPS
+def test_this_guard_is_itself_run_by_the_workflow_its_change_triggers():
+    """A guard no workflow runs is a guard that holds only on the author's machine.
+
+    One workflow has to do both. Asserted separately, a `paths:` entry in one
+    workflow and a pytest command in another satisfied the pair while no run
+    ever both started on a change to this file and executed it (#555, item 5),
+    so what is asserted is the intersection.
+    """
+    wanted = f"tests/{Path(__file__).name}"
     run = invocation(wanted, DOCUMENTS)
-    assert run.hosts, (
-        f"no workflow's run command handed {wanted} to pytest when executed. "
-        + ("; ".join(run.problems) if run.problems else "No step names it at all."))
+    require_a_host(wanted, run)
+    both = sorted(set(triggered_by(wanted, DOCUMENTS)) & set(run.hosts))
+    assert both, (
+        f"the workflows a change to {wanted} starts and the workflows that run it "
+        f"are disjoint: triggered by {sorted(triggered_by(wanted, DOCUMENTS))}, run "
+        f"by {sorted(run.hosts)}, so no single run both starts on a change to it "
+        "and executes it")
 
 
 @pytest.mark.parametrize("installer", INSTALLERS, ids=lambda path: path.name)
@@ -335,13 +491,11 @@ def test_every_installer_script_is_a_workflow_trigger(installer):
 
 
 @pytest.mark.parametrize("test", INSTALLER_TESTS, ids=lambda path: path.name)
+@EXECUTES_STEPS
 def test_every_installer_test_is_run_by_a_workflow(test):
     """A test file no workflow invokes proves nothing about the installer it covers."""
     wanted = f"tests/{test.name}"
-    run = invocation(wanted, DOCUMENTS)
-    assert run.hosts, (
-        f"no workflow's run command handed {wanted} to pytest when executed. "
-        + ("; ".join(run.problems) if run.problems else "No step names it at all."))
+    require_a_host(wanted, invocation(wanted, DOCUMENTS))
 
 
 def test_an_ignored_path_is_not_a_trigger():
@@ -352,6 +506,7 @@ def test_an_ignored_path_is_not_a_trigger():
     assert trigger_paths(triggering) == {"scripts/install_x.py"}
 
 
+@EXECUTES_STEPS
 def test_a_path_entry_is_not_a_run_command():
     """A test named under `paths:` is one that starts the job, not one it runs."""
     wanted = "tests/test_install_setup_options.py"
@@ -399,6 +554,7 @@ def test_a_glob_under_paths_is_not_cover_for_a_file_it_matches():
     assert "glob_regex" not in globals(), "a glob translation is back in this module"
 
 
+@EXECUTES_STEPS
 def test_a_mention_of_pytest_is_not_a_run_because_the_step_is_executed():
     """#555, second gap: only an invocation reaches the recorder, a word does not.
 
@@ -413,6 +569,7 @@ def test_a_mention_of_pytest_is_not_a_run_because_the_step_is_executed():
     assert invoked_by(wanted, {"w.yml": step(f"pytest {wanted}")}) == ["w.yml"]
 
 
+@EXECUTES_STEPS
 def test_an_option_s_value_is_not_read_as_a_test_path():
     """#555, third gap: pytest decides what its arguments select, not this file.
 
@@ -427,6 +584,7 @@ def test_an_option_s_value_is_not_read_as_a_test_path():
     assert invoked_by(wanted, {"w.yml": step(f"pytest -p no:cacheprovider {wanted}")}) == ["w.yml"]
 
 
+@EXECUTES_STEPS
 def test_a_real_invocation_counts_however_it_is_spelt():
     """The guard has to pass the commands this repository really writes.
 
@@ -436,6 +594,11 @@ def test_a_real_invocation_counts_however_it_is_spelt():
     glob against real names, `python -B -m pytest` reaches pytest through the
     interpreter, a leading assignment is the documented form, and `&&` runs what
     follows it.
+
+    `pytest -k install <file>` used to be here, asserted to count. It is neither
+    refused nor counted now: the stub cannot answer a selection, so the case
+    moved to `test_an_argv_that_selects_a_subset_is_a_measurement_this_guard_cannot_make`
+    below, where it is unmeasured rather than decided.
     """
     wanted = "tests/test_install_setup_options.py"
     for command in (
@@ -443,11 +606,11 @@ def test_a_real_invocation_counts_however_it_is_spelt():
         f"python -B -m pytest {wanted} -q -p no:cacheprovider",
         f"LANGFUSE_TRACING_ENABLED=false pytest {wanted}",
         f"ls tests > /dev/null && pytest {wanted}",
-        f"pytest -k install {wanted}",
     ):
         assert invoked_by(wanted, {"w.yml": step(command)}) == ["w.yml"], command
 
 
+@EXECUTES_STEPS
 def test_a_command_that_only_collects_is_not_a_run():
     """Collection is not execution, and pytest is what says which is which.
 
@@ -458,8 +621,7 @@ def test_a_command_that_only_collects_is_not_a_run():
     test rather than as a guard that quietly believes a file ran.
     """
     wanted = "tests/test_install_setup_options.py"
-    for mode in ("--collect-only", "--collectonly", "--co", "--setup-only",
-                 "--setup-plan", "--fixtures", "--markers", "--help", "--version"):
+    for mode in NON_RUNNING_MODES:
         assert invoked_by(wanted, {"w.yml": step(f"pytest {mode} {wanted}")}) == [], mode
     # An option that shows more while still running is a run, and so is the file
     # beside a whole-file `--deselect` of another one.
@@ -467,6 +629,7 @@ def test_a_command_that_only_collects_is_not_a_run():
     assert invoked_by(wanted, {"w.yml": step(f"pytest --deselect {wanted} {wanted}")}) == []
 
 
+@EXECUTES_STEPS
 def test_a_measurement_this_guard_cannot_make_is_not_a_no():
     """A step that was never executed, and an argv pytest refused, say so.
 
@@ -481,3 +644,249 @@ def test_a_measurement_this_guard_cannot_make_is_not_a_no():
     refused = invocation(wanted, {"w.yml": step(f"pytest --no-such-option {wanted}")})
     assert refused.hosts == []
     assert refused.problems and "pytest refused" in refused.problems[0]
+
+
+@EXECUTES_STEPS
+def test_a_candidate_set_whose_every_answer_is_a_problem_is_unmeasured():
+    """An unusable runner reads as unmeasured rather than as a bypass.
+
+    Both documents below are candidates that name the file and neither can be
+    measured: the first spells an absolute interpreter path PATH cannot
+    intercept, so the step is never executed, and the second hands pytest an
+    option no installed plugin provides, so pytest refuses the whole command.
+    The guard used to fail on exactly this, which is what a runner without bash,
+    with a `noexec` temp filesystem or with a contended 120 s timeout looks like.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    run = invocation(wanted, {
+        "absolute.yml": step(f"/usr/bin/pytest {wanted}"),
+        "refused.yml": step(f"pytest --no-such-option {wanted}"),
+    })
+    assert run.hosts == []
+    assert run.measured == 0, "neither of these could be measured"
+    assert len(run.problems) == 2, run.problems
+    with pytest.raises(pytest.skip.Exception, match="could not measure"):
+        require_a_host(wanted, run)
+    # And the bypass it must still catch: a step that really was executed and
+    # really ran nothing fails, because that measurement was made.
+    ran_nothing = invocation(wanted, {"w.yml": step(f"echo pytest {wanted}")})
+    assert ran_nothing.measured >= 1 and ran_nothing.hosts == []
+    with pytest.raises(pytest.fail.Exception, match="handed"):
+        require_a_host(wanted, ran_nothing)
+
+
+@EXECUTES_STEPS
+def test_a_candidate_step_a_run_never_reaches_is_not_a_host():
+    """The same condition on this half, which answered with the workflow's name.
+
+    `pytest_candidates` reads no `if:`, so a lone `if: ${{ false }}` step was
+    executed and credited; the reader the other module has always used for the
+    calendar case now runs over these candidates too.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    gated = {"jobs": {"tests": {"steps": [
+        {"run": f"pytest {wanted}", "if": "${{ false }}"}]}}}
+    run = invocation(wanted, {"gated.yml": gated})
+    assert run.hosts == []
+    assert run.measured == 0
+    assert any("may not reach this step" in problem for problem in run.problems), (
+        run.problems)
+    assert invoked_by(wanted, {"open.yml": step(f"pytest {wanted}")}) == ["open.yml"]
+
+
+@EXECUTES_STEPS
+def test_an_argv_that_selects_a_subset_is_a_measurement_this_guard_cannot_make():
+    """`-k` and `-m` ask about the real file's test names and markers.
+
+    The stub shares only the path with the file it stands for: it holds one test
+    called `test_executed` and no marks. So a selection answers about the stub,
+    and it was measured answering wrongly in both directions -- a module-level
+    `slow` mark on `tests/test_install_review_config.py` makes the committed
+    command really collect 86 tests and run none under this repository's
+    `addopts`, while the unmarked stub ran and the guard passed; and `-k
+    detection` on that command really runs 4 tests while the guard reported the
+    file as not run. Both are now the third answer, which is the one this module
+    already has for a question it cannot put to pytest.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    for command in (
+        f"pytest -k install {wanted}",
+        f"pytest -m 'not slow' {wanted}",
+        f"pytest {wanted} -k detection",
+        f"pytest {wanted} -m slow -q",
+    ):
+        run = invocation(wanted, {"w.yml": step(command)})
+        assert run.hosts == [], command
+        assert run.measured == 0, command
+        assert any("selects a subset" in problem for problem in run.problems), (
+            command, run.problems)
+    # The same command without the selector is measured, or the cases above say
+    # nothing about selection.
+    assert invoked_by(wanted, {"w.yml": step(f"pytest {wanted}")}) == ["w.yml"]
+
+
+@EXECUTES_STEPS
+def test_a_step_that_names_another_file_is_never_executed():
+    """The cost scaled with the repository instead of with the guard.
+
+    Every step whose script merely mentions pytest was a candidate, anywhere
+    under `.github/workflows`: 26 steps and 22 inner pytest runs to answer about
+    one path, so each new pytest step anywhere added a bash run and up to one
+    pytest run to all three legs for ever. A step that names some other file
+    cannot hand this one to pytest under any of the eight bypasses -- all eight
+    hide the command, not the path -- so it is not executed at all.
+
+    The reading that narrows is deliberately generous, because a candidate
+    wrongly dropped is a bypass: a glob, a directory, a `./` spelling and the
+    bare basename all count, and the file named inside a here-document counts
+    too, since that is one of the forms the recorder exists to catch.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    elsewhere = {"w.yml": step("/usr/bin/pytest tests/test_other_thing.py")}
+    run = invocation(wanted, elsewhere)
+    assert (run.hosts, run.problems, run.measured) == ([], [], 0), (
+        "a step naming another file was executed anyway")
+    naming = {"w.yml": step(f"/usr/bin/pytest {wanted}")}
+    assert invocation(wanted, naming).problems, (
+        "the same step naming this file has to be executed, or the case above is "
+        "about nothing")
+    for command in (
+        f"pytest {wanted}",
+        "pytest tests/test_install_*.py",
+        f"pytest ./{wanted}",
+        "pytest tests/",
+        f"cat <<'PLAN'\n{wanted}\nPLAN\npytest {wanted}",
+        f'pytest "{wanted}"',
+    ):
+        assert mentions_the_file(command, wanted), command
+    assert not mentions_the_file("pytest tests/test_flows.py", wanted)
+    assert not mentions_the_file("pytest tests/test_install_x.py", wanted)
+
+
+@EXECUTES_STEPS
+def test_a_candidate_this_guard_cannot_measure_is_reported_even_on_success():
+    """A real "could not measure" was being discarded whenever anything else said yes.
+
+    `workspace-bindings.yml` commits a node-id argv that pytest refuses with its
+    usage exit code on every run, and the problem was returned while another
+    workflow supplied the positive answer, so the suite went green and the gap
+    was never printed once. A workflow this guard permanently cannot measure is
+    worth seeing, so an unresolved problem is warned about even when the
+    assertion passes.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    run = invocation(wanted, {
+        "refused.yml": step(f"pytest --no-such-option {wanted}"),
+        "answering.yml": step(f"pytest {wanted}"),
+    })
+    assert run.hosts == ["answering.yml"]
+    assert run.problems and "no-such-option" in run.problems[0], run.problems
+    with pytest.warns(UnmeasuredCandidate, match="no-such-option"):
+        require_a_host(wanted, run)
+    # Nothing to report is nothing to warn about.
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error", UnmeasuredCandidate)
+        require_a_host(wanted, invocation(wanted, {"only.yml": step(f"pytest {wanted}")}))
+
+
+def test_the_pytest_contract_this_guard_reads_is_pinned_to_a_range():
+    """Every verdict here is pytest's, so pytest's version is part of the guard.
+
+    This module asks the installed pytest which of its arguments select a file
+    and reads its exit code, and `requirements.txt` asked for `pytest>=7.0.0`,
+    which is nine spellings and an exit code taken on trust from whatever a
+    runner resolves on the day. A release that renamed `--collectonly` or moved
+    the usage exit code would fail a repository that is wired correctly, and the
+    failure would be a dependency bump wearing this guard's message.
+
+    So the range has an upper bound, and the installed pytest is inside it --
+    the second half matters, because a pin nothing satisfies pins nothing.
+    """
+    lines = [line.strip()
+             for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+             if re.match(r"^pytest\s*[<>=!]", line.strip())]
+    assert len(lines) == 1, f"one pytest requirement, not {lines}"
+    [requirement] = lines
+    assert ">=" in requirement and "<" in requirement, (
+        f"`{requirement}` has no upper bound, so the behaviour this module "
+        "measures is whatever the next release decides")
+    floor = re.search(r">=\s*([\d.]+)", requirement).group(1)
+    ceiling = re.search(r"<\s*([\d.]+)", requirement).group(1)
+    installed = tuple(int(part) for part in pytest.__version__.split(".")[:2])
+    assert _version(floor) <= installed < _version(ceiling), (
+        f"pytest {pytest.__version__} is outside `{requirement}`, so the "
+        "measurements below were taken against a version this repository does "
+        "not install")
+
+
+def _version(text: str) -> tuple:
+    parts = tuple(int(part) for part in text.split(".")[:2])
+    return parts if len(parts) == 2 else (parts[0], 0)
+
+
+@EXECUTES_STEPS
+def test_an_exit_code_this_guard_does_not_model_is_unmeasured_without_naming_a_number():
+    """And the other half of the same dependency: the exit code was read as a 4.
+
+    Which it is today -- pytest's usage error -- and the guard asserted that
+    number. What it needs to know is narrower and does not move: whether the run
+    answered the question. Nothing collected is an answer, the file simply did
+    not run; an interruption, an internal error, a usage error or a signal are
+    not, whatever number carries them.
+    """
+    refused = executed_files(("--no-such-option", "tests/t.py"), frozenset({"tests/t.py"}))
+    assert refused.files == frozenset()
+    assert refused.problem and "pytest refused" in refused.problem, refused.problem
+    assert "exited" in refused.problem, (
+        f"the problem has to name what pytest did: {refused.problem}")
+    wanted = "tests/test_install_setup_options.py"
+    collected_nothing = executed_files(
+        ("-p", "no:cacheprovider", "--deselect", wanted, wanted), RECORDED_FILES)
+    assert collected_nothing.problem is None, (
+        "nothing collected is an answer, not a measurement that failed")
+    assert wanted not in collected_nothing.files
+
+
+def test_both_extensions_github_accepts_are_read(tmp_path):
+    """A `.yaml` workflow was invisible to every assertion in this module.
+
+    GitHub runs both spellings. Renaming `instruction-protocol.yml` to `.yaml`
+    gave 3 failed and made the workflow invisible to every trigger and run
+    assertion here, which is item 4 of #555 and was untouched. The other module
+    already globs both; this one globbed `*.yml` alone, and the two now share
+    one reader so they cannot drift apart again.
+    """
+    (tmp_path / "a.yml").write_text("", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("", encoding="utf-8")
+    (tmp_path / "c.yml.bak").write_text("", encoding="utf-8")
+    assert [path.name for path in workflow_paths(tmp_path)] == ["a.yml", "b.yaml"]
+    assert WORKFLOWS == workflow_paths(ROOT / ".github/workflows")
+
+
+@EXECUTES_STEPS
+def test_every_collect_only_spelling_is_one_pytest_still_knows():
+    """The loop above passes for two different reasons, and only one is the point.
+
+    A mode pytest no longer knows is a usage error, and a usage error is `hosts
+    == []` -- the same answer as a mode that collects without running. So the
+    assertion that the file does not run would survive pytest renaming every one
+    of these, which is the vacuity this pins: each mode has to be one pytest
+    answered, `measured == 1`, and an option it does not know has to be the
+    third answer instead.
+
+    Six spellings were also dropped when the two parsers were deleted:
+    `--setuponly`, `--setupplan`, `--funcargs`, `--fixtures-per-test`, `-h` and
+    `-V`. Four of them were added deliberately for pytest's de-hyphenated
+    aliases, and each costs one cached inner run.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    for mode in NON_RUNNING_MODES:
+        run = invocation(wanted, {"w.yml": step(f"pytest {mode} {wanted}")})
+        assert run.hosts == [], mode
+        assert run.measured == 1, (mode, run.problems)
+    bogus = invocation(wanted, {"w.yml": step(f"pytest --collect-onlyy {wanted}")})
+    assert (bogus.hosts, bogus.measured) == ([], 0), (
+        "an option pytest does not know has to be unmeasured, or every mode "
+        "above could be a typo and this loop would not notice")
+    assert bogus.problems

@@ -11,7 +11,11 @@ cryptography==50.0.2
 mcp==1.30.0
 uvicorn==0.48.0
 # Test dependencies
-pytest>=7.0.0
+# Pinned to a range, not a floor: tests/test_project_manifests.py asks the
+# installed pytest which of its arguments select a file and reads its exit
+# code, so a release that renames an option or moves that code would fail a
+# repository that is wired correctly. Measured on 9.1.1.
+pytest>=9.1,<10
 pytest-asyncio>=0.21.0
 # Document OCR dependencies
 pdf2image>=1.16.0
