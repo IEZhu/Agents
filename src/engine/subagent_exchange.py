@@ -128,23 +128,29 @@ def _transcript_roots() -> list[Path]:
     return _result_roots() + _resolved(homes)
 
 
-def _claude_text(record: dict) -> tuple[str | None, str | None]:
-    """(message id, text) of a Claude Code assistant record; a background hand-back counts as text."""
+def _claude_text(record: dict) -> tuple[str | None, str | None, bool]:
+    """(message id, text, hand-back) of a Claude Code assistant record.
+
+    A ``SubagentHandback`` message is the worker's result, so it is returned alone: the text
+    blocks of the same message are the worker's own narration, and a result preceded by a
+    sentence such as "Composing the envelope" would be read as malformed (#581).
+    """
     message = record.get("message")
     if (record.get("type") != "assistant" or not isinstance(message, dict)
             or not isinstance(message.get("id"), str)):  # Claude message IDs are strings
-        return None, None
-    parts = []
+        return None, None, False
+    texts, handbacks = [], []
     content = message.get("content")
     for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict):
             continue
         if block.get("type") == "text" and isinstance(block.get("text"), str):
-            parts.append(block["text"])
+            texts.append(block["text"])
         elif (block.get("type") == "tool_use" and block.get("name") == "SubagentHandback"
               and isinstance(block.get("input"), dict) and isinstance(block["input"].get("message"), str)):
-            parts.append(block["input"]["message"])
-    return message.get("id"), ("\n".join(parts) if parts else None)
+            handbacks.append(block["input"]["message"])
+    parts = handbacks or texts
+    return message.get("id"), ("\n".join(parts) if parts else None), bool(handbacks)
 
 
 def _codex_text(record: dict) -> str | None:
@@ -162,9 +168,11 @@ def final_message(lines) -> str | None:
     """The last assistant message of a Claude Code or Codex transcript, given its lines.
 
     Claude Code writes one line per content block, so the text blocks of one message id are
-    joined; a later message without text leaves the earlier text as the final one.
+    joined; a later message without text leaves the earlier text as the final one. A
+    ``SubagentHandback`` message is the result of its own message: it replaces that message's
+    text blocks instead of joining them, whichever record carries them (#581).
     """
-    final, final_id = None, None
+    final, final_id, final_handback = None, None, False
     for line in lines:
         try:
             record = json.loads(line)
@@ -173,17 +181,20 @@ def final_message(lines) -> str | None:
         if not isinstance(record, dict):
             continue
         try:  # a record of any other shape is skipped whole, so a later valid one still counts
-            message_id, text = _claude_text(record)
+            message_id, text, handback = _claude_text(record)
             if text is None:
-                text, message_id = _codex_text(record), None
+                text, message_id, handback = _codex_text(record), None, False
         except (AttributeError, KeyError, TypeError):
             continue
         if text is None:
             continue
         if message_id is not None and message_id == final_id and final is not None:
-            final += "\n" + text
-        else:
-            final, final_id = text, message_id
+            if final_handback and not handback:
+                continue  # this message handed its result back; its narration is not part of it
+            if handback == final_handback:
+                final += "\n" + text
+                continue
+        final, final_id, final_handback = text, message_id, handback
     return final.strip() if final and final.strip() else None
 
 

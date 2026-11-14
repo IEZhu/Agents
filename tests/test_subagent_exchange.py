@@ -687,6 +687,52 @@ def test_reference_reads_claude_codex_and_handback_transcripts(worker_tree, tmp_
     assert validate_result(package.contract.model_dump(mode="json"), subagent_exchange.read_result(str(codex))).valid
 
 
+def test_a_handback_is_the_result_without_the_narration_of_its_own_message(worker_tree, tmp_path):
+    """#581: a preamble next to the hand-back is narration, and a result read with it is malformed."""
+    package = prepared()
+    text = text_result(package)
+    contract = package.contract.model_dump(mode="json")
+    one_record = tmp_path / "agent-one.jsonl"
+    one_record.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "content": [
+        {"type": "text", "text": "Composing the envelope"},
+        {"type": "tool_use", "name": "SubagentHandback", "input": {"message": text}}]}}) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(one_record)) == text
+    per_block = tmp_path / "agent-blocks.jsonl"  # Claude Code writes one line per content block
+    per_block.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "Reading the package."}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [
+            {"type": "text", "text": "All acceptance checks pass. Here is my result."}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": text}}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [{"type": "text", "text": "Handed it back."}]}},
+    ]) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(per_block)) == text
+    assert validate_result(contract, subagent_exchange.read_result(str(per_block))).valid
+
+
+def test_a_message_without_a_handback_still_joins_its_text_blocks(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-text.jsonl"
+    transcript.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "task: x"}]}},
+        {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "## summary"},
+                                                                  {"type": "text", "text": "Checked it."}]}},
+    ]) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(transcript)) == "task: x\n## summary\nChecked it."
+
+
+def test_several_handbacks_of_one_message_keep_their_order_and_drop_the_narration(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-twice.jsonl"
+    transcript.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "text", "text": "Composing the envelope"},
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "task: first"}},
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "task: second"}}]}},
+        {"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "task: third"}}]}},
+    ]) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(transcript)) == "task: first\ntask: second\ntask: third"
+
+
 @pytest.mark.parametrize("name,code", [
     ("relative/result.md", "invalid_result_ref"),
     ("missing.md", "result_ref_missing"),
