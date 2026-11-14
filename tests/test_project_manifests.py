@@ -208,16 +208,56 @@ def load(path: Path):
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
-def trigger_paths(document) -> set[str]:
-    # `paths` only: `paths-ignore` suppresses a run, so a workflow that ignores an
-    # installer's path would otherwise satisfy the assertion that names it.
+def trigger_filters(document) -> list[list[str]]:
+    """Each event's `paths` list, in the order GitHub reads it.
+
+    In order, and one list per event, because both decide the answer below: a
+    `paths` list is read from the top and the last pattern that matches a file
+    wins, and an event whose list covers the file starts a run whatever another
+    event's list says.
+
+    `paths` only: `paths-ignore` suppresses a run, so a workflow that ignores an
+    installer's path would otherwise satisfy the assertion that names it.
+    """
     triggers = document.get("on") or {}
-    paths = set()
+    filters = []
     if isinstance(triggers, dict):
         for event in triggers.values():
-            if isinstance(event, dict):
-                paths.update(event.get("paths") or [])
-    return paths
+            if isinstance(event, dict) and isinstance(event.get("paths"), list):
+                filters.append([entry for entry in event["paths"]
+                                if isinstance(entry, str)])
+    return filters
+
+
+def trigger_paths(document) -> set[str]:
+    """Every `paths` entry of every event, with the order dropped."""
+    return {entry for entries in trigger_filters(document) for entry in entries}
+
+
+def starts_a_run(entries: list[str], path: str) -> bool:
+    """True when this event's own `paths` list really starts a run for `path`.
+
+    Naming the path verbatim is still what counts, and the list is read in
+    GitHub's order: the last entry that matches decides, so `["x.py", "!x.py"]`
+    starts no run for `x.py` at all and the first occurrence was cover for
+    nothing. Reading the list as a set is the one thing an ordered rule with a
+    negation cannot be.
+
+    What a later exclusion of any other spelling means is a question about
+    GitHub's glob syntax, which this module answers nowhere: `!tests/**` after
+    the path cancels it at GitHub and no translation of that syntax is going to
+    be read here. So an exclusion that follows the entry drops the credit
+    whether or not it is the entry's own negation, and the remedy is the one
+    this module already gives for a glob -- name the file again after the
+    exclusion, where its order says what it means.
+    """
+    credited = False
+    for entry in entries:
+        if entry == path:
+            credited = True
+        elif entry.startswith("!"):
+            credited = False
+    return credited
 
 
 def triggered_by(path: str, documents: dict) -> list[str]:
@@ -231,11 +271,13 @@ def triggered_by(path: str, documents: dict) -> list[str]:
 
     So no entry is interpreted. A glob is not cover and a file covered only by
     one fails the assertions below, where the message says to name it beside the
-    glob. An entry that begins with `!` is an exclusion and never equals a path,
-    which is the right answer rather than an unmodelled case.
+    glob. An entry that begins with `!` is an exclusion, and `starts_a_run`
+    reads it where it stands: a path credited to its own earlier entry while a
+    later line cancelled it was cover for a run GitHub never starts.
     """
     return [name for name, document in documents.items()
-            if path in trigger_paths(document)]
+            if any(starts_a_run(entries, path)
+                   for entries in trigger_filters(document))]
 
 
 def pytest_candidates(document) -> list[tuple]:
@@ -721,6 +763,42 @@ def test_a_glob_under_paths_is_not_cover_for_a_file_it_matches():
     documents = {"w.yml": {"on": {"push": {"paths": ["scripts/install_x.py"]}}}}
     assert triggered_by("scripts/install_x.py", documents) == ["w.yml"]
     assert "glob_regex" not in globals(), "a glob translation is back in this module"
+
+
+def test_an_exclusion_after_the_entry_cancels_it():
+    """A `paths:` list is read in order, and this read it as a set.
+
+    GitHub takes the last pattern that matches a file, so `["x.py", "!x.py"]`
+    starts no run for `x.py`: the entry is there and covers nothing. Crediting
+    the first occurrence made the exclusion invisible, which is the one
+    direction that matters -- an installer whose tests nothing runs, reported as
+    triggered.
+
+    An exclusion of some other spelling is the same answer for a reason this
+    module states rather than solves: whether `!tests/**` cancels the path is a
+    question about GitHub's glob syntax, which is interpreted nowhere here. The
+    remedy is the one a glob already gets, name the file after the exclusion,
+    and the case below is that remedy working.
+    """
+    wanted = "scripts/install_x.py"
+    for entries in (
+        [wanted, f"!{wanted}"],
+        [wanted, "!scripts/**"],
+        [wanted, "!**"],
+    ):
+        documents = {"w.yml": {"on": {"push": {"paths": entries}}}}
+        assert triggered_by(wanted, documents) == [], entries
+    # Order is what decides it, in both directions: named after the exclusion
+    # the entry is cover again, and that is what a maintainer is told to write.
+    for entries in ([f"!{wanted}", wanted], ["!scripts/**", wanted]):
+        documents = {"w.yml": {"on": {"push": {"paths": entries}}}}
+        assert triggered_by(wanted, documents) == ["w.yml"], entries
+    # One event's list cancelling the path says nothing about another's: a run
+    # of the event that still covers it is a run.
+    documents = {"w.yml": {"on": {
+        "push": {"paths": [wanted, f"!{wanted}"]},
+        "pull_request": {"paths": [wanted]}}}}
+    assert triggered_by(wanted, documents) == ["w.yml"]
 
 
 @EXECUTES_STEPS
