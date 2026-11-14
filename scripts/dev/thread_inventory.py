@@ -167,6 +167,11 @@ READ_VERBS = {
 # Servers the host application itself provides (task list, chat title, chapters, panes): their
 # calls change the app's own UI, not an external system, so they are counted apart.
 CLIENT_LOCAL_SERVER = re.compile(r"^mcp__ccd_")
+# Tools of those servers that do act outside the application: one arms the merge of a pull
+# request on the forge, the others destroy a session, reach another session or start a remote
+# one. They stay write, so each keeps its time, actor and target in `external_writes`.
+CLIENT_LOCAL_EXCEPTIONS = {"mcp__ccd_pr__set_auto_merge", "mcp__ccd_session__move_to_cloud",
+                           "mcp__ccd_session_mgmt__delete_session", "mcp__ccd_session_mgmt__send_message"}
 # Tools whose name starts with a write verb but which only return text or a verdict.
 READ_ONLY_TOOLS = {"run_flow", "validate_subagent_result"}
 TARGET_KEYS = ("trigger_id", "id", "task_id", "list_id", "doc_id", "url", "owner", "repo", "pullNumber",
@@ -672,7 +677,8 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
 def _name_words(name: str) -> list[str]:
     tail = name.rsplit("__", 1)[-1]
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", tail).lower()
-    spaced = re.sub(r"pull[_\-\s]?requests?", "pullrequest", spaced)  # a noun, not the verb "request"
+    # a noun, not the verbs "pull", "merge" and "request"
+    spaced = re.sub(r"(pull|merge)[_\-\s]?requests?", r"\1request", spaced)
     return [word for word in re.split(r"[_\-\s]+", spaced) if word]
 
 
@@ -699,14 +705,14 @@ def classify_tool(name: str, data) -> str:
         return "read" if not action or action in ARTIFACT_READ_ACTIONS else "write"
     if not name.startswith("mcp__"):
         return "read"
-    if CLIENT_LOCAL_SERVER.match(name):
+    if CLIENT_LOCAL_SERVER.match(name) and name not in CLIENT_LOCAL_EXCEPTIONS:
         return "client_local"
     words = _name_words(name)
     pairs = {"".join(pair) for pair in zip(words, words[1:])}  # read_only reads as read + only
     if name.rsplit("__", 1)[-1].lower() in READ_ONLY_TOOLS or "readonly" in words or "readonly" in pairs:
         return "read"
-    if words and words[0] in READ_VERBS:  # a leading read verb names the action; later words are its object
-        return "read"
+    # Word order does not decide a verdict: `get_or_create_page` writes. A read verb leading a
+    # name whose object does not write, as in `get_merge_request_notes`, still reads just below.
     if any(word in WRITE_VERBS for word in words):
         return "write"
     if any(word in READ_VERBS for word in words):
@@ -1555,18 +1561,19 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
 def _queued(entry: dict, ts, sink: dict, actor: str) -> None:
     """A message sent while a turn runs is an attachment, not a user entry.
 
-    A human one is a prompt, marked `queued`; a task notification stays out of the prompts."""
+    A human one is a prompt, marked `queued`; a task notification stays out of the prompts.
+
+    Only a record whose `origin` names a human sender is counted: the application queues its own
+    events, such as a CI monitor's, with `commandMode` `prompt` as well, so the mode says nothing
+    about the sender."""
     attachment = entry.get("attachment")
     if actor != "main" or not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
         return
     origin = attachment.get("origin")
-    kind = origin.get("kind") if isinstance(origin, dict) else None
-    if kind is not None:
-        is_prompt = kind == "human"
-    else:  # without `origin`, the command mode tells a typed prompt from a notification
-        is_prompt = attachment.get("commandMode") == "prompt"
+    if (origin.get("kind") if isinstance(origin, dict) else None) != "human":
+        return
     prompt = _prompt_text(attachment.get("prompt")).strip()
-    if is_prompt and prompt and not CLIENT_TAG.match(prompt):
+    if prompt and not CLIENT_TAG.match(prompt):
         sink["prompts"].append({"ts": ts, "queued": True})
         _scan_refs(prompt, sink["refs"], ts)
 

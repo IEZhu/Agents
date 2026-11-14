@@ -260,11 +260,13 @@ subagent or user), and what the thread claimed about it. Cover:
   unreadable.
 - **External systems** the thread wrote to: trackers, chat, published pages,
   remote triggers. Use `external_writes`. Also inspect `unclassified_tools`:
-  these are MCP calls whose names did not say whether they write. The tools of
-  the host's own `mcp__ccd_` servers act on the client, not on an external system,
-  and are counted apart in `client_local_calls`. Likewise,
-  `unclassified_commands` lists git and gh commands the helper could not
-  classify as reads or writes.
+  these are MCP calls whose names did not say whether they write. Most tools of
+  the host's own `mcp__ccd_` servers act on the client, not on an external
+  system, and are counted apart in `client_local_calls`; the four that do act
+  outside it stay in `external_writes`: arming a pull request's merge,
+  destroying a session, messaging another session and starting a remote one.
+  Likewise, `unclassified_commands` lists git and gh commands the helper could
+  not classify as reads or writes.
 - **Scheduled work**: wake-ups and cron jobs, from `scheduled`.
 - **Session-local items**, which vanish with the session:
   - scratchpad and temporary files (`scratchpad_paths`);
@@ -340,11 +342,13 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 3. **What was called.** List every call of an installed tool with its turn, time,
    tool and status, and for Agents-Core calls the persona descriptor. The helper
    lists no call of every tool: `logging_calls` counts the `log_interaction`
-   calls and `unclassified_tools` counts other unclassified tools by name, while
-   `external_writes` and `scheduled` list only write-classified and scheduling
-   calls, with time, tool and actor but no status; take the other calls and the
-   statuses from a short script over the transcript and do not reprint it. Count
-   final answers apart from progress messages, and note each context compaction.
+   calls, `client_local_calls` counts by name the calls of the host's own servers
+   that act on the client, and `unclassified_tools` counts other unclassified
+   tools by name, while `external_writes` and `scheduled` list only
+   write-classified and scheduling calls, with time, tool and actor but no
+   status; take the other calls and the statuses from a short script over the
+   transcript and do not reprint it. Count final answers apart from progress
+   messages, and note each context compaction.
 4. **Where it applied.** Match the thread against every row: the catalogue and the
    rules from item 2. Every finding names its trigger: the turn, command or tool
    call where the tool applied. "It might have helped" without a trigger is not a

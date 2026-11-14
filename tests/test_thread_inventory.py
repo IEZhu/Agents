@@ -266,6 +266,7 @@ def test_mcp_tool_classification(name, expected):
     ("mcp__gitlab__list_merge_requests", "read"),
     ("mcp__db__readonly_execute", "read"),
     ("mcp__db__execute_read_only_query", "read"),
+    ("mcp__gitlab__list_merge_request_changed_files", "read"),
     ("mcp__gitlab__create_merge_request_note", "write"),
 ])
 def test_read_verbs_and_client_local_tools_are_not_external_writes(name, expected):
@@ -282,6 +283,41 @@ def test_client_local_calls_are_reported_apart_from_external_writes():
     assert [w["tool"] for w in inv["external_writes"]] == ["mcp__gitlab__create_merge_request_note"]
     assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 2, "mcp__ccd_turn__wrap_up": 1}
     assert inv["unclassified_tools"] == {}
+
+
+@pytest.mark.parametrize("name", [
+    "mcp__ccd_pr__set_auto_merge",        # arms the merge of a pull request on the forge
+    "mcp__ccd_session_mgmt__delete_session",  # destroys a session
+    "mcp__ccd_session_mgmt__send_message",    # reaches another session
+    "mcp__ccd_session__move_to_cloud",        # starts a remote session
+])
+def test_host_server_tools_acting_outside_the_app_are_writes(name):
+    assert thread_inventory.classify_tool(name, {}) == "write"
+
+
+def test_an_exempt_host_tool_keeps_its_time_actor_and_target():
+    """What client_local_calls cannot carry: a counter has no time, actor or target."""
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__ccd_pr__set_auto_merge", {"url": "https://github.com/Owner/Repo/pull/9"}, "a1"),
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "a2"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert [w["tool"] for w in inv["external_writes"]] == ["mcp__ccd_pr__set_auto_merge"]
+    write = inv["external_writes"][0]
+    assert write["ts"] == "2026-10-02T09:00:00Z" and write["by"] == "main"
+    assert "url=https://github.com/Owner/Repo/pull/9" in write["summary"]
+    assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 1}
+
+
+@pytest.mark.parametrize("name", [
+    "mcp__x__get_or_create_page",
+    "mcp__x__find_and_replace",
+    "mcp__x__list_add_task",
+    "mcp__x__query_update_rows",
+    "mcp__x__read_and_write_file",
+    "mcp__x__show_and_delete",
+])
+def test_a_write_verb_keeps_its_verdict_after_a_leading_read_verb(name):
+    assert thread_inventory.classify_tool(name, {}) == "write"
 
 
 def test_artifact_tools_and_unclassified_tools_are_reported():
@@ -961,20 +997,25 @@ def test_origin_less_first_record_after_system_reminders_is_a_prompt():
     assert ("issues", 580) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
 
 
-def test_queued_command_attachments_count_only_for_humans():
+def test_queued_command_attachments_count_only_when_origin_says_human():
+    """Without `origin` the command mode says nothing: the app queues its own events as prompts."""
     inv = thread_inventory.inventory([
         human("start", "t1"),
         queued("also see https://github.com/Owner/Repo/pull/7", "t2", commandMode="prompt",
                origin={"kind": "human"}, humanTurn=True),
-        queued("typed before origin existed", "t3", commandMode="prompt"),
-        queued("<task-notification><task-id>a1</task-id></task-notification>", "t4",
+        queued('<ci-monitor-event>"Auto-fix pull requests" is watching '
+               "https://github.com/Owner/Repo/pull/8</ci-monitor-event>",
+               "t3", commandMode="prompt"),  # the app's own injection
+        queued("no origin and no tag", "t4", commandMode="prompt"),
+        queued("<task-notification><task-id>a1</task-id></task-notification>", "t5",
                commandMode="task-notification", origin={"kind": "task-notification"}),
-        queued("<task-notification>no origin</task-notification>", "t5", commandMode="task-notification"),
-        queued("from a peer", "t6", commandMode="prompt", origin={"kind": "peer"}),
-        {"type": "attachment", "timestamp": "t7", "attachment": {"type": "edited_text_file"}},
+        queued("<task-notification>no origin</task-notification>", "t6", commandMode="task-notification"),
+        queued("from a peer", "t7", commandMode="prompt", origin={"kind": "peer"}),
+        {"type": "attachment", "timestamp": "t8", "attachment": {"type": "edited_text_file"}},
     ])
-    assert inv["prompts"] == [{"ts": "t1"}, {"ts": "t2", "queued": True}, {"ts": "t3", "queued": True}]
+    assert inv["prompts"] == [{"ts": "t1"}, {"ts": "t2", "queued": True}]
     assert ("pull", 7) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
+    assert 8 not in [r["number"] for r in inv["github_refs"]]  # an app event is not the user's text
 
 
 WIN_CWD = "C:\\work\\repo"
