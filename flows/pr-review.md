@@ -464,6 +464,20 @@ report that, keep every rule above that does not need it — one request per hea
 that needs one, the matcher, the published next free time in the working record —
 and say in the final report that the allowance was not serialised.
 
+Read an attempt's state from the reviewer's own check run on the head, and from
+nothing else. Measured on this repository on 2026-11-14: a push starts
+CodeRabbit's automatic pass whatever the allowance says, so a push into an
+exhausted window spends that attempt and the pass never re-runs by itself; the
+head then needs exactly one explicit request once the window opens. A push
+inside an open window is reviewed without any request. The surfaces that look
+like state are not: a summary comment was rewritten sixteen seconds after a
+refusal with no pause block in it at all, an empty `COMMENTED` review appears on
+the current head whenever the reviewer replies in an older thread, and a round
+that finds nothing creates no review object, so completion shows up as the
+walkthrough's `coveredCommitId` reaching that head. Do not derive an interval
+between windows either: two such models, each from two observations, were
+contradicted within the hour by the wait the reviewer itself stated.
+
 Keep each pause with its evidence (the comment or review link), the time it was
 seen and the earliest next attempt. Read the current time from the clock
 (`date -u`), never from memory or comment timestamps. `next_attempt` is the
