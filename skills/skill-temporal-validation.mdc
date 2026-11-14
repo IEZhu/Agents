@@ -1,6 +1,6 @@
 ---
 description: "Temporal Validation. Two modes: news freshness (hours) and state of the world (statutes, lists, registers, labels, enrolment statuses). A document describing an unfinished process expires on its outcome, not on a date. Role: Temporal Auditor."
-compiled: "Classify first: news or state of the world. News: fresh <=24h; recent 24-48h; stale >48h discard; unknown->triple verify; UTC; no date on anomaly->assume old. State of the world: the 48h gate does NOT apply and age alone settles nothing. Two kinds. An INSTRUMENT (statute, regulation, decision, licence, label) is in force until the whole of it is replaced, repealed or annulled, its own end date has passed (compare that date with the date you evaluate) or a later instrument from another authority occupies the same ground; an AMENDMENT or a partial repeal does not end it, it changes the version, so quote the consolidated text as of your date. An EDITIONED publication (list, register, tariff, gazette) speaks only for its edition date: ask the issuing body for the current edition and never infer a newer one from elapsed time. A LIVE record updated in place (docket, trial enrolment status, administrative file) has no editions at all: it carries only the keeper's last-updated date, so quote the status as posted on that date, and reading it today proves nothing about today. A pending, submitted or under-review process expires on its OUTCOME, not on a date. «Nothing found» establishes currency only if a completed search OF THE AUTHORITATIVE sources covering that source (register, gazette, issuing body) found nothing; a general web search and an unreachable register both leave currency not established. Record both dates: issued and read."
+compiled: "Classify first: news or state of the world. News: fresh <=24h; recent 24-48h; stale >48h discard; unknown->triple verify; UTC; no date on anomaly->assume old. State of the world: the 48h gate does NOT apply and age alone settles nothing. Three kinds. An INSTRUMENT (statute, regulation, decision, licence, label) is in force until the whole of it is replaced, repealed or annulled, its own end date has passed (compare that date with the date you evaluate) or a later instrument from another authority occupies the same ground; an AMENDMENT or a partial repeal does not end it, it changes the version, so quote the consolidated text as of your date. An EDITIONED publication (list, register, tariff, gazette) speaks only for its edition date: ask the issuing body for the current edition and never infer a newer one from elapsed time. A LIVE record updated in place (docket, trial enrolment status, administrative file) has no editions at all: it carries only the keeper's last-updated date, so quote the status as posted on that date, and reading it today proves nothing about today. A pending, submitted or under-review process expires on its OUTCOME, not on a date. «Nothing found» establishes currency only if a completed search OF THE AUTHORITATIVE sources covering that source (register, gazette, issuing body) found nothing; a general web search and an unreachable register both leave currency not established. Record both dates: issued and read."
 keywords:
   - triple verification
   - assume it is old news
@@ -78,7 +78,7 @@ Be skeptical of "Black Swans" (huge anomalies) without dates.
 
 ## Mode B: State of the World
 
-Two kinds of source live here and they have different lifecycles. Decide which one you are holding before asking whether it is current.
+Three kinds of source live here and they have different lifecycles. Decide which one you are holding before asking whether it is current.
 
 ### B1. An instrument: statute, regulation, decision, licence, drug label
 
@@ -119,7 +119,7 @@ It has no editions. The keeper overwrites it, so the only date it carries is whe
 | a status read today whose last-updated date is months old | what the keeper last posted, not necessarily what is true now. A trial marked recruiting may have closed since: say "as posted on that date" and, where the answer matters, ask the keeper |
 | an archived copy | it speaks for its capture date only |
 
-### Both kinds
+### All three kinds
 
 A source saying a process is pending, submitted, under review, in negotiation or not yet concluded expires on its outcome, not on a date. Assume a successor exists and look for it before using that source as the current state: it is the weakest possible ground for a claim about the present, and finding the outcome usually costs one query.
 
