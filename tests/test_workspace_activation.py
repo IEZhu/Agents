@@ -613,6 +613,72 @@ async def test_a_call_that_names_the_memory_root_is_described_from_the_memory_ro
 
 
 @pytest.mark.asyncio
+async def test_a_summary_file_that_leaves_the_checkout_is_refused_before_it_is_read(
+        bundle, repositories, describers, tmp_path, monkeypatch):
+    """A report embeds a managed section, so the file it reads has to be in the checkout (CR1 F2).
+
+    `plan()` reads `CLAUDE.md` through `managed_section.read_section`, which opens the path it is
+    handed. A symlink there pointed the activation at a file outside the grant, and that file's
+    managed section came back to the caller in `summary_preview`. `ClientContext.require_root`
+    holds a session's memory root to exactly this rule, which is why `describe_repo` refuses such
+    a workspace; a report follows the granted checkout the call named, which that method never
+    sees, so the rule is applied to the root actually read.
+    """
+    registered, outside, _inside = repositories
+    assert RepoDescriber(repo_path=str(registered)).claude_md_path == str(
+        registered / persona.SUMMARY_FILE), "the checked path is the one the describer reads"
+    _write_summary(registered)  # described, so its stored hash agrees with its tree
+    elsewhere = RepoDescriber(repo_path=str(outside))
+    elsewhere.write_summary(_valid_summary("outside-the-grant"), elsewhere.compute_repo_hash())
+    kept = (outside / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "outside-the-grant" in kept, "the section a report would embed"
+    (registered / "CLAUDE.md").unlink()
+    (registered / "CLAUDE.md").symlink_to(outside / "CLAUDE.md")
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    report = (await _http_activate(http_context(registered)))["repo_context"]
+    assert "outside-the-grant" not in json.dumps(report), report.get("summary_preview")
+    assert str(outside) not in json.dumps(report), "and not the path it would be read from"
+    assert report["status"] == "workspace_unsafe", report
+    assert report["code"] == "memory_path_escapes_workspace"
+    assert report["error"].startswith("workspace_unsafe: ")
+    assert str(registered / "CLAUDE.md") in report["error"]
+    for absent in ("summary_preview", "hash", "repo_hash", "repo_path", "registered_workspace"):
+        assert absent not in report, absent
+    # Nothing was described in its place, the installation checkout least of all.
+    assert describers == [] and str(installation_root()) not in json.dumps(report)
+    assert str(registered) not in persona._reported_workspaces
+    assert (outside / "CLAUDE.md").read_text(encoding="utf-8") == kept, "and nothing was written"
+    # The decision is recorded like an unavailable workspace: told once, and to each caller.
+    assert "repo_context" not in await _http_activate(http_context(registered))
+    second = (await _http_activate(http_context(registered, identity="b")))["repo_context"]
+    assert second["status"] == "workspace_unsafe"
+    # The deliberate tool already refused this workspace; the report no longer disagrees.
+    refused = json.loads(await server.describe_repo(ctx=http_context(registered)))
+    assert refused["status"] == "error" and "escapes workspace" in refused["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_summary_file_symlinked_inside_the_checkout_is_still_read(bundle, tmp_path,
+                                                                         monkeypatch):
+    """The rule is containment, not the file type: a link that stays inside is a normal file."""
+    root = tmp_path / "linked"
+    root.mkdir()
+    _seed_repo(root)
+    root = root.resolve()
+    written = _write_summary(root)
+    section = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    # A file below the root does not feed the repository hash, so the description stays current.
+    (root / "src" / "memory.md").write_text(section, encoding="utf-8")
+    (root / "CLAUDE.md").unlink()
+    (root / "CLAUDE.md").symlink_to(Path("src") / "memory.md")
+    assert (root / "CLAUDE.md").is_symlink()
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    report = (await _http_activate(http_context(root)))["repo_context"]
+    assert report["status"] == "up-to-date" and report["hash"] == written["hash"]
+    assert "Project Identity" in report["summary_preview"]
+
+
+@pytest.mark.asyncio
 async def test_an_unavailable_workspace_is_recorded_like_a_described_one(bundle, workspace,
                                                                         tmp_path, monkeypatch):
     """P-C3's record half: the unavailable branch recorded nothing, so it repeated forever.

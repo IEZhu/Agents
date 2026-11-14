@@ -296,6 +296,14 @@ OTHER_CHECKOUT_REASON = (
     "other_checkout: write_repo_summary resolves its repo_path inside the registered "
     "workspace {registered}, not the described checkout {described}, so the values above "
     "cannot persist a summary of what was described.")
+# The one file a report reads inside the checkout it describes: `RepoDescriber` derives its
+# `claude_md_path` from the root this way, and the report embeds that file's managed section.
+SUMMARY_FILE = "CLAUDE.md"
+UNSAFE_INSTRUCTION = (
+    "Nothing was described: the file above resolves outside the checkout above, and a report "
+    "returns its managed section, so it was not read. No other repository was described in its "
+    "place. The user makes that file a regular file inside the checkout, or describes the "
+    "checkout it belongs to as its own workspace; then call describe_repo.")
 
 
 async def with_repo_context(response: str, *, ctx=None, workspace=None) -> str:
@@ -345,9 +353,49 @@ async def _repo_context(ctx, workspace) -> dict | None:
         return {"status": "workspace_mismatch", "error": str(mismatch), **mismatch.details()}
     except (WorkspaceError, OSError, RuntimeError) as failure:
         return _unavailable_report(client, failure)
+    if _summary_file_escapes(root):
+        return _unsafe_report(client, root)
     return await asyncio.to_thread(_describe_workspace, root, workspace_id,
                                    _caller_identity(client),
                                    None if root == registered else registered)
+
+
+def _summary_file_escapes(root) -> bool:
+    """True when the file a report of *root* reads does not resolve inside it (CR1 F2).
+
+    `ClientContext.require_root` holds a session's memory root to this rule, which is why the
+    deliberate `describe_repo` refuses such a workspace. A report follows the authorized
+    checkout a call named, which that method never sees, so the root actually read is held to
+    the same rule here. Both sides are resolved: a report root reaches this point from the
+    registry's strictly resolved records, from a checkout grant and from a stdio resolution, so
+    the containment is decided on resolved paths rather than on one of those invariants.
+    """
+    try:
+        root = Path(root).resolve()
+        return not (root / SUMMARY_FILE).resolve().is_relative_to(root)
+    except (OSError, ValueError, RuntimeError):
+        return True
+
+
+def _unsafe_report(client, root) -> dict | None:
+    """The report for a checkout whose summary file leaves it, once per caller (CR1 F2).
+
+    Before this refusal `plan()` opened whatever `CLAUDE.md` resolved to and the activation
+    returned that file's managed section in `summary_preview`, so a repository could hand a
+    session the description of a checkout outside its grant. The refusal names the path inside
+    the checkout and never the target it resolves to, which is what it withholds, and it
+    describes nothing in its place: the installation checkout is not substituted either.
+
+    Recorded per caller like an unavailable workspace (#576 pre-mortem P-C3): the condition is
+    the user's to fix, so repeating it on every activation of the session would buy nothing.
+    """
+    path = Path(root) / SUMMARY_FILE
+    if not _tell_once(("unsafe", _caller_identity(client)), str(path)):
+        return None
+    return {"status": "workspace_unsafe", "code": "memory_path_escapes_workspace",
+            "error": (f"workspace_unsafe: {path} resolves outside the workspace {root}, so the "
+                      "repository was not described"),
+            "workspace": str(root), "path": str(path), "instruction": UNSAFE_INSTRUCTION}
 
 
 def _caller_identity(client) -> str:
