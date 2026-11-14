@@ -155,6 +155,22 @@ or `git merge --abort` for a merge-based update), keep unrelated local changes,
 never use plain `--force`, `--no-verify` or a reset that discards work, and
 never delete or recreate a branch to get past a rejection.
 
+**Before the first edit, establish who else is working in this checkout.** A
+second session editing the same files is not a conflict to resolve later: its
+commit can land on the branch between a read and a push, and its reasoning never
+reaches this one. Register bounded scope with `cooperation_register`, read the
+roster with `cooperation_read` on the `repository_id` that registration returns,
+and treat an active participant on this checkout as a peer to agree with before
+touching a file both hold.
+
+Two limits decide how far that goes. The roster lists who registered, not who
+pushed, so a session that writes without registering is invisible in it and
+git's fast-forward rule stays the only thing that catches that case; a
+non-fast-forward rejection is evidence to read, never an obstacle to force past.
+And a roster holding only `cancelled` or `suspect` participants is not proof that
+nobody else is active: check the client's own list of live sessions in the same
+project as a second signal, because the two can disagree.
+
 ## 2. Keep the title and description accurate
 
 Use a short English title that names the resulting change. Write a concise
