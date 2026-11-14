@@ -122,6 +122,8 @@ def test_published_observations_fit_the_closed_checkpoint_contract():
     {"kind": "paused", "next_free_at": 600.0, "wait_source": None},
     {"kind": "consumed", "next_free_at": None, "wait_source": "stated"},
     {"kind": "paused", "next_free_at": 400.0, "wait_source": "stated"},
+    {"kind": "paused", "next_free_at": 500.0 + quota.MAX_WAIT_SECONDS + 1, "wait_source": "stated"},
+    {"kind": "consumed", "next_free_at": 500.0 + quota.MAX_WAIT_SECONDS + 1, "wait_source": None},
 ])
 def test_a_published_pause_must_carry_the_next_free_time_it_claims(invalid):
     record = {"resource_key": "github.com/iezhu:coderabbitai", "evidence": "limit reached",
@@ -148,3 +150,20 @@ def test_a_platform_spelling_normalizes_while_a_key_carrying_one_is_refused():
     # The [bot] suffix still folds: that is one identity across two surfaces.
     assert quota.canonical_quota_key("github.com/iezhu:CodeRabbitAI[bot]") == "github.com/iezhu:coderabbitai"
     assert quota.bare_host(" GitHub.com ") == "github.com"
+
+
+def test_the_cap_holds_at_the_boundary_wherever_the_record_was_built():
+    # The helper caps what a reviewer states, and the model caps what a client
+    # publishes, from the same constant: every other session repeats the
+    # holder's next free time in its own refusal, so one number bounds both.
+    record = {"resource_key": "github.com/iezhu:coderabbitai", "kind": "paused",
+              "evidence": "limit reached", "observed_at": 500.0, "wait_source": "default"}
+    at_cap = ExternalQuotaObservation.model_validate(
+        {**record, "next_free_at": 500.0 + quota.MAX_WAIT_SECONDS})
+    assert at_cap.next_free_at == 500.0 + quota.MAX_WAIT_SECONDS
+    with pytest.raises(ValueError, match="maximum"):
+        ExternalQuotaObservation.model_validate(
+            {**record, "next_free_at": 500.0 + quota.MAX_WAIT_SECONDS + 1})
+    stated = quota.observed_pause("coderabbitai", "retry after 999999999 minutes", observed_at=500.0)
+    assert ExternalQuotaObservation.model_validate(
+        quota.pause_observation("github.com/iezhu:coderabbitai", stated)).next_free_at == 500.0 + quota.MAX_WAIT_SECONDS

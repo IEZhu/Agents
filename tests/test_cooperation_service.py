@@ -1051,3 +1051,19 @@ def test_an_allowance_registered_as_a_snapshot_read_is_refused(h):
     assert h.acquire(reader, reading)["error"] == "scope_denied"
     assert h.acquire(reader, {**allowance, "access": "integrate"})["error"] == "scope_denied"
     assert [c["participant_id"] for c in h.read()["claims"]] == [holder["participant_id"]]
+
+
+def test_a_published_pause_cannot_push_other_sessions_past_the_capped_wait(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    capped = quota.pause_observation(allowance["resource_key"], quota.observed_pause(
+        UNKNOWN_REVIEWER, "Nebula is out of budget, retry after 999999999 minutes", observed_at=h.now))
+    assert capped["next_free_at"] == h.now + quota.MAX_WAIT_SECONDS
+    assert h.checkpoint(holder, name="capped", external_quota=[capped])["status"] == "ok"
+    assert h.acquire(other, allowance)["next_free_at"] == h.now + quota.MAX_WAIT_SECONDS
+    # A record a client builds itself is refused at the boundary, so the time
+    # the service hands to every other session stays inside the cap.
+    with pytest.raises(ValueError, match="maximum"):
+        h.checkpoint(holder, name="absurd",
+                     external_quota=[{**capped, "next_free_at": h.now + quota.MAX_WAIT_SECONDS + 1}])

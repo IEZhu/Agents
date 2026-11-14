@@ -12,7 +12,7 @@ from typing import Annotated, Any, ClassVar, Literal, TypeVar
 from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, RootModel,
                       StringConstraints, model_validator)
 
-from .quota import canonical_quota_key
+from .quota import MAX_WAIT_SECONDS, canonical_quota_key
 
 PROTOCOL = "agents-core/cooperation/1"
 MAX_REQUEST_BYTES = 32 * 1024
@@ -263,6 +263,8 @@ class ExternalQuotaObservation(StrictModel):
             raise ValueError("a stated wait requires the next free time it produced")
         if self.next_free_at is not None and self.next_free_at < self.observed_at:
             raise ValueError("the next free time cannot precede its evidence")
+        if self.next_free_at is not None and self.next_free_at - self.observed_at > MAX_WAIT_SECONDS:
+            raise ValueError("the published wait exceeds the maximum an allowance pause may state")
         return self
 
 
