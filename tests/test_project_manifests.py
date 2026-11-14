@@ -67,6 +67,7 @@ does not.
 from collections import namedtuple
 from fnmatch import fnmatch
 from functools import lru_cache
+from importlib.metadata import distributions
 from pathlib import Path
 import os
 import re
@@ -367,6 +368,17 @@ def inner_environment(tree) -> dict:
     same risk, and this one is built the same way: nothing of the session's own
     environment on a POSIX host, with the temporary directory inside the tree
     so that what the run writes for itself is written there too.
+
+    `PYTEST_DISABLE_PLUGIN_AUTOLOAD` is here for measurement integrity rather
+    than for safety. pytest registers every installed `pytest11` entry point
+    unless this says otherwise, and measured in the interpreter this repository
+    installs, the inner run was registering `pytest-asyncio` and `anyio`
+    because they happen to be installed beside it. A plugin can change what a
+    run collects, what it reports and what it exits, so the same workflow would
+    get a different verdict on a runner with a different set installed. Nothing
+    the guard itself needs comes from a plugin -- the stub holds one plain test
+    and the argv is a workflow's own -- so nothing is named back in; anything
+    that ever is belongs here explicitly, where a reader can see it.
     """
     temporary = tree / ".tmp"
     temporary.mkdir(exist_ok=True)
@@ -377,6 +389,7 @@ def inner_environment(tree) -> dict:
         "TMP": str(temporary),
         "TEMP": str(temporary),
         "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
     }
     environment.update({name: os.environ[name] for name in KEPT_FROM_THE_HOST
                         if name in os.environ})
@@ -908,6 +921,50 @@ def test_the_inner_pytest_does_not_inherit_this_session_s_environment(monkeypatc
     assert wanted in answer.files, (
         "the session's own PYTEST_ADDOPTS decided what the inner pytest ran: "
         f"{sorted(answer.files)}")
+
+
+@EXECUTES_STEPS
+def test_the_inner_pytest_loads_no_plugin_this_interpreter_happens_to_have():
+    """The verdict has to be the same in every environment that runs this guard.
+
+    pytest loads every installed `pytest11` entry point unless it is told not
+    to, and the built environment did not tell it: measured in this
+    interpreter, the inner run registered `pytest-asyncio` and `anyio` because
+    they are installed beside it, and either of them can change what a run
+    collects, what it reports and what it exits. A runner that installs a
+    different set would then give this guard a different answer about the same
+    workflow, which is a measurement nobody can reproduce. So autoloading is
+    off and whatever the guard needs is named explicitly -- nothing today: the
+    stub holds one plain test and the inner argv is a workflow's own.
+
+    `--version --version` is how this is asked, because it prints the plugins a
+    run really registered rather than the ones a reader of the environment
+    expects.
+    """
+    installed = sorted({
+        distribution.metadata["Name"]
+        for distribution in distributions()
+        for entry in distribution.entry_points if entry.group == "pytest11"
+    })
+    if not installed:
+        pytest.skip("this interpreter has no pytest plugin installed to exclude")
+    tree, problem = stub_tree()
+    if problem:
+        pytest.skip(problem)
+    finished = subprocess.run(
+        [sys.executable, "-m", "pytest", "--version", "--version"],
+        cwd=tree, env=inner_environment(tree),
+        capture_output=True, text=True, timeout=PYTEST_TIMEOUT,
+    )
+    printed = finished.stdout + finished.stderr
+    joined = [name for name in installed if name in printed]
+    assert joined == [], (
+        f"the inner pytest registered {joined}, which this interpreter happens "
+        "to have installed, so an installed plugin can decide this guard's "
+        f"verdict: {printed.strip()}")
+    assert inner_environment(tree).get("PYTEST_DISABLE_PLUGIN_AUTOLOAD") == "1", (
+        "the run above loaded no plugin for some other reason than being told "
+        "not to, so this case would survive the variable being dropped")
 
 
 @EXECUTES_STEPS
