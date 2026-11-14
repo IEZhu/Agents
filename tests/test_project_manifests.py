@@ -82,14 +82,20 @@ import yaml
 
 from tests.test_content_checks_workflow import (  # the #632 harness, not a second one
     EXECUTES_STEPS,
+    backgrounded,
     effective_shell,
+    logical_commands,
+    pipefail_in_effect,
+    piped,
     pytest_arguments,
     recorded_argv,
     recorded_step,
     run_default,
+    runs_the_file,
     skip_reasons,
     step_environment,
     tracked_names,
+    without_separator,
     workflow_paths,
     write_tree,
 )
@@ -537,6 +543,40 @@ def executed_files(arguments, stubs) -> Executed:
     return Executed(frozenset(executed), None)
 
 
+def cannot_redden_the_step(script: str, path: str, shell) -> list[str]:
+    """This script's pytest commands over `path`, when the step survives all of them.
+
+    Two commands run and prove nothing. A backgrounded one hands its failure to
+    a job the step no longer waits for, and one on the left of a pipe loses its
+    exit status under `bash -e {0}`, the template a step with no `shell:` key
+    gets -- so a content check failing there cannot redden the step, whatever
+    the recorder saw it start. `shell: bash` is the other answer, because GitHub
+    expands it with `-eo pipefail`.
+
+    The other module has read this from the start, and this consumer did not:
+    `pytest x.py | cat` reached the recorder, the inner pytest confirmed the
+    file ran, and the workflow was credited with a run whose failure nobody
+    would ever see. It is read from the script's text because the shell's
+    plumbing is not in the argv the shim was handed.
+
+    An empty list means the recorder decides alone, and that covers two
+    different cases on purpose: no written command names the path -- which is
+    every one of the eight bypasses #632 recorded, where only executing the
+    step finds the command -- or one of them is in a position whose failure the
+    step does carry. So this withholds the recorder's evidence only where the
+    text itself says the step cannot fail over this file.
+    """
+    pipefail = pipefail_in_effect(shell)
+    swallowed = []
+    for command in logical_commands(script):
+        if not runs_the_file(without_separator(command).split(), path):
+            continue
+        if not (backgrounded(command) or (piped(command) and not pipefail)):
+            return []
+        swallowed.append(without_separator(command))
+    return swallowed
+
+
 def invocation(path: str, documents: dict) -> Invocation:
     """The workflows that really hand `path` to pytest, and what went unmeasured.
 
@@ -561,9 +601,21 @@ def invocation(path: str, documents: dict) -> Invocation:
                     f"{name} ({job_name}): a run may not reach this step -- "
                     + ", ".join(skipped))
                 continue
+            shell = effective_shell(document, job, step)[0]
+            swallowed = cannot_redden_the_step(step["run"], path, shell)
+            if swallowed:
+                # An answer, not a measurement nobody made: the step runs the
+                # file where its own shell drops the failure, so it is no cover.
+                measured += 1
+                problems.append(
+                    f"{name} ({job_name}): "
+                    + ", ".join(f"`{command}`" for command in swallowed)
+                    + f" cannot redden the step, so a run of {path} there is no "
+                    "evidence that anything checks it")
+                continue
             run = recorded_step(
                 step["run"],
-                effective_shell(document, job, step)[0],
+                shell,
                 tuple(sorted(step_environment(document, job, step).items())),
                 run_default(document, job, step, "working-directory")[0],
             )
@@ -932,6 +984,45 @@ def test_a_candidate_set_whose_every_answer_is_a_problem_is_unmeasured():
     assert ran_nothing.measured >= 1 and ran_nothing.hosts == []
     with pytest.raises(pytest.fail.Exception, match="handed"):
         require_a_host(wanted, ran_nothing)
+
+
+@EXECUTES_STEPS
+def test_a_run_whose_failure_the_step_survives_is_not_a_host():
+    """A pipe and the background were evidence here and refused in the other module.
+
+    `pytest x.py | cat` really runs pytest, so the recorder sees it and the
+    inner pytest reports the file as run -- and under `bash -e {0}`, which is
+    the template a step with no `shell:` key gets, the left side of a pipe
+    loses its exit status, so a failing check there cannot redden the step. A
+    trailing `&` is the same answer: the step no longer waits for the job. Both
+    were credited as a workflow that runs the file, which is a run nobody would
+    ever see fail.
+
+    The reading is the other module's and comes from the script's text, because
+    what the shell did with the command is not in the argv the shim recorded.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    for command in (f"pytest {wanted} | cat", f"pytest {wanted} &"):
+        run = invocation(wanted, {"w.yml": step(command)})
+        assert run.hosts == [], command
+        assert run.measured == 1, (command, run.problems)
+        assert any("cannot redden the step" in problem for problem in run.problems), (
+            command, run.problems)
+        with pytest.raises(pytest.fail.Exception, match="handed"):
+            require_a_host(wanted, run)
+    # `shell: bash` is expanded with `-eo pipefail`, so the failure survives the
+    # pipe and the same step is a host again -- or the cases above refuse a pipe
+    # on principle rather than for the reason they give.
+    with_pipefail = {"jobs": {"tests": {"steps": [
+        {"run": f"pytest {wanted} | cat", "shell": "bash"}]}}}
+    assert invocation(wanted, {"w.yml": with_pipefail}).hosts == ["w.yml"]
+    # And a command whose failure the step does carry is untouched, including
+    # one the text cannot see at all, where the recorder is the only answer.
+    assert invoked_by(wanted, {"w.yml": step(f"pytest {wanted} && echo done")}) == [
+        "w.yml"]
+    hidden = f'eval "pytest {wanted}"'
+    assert cannot_redden_the_step(hidden, wanted, None) == [], (
+        "a command this reader cannot see must leave the recorder deciding")
 
 
 @EXECUTES_STEPS
