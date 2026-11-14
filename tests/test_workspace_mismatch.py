@@ -287,6 +287,19 @@ def test_the_remedy_names_no_subcommand_that_rewrites_a_client_configuration(tmp
     assert "workspace register requires a path" in source, "the narrow action, by its own name"
 
 
+def test_the_fallback_journal_remedy_is_narrow_too():
+    """The same rule, in the other place that offers registration.
+
+    `src/memory/fallback.py` tells a session why its history went to the fallback journal and how
+    to keep it in the project. That note reaches a model in a tool result exactly as the refusal
+    above does, so it carries the same obligation: name the action that records a root, not the one
+    that rewrites three clients' configuration files.
+    """
+    from src.memory import fallback
+
+    assert_narrow_remedy(fallback.REMEDY, Path("/some/caller/path"))
+
+
 @pytest.mark.asyncio
 async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_argument(repositories):
     """log_interaction and read_history never refuse (#576): the note says what was not followed."""
