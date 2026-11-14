@@ -458,6 +458,13 @@ def executed_files(arguments, stubs) -> Executed:
             cwd=tree, env=inner_environment(tree),
             capture_output=True, text=True, timeout=PYTEST_TIMEOUT,
         )
+    except subprocess.TimeoutExpired:
+        # The bound raised out of this reader, which turned a contended runner
+        # into a traceback from the guard rather than into the answer it
+        # already has for a question pytest never answered.
+        return Executed(frozenset(), (
+            "pytest did not finish `" + " ".join(arguments) + "` in "
+            f"{PYTEST_TIMEOUT}s, so what it would have run is unknown"))
     finally:
         for name in stubs:
             if name in tracked_names()[0]:
@@ -1085,6 +1092,26 @@ def test_an_exit_code_this_guard_does_not_model_is_unmeasured_without_naming_a_n
     assert collected_nothing.problem is None, (
         "nothing collected is an answer, not a measurement that failed")
     assert wanted not in collected_nothing.files
+
+
+@EXECUTES_STEPS
+def test_a_run_that_outlasts_the_timeout_is_a_problem_and_not_a_traceback(monkeypatch):
+    """The bound on the inner run raised out of the reader instead of answering.
+
+    `subprocess.run(..., timeout=)` raises `TimeoutExpired` when the bound is
+    reached and nothing here caught it, so a contended runner did not report a
+    measurement it could not make -- it reported a traceback from the guard
+    itself, on a repository whose wiring may be perfect. A timeout is the same
+    answer as an argv pytest refused: nobody asked pytest anything, so the
+    verdict is unknown rather than no.
+    """
+    monkeypatch.setitem(globals(), "PYTEST_TIMEOUT", 0)
+    wanted = "tests/test_install_setup_options.py"
+    answer = executed_files(("-q", "--for-the-timeout-case", wanted), RECORDED_FILES)
+    assert answer.files == frozenset()
+    assert answer.problem and "did not finish" in answer.problem, answer.problem
+    assert "0s" in answer.problem, (
+        f"the problem has to name the bound that was reached: {answer.problem}")
 
 
 def test_both_extensions_github_accepts_are_read(tmp_path):
