@@ -1,8 +1,10 @@
 """Stateless version 2 handlers. Activation state belongs to the caller's dialogue."""
 
+import asyncio
 import json
 import logging
 import os
+import threading
 import uuid
 from dataclasses import dataclass, field
 
@@ -204,15 +206,128 @@ def unchanged(persona: PersonaDescriptor, request_id: str) -> str:
     ).to_json()
 
 
+# --- The repository context of the first activation in a workspace (#459) ---------------
+
+REPO_CONTEXT_FIELD = "repo_context"
+# Statuses whose response applies or keeps an activation. ROUTE_REQUIRED is an intermediate
+# result and ERROR activated nothing, so neither carries a repository report.
+_ACTIVATED_STATUSES = ("SUCCESS", "NO_CHANGE")
+# The workspaces this process has already reported, each with the repository hash it reported
+# them at. A different workspace, a changed hash or a restarted process reports again.
+#
+# This records the reporting, not the activation: protocol 2 keeps activation state in the
+# caller's dialogue, and no block, descriptor, footer or revision depends on this mapping.
+# Losing it costs one extra report, never a missed one.
+_reported_workspaces: dict[str, str] = {}
+_report_lock = threading.Lock()
+# One server process serves the few workspaces its client registered; the bound only keeps a
+# long-lived process from growing a report per path it ever resolved.
+_MAX_REPORTED_WORKSPACES = 64
+
+DESCRIBED_INSTRUCTION = (
+    "This repository is described: the preview above is the head of the managed Repository "
+    "Memory section in the file named above. Read that section instead of exploring the tree "
+    "first; call describe_repo for a subdirectory or with force_refresh.")
+UNDESCRIBED_INSTRUCTION = (
+    "This repository has no current description. Call describe_repo for its context bundle and "
+    "prompt before exploring files, then write_repo_summary with the repo_hash above to persist "
+    "the overview.")
+NO_WORKSPACE_INSTRUCTION = (
+    "No workspace resolved, so nothing was described and no repository was assumed: the "
+    "installation checkout is never described in a workspace's place. Start the session in the "
+    "project or register it, then call describe_repo before exploring files.")
+
+
+async def with_repo_context(response: str, *, ctx=None, workspace=None) -> str:
+    """Carry the describe_repo result itself on the first activation in a workspace (#459).
+
+    Sessions keep working in a repository without calling describe_repo although a memory
+    lesson, a client instruction and the managed instruction block each asked for it (eight
+    recorded repeats in #459), so the signal travels in the response of the call every session
+    already makes instead of depending on the model remembering an instruction. A later
+    activation in the same unchanged workspace carries nothing: the field is simply absent.
+
+    No failure here may cost an activation. Any error leaves the response exactly as it was, and
+    a workspace that was not described is not recorded as described either.
+    """
+    try:
+        payload = json.loads(response)
+        if not isinstance(payload, dict) or payload.get("status") not in _ACTIVATED_STATUSES:
+            return response
+        report = await _repo_context(ctx, workspace)
+        if report is None:
+            return response
+        payload[REPO_CONTEXT_FIELD] = report
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        logger.warning("Could not report the repository context of this workspace", exc_info=True)
+        return response
+
+
+async def _repo_context(ctx, workspace) -> dict | None:
+    """The describe_repo result for this activation's workspace, or None with nothing to report."""
+    from src.daemon.workspaces import (WorkspaceError, WorkspaceMismatch,
+                                       resolve_client_context)
+    if ctx is None and os.environ.get("AGENTS_TRANSPORT") == "http":
+        # Over HTTP only the request carries the workspace, and an activation call that does not
+        # forward its MCP context cannot see it: report nothing rather than guess a repository.
+        return None
+    try:
+        client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
+        # A workspace the grant does not cover is never described in the registered one's place:
+        # the caller gets the refusal the repository-scoped tools raise for it (#576).
+        client.require_workspace_match()
+        root = client.workspace_root()
+    except WorkspaceMismatch as mismatch:
+        return {"status": "workspace_mismatch", "error": str(mismatch), **mismatch.details()}
+    except (WorkspaceError, OSError, RuntimeError) as failure:
+        return {"status": "unavailable", "error": str(failure),
+                "instruction": NO_WORKSPACE_INSTRUCTION}
+    return await asyncio.to_thread(_describe_workspace, root)
+
+
+def _describe_workspace(root) -> dict | None:
+    """The read-only half of describe_repo for *root*, or None when it was already reported.
+
+    ``plan`` hashes the tree and reads the managed section; nothing is written, so an activation
+    never starts a repository write. The describer always receives the resolved workspace as its
+    ``repo_path``: without one it would describe the installation's own checkout, which is why an
+    unresolved workspace never reaches this function. The prompt stays with describe_repo, whose
+    instruction names it — a context bundle is budgeted at 24,000 characters.
+    """
+    from src.memory.describer import RepoDescriber
+    key = str(root)
+    describer = RepoDescriber(repo_path=key)
+    decision = describer.plan()
+    with _report_lock:
+        if _reported_workspaces.get(key) == decision.current_hash:
+            return None
+    report = (
+        {"status": "needs_summary", "workspace": key, "repo_path": describer.repo_path,
+         "repo_hash": decision.current_hash, "instruction": UNDESCRIBED_INSTRUCTION}
+        if decision.needs_refresh else
+        {**describer.up_to_date_response(decision), "workspace": key,
+         "instruction": DESCRIBED_INSTRUCTION}
+    )
+    with _report_lock:
+        _reported_workspaces[key] = decision.current_hash
+        while len(_reported_workspaces) > _MAX_REPORTED_WORKSPACES:
+            _reported_workspaces.pop(next(iter(_reported_workspaces)))
+    return report
+
+
 async def load_persona(
     router, agent_name: str, query: str, history: list[str],
     current_persona: PersonaDescriptor | dict | None = None, *,
     force_reload: bool = False, refresh: bool = False,
     reasoning: str = "Explicit persona selection", request_id: str | None = None,
-    selection: ComponentSelection | None = None,
+    selection: ComponentSelection | None = None, ctx=None, workspace: str | None = None,
 ) -> str:
     """With ``selection`` (a flow's persona) bundles are compared by revision, not
-    agent name, and the choice does not train the shared router cache."""
+    agent name, and the choice does not train the shared router cache.
+
+    ``ctx`` and ``workspace`` only locate the workspace whose repository context the first
+    activation in it reports (#459); neither selects or changes a bundle."""
     request_id = request_id or str(uuid.uuid4())
     try:
         current = parse_persona(current_persona)
@@ -220,13 +335,15 @@ async def load_persona(
             raise ValueError("Refresh requires the descriptor of the same agent")
         if (current and current.agent == agent_name and not force_reload and not refresh
                 and selection is None):
-            return unchanged(current, request_id)
+            return await with_repo_context(unchanged(current, request_id),
+                                           ctx=ctx, workspace=workspace)
 
         bundle = await build_persona_bundle(agent_name, query, history, selection=selection)
         if ((refresh or selection is not None) and current and not force_reload
                 and current.agent == agent_name
                 and current.bundle_revision == bundle.bundle_revision):
-            return unchanged(current, request_id)
+            return await with_repo_context(unchanged(current, request_id),
+                                           ctx=ctx, workspace=workspace)
 
         persona = PersonaDescriptor(
             agent=bundle.agent, activation_id=str(uuid.uuid4()),
@@ -251,13 +368,14 @@ async def load_persona(
                 await router.update_cache(query, agent_name, reasoning, request_id)
             except Exception:
                 logger.warning("Could not cache persona selection", exc_info=True)
-        return result.to_json()
+        return await with_repo_context(result.to_json(), ctx=ctx, workspace=workspace)
     except Exception as error:
         logger.warning("Persona bundle not activated: %s", error)
         return error_response(error, request_id)
 
 
-async def route_persona(router, query: str, history: list[str], current_persona, is_meta) -> str:
+async def route_persona(router, query: str, history: list[str], current_persona, is_meta, *,
+                        ctx=None, workspace: str | None = None) -> str:
     request_id = str(uuid.uuid4())
     try:
         current = parse_persona(current_persona)
@@ -283,7 +401,7 @@ async def route_persona(router, query: str, history: list[str], current_persona,
             ).to_json()
         return await load_persona(
             router, agent_name, query, history, current, request_id=request_id,
-            reasoning="Semantic routing with keyword validation",
+            reasoning="Semantic routing with keyword validation", ctx=ctx, workspace=workspace,
         )
     except Exception as error:
         return error_response(error, request_id)
