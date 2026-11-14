@@ -1286,6 +1286,45 @@ def test_powershell_statements_separate_on_semicolons_newlines_pipes_and_braces(
     assert [m["command"] for m in quoted["git_mutations"]] == ["git commit -m 'first; second | third'"]
 
 
+def test_a_powershell_definition_performs_nothing_and_an_invoked_block_still_does():
+    """A `{ … }` that only defines a body runs none of it.
+
+    Flushing every block into executed statements put `git push origin main` in `git_mutations`
+    for `function Publish { git push origin main }`, a mutation the definition does not perform
+    and the one report this inventory must never produce; a script block assigned for a later
+    call was read the same way. The braces that do run keep their statements: an invoked block
+    (`& { … }`, `. { … }`, `Invoke-Command { … }`) and the bodies of `if`, `foreach`, `while` and
+    `try`. A body whose statements were not read is listed when it is called, because what that
+    call ran is not established here, so it is unclassified rather than a silent pass.
+    """
+    defined = thread_inventory.inventory(powershell(
+        "function Publish { git push origin main }\nfilter Keep { git tag v1 }\n"
+        "$block = { Set-Content -Path a.txt -Value x }", "d1"))
+    assert defined["git_mutations"] == [] and defined["shell_writes"] == []
+    assert defined["unclassified_commands"] == []  # nothing called any of them
+    invoked = thread_inventory.inventory(powershell(
+        "& { git push origin main }\n. { git tag v1 }\nInvoke-Command { git add . }", "d2"))
+    assert [m["command"] for m in invoked["git_mutations"]] == [
+        "git push origin main", "git tag v1", "git add ."]
+    blocks = thread_inventory.inventory(powershell(
+        "if ($a) { git add . }\nforeach ($f in $files) { git rm $f }\nwhile ($x) { git commit -m a }\n"
+        "try { git push origin main } catch { git reset --hard }", "d3"))
+    assert [m["command"] for m in blocks["git_mutations"]] == [
+        "git add .", "git rm $f", "git commit -m a", "git push origin main", "git reset --hard"]
+    called = thread_inventory.inventory(powershell(
+        "function Publish { git push origin main }; Publish\n$block = { git tag v1 }; & $block", "d4"))
+    assert called["git_mutations"] == []
+    assert [c["command"] for c in called["unclassified_commands"]] == ["Publish", "& $block"]
+
+
+def test_an_unclosed_powershell_definition_keeps_the_statements_of_its_body():
+    """Nothing closes the brace, so the body's end is the end of the command: a transcript cut
+    there is likelier than a script that cannot parse, and dropping the statements would leave
+    the write with no trace in the report at all. They stand, as those of an unclosed `$(…)` do."""
+    inv = thread_inventory.inventory(powershell("function Publish { git push origin main", "u1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git push origin main"]
+
+
 def test_powershell_here_strings_are_bodies_not_commands():
     inv = thread_inventory.inventory(powershell(
         "git commit -F - @'\ngit push origin main\nSet-Content C:\\evil.txt x\n'@", "h1"))

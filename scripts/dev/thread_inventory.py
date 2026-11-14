@@ -38,7 +38,9 @@ backtick so a backslash stays a path separator, a here-string is a body, and
 `Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files. A `@'…'@` body is
 literal throughout; in a `@"…"@` one the text is data as well, but its `$(…)`
 subexpressions run and are read, as those of a `"…"` string are. An output capture such
-as `$sha = git rev-parse HEAD` is still a git command.
+as `$sha = git rev-parse HEAD` is still a git command. Braces that only define a body,
+as `function f { … }` and `$b = { … }` do, perform none of it, so its statements are not
+counted; a later call of such a name is unclassified rather than a silent pass.
 
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
@@ -99,6 +101,7 @@ WRAPPERS = {
 # does not move the commands after them.
 SCOPE_IN, SCOPE_OUT = object(), object()
 CHDIR = object()  # (CHDIR, path) sets the directory the next commands of a scope run in
+DEFINE = object()  # (DEFINE, name) names a PowerShell body that was defined here and did not run
 # Wrapper options that run no command: `command -v git` looks it up, `sudo -l` lists rights.
 NO_EXEC = {"command": {"-v", "-V"}, "sudo": {"-l", "--list", "-v", "--validate", "-k", "-K", "--reset-timestamp",
                                              "--remove-timestamp", "-V", "--version", "-h", "--help"}}
@@ -119,6 +122,12 @@ PS_DOUBLE_END = re.compile(r"`|\"|\$\(")  # what ends or interrupts a "..." stri
 PS_HERE_STRING = re.compile(r"@(['\"])[ \t]*\r?\n")
 PS_BODY_RUNS = re.compile(r"`|\$\(")  # in a `@"…"@` body: the escape character, and a subexpression
 PS_ASSIGNMENT = re.compile(r"^\$[\w:.\[\]{}]+\s*[-+*/%]?=\s*")  # `$x = git log` still runs git
+# What stands before the `{` of a body that is only defined there: a named definition, or an
+# assignment, which stores a script block for a later call. `if`, `foreach`, `while`, `try`,
+# `switch`, an invoked block (`& { … }`, `. { … }`, `Invoke-Command { … }`) and a hash table
+# literal match neither, so their braces keep holding statements that run where they stand.
+PS_DEFINITION = re.compile(r"^(?:function|filter|workflow)\s+([^\s({]+)", re.IGNORECASE)
+PS_ASSIGNED = re.compile(r"^(.*?)\s*[-+*/%]?=$", re.DOTALL)
 PS_CALL = {"&", "."}  # the call operator and dot sourcing, as in `& git push`
 PS_CHAIN = {"&&", "||"}  # operators PowerShell 7 chains commands with and 5.1 does not have
 PS_KEYWORDS = {"if", "elseif", "else", "while", "do", "foreach", "for", "switch", "try", "catch",
@@ -1077,7 +1086,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
     whose statements, quoting and file-writing cmdlets differ. The classification is the same.
     """
     powershell = shell == "powershell"
-    current, saved = cwd, []
+    current, saved, defined = cwd, [], set()  # names whose body the segmenter did not read as statements
     pending = (_powershell_segments(command) if powershell else _segments(command))[::-1]
     while pending:
         segment = pending.pop()
@@ -1089,6 +1098,9 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             continue
         if isinstance(segment, tuple) and segment[0] is CHDIR:
             current = segment[1]
+            continue
+        if isinstance(segment, tuple) and segment[0] is DEFINE:
+            defined.add(segment[1])
             continue
         _scan_refs(segment, sink["refs"], ts)
         dirs: list[str] = []
@@ -1141,6 +1153,11 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             current = None if target == "-" else _resolve(target, current)  # `cd -`: an earlier directory
             if current:
                 sink["directories"].setdefault(current, ts)
+        elif program in defined:
+            # A body defined in this command, whose statements the segmenter did not read: what
+            # the call ran is not established here, so it is listed instead of passing silently.
+            sink["unclassified_commands"].append(
+                {"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)), "by": actor})
         elif program in ("git", "gh"):
             if program == "git":
                 _git_paths(tokens, run_dir, ts, sink)
@@ -1259,6 +1276,10 @@ def _powershell_segments(command: str, depth: int = 0) -> list[str]:
     here-string body is not a command, except for the `$(…)` subexpressions of a `@"…"@` one, which
     the shell runs as it runs those of a `"…"` string, and `(…)`, `$(…)` and `@(…)` hold
     statements of their own, which run in a scope of their own. Nesting past MAX_DEPTH is not read.
+
+    The braces that only define a body perform none of it, so its statements are not returned;
+    `_ps_defined` tells the two kinds of brace apart and names the body, and nothing closing such
+    a brace leaves its statements in place rather than dropping them without a trace.
     """
     return _powershell_parse(command, 0, depth)[0] if depth < MAX_DEPTH else []
 
@@ -1267,6 +1288,7 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
     """Statements from ``index`` to the end, or with ``nested`` to the `)` that closes the group,
     and the index after them."""
     segments, current, quote, length = [], [], None, len(command)
+    braces, defining, mark = 0, None, 0  # brace nesting, the level a defined body opened at, its first segment
 
     def flush() -> None:
         statement = "".join(current).strip()
@@ -1364,8 +1386,25 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
             index += 1
             if nested:
                 return segments, index
-        elif char in "{}":
+        elif char == "{":
+            head = "".join(current).strip()
             flush()  # the statements of a block, a hash table or a script block stand on their own
+            braces += 1
+            names = _ps_defined(head) if defining is None else None
+            if names is not None:
+                # Only defined here, so nothing in the body runs where it stands: its statements
+                # are taken back at the closing brace. The name stays, so that a later call of it
+                # is reported rather than passed over.
+                defining = braces
+                segments.extend((DEFINE, name) for name in names)
+                mark = len(segments)
+            index += 1
+        elif char == "}":
+            flush()
+            if defining == braces:
+                del segments[mark:]  # a definition performs none of them
+                defining = None
+            braces = max(braces - 1, 0)
             index += 1
         elif char == "|" and command.startswith("||", index):
             current.append("||")  # an empty pipe element, which 5.1 runs no more than it runs `&&`
@@ -1375,6 +1414,31 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
             index += 1
     flush()
     return segments, index
+
+
+def _ps_defined(head: str) -> list[str] | None:
+    """The lower-cased names a brace block after ``head`` defines, or None when the block runs
+    where it stands.
+
+    `function f { … }`, `filter f { … }` and `workflow f { … }` define a body, and an assignment
+    such as `$b = { … }` stores one for a later call: in neither case does a command in it run at
+    the definition, so counting its statements names a mutation nobody performed. The braces of
+    `if`, `foreach`, `while`, `try` and `switch`, of an invoked block and of a hash table literal
+    are not definitions, so this returns None for them and their statements stand.
+
+    A name is returned so that a later call of it can be listed rather than pass silently: a
+    scope qualifier is kept and dropped as well, since `global:f` is called either way. The empty
+    list is a definition whose name this reading cannot take, which still performs nothing.
+    """
+    define = PS_DEFINITION.match(head)
+    if define:
+        name = define.group(1).lower()
+        return [name, name.rsplit(":", 1)[-1]] if ":" in name else [name]
+    assigned = PS_ASSIGNED.match(head)
+    if not assigned:
+        return None
+    words = _ps_words(assigned.group(1))
+    return [words[0].lower()] if words else []
 
 
 def _powershell_here_string(command: str, index: int, quote: str) -> int:
