@@ -201,18 +201,18 @@ def test_a_dangling_archive_link_is_not_replaced_by_a_merge(journals):
     assert pending.read_text(encoding="utf-8") == payload
 
 
-def test_an_archive_directory_swapped_before_the_replace_is_refused(journals, monkeypatch, tmp_path):
+def test_the_replace_is_refused_when_the_archive_directory_identity_changed(journals, monkeypatch):
     """The temporary file and the replace reach the directory by name.
 
-    `os.replace` takes no directory descriptor on every platform, so the
-    directory's identity is read again immediately before the move.
+    `os.replace` takes no directory descriptor on every platform, so the merge
+    reads the directory identity again immediately before the move and refuses a
+    change. This drives that comparison directly rather than swapping the
+    directory on disk: a real swap is caught by whichever guard sees it first,
+    and which one that is depends on how many times the platform's open path
+    reads the directory. The real-swap case for reads is the neighbouring
+    test_archive_directory_swap_cannot_redirect_the_open.
     """
     path, target = journals
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    probe = tmp_path / "probe"
-    link_or_skip(probe, elsewhere, directory=True)
-    probe.unlink()
     pending = path.with_name(path.name + ".rotating")
     payload = target.read_text(encoding="utf-8")
     pending.write_text(payload, encoding="utf-8")
@@ -220,27 +220,44 @@ def test_an_archive_directory_swapped_before_the_replace_is_refused(journals, mo
     directory = path.parent / "history"
     directory.mkdir()
     (directory / f"{month}.md").write_text("kept", encoding="utf-8")
-    # The swap has to land after both streams close: renaming a directory that
-    # still holds the open temporary file is denied on Windows (WinError 5), and
-    # the merge reads the directory exactly twice, to validate it before the
-    # write and to re-identify it before the move. The second read is that
-    # moment, so the injection rides on it.
     real_lstat = history.os.lstat
-    looks = []
+    reads = []
 
-    def swap_on_the_second_look(target, *args, **kwargs):
-        if os.fspath(target) == str(directory):
-            looks.append(1)
-            if len(looks) == 2:
-                directory.rename(path.parent / "original")
-                directory.symlink_to(elsewhere, target_is_directory=True)
-        return real_lstat(target, *args, **kwargs)
+    class Moved:
+        """The same entry with another identity, delegating every other field.
 
-    monkeypatch.setattr(history.os, "lstat", swap_on_the_second_look)
+        A rebuilt `os.stat_result` answers None for the Windows-only fields the
+        link predicate reads, so it has to delegate rather than be constructed.
+        """
+
+        def __init__(self, info):
+            self._info = info
+
+        def __getattr__(self, name):
+            return getattr(self._info, name)
+
+        @property
+        def st_dev(self):
+            return self._info.st_dev
+
+        @property
+        def st_ino(self):
+            return (self._info.st_ino or 1) + 1
+
+    def shifting(entry, *args, **kwargs):
+        info = real_lstat(entry, *args, **kwargs)
+        if os.fspath(entry) == str(directory) and sys._getframe(1).f_code.co_name == "_merge_pending_locked":
+            reads.append(1)
+            if len(reads) == 2:  # the read taken immediately before the move
+                return Moved(info)
+        return info
+
+    monkeypatch.setattr(history.os, "lstat", shifting)
     with pytest.raises(PermissionError, match="archive directory changed"):
         history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
-    assert list(elsewhere.iterdir()) == []
+    assert len(reads) == 2
     assert pending.read_text(encoding="utf-8") == payload
+    assert (directory / f"{month}.md").read_text(encoding="utf-8") == "kept"
 
 
 def test_failed_unlink_does_not_truncate_a_retargeted_pending(journals, monkeypatch):
