@@ -1299,6 +1299,27 @@ def test_powershell_here_strings_are_bodies_not_commands():
     assert [(r["kind"], r["number"]) for r in refs["github_refs"]] == [("pull", 7)]
 
 
+def test_a_subexpression_of_an_expandable_here_string_runs():
+    """PowerShell expands `$(…)` in a `@"…"@` body, as it does in a `"…"` string, so a mutation
+    written there is one the thread ran. Treating the whole body as text dropped it with nothing
+    left in the report; the body's own text stays data, and a `@'…'@` body is literal throughout."""
+    inv = thread_inventory.inventory(powershell(
+        '$body = @"\nhead: $(git push origin HEAD)\nsee https://github.com/Owner/Repo/pull/7\n"@', "hs1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git push origin HEAD"]
+    assert inv["github_refs"] == []  # the text around the subexpression is still a body
+    literal = thread_inventory.inventory(powershell(
+        "$body = @'\nhead: $(git push origin HEAD)\n'@", "hs2"))
+    assert literal["git_mutations"] == []  # a single-quoted body expands nothing
+    escaped = thread_inventory.inventory(powershell('$body = @"\nhead: `$(git push origin HEAD)\n"@', "hs3"))
+    assert escaped["git_mutations"] == []  # a backtick escapes the subexpression
+    writes = thread_inventory.inventory(powershell(
+        '$body = @"\n$(Set-Content -Path out.txt -Value x)\n"@\nSet-Content -Path after.txt -Value y', "hs4"))
+    assert [w["files"] for w in writes["shell_writes"]] == [["C:/work/repo/out.txt"], ["C:/work/repo/after.txt"]]
+    unclosed = thread_inventory.inventory(powershell('$body = @"\nhead: $(git push origin HEAD\n"@', "hs5"))
+    assert [c["command"] for c in unclosed["unclassified_commands"]] == []
+    assert [m["command"] for m in unclosed["git_mutations"]] == ["git push origin HEAD"]
+
+
 def test_powershell_writes_cmdlet_targets_and_redirections():
     inv = thread_inventory.inventory(powershell(
         "Set-Content -Path a.txt -Value 'x' -Encoding utf8\nAdd-Content b.txt 'more'\n"

@@ -34,9 +34,11 @@ Files the shell itself writes, through output redirections and `tee`, are listed
 Commands of the Windows `PowerShell` tool go through the same classification with
 PowerShell syntax: statements separate on `;`, a newline, a pipe and the braces of a
 block, Windows PowerShell 5.1 has neither `&&` nor `||`, the escape character is a
-backtick so a backslash stays a path separator, a `@'…'@` or `@"…"@` here-string is a
-body, and `Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files. An output
-capture such as `$sha = git rev-parse HEAD` is still a git command.
+backtick so a backslash stays a path separator, a here-string is a body, and
+`Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files. A `@'…'@` body is
+literal throughout; in a `@"…"@` one the text is data as well, but its `$(…)`
+subexpressions run and are read, as those of a `"…"` string are. An output capture such
+as `$sha = git rev-parse HEAD` is still a git command.
 
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
@@ -115,6 +117,7 @@ TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 PS_SPECIAL = re.compile(r"[`'\"#;\n|{}()$@<]")
 PS_DOUBLE_END = re.compile(r"`|\"|\$\(")  # what ends or interrupts a "..." string
 PS_HERE_STRING = re.compile(r"@(['\"])[ \t]*\r?\n")
+PS_BODY_RUNS = re.compile(r"`|\$\(")  # in a `@"…"@` body: the escape character, and a subexpression
 PS_ASSIGNMENT = re.compile(r"^\$[\w:.\[\]{}]+\s*[-+*/%]?=\s*")  # `$x = git log` still runs git
 PS_CALL = {"&", "."}  # the call operator and dot sourcing, as in `& git push`
 PS_CHAIN = {"&&", "||"}  # operators PowerShell 7 chains commands with and 5.1 does not have
@@ -1230,7 +1233,8 @@ def _powershell_segments(command: str, depth: int = 0) -> list[str]:
     """Statements of a PowerShell command line, split at `;`, a newline, a pipe and block braces.
 
     Windows PowerShell 5.1 has neither `&&` nor `||`, so neither of them splits a statement. A
-    `@'…'@` or `@"…"@` here-string is a body, not a command, and `(…)`, `$(…)` and `@(…)` hold
+    here-string body is not a command, except for the `$(…)` subexpressions of a `@"…"@` one, which
+    the shell runs as it runs those of a `"…"` string, and `(…)`, `$(…)` and `@(…)` hold
     statements of their own, which run in a scope of their own. Nesting past MAX_DEPTH is not read.
     """
     return _powershell_parse(command, 0, depth)[0] if depth < MAX_DEPTH else []
@@ -1309,8 +1313,18 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
             current.append(char)  # inside a word, as in a#b, and a `<` that redirects nothing in 5.1
             index += 1
         elif char == "@" and (here := PS_HERE_STRING.match(command, index)):
-            current.append(f"@{here.group(1)}…{here.group(1)}@")  # a here-string body is data
-            index = _powershell_here_string(command, here.end(), here.group(1))
+            current.append(f"@{here.group(1)}…{here.group(1)}@")  # the body's own text is data
+            body, index = here.end(), _powershell_here_string(command, here.end(), here.group(1))
+            while here.group(1) == '"' and (runs := PS_BODY_RUNS.search(command, body, index)):
+                # A `$(…)` in a `@"…"@` body runs, as one in a `"…"` string does, so the commands
+                # there are read instead of being dropped as text. A backtick escapes it, and a
+                # `@'…'@` body is literal throughout, which leaves this loop unentered.
+                if runs.group() == "`":
+                    body = runs.end() + 1
+                    continue
+                body = group(runs.start() + 1, "$(…)")
+                if body > index:
+                    break  # nothing closes the subexpression inside the body
         elif char in "$@" and command.startswith(("$(", "@("), index):
             index = group(index + 1, char + "(…)")
         elif char == "$" and command.startswith("${", index):
