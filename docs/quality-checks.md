@@ -11,7 +11,7 @@ it is published and executes; a local test result does not set the remote badge.
 
 | Badge | Evidence | Scope and limits |
 |---|---|---|
-| Shared runtime | [Workflow](../.github/workflows/shared-runtime.yml) | Linux, macOS and Windows checks for persistent artifacts, scoped workers, cooperation, optional inference, MCP integration, dense adapter contracts and fake startup readiness; POSIX jobs also check fake native/Redis boundaries, which do not run on Windows. Path filters mean this is the latest relevant run, not a fresh full-suite check of every commit |
+| Shared runtime | [Workflow](../.github/workflows/shared-runtime.yml) | Linux, macOS and Windows checks for persistent artifacts, scoped workers, cooperation, optional inference, MCP integration, daemon updates, dense adapter contracts, fake startup readiness, Personal runtime composition and lazy log-worker startup; POSIX jobs also check fake native/Redis boundaries, which do not run on Windows. Path filters mean this is the latest relevant run, not a fresh full-suite check of every commit |
 | Instruction signing | [Workflow](../.github/workflows/instruction-signing.yml) | Signing primitive/interoperability and protected-inventory tests on three platforms. Path-filtered, and does not claim runtime enforcement or a general security audit |
 | Documentation | [Workflow](../.github/workflows/documentation-quality.yml) | Every pull request and pushes to `main`/`dev`: local Markdown navigation, MCP tool-index coverage, numeric badge freshness, parser regressions, runtime registration comparison, flow contracts, runtime version regressions and workflow permissions. Uses read-only repository permissions and requires no secrets or live models |
 | MCP API docs | [Tool index](mcp-tools.md), [checker](../scripts/check_docs.py), [generated SVG](badges/mcp-api-docs.svg) | Registered main-server tools with a row in the maintained reference index divided by registered tools. Derived from this source revision and checked in CI; measures reference discoverability, not semantic completeness, parameter coverage or test coverage |
@@ -24,7 +24,7 @@ required checks in repository branch protection or rulesets.
 These badges do not measure line/branch test coverage, maintainability scores,
 model quality or the proportion of all repository prose that is correct. See
 the [test guide](../tests/README.md) for test selection and the
-[documentation audit](documentation-audit-2026-10-18.md) for bounded source review.
+[documentation audit](documentation-audit-2026-10-25.md) for bounded source review.
 The API-reference denominator excludes dynamic aliases supplied by the
 [HTTP/stdio MCP proxy](mcp-proxy.md), optional servers and client-side hooks.
 Adding their guides does not increase the native-tool coverage count or establish

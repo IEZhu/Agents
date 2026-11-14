@@ -210,6 +210,30 @@ def test_no_deadline_is_not_inferred_from_silence_and_late_send_retry_is_stable(
     assert send(h, sender, recipient, kind="request", expires_at=h.now)["error"] == "invalid_request"
 
 
+def test_request_update_refreshes_only_the_reporting_participant(h):
+    a, b = h.register("a"), h.register("b")
+    message = send(h, a, b, kind="request")["message"]
+    h.now += 121
+    assert update(h, b, message, "accepted")["status"] == "ok"
+    states = {p["task_id"]: p for p in h.read()["participants"]}
+    # Reporting an outcome is an act of the recipient's own model, so it stays
+    # live; the sender did nothing since its send and is suspected as before.
+    assert states["b"]["last_seen"] == h.now and states["b"]["status"] == "active"
+    assert states["a"]["last_seen"] < h.now and states["a"]["status"] == "suspect"
+
+
+def test_a_stale_request_update_refreshes_no_liveness(h):
+    a, b = h.register("a"), h.register("b")
+    message = send(h, a, b, kind="request")["message"]
+    assert update(h, b, message, "accepted")["status"] == "ok"
+    h.now += 121
+    assert update(h, b, message, "accepted", revision=1)["error"] == "stale_revision"
+    states = {p["task_id"]: p for p in h.read()["participants"]}
+    # This refusal returns instead of raising, so its transaction commits; a
+    # rejected update still must not pass for an act of the model.
+    assert states["b"]["last_seen"] < h.now and states["b"]["status"] == "suspect"
+
+
 def test_status_and_updates_reject_wrong_capabilities_and_foreign_repository(h):
     sender, recipient = h.register("sender"), h.register("recipient")
     message = send(h, sender, recipient, kind="request")["message"]

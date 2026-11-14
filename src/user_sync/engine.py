@@ -1107,13 +1107,11 @@ class Syncer:
                                                         held_files=held_files))
             from src.library_history import LibraryHistory
             backend = LibraryHistory(self.library)
-            publication = versions.publication(backend.export_events(),
-                                               Rules(working, snap.portable, held_groups, held_files),
-                                               generation=backend.generation())
+            publication = self._history_publication(backend, Rules(working, snap.portable, held_groups, held_files))
             known = self._published_sources(git, publication.policy)
             if backend.generation():
                 received = self._incoming_version_trees(git, Rules(working, snap.portable, held_groups, held_files))
-                known |= {source for source, tree in publication.events if received.get(source) == tree}
+                known |= {source for source, tree in publication.events if versions.same(received.get(source), tree)}
             historical = {change_label(json.loads(tree[versions.EVENT_FILE])["path"])
                           for source, tree in publication.events if source not in known
                           and json.loads(tree[versions.EVENT_FILE]).get("path")}
@@ -2102,15 +2100,19 @@ class Syncer:
             plan.kind = "join" if not integrated or rewritten else "merge"
         return plan
 
+    @staticmethod
+    def _history_publication(backend, rules: Rules) -> versions.Publication:
+        """The exported history filtered by ``rules``; a file is read only when no earlier pass scanned it."""
+        return versions.publication(backend.export_index(), rules, generation=backend.generation(),
+                                    read=backend.read_blobs)
+
     def _with_versions(self, plan: _Plan, git: Git) -> _Plan:
         from src.library_history import LibraryHistory
-        backend = LibraryHistory(self.library)
-        plan.publication = versions.publication(backend.export_events(), plan.rules,
-                                               generation=backend.generation())
+        plan.publication = self._history_publication(LibraryHistory(self.library), plan.rules)
         known = self._published_sources(git, plan.publication.policy)
         if plan.generation:
             received = self._incoming_version_trees(git, plan.rules)
-            known |= {source for source, tree in plan.publication.events if received.get(source) == tree}
+            known |= {source for source, tree in plan.publication.events if versions.same(received.get(source), tree)}
         plan.history_pending = sum(source not in known and versions.restorable(tree)
                                    for source, tree in plan.publication.events)
         return plan
@@ -2119,7 +2121,8 @@ class Syncer:
         """Only exact currently permitted copies are already shared; thin copies cannot hide bytes."""
         from src.library_history import LibraryHistory
         refs = [versions.INCOMING_REFS + key for key in self._incoming_tips(git)]
-        return dict(versions.publication(LibraryHistory(self.library).events(refs), rules).events)
+        backend = LibraryHistory(self.library)
+        return dict(versions.publication(backend.events(refs, hydrate=False), rules, read=backend.read_blobs).events)
 
     def _published_sources(self, git: Git, policy: str) -> set[str]:
         publisher = git.text("config", "--get", "agents-history.publisher", check=False)
@@ -2294,7 +2297,7 @@ class Syncer:
         """
         from src.library_history import LibraryHistory
         backend = LibraryHistory(self.library)
-        publish = versions.publication(backend.export_events(), plan.rules, generation=backend.generation())
+        publish = self._history_publication(backend, plan.rules)
         plan.publication = publish
         if not publish.events:
             return []
@@ -2306,9 +2309,10 @@ class Syncer:
         old = parent
         received = self._incoming_version_trees(git, plan.rules) if plan.generation else {}
         for source, files in publish.events:
-            if source in known or received.get(source) == files:
+            if source in known or versions.same(received.get(source), files):
                 continue
-            tree = {path: self._store_bytes(git, raw) for path, raw in files.items()}
+            tree = {path: self._store_bytes(git, raw)
+                    for path, raw in versions.materialize(files, backend.read_blobs).items()}
             parent = self._commit(git, settings, tree, [parent] if parent else [], f"history {source}")
             known.add(source)
         if parent != old:
@@ -3359,16 +3363,13 @@ class Syncer:
                 uploads = sorted(set(after.files) - set(before.files))
                 from src.library_history import LibraryHistory
                 backend = LibraryHistory(self.library)
-                events = backend.export_events()
-                before_history = versions.publication(events, Rules(current, before.portable,
-                                                                     held_groups, held_files),
-                                                       generation=backend.generation())
-                after_history = versions.publication(events, Rules(updated, after.portable,
-                                                                    held_groups - approved_groups,
-                                                                    held_files - approved_files),
-                                                      generation=backend.generation())
+                before_history = self._history_publication(backend, Rules(current, before.portable,
+                                                                          held_groups, held_files))
+                after_history = self._history_publication(backend, Rules(updated, after.portable,
+                                                                         held_groups - approved_groups,
+                                                                         held_files - approved_files))
                 old_versions = dict(before_history.events)
-                added_versions = sum(old_versions.get(identifier) != tree and versions.restorable(tree)
+                added_versions = sum(not versions.same(old_versions.get(identifier), tree) and versions.restorable(tree)
                                      for identifier, tree in after_history.events)
                 change = hashlib.sha256(json.dumps({"more": sorted(more), "scopes": updated.dump().decode(),
                                                     "upload": uploads,

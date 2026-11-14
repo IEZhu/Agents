@@ -1,0 +1,81 @@
+# Review guidance for the frontend stack, grounded in bot findings on this
+# owner's repositories. See docs/review-config.md and the templates README.
+- path: "**/*.{ts,tsx}"
+  instructions: |-
+    Review React and TypeScript client state for ordering and lifecycle defects that a linter cannot see.
+    Check every async result written into component state. When a second request, selection or click can start before the first settles, require a generation counter, an abort signal or an identity check so only the newest response is applied, and treat an applied older response as a defect.
+    Check local state derived from a prop or a fetched record while the component stays mounted at the same position. When the record identity changes, require an explicit reset or a `key` on the component. A retained marker such as a copied or selected flag is a defect, because it then describes the previous record.
+    Check per submit validation flags. Require that they clear when the inputs they describe change, so error text and `aria-invalid` do not survive a correction.
+    Check caches and memo maps for a key that can point at different data over the life of the page, and require the key to carry the identifier that produced the value.
+    Check that every state update reachable after an await has the same mounted or current guard on all branches, including early return and false result branches, not only in the catch branch.
+    Check shared in flight promises. When a helper hands an existing promise to a later caller, require that the later caller's arguments, abort signal and freshness need are honored, or that the calls are serialized. A silently discarded second request is a defect.
+    Check that promise chains started from event handlers attach a rejection handler that surfaces the failure in the interface instead of producing an unhandled rejection.
+    Check route and query values for the empty string case, because an empty value can disable a data hook and leave the page on a loader forever. Treat it like a missing value.
+    Check fetch helpers used by server rendering for an abort based timeout, so a stalled dependency degrades to an error instead of holding the render.
+- path: "**/app/**/*.tsx"
+  instructions: |-
+    Review Next.js App Router files for defects at the server and client boundary.
+    Check that global stylesheet imports live in a layout file. A global CSS import from an ordinary component is rejected by the App Router build, so move the import to the root or a route level layout.
+    Check route segment prop types against the router version in use. A `params` type that does not match what the framework passes breaks type checking and the build, so verify the shape rather than copying a signature.
+    Check values rendered both on the server and in the browser. Locale and time zone dependent formatting such as `toLocaleDateString` resolves differently in the two runtimes and produces a hydration mismatch, so require a pinned time zone or rendering after mount.
+    Check client handlers that navigate after a request. When the request rejects, either the navigation still happens or the user sees the failure, so the visible state never contradicts what actually happened.
+    Check dynamic imports of third party widgets for a rejection handler, because a failed chunk load or a constructor that throws otherwise leaves an unhandled rejection and a silent page.
+    Check icon only controls for an accessible name from `aria-label`, since `title` does not reliably provide one.
+    Check button and link text against the operation it performs, so a control that creates an account and a session is not labelled as a sign in for an existing account.
+- path: "**/*.jsx"
+  instructions: |-
+    Review renderer code that calls Tauri or another host bridge for migration and optional value defects.
+    Check each option name against the plugin version actually imported. A version one option name such as `dir` is silently ignored by the version two filesystem plugin, which then resolves paths against the working directory, so require `baseDir` and treat any remaining version one call site as a defect.
+    Check compatibility wrappers for a change in request encoding. A helper that serializes to `URLSearchParams` cannot carry nested file objects, so a multipart upload reaches the server as `[object Object]` and image or file features break.
+    Check every host API whose type is nullable, for example a current monitor lookup, for a null guard at every call site and not only at the one the change touched. A sibling handler that dereferences the same value without the guard is a defect.
+    Check progress and percentage math for a divisor that can be absent or zero, such as a missing content length header, and require the guard to test the divisor rather than the numerator.
+    Check async window close and unload handlers. Without a prevented default the awaited save runs detached while the window closes, so a save on close must either block the close or happen earlier.
+- path: "**/src/daemon/*_ui.html"
+  instructions: |-
+    Review the inline page script in these single file pages for client state and DOM update defects.
+    Check every fetch whose response mutates a list or the editor. Require a per request token or generation that advances on each load and on each item click, and treat a view or tab check alone as insufficient, because a response from an earlier visit still passes it.
+    Check that a response for an item that is no longer displayed is dropped rather than merged. A late metadata merge can restore the previous item identity under the current text area and let the next save write to the wrong item.
+    Check session expiry handling in the shared request path rather than only at startup, so every operation reaches the sign in state when the server reports an expired session.
+    Check controls whose value changes before the handler runs, such as a `select` with a confirmation step. When the user cancels, require the control to be restored, because later requests read the control and would combine the new value with the old item identity.
+    Check that a rendered empty state cannot appear twice during a filter, and that ranking runs once over the flattened result set instead of restarting in every section.
+    Check inline parsing and rendering loops for quadratic scanning over the accumulated buffer or over an unmatched run of delimiters. These stall the page even when a work budget exists, so require a single pass with a bounded advance.
+    Check layout measurement code for widths read while a flex item can shrink or its text can wrap, and require shrinking to be disabled while the unshrunk width is measured.
+    Check that a row shows the field the user must review before confirming an action, such as the address a stored credential will be sent to, and that the value is written with `textContent`.
+- path: "**/internal/web/templates/**/*.html"
+  instructions: |-
+    Review these server rendered template pages for claims and conditions that the rendered data does not support.
+    Check each sentence, tooltip and badge against the exact field it reads. A flag that only records that a value is present does not establish a security mode, and a per device observation flag does not establish that the observation belongs to the displayed name, so require the narrower wording or a stricter guard in the template.
+    Check statistical captions against the formula behind them, and require the wording to describe what the estimator measures rather than a stronger completeness claim.
+    Check every template condition for a case where the value it hides is still meaningful. When a second field can be positive while the guarded field is zero, the value disappears from the visible text and from the data attributes at once, so require the condition to cover every field it gates.
+    Check banners and links gated by a feature flag. When historical rows remain available with the feature off, a guard on the flag can hide both the rows and the only link that would reveal them.
+    Check interactive `svg` markup for a role that collapses its descendants, because an image role makes non focusable children presentational and hides the structure a keyboard user navigates.
+- path: "**/static/**/*.{js,css}"
+  instructions: |-
+    Review these progressive enhancement scripts and styles for server rendered pages.
+    Check partial refresh code against every page it runs on. When the script replaces only one container, such as a table body, other elements on that page that derive from the same data, for example a chart and its totals, keep stale values. Require the script to update each dynamic container or to reload such pages.
+    Check preference and layout saves triggered by user interaction for write ordering. Independent requests let an earlier save land after a later one and overwrite the newer value, so require serialization per target or a monotonic revision that the server rejects when stale.
+    Check focus styling. When a rule removes the browser outline and the only remaining indicator comes from a script, keyboard focus becomes invisible if that script fails to load, so require a visible indicator in the stylesheet itself.
+    Check pointer driven menus for focus inside the element they close. Closing on pointer leave while a descendant link holds focus moves focus to the document and loses the keyboard position, so require the open state to consider focus as well.
+    Check keyboard affordances bound by selector. An anchor rendered without an `href` is skipped by an `a[href="#"]` binding and never receives a role or a handler, so it stays unreachable by keyboard although hover still works. Require the markup to be normalized or the binding to cover that case.
+- path: "**/tests/**/*.cjs"
+  instructions: |-
+    Review these Node harnesses that launch and drive the real application.
+    Check that each assertion observes the behavior under test rather than a proxy. A generic report marker does not confirm that the view changed, programmatic focus does not prove the element is reachable with the Tab key, and a synthetic event can bypass native hit testing. Require a state specific marker and an asserted precondition, for example that a container actually overflows.
+    Check response correlation in a command and response channel. Accepting a message because it reports a failure, rather than because its identifier matches the request, lets a late response from the previous command fail the current one.
+    Check bounded waits for a clock the test replaces. When the test fixes the current time, a deadline computed from that same source can never expire and the run hangs until the job timeout, so require an elapsed time source the test does not override.
+    Check cleanup blocks for a throw that replaces the primary assertion error and skips the remaining cleanup. Record the primary error and treat cleanup as best effort.
+    Check child process teardown. Require a bounded wait for exit and a kill when the wait expires, and do not treat the launcher's close event as proof that a whole process group ended.
+    Check that failure output carries the diagnostic a reader needs, such as a bounded standard error tail, for the case where the application exits before writing its own artifacts.
+    Check that timing sensitive values such as a start timestamp are captured before the command that can race them.
+    Check that tooling is invoked portably, because executing a binary inside a package bin directory fails where the package manager installs a shim. Run it through the Node executable instead.
+- path: "**/{tools,scripts}/**/*.{js,mjs,cjs}"
+  instructions: |-
+    Review these Node automation scripts that drive a browser or build a release.
+    Check every callback evaluated inside the page for identifiers taken from the enclosing script. They are not in scope in the browser and raise a reference error that aborts the run before measurements and images are written, so require them to be passed as arguments or applied after the value returns to Node.
+    Check screenshot options against the current scroll position, because a clip is expressed in page coordinates and still starts at the top of the document after a scroll. Check also that a clamped height does not silently crop a capture the report presents as complete.
+    Check navigation checks for an explicit status assertion, because a navigation resolves for a not found response as well, and a route expected to be absent must be flagged when it starts returning success.
+    Check threshold comparisons against the unrounded value and round only for display, so a value just below the limit is not rounded into the passing band.
+    Check that every measurement the report records is also compared against its requirement, and that a missing element or an empty selection is flagged rather than skipped. Otherwise a run that performed no checks reports zero problems.
+    Check that the process exit code reflects the result, because printing a failure count while exiting with zero makes the step pass in automation.
+    Check ordered text replacement where one pattern is a prefix of another, and require the longer value to be applied first so that no suffix of a sensitive value survives.
+    Check build scripts for an output directory that is reused without removal and then signed or packaged, and for a declared target or architecture that the build command never passes.

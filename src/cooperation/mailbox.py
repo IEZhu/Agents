@@ -75,6 +75,33 @@ class Mailbox:
         for participant in participants:
             db.execute("INSERT OR IGNORE INTO participant_activity VALUES (?)", (participant["participant_id"],))
 
+    def _seen(self, db, *participants):
+        """Refresh liveness on the service clock for participants that acted.
+
+        A send, an acknowledgement or a request update is an act of the
+        authenticated actor's own model, so it proves what a ``heartbeat``
+        proves. The relayed subject is refreshed with it, because a parent in
+        ``parent_relay`` mode is its child's only channel, exactly as ``apply``
+        already treats it; the child's timestamp is therefore not evidence of
+        the child's own activity. Callers place this so that only an accepted
+        action, or the replay of one, refreshes: a refused action leaves
+        liveness alone, and ``request_update`` reports a stale revision or an
+        already terminal request by returning rather than raising, so its
+        transaction commits.
+
+        Passive polls keep their documented promise not to renew a heartbeat,
+        because a host-side listener could issue them with no model running.
+        This bumps no repository revision, so peers keep their ownership
+        decisions, and it never changes ``status``: only ``recover`` clears a
+        suspicion.
+        """
+        now = self.service.clock()
+        for participant in {p["participant_id"]: p for p in participants}.values():
+            if participant["status"] == "cancelled":
+                continue
+            participant["last_seen"] = now
+            self.service._save_participant(db, participant)
+
     @staticmethod
     def _message(row):
         return {**json.loads(row["body"]), "cursor": row["cursor"],
@@ -131,6 +158,7 @@ class Mailbox:
                 actor, subject = self._authenticate(db, data, identity)
                 request_digest, receipt = self._receipt(db, data, "send")
                 if receipt is not None:
+                    self._seen(db, actor, subject)
                     return self._response(SendResponse, receipt)
                 if actor["status"] == "cancelled" or subject["status"] == "cancelled":
                     raise CooperationError("unauthorized_actor")
@@ -176,6 +204,7 @@ class Mailbox:
                 # Incoming mail also makes a registration used: never tombstone
                 # a recipient while its durable inbox still awaits inspection.
                 self._activity(db, actor, subject, recipient)
+                self._seen(db, actor, subject)
             self.service.mailbox_notifier.notify({(repo, subject["participant_id"]), (repo, recipient["participant_id"])})
             return response
         except CooperationError as error:
@@ -213,6 +242,7 @@ class Mailbox:
                 actor, subject = self._authenticate(db, data, identity)
                 request_digest, receipt = self._receipt(db, data, "ack")
                 if receipt is not None:
+                    self._seen(db, actor, subject)
                     return self._response(AckResponse, receipt)
                 now = self.service.clock()
                 changed_keys = set()
@@ -230,6 +260,7 @@ class Mailbox:
                                          "participant_id": subject["participant_id"], "message_ids": data["message_ids"], "acknowledged_at": now})
                 self._save_receipt(db, data, request_digest, response)
                 self._activity(db, actor, subject)
+                self._seen(db, actor, subject)
             self.service.mailbox_notifier.notify(changed_keys)
             return response
         except CooperationError as error:
@@ -261,6 +292,7 @@ class Mailbox:
                 actor, subject = self._authenticate(db, data, identity)
                 request_digest, receipt = self._receipt(db, data, "request_update")
                 if receipt is not None:
+                    self._seen(db, actor, subject)
                     return self._response(RequestStatusResponse, receipt)
                 if actor["status"] == "cancelled" or subject["status"] == "cancelled":
                     raise CooperationError("unauthorized_actor")
@@ -291,6 +323,7 @@ class Mailbox:
                         "repository_id": repo, "request": self._request_projection(db, record)})
                     self._save_receipt(db, data, request_digest, response)
                     self._activity(db, actor, subject)
+                    self._seen(db, actor, subject)
             self.service.mailbox_notifier.notify({(repo, record["sender_id"]), (repo, record["recipient_id"])})
             return response
         except CooperationError as error:

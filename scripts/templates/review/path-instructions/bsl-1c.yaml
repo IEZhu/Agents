@@ -1,0 +1,96 @@
+# Review guidance for the bsl-1c stack, grounded in bot findings on this
+# owner's repositories. See docs/review-config.md and the templates README.
+- path: "**/*.bsl"
+  instructions: >-
+    Inspect every statement for its semicolon terminator and every runtime type test for
+    the right type function. Treat a missing `;` as a defect when the statement is an
+    assignment, a procedure call or a closing `КонецЕсли` while the neighbouring statements
+    of the same block end with `;`, because the module then fails compilation and the form
+    or the common module cannot be loaded at all. Report the exact line and ask for the
+    terminator instead of reformatting the surrounding block. Treat `Тип(Элемент)` used to
+    learn what a value or a form element actually is as a defect, because `Тип` resolves a
+    type from its name and says nothing about the value in hand. Require `ТипЗнч(Элемент)`
+    for the runtime check and keep `Тип("ИмяТипа")` only on the other side of the
+    comparison. Point out the single divergent call when the same module already uses
+    `ТипЗнч` in comparable places, because it is then far more likely a slip than a
+    deliberate choice.
+- path: "**/Module.bsl"
+  instructions: >-
+    Check every assignment that gives one variable the `Структура`, `Соответствие`,
+    `Массив`, `СписокЗначений` or `ТаблицаЗначений` held by another, in particular a saved
+    default, a snapshot or a value kept for a reset command. Assignment in BSL binds a
+    second name to the same object instance and copies nothing, so a write through either
+    name is visible through both. Treat the assignment as a defect when later code edits one
+    name while the other is expected to keep its original content, for example
+    `ОтборЖурналаРегистрации = ОтборЖурналаРегистрацииПоУмолчанию;` followed by edits to the
+    active filter, which quietly rewrite the stored defaults so that the reset command no
+    longer restores anything. Require an explicit copy at the assignment: a serialization
+    round trip for nested values, the `СкопироватьСтруктуру` helper of the Standard
+    Subsystems Library when the project already depends on it, or a loop that re-inserts
+    every key into a fresh `Структура` with `Вставить`. Name the side that must stay
+    immutable, so that the copy is introduced on the correct side of the assignment.
+- path: "**/Forms/**/Module.bsl"
+  instructions: >-
+    Inspect the server side form creation path, `ПриСозданииНаСервере` and everything it
+    calls, for work that can raise before the form exists, because the platform turns an
+    exception there into a refusal to open the form and the user gets no form at all instead
+    of a degraded one. Treat these as defects. A form parameter or a stored setting assigned
+    straight into a variable that later code treats as a collection, for example
+    `Сеансы = Значение;` followed by `Сеансы.Очистить()`, when a caller may pass a single
+    scalar such as `Сеанс`; require normalization through `ТипЗнч` into a `Массив` or
+    `СписокЗначений` before any collection method runs. A `Для каждого` loop over a value
+    that can be `Неопределено` while neighbouring branches guard the same value with
+    `<> Неопределено`; require the same guard and an empty section on the form. A call such
+    as `СериализаторXDTO.ПрочитатьXML` on a stored payload without `Попытка`, which aborts
+    form creation on an empty or malformed payload; require `Попытка` with a defined
+    fallback state. A persisted string split on `=` and then indexed by position, where a
+    malformed entry yields fewer parts than the code reads; require a check on the number of
+    parts and a deliberate skip of the bad entry.
+- path: "**/Forms/**/Ext/Form/Module.bsl"
+  instructions: >-
+    Inspect the conditional chains and notification handlers of the form module for state
+    updates that run in the wrong branch. Treat an `ИначеЕсли` whose condition carries an
+    operand that cannot change the outcome as a defect, for example
+    `ИначеЕсли ЕстьОтборПоСтатусу Или ЗначениеЗаполнено(Транзакция)` reached only when
+    `ЕстьОтборПоСтатусу` is already `Истина`, which leaves a transaction only filter
+    unmarked in the section header; require the independent case to get its own `Если`
+    branch. Treat a refresh or reset of form state placed after `КонецЕсли` in
+    `ОбработкаОповещения` as a defect when the branch above it matched one notification
+    name, because an unrelated notification then clears attributes such as `События` and
+    `СобытияОтображаемые`; require the update to sit inside the matched branch. Treat a
+    comparison of a raw key against localized presentation text as a defect, for example
+    filter code that compares `Событие` with presentation strings while the caller passes
+    `Событие` and `ПредставлениеСобытия` separately, so that real rows fall through to the
+    generic branch; require one field to be used consistently. Treat a row added on one path
+    without a field that later matching and output read, such as `ПолноеПредставление`, and
+    entries diverted into a side collection such as `ПользовательскиеСобытия` that no path
+    merges back into the returned selection, as defects: the first produces empty labels and
+    lost preselection, the second silently drops the user values on return.
+- path: "**/CommonModules/**/Module.bsl"
+  instructions: >-
+    Review the string literals and concatenations that build the PostgreSQL and the MSSQL
+    variants of a statement before it is sent over the external connection. Treat a
+    generated script that handles a field level error and still reaches an unconditional
+    `COMMIT;` for the whole unit of work as a defect: a PostgreSQL branch that wraps the
+    work in `DO $$` with `EXCEPTION WHEN OTHERS THEN RAISE NOTICE`, and an MSSQL branch that
+    prints `ERROR_MESSAGE()` inside `BEGIN CATCH` without rethrowing, both commit a
+    replacement pair in which one column was never replaced. Require the generated script
+    either to rethrow the unexpected error so that the transaction of the pair unwinds, or
+    to set a failure flag that makes the script emit `ROLLBACK` in place of `COMMIT`. Treat
+    a result collection that gains one marker per failing column instead of one per
+    replacement pair as a defect, for example repeated `ТребуетсяSQL` rows for the same pair
+    of duplicate and original, which fill the failed replacements tree with identical
+    entries; require the markers already collected for that pair to be collapsed before the
+    final marker is added, not only the new insertion to be deduplicated.
+- path: "**/CommonModules/**/Ext/Module.bsl"
+  instructions: >-
+    Inspect the code that compares an old and a new table part row by row and writes the
+    result into the change log. Treat a scoring matcher that cannot decide between equally
+    scoring candidates as a defect, for example `НайтиИндексСтрокиВТЧ` returning `-1`
+    because two new rows share the same highest score against one old row, after which
+    `ПолучитьИзмененияТЧ` logs the old row as deleted and both new rows as added while the
+    correct result is one unchanged row and one addition. Require identical rows to be
+    paired first, with their multiplicity counted, and the heuristic score to run only over
+    the rows left unpaired by that first pass. Check that a pairing removes the row from
+    both candidate sets, so that one old row cannot be consumed twice, and that an unchanged
+    row produces no log entry rather than a deletion plus an addition of the same data.

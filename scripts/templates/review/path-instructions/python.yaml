@@ -1,0 +1,178 @@
+# Review guidance for the python stack, grounded in bot findings on this
+# owner's repositories. See docs/review-config.md and the templates README.
+- path: "**/*.py"
+  instructions: >-
+    Treat absent, None, NaN and falsy as four different states and inspect every
+    place a value crosses between them. Flag `d.get("k", 0)` or `d.get("k", [])`
+    used as a safety net when the key can exist with the value None, because the
+    default is skipped and None reaches the caller. Flag a possibly None value
+    reaching a comparison such as `> 0` or `< 0.05`, arithmetic such as a
+    division, or a format specifier such as `:.2f`, `:g` or `f"{x:.1f}"`,
+    because each raises TypeError at run time and aborts the whole operation
+    instead of returning partial data. Flag a pandas or numpy NaN treated as a
+    present number, since NaN passes `is not None`, `row.get("Volume", 0)`
+    returns NaN when the column exists, and the database driver rejects NaN for
+    an integer column. Flag `value or {}`, `value or []` and `if value:` used to
+    decide whether a field was supplied, because an empty list, an empty dict,
+    an empty string and zero are indistinguishable from absent under
+    truthiness. Flag a flag read as truthy when it can arrive as a string, since
+    "false" and "0" are truthy in Python. Flag a key loaded with
+    `yaml.safe_load` whose value is omitted in the file, because YAML maps it to
+    None and not to an empty list. Require an explicit `is None` test, a
+    sentinel distinct from None, or a validated pydantic field, and require the
+    None branch to produce a defined result before the value reaches
+    formatting, arithmetic or persistence.
+- path: "**/*.py"
+  instructions: >-
+    Check that every name the changed code reaches at run time still exists and
+    is still spelled the same way, because Python resolves module attributes,
+    dict keys and local names only when the line executes. When this diff
+    deletes, renames or moves a function, a method or a module-level constant,
+    require every call site to be updated in the same change and treat a
+    surviving `module.removed_name(...)` call as a defect that raises
+    AttributeError the first time that branch runs. When one function produces a
+    dict or a database row and another consumes it, confirm the consumer reads
+    the keys the producer writes, since `row.get("ticker")` against a row keyed
+    `symbol` returns None silently and issues a request with an empty parameter
+    instead of failing. When a variable is assigned inside one branch or loop
+    and read in another, confirm every path that reaches the read also reaches
+    an assignment, because the mismatch raises UnboundLocalError only for the
+    input combination that skips the first branch, and name that combination in
+    the comment. When an early `sys.exit`, `return` or `raise` is removed,
+    review the code it used to make unreachable as if it were new, since it has
+    never executed and can still carry stale key names, column names or
+    parameters. Ask for the updated call site, the unconditional assignment, or
+    the corrected key.
+- path: "**/*.py"
+  instructions: >-
+    Inspect asyncio and threading lifetimes against the CPython semantics that
+    let them fail silently. Flag `asyncio.create_task` whose result is not
+    stored in a long-lived set or bound to a done callback, because the loop
+    holds only a weak reference and the background job can be collected in the
+    middle of its work with no error. Flag a `queue.Queue` worker that calls
+    `task_done` before it re-queues the item with `put`, because
+    `unfinished_tasks` can reach zero in between, `join` returns early, the
+    shutdown event fires and the retried item is dropped without a log line.
+    Flag `ThreadPoolExecutor` used as a background sink without bounded
+    admission, since its work queue is unbounded, each queued closure retains
+    its arguments, and the interpreter joins non-daemon workers before `atexit`
+    handlers, so one hung task both grows memory and blocks the advertised
+    shutdown deadline. Flag state recorded before an awaited call that can be
+    cancelled, such as `await send(message)`, because cancellation between the
+    record and the delivery leaves flags describing work that never happened.
+    Flag `contextlib.redirect_stdout`, `contextlib.redirect_stderr`, assignment
+    to `sys.stdout` or `sys.stderr`, and mutation of `os.environ` inside code
+    that runs on several threads or loops over configurations, because these
+    replace process-global state, so one worker captures another worker's output
+    and one iteration inherits another iteration's setting. Require strong
+    per-task references, queue accounting that never dips, bounded queues with
+    explicit overload handling, and per-call capture.
+- path: "**/*.py"
+  instructions: >-
+    Inspect every filesystem write and every path containment check against the
+    way `pathlib` and `os` follow links. Flag containment written as
+    `resolved.startswith(root)` without a trailing separator, because a sibling
+    directory whose name extends the root prefix passes the test and lets the
+    caller read or write outside the intended tree; require
+    `Path(p).resolve()` compared through `is_relative_to`, or an explicit
+    separator in the prefix. Flag `Path.write_text`, `Path.write_bytes`,
+    `open(path, "w")` and `shutil` writes to a predictable destination such as a
+    file under `/tmp`, a staging directory or a state directory, because these
+    follow an existing symlink and overwrite its target, so a local account can
+    pre-create the link and redirect the write onto a configuration file, a
+    dotfile or a credential file. Require the code to reject a symlink at the
+    destination and at each parent segment it owns, to write a mode 0600
+    temporary file in the destination directory, and then to swap it in with
+    `os.replace`. Flag a cleanup path that resolves a registered location with
+    `os.path.realpath` and hands the resolved target to `shutil.rmtree`,
+    `os.remove` or `git worktree remove`, because the resolution can land on a
+    different directory that still satisfies the prefix test; require the
+    resolved path to be validated against the expected canonical location and
+    the original validated path to be the one removed. Name the link and the
+    overwritten or deleted file in the comment.
+- path: "**/*.py"
+  instructions: >-
+    Check each numpy, standard library and third-party call against the
+    documented precondition of that exact function rather than against what the
+    surrounding code expects. Flag `np.argpartition(a, k)` or any kth-based
+    selection where `k` can equal `len(a)`, since kth must be strictly smaller
+    than the array length, so the call raises ValueError exactly when a caller
+    asks for every entry. Flag `max()`, `min()` or a `statistics` call over a
+    sequence that can be empty with no `default=`, because the ValueError aborts
+    the whole report instead of yielding an empty result. Flag `json.dumps` of
+    values derived from a division or a normalization without `allow_nan=False`
+    or a finite check, because NaN and Infinity are emitted as tokens that no
+    standard JSON parser accepts. Flag `str.format` applied to text that holds
+    file contents, README text or user data, because a literal brace there is
+    read as a replacement field and raises KeyError or ValueError; require
+    concatenation, `string.Template` or escaped braces. Flag prefix or alias
+    matching that walks a dict or list in insertion order when the keys overlap,
+    since the shorter alias wins and selects the wrong entry; require the
+    longest key to be matched first. Flag `str.isalpha` used to keep
+    identifier-like tokens, because it drops values such as "3d" that the
+    surrounding documentation promises to keep, and ask for `isalnum`. Flag
+    `MIMEMultipart("alternative")` for a message with both a body and a file
+    attachment, because a client may render one part and hide the attachment,
+    and ask for "mixed".
+- path: "**/*.py"
+  instructions: >-
+    Inspect code that writes or reuses a persisted derived artifact, such as a
+    Chroma collection, an npz or pickled index, an embedding cache, a
+    fingerprint file or a resume manifest, and confirm its key or hash covers
+    every input that changes the stored bytes. Flag a reindex hash computed only
+    over source file contents or paths while the embedding model name, revision
+    or local-copy pin is configurable, because switching models leaves vectors
+    from the previous model on disk, and a dimension change such as 384 to 1024
+    either raises inside the vector store or returns similarity scores that are
+    numerically valid and meaningless; require the model identity and revision
+    in the hash plus an automatic rebuild for existing installations. Flag a
+    cache key that omits the date or the parameter the caller varies, because a
+    long time-to-live then serves the first result for the whole window and a
+    scheduled job stops seeing new data. Flag an incremental upsert whose
+    full-replace condition compares the count of existing ids with the count of
+    new ids, since that test is true exactly when nothing was deleted, so
+    entries for deleted sources survive the rebuild; require the deletion case
+    to be derived from the set difference. Flag a resume path that reuses
+    answers, grades or prompts keyed only by identifier, and ask for one
+    configuration fingerprint that invalidates them together.
+- path: "**/scripts/**/*.py"
+  instructions: >-
+    Review scripts and migrations for the import and path assumptions that hold
+    only on the author's machine. Flag a module-level statement that does real
+    work, reads a file, mutates `sys.path`, or imports from a location such as
+    `/tmp/extract_keywords.py`, because it runs at import time, fails before
+    `main()` can report anything, and depends on a file that is not in the
+    repository; require the work inside a function guarded by
+    `if __name__ == "__main__":` and the dependency vendored or passed as an
+    argument. Flag a repository root derived from `Path(__file__).parents[n]`
+    combined with hardcoded directory names such as a home or user folder, and
+    flag a fallback to `Path.cwd()`, because the first resolves to a path that
+    is not the repository once the file moves and the second rewrites files in
+    whatever directory the script was started from; require the root to come
+    from a known anchor inside the package and to be validated before any write,
+    or to be a required command-line argument. Flag re-execution that rebuilds
+    the command as `[sys.executable, script_path]` when the process was started
+    with `python -m package.module`, because `sys.path[0]` then becomes the
+    script directory, the absolute imports fail and the restarted process exits
+    at once; require the module form to be preserved. Flag `Path.read_text` in a
+    loop over many inputs where one unreadable input aborts the run, and ask for
+    the per-item failure to be recorded and counted.
+- path: "**/test_*.py"
+  instructions: >-
+    Read each new or changed pytest test and ask what would make it fail. Flag a
+    test that asserts on a name it never binds, because Python raises NameError
+    on the assert line before any behavior runs, so the test reports a failure
+    that hides whether the feature works; require the call under test to be
+    assigned to the name the assertions use. Flag a loop or poll that waits for
+    a condition with no deadline, since a regression then hangs the suite
+    instead of failing it and a timeout written after the loop is never reached;
+    require a monotonic deadline inside the loop, a `pytest.fail` when it
+    expires, and a check that the awaited task has not already finished. Flag a
+    fixture or helper that builds a record while omitting a field the code under
+    test treats as required, because the assertion then passes for a record that
+    production would reject; require the fixture to carry the field and the
+    assertion to compare it against the expected value. Flag a test that asserts
+    only that a call did not raise, or that compares a result with a value
+    computed by the same helper the test exists to verify, because neither can
+    detect the defect; name the observable the test should pin instead, such as
+    the written row, the returned status or the recorded call arguments.

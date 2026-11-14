@@ -275,7 +275,7 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
    the files Agents-Core can leave in a client repository's root: `history.md`
    with its lock, rotation and monthly `history/YYYY-MM.md` archives, and the
    hash (`data/memory/.describe_hash`), locks and temporary files of
-   `describe_repo`. Patterns are anchored at the root, and each run replaces the
+   `write_repo_summary`. Patterns are anchored at the root, and each run replaces the
    block; unbalanced block markers fail the setup instead. When the excludes path
    is not a regular file (for example `/dev/null`, which disables global
    excludes), the step only prints a warning.

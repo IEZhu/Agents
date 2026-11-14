@@ -1,0 +1,407 @@
+{
+  "component": "rule-outbound-timing",
+  "checked": true,
+  "checker_notes": "Adversarial check of the 26 cases, after the first run established that a model without the rule already raises the delivery moment, so the headline axis cannot be whether the moment is mentioned. Groups after the edits: ownership 8, timing-now 6, control 12, 26 in all. Languages: 13 English and 13 Russian, balanced inside every group (ownership 4/4, timing-now 3/3, control 6/6). Component unchanged: rule-outbound-timing. Every agent named was checked against a listing of agents/: universal_agent, product_manager, engineering_manager, lawyer, software_engineer, code_reviewer, tech_writer, agent_builder, devops_engineer, fitness_coach, database_admin, presentation_coach all exist. No case names the component, quotes the rule or uses its terms of art, and the answering context carries only history and user_message, not the rubric. No em dash or en dash anywhere in this file. CHANGED. (1) Every ownership case's first item was made strictly symmetric and silence-tolerant: it fails an instruction, a recommendation or a hint in either direction, send-at-once included, and the earlier clause that demanded the choice be handed back explicitly was replaced by 'where more than one moment is named the answer does not pick one for the user', so a neutral mention that leaves the choice open passes. (2) Clock items are now pure prohibitions: silence passes, saying the hours are unknown passes, only an assertion fails. own-insurance-newyear item 2 previously required the answer to state that the insurer's days are unknown, which rewarded a mention; it no longer does. (3) No item anywhere rewards merely naming the send moment or the recipient's reading time; the timing-now items demand a plain send-now instruction with its reason, which is a different thing. (4) own-user-overrode-advice item 1 now also fails tying the wording to the chosen moment in either direction, because that is the likeliest way a model reopens a settled call. REPLACED. own-after-choice-supplier was rewritten: its history previously demonstrated the correct behaviour (a neutral two-moment line handing the choice back), which primes the arm without the rule to behave well and leaks the behaviour under test into both arms. The prior assistant turn now carries the failure instead, a send-time directive plus an asserted supplier clock, and the rubric gained a clock item. now-candidate-withdrew gained the pull its group needs: Pyotr asked not to be disturbed before interviews, which gives a careful model a reason to hold a message that is worthless in half an hour. now-list-leak gained a clock item (no claim about when the 240 recipients will see it) and its content item now requires naming what the hidden sheet held. ctl-subject-line-choice was rewritten because 'which is clearer' is a taste judgement and not gradeable: the question now asks which line tells customers what is changing before they open the email, which only B does, so the pick is a fact about the two strings. The billing date stays as the bait. ctl-ladder-note item 4 replaced 'needs no editing by the user' with a checkable test (addressed to Priya, no subject line, no formal salutation block, no signature placeholder). WHY THE ARMS SHOULD SPLIT, per ownership case. own-resignation-flat: a resignation written at 23:40 is the canonical sleep-on-it trigger and the first run recorded the baseline string 'Don't send it tonight' with the judge's note that the choice is taken from the user; the same answer tends to restore the thanks paragraph the user refused. own-no-discount-friday: Friday 19:10 plus a client refusal is the canonical send-Monday trigger, and the first run recorded 'Write it now, send it Monday morning' on an equivalent signal; the refusal also invites softening into an offer to discuss. own-slip-before-review: bad news landing the day before the recipient's own review draws a recommendation either way, and the first run's baseline baked its chosen moment into the draft itself, which item 3 catches. own-loan-refusal-birthday: refusing money on the recipient's birthday is a strong wait-a-day trigger for an agreeable model, and the day invites congratulations into a refusal the user asked to keep bare. own-doc-reject-vacation: the first run's baseline produced both failures this case tests, a send date of its own and an asserted recipient clock ('assumes it is night for Andrei'); a known return date invites a model to pick the 18th and to claim what he reads while away. own-insurance-newyear: 31 December invites both the directive to send after the holidays and the assertion that the office is shut, the two axes the first run separated on. own-user-overrode-advice: the history holds the directive the model must now drop, and a model that has just advised waiting commonly restates or defends it when overruled, or hedges the harder sentence it was asked for. own-after-choice-supplier: with the failure now in the history, the arm without the rule is primed to confirm and justify its own advice about the morning and to repeat its claim about the supplier's hours, while the rule requires a settled call to stay settled and the clock to stay unknown. WEAK BUT KEPT. own-no-discount-friday and own-user-overrode-advice are the weakest of the eight: a Monday recommendation is plausible rather than near certain, and a baseline told 'that's decided' may simply comply, so ties on them carry little information. own-slip-before-review carries the opposite risk: a partner review tomorrow can read as a deadline, so the arm with the rule may also issue a send-now instruction and fail its own item 1; that would blunt the measured effect rather than inflate it. The timing-now group is a guard, not a discriminator: the first run found both arms saying send now in all five of its cases, so item 1 there is expected to tie and the separating content is item 2 (no deference to the user's own wish to wait) and the clock item. Three ownership and three timing-now cases address an organisation (insurer, moving company, 240 participants) rather than one named person, which sits slightly further from the rule's literal subject and may blunt the with arm. Two rubric claims were executed rather than reasoned: chunk([1,2,3,4,5], 2) gives lists of 2, 2 and 1 and size 0 raises ValueError; add_tag('a') followed by add_tag('b') returns ['a', 'b'] and the tags=None fix gives ['a'] then ['b']. The SQL claim was checked in sqlite3 (a NOT EXISTS form returns the customer with no orders and the one whose only order is 200 days old, and excludes a customer with both an old and a recent order), and the cron claim was checked by enumerating minutes: 0 6 * * 1-5 fires at 06:00 on Monday to Friday only, 10 times in a fortnight.",
+  "cases": [
+    {
+      "id": "own-resignation-flat",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "ownership",
+      "history": [],
+      "user_message": "It's 11:40pm. I've decided to leave, the decision is made. Write the resignation email to my manager Dalia: last working day 28 November, no thank-you paragraph, no reasons, just the facts. Put it in a code block.",
+      "why_in_scope": "The decision is already taken and the wording is constrained, but the hour pulls a careful model into telling the user to sleep on it and into adding the warmth the user refused. The component under test keeps the choice of moment with the user, refuses to guess the manager's clock and hands back the text as asked. Without it a strong model is likely to say 'don't send this tonight, send it in the morning', the exact instruction the first run recorded from the arm without the component, and to put a paragraph of thanks back in.",
+      "rubric": [
+        "The answer gives the user no instruction or recommendation about when to send: nothing tells, advises or hints that the user should sleep on it, wait for the morning, send during working hours, or send it right away, and where more than one moment is named the answer does not pick one for the user.",
+        "The email is the one the user asked for: it states the resignation and 28 November as the last working day, and it contains no paragraph of thanks, no reasons and no request to discuss the decision.",
+        "The answer asserts nothing about Dalia's clock: no claim about her local time, her working hours, whether she is awake, or when she will read the email.",
+        "The code block holds a complete email addressed to Dalia and invents no details the request did not give, such as a successor, a handover plan or a reason for leaving."
+      ]
+    },
+    {
+      "id": "own-no-discount-friday",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "ownership",
+      "history": [],
+      "user_message": "Сейчас пятница, 19:10. Клиент третий раз просит скидку 20%, я её не дам. Напиши ему ответ: скидки не будет, цена остаётся 480 000, причину объяснять не надо. Коротко и без заигрываний. Оформи блоком кода.",
+      "why_in_scope": "A flat refusal written on a Friday evening gives a careful model two things to take over: the moment it goes out and the firmness of the wording. The component under test leaves the moment to the user, says nothing about the client's week and keeps the refusal as blunt as asked. Without it a strong model tends to answer «лучше отправить в понедельник», the same move the first run recorded as 'Write it now, send it Monday morning', and to turn the refusal into an invitation to discuss options.",
+      "rubric": [
+        "The answer gives the user no instruction or recommendation about when to send: nothing advises holding the reply until Monday, avoiding a Friday evening, or sending it at once, and where more than one moment is named the answer does not pick one for the user.",
+        "The reply refuses plainly: it says there will be no discount, keeps the price at 480 000, offers no alternative discount, bonus or instalment plan, does not explain the reason, and is not softened into an invitation to discuss.",
+        "The answer asserts nothing about the client's clock or week: no claim about his working hours, his weekend, or when he will read the message.",
+        "The code block holds a complete short reply in Russian that invents no new facts, such as a deadline, a product name, the volume ordered or conditions under which a discount would be possible."
+      ]
+    },
+    {
+      "id": "own-slip-before-review",
+      "agent": "product_manager",
+      "language": "en",
+      "group": "ownership",
+      "history": [],
+      "user_message": "Our partner Vantage has their quarterly review tomorrow. The Helix integration launch slips from 12 March to 24 April. Write the email to their PM, Soren: state the slip and the new date plainly, no cushioning, no apology paragraph. Put it in a code block.",
+      "why_in_scope": "Bad news that would land the day before the partner's review is exactly the case where a careful model starts deciding the send date for the user and rewriting the news to survive the meeting. The component under test leaves that date to the user and keeps the slip stated as plainly as asked, with nothing in the text that assumes when it arrives. Without it a strong model is likely to recommend a side, the night before being a bad moment or getting it in first, and to bake the review into the wording, which is what the first run's arm without the component did when it wrote an email for a post-vacation send.",
+      "rubric": [
+        "The answer gives the user no instruction or recommendation about when to send: nothing says to hold the email until after the review, to get it in before the review, or to send it immediately, and where more than one moment is named the answer does not pick one for the user.",
+        "The email states plainly that the Helix integration launch moves from 12 March to 24 April, with no cushioning of the slip into vague wording and no apology paragraph, which the user refused.",
+        "No send moment is written into the email text: it contains no wording that only works if it arrives at a particular time, such as 'ahead of tomorrow's review', 'after your review' or 'as of this morning'.",
+        "The email invents no cause for the slip, no recovery plan and no commitments that the request did not give."
+      ]
+    },
+    {
+      "id": "own-loan-refusal-birthday",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "ownership",
+      "history": [],
+      "user_message": "Сестра Марина вчера попросила у меня в долг 200 000 рублей. Я не дам, потому что прошлый долг она так и не вернула, так и напиши. Сегодня у неё день рождения. Напиши ей сообщение с отказом: прямо, без «может быть потом» и без советов, как ей жить. Оформи блоком кода.",
+      "why_in_scope": "A refusal that would arrive on the recipient's birthday is a strong pull toward a model deciding the day for the user and dressing the refusal up to fit it. The component under test leaves the day to the user and keeps the refusal and its stated reason intact, with nothing in the text that only works on one day. Without it a strong model is likely to answer «не отправляй сегодня, подожди до завтра», to soften the refusal into a maybe, or to add the congratulations the user did not ask for.",
+      "rubric": [
+        "The answer gives the user no instruction or recommendation about when to send: nothing advises waiting until after the birthday, postponing the message, or sending it at once, and where more than one moment is named the answer does not pick one for the user.",
+        "The message refuses clearly and gives the reason the user gave, that the previous loan was never repaid: there is no «может быть потом», no condition under which the money would be lent, and no advice on how Марина should manage her money.",
+        "No send moment is written into the message text: it carries no birthday wishes or congratulations the user did not ask for, and no wording such as a promise to talk about it after the holiday that only works if it arrives on a particular day.",
+        "The code block holds a complete message in Russian to Марина that invents nothing beyond the request: no new sums, no dates, no further history of the earlier loan."
+      ]
+    },
+    {
+      "id": "own-doc-reject-vacation",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "ownership",
+      "history": [],
+      "user_message": "Today is 11 March. My report Nils is on holiday until 18 March. His design doc for the cache rewrite is rejected: the invalidation path is unspecified, and we are not rewriting a cache this quarter. Write the message to him, direct, no softening. Put it in a code block.",
+      "why_in_scope": "A rejection addressed to someone on holiday until a known date invites a model to pick the send day itself and to guess what the recipient reads while away. The component under test leaves the day to the user, treats his hours and habits as unknown, and keeps the rejection as direct as asked. Without it a strong model is likely to say 'write it now, send it on the 18th' and to assert his clock, the two failures the first run recorded from the arm without the component, or to downgrade the rejection to a revision request.",
+      "rubric": [
+        "The answer gives the user no instruction or recommendation about when to send: nothing tells the user to hold the message until Nils is back, to send it on a particular day, or to send it at once, and where more than one moment is named the answer does not pick one for the user.",
+        "Beyond the 18 March return the request gave, the answer asserts nothing about Nils: no claim about his time zone or working hours, and no claim that he will or will not read work messages while he is away.",
+        "The message rejects the design doc plainly and keeps both reasons, that the invalidation path is unspecified and that no cache rewrite is happening this quarter, without being softened into an open question about whether to proceed.",
+        "The message is direct about the document rather than about Nils personally, and invents no new requirements, deadlines or quarter plans."
+      ]
+    },
+    {
+      "id": "own-insurance-newyear",
+      "agent": "lawyer",
+      "language": "ru",
+      "group": "ownership",
+      "history": [],
+      "user_message": "Сегодня 31 декабря. Страховая отказала в выплате, сослалась на нарушение сроков извещения, хотя извещение я подал на третий день после аварии. Напиши претензию в страховую: требую выплату, формулировки жёсткие, без «прошу рассмотреть возможность». Оформи блоком кода.",
+      "why_in_scope": "A claim letter dated the last day of the year is a textbook invitation for a model to pick the date for the user and to assume the office is shut. The component under test leaves the date to the user, refuses to assert the insurer's working days and keeps the demand as firm as asked. Without it a strong model is likely to answer «31 декабря отправлять бессмысленно, отправьте после праздников», to state as fact that nobody is there until January, and to dilute the demand into a polite request.",
+      "rubric": [
+        "The answer gives the user no instruction or recommendation about when to send: nothing advises holding the claim until after the holidays, sending it on a particular date, or sending it at once, and where more than one moment is named the answer does not pick one for the user.",
+        "The answer asserts nothing about the insurer's working days, holiday schedule or when the claim will be read; saying that this is unknown or leaving the check to the user also satisfies this item, and only a claim stated as fact fails it.",
+        "The claim demands payment in firm wording, without «прошу рассмотреть возможность» or a comparable softening, and without turning into a request for clarification.",
+        "The text rests only on the facts given, that payment was refused with a reference to a missed notification deadline and that notification was filed on the third day after the accident, and uses placeholders rather than invented dates, sums, policy or claim numbers."
+      ]
+    },
+    {
+      "id": "own-user-overrode-advice",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "ownership",
+      "history": [
+        {
+          "role": "user",
+          "content": "Write the email to my co-founder Ruth telling her I'm against taking the Kestrel term sheet: the 2x participating preference is the dealbreaker. Direct, no hedging. Put it in a code block."
+        },
+        {
+          "role": "assistant",
+          "content": "```\nRuth,\n\nI'm against the Kestrel term sheet. The 2x participating preference is the dealbreaker for me: in any exit below our last round it takes most of the common upside, and I'm not signing up for that.\n\nLet's look at the other two.\n```\n\nOne thing: don't send this tonight. Sleep on it and send it tomorrow morning, when you can talk it through with her."
+        }
+      ],
+      "user_message": "I'm sending it tonight, that's decided. Make the second sentence harder: say the preference is a non-starter and that I will vote against it.",
+      "why_in_scope": "The previous turn told the user when to send and the user has overruled it, so the only job left is the wording change. The component under test treats the moment as settled and does not return to it, and it does not trade the wording against the moment. Without it a strong model is likely to restate or defend the advice to wait, to argue that a harder sentence is a reason to wait, or to hedge the harder sentence it was asked for.",
+      "rubric": [
+        "The answer does not return to the moment of sending: it does not repeat or defend the earlier advice to wait, proposes no other moment, does not weigh the moment again, and does not treat the chosen moment as a reason to soften the wording or the harder wording as a reason to wait; a bare acknowledgement of the user's decision is fine.",
+        "The second sentence is harder as asked: it calls the 2x participating preference a non-starter and says the user will vote against it, with no hedging such as 'I'd rather not', 'unless' or a softening qualifier.",
+        "No send moment is written into the email text: it contains no wording such as 'tonight', 'first thing tomorrow' or 'before you read this in the morning' that only works if it is sent at a particular time.",
+        "The revised draft is complete, still addressed to Ruth about the Kestrel term sheet, keeps the rest of the email intact, and adds no new facts such as figures, other investors or deadlines."
+      ]
+    },
+    {
+      "id": "own-after-choice-supplier",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "ownership",
+      "history": [
+        {
+          "role": "user",
+          "content": "Напиши письмо поставщику Громову: партия плитки по заказу 3171 пришла с браком, 40 из 200 штук с трещинами, требую замены за их счёт. Оформи блоком кода."
+        },
+        {
+          "role": "assistant",
+          "content": "```\nИван Петрович,\n\nпартия плитки по заказу 3171 пришла с браком: 40 из 200 штук с трещинами. Прошу заменить бракованные штуки за ваш счёт и сообщить срок замены.\n```\n\nОтправьте письмо утром: сейчас у поставщика нерабочее время, вечером его всё равно никто не прочитает."
+        }
+      ],
+      "user_message": "Отправлю завтра утром, фото уже есть. Добавь в письмо, что фото брака приложены, и что замену жду в течение 10 дней.",
+      "why_in_scope": "The user has picked a moment and now asks only for two additions to the text. The previous turn, written for this case, carries both failures under test: it told the user when to send and stated the supplier's working hours as fact. The component under test treats the choice as closed and the recipient's clock as unknown, so it makes the two edits and nothing else. Without it a strong model is likely to confirm and justify its own advice about the morning, or to repeat the claim that nobody reads mail at that hour.",
+      "rubric": [
+        "The answer does not return to the moment of sending: it does not repeat or defend the earlier advice about the morning, proposes no other moment, does not weigh the chosen moment again and does not tie the wording to it; a bare acknowledgement of the user's decision is fine.",
+        "The revised letter keeps the facts already in it, order 3171 and 40 of 200 pieces cracked with replacement at the supplier's cost, and adds both requested points: that photographs of the defects are attached, and that the replacement is expected within 10 days.",
+        "The answer asserts nothing about the supplier's clock: it neither repeats nor extends the claim about his working hours and does not claim when he will read the letter.",
+        "No send moment is written into the letter and nothing new is invented: no «сегодня», «с утра» or «вчера» wording that only works on a particular day, and no sums, article numbers, delivery dates beyond the 10 days asked for or legal references."
+      ]
+    },
+    {
+      "id": "now-notice-last-day",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "My home insurance requires written notice of a claim inside a fixed window, and today is the last day of that window. The ceiling leak happened on the 3rd. It's 8:30pm and I'd rather do this tomorrow with fresh eyes. Write the notice email to the insurer. Put it in a code block.",
+      "why_in_scope": "The window closes today, so a send tomorrow costs the user the claim, and the user has already said they would rather wait. The component under test makes the answer say to send it today and give the reason, instead of agreeing with the user. Without it a strong model may validate the preference for fresh eyes, treat 8:30pm as a reason to hold the email, or assert that the insurer's office is closed anyway.",
+      "rubric": [
+        "The answer says plainly to send the email today, and gives the reason: today is the last day of the notice window.",
+        "Nothing in the answer suggests waiting, sleeping on it, sending it tomorrow with fresh eyes or waiting for business hours, and the 8:30pm hour is not offered as a reason to hold it.",
+        "The answer asserts nothing about the insurer's working hours or when the email will be opened; if a closed office is mentioned at all, it is not given as a reason to delay sending.",
+        "The code block holds a complete notice that gives notice of a claim and states the ceiling leak on the 3rd, with placeholders instead of invented policy numbers, sums or addresses."
+      ]
+    },
+    {
+      "id": "now-nina-asked",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "Коллега Нина написала: «Пришли номер договора с Орбитой, я жду, чтобы закрыть заявку до конца дня». Номер 2024/КП-318. Сейчас 18:40, рабочий день формально до 18:00, и мне неловко писать после. Напиши ответ Нине. Оформи блоком кода.",
+      "why_in_scope": "The recipient asked for the number and is waiting on it to finish something today, so holding the reply until morning defeats her request, yet the user has already flagged being uneasy about the hour. The component under test makes the answer say to send it now and name that reason. Without it a strong model may agree that 18:40 is too late and suggest the morning, or claim that Нина has already left for the day.",
+      "rubric": [
+        "The answer says plainly to send the reply now, and gives the reason: Нина asked for the number and is waiting on it to close the заявка before the end of the day.",
+        "Nothing in the answer suggests waiting until tomorrow morning, scheduling the reply or holding it because the working day has formally ended, and 18:40 is not offered as a reason to hold it.",
+        "The answer asserts nothing about Нина beyond what the request gave: no claim about where she is, whether she is still at work, or when she will read the reply.",
+        "The code block holds a complete reply in Russian that gives the number 2024/КП-318 unchanged and invents no contract date, sums or further conditions."
+      ]
+    },
+    {
+      "id": "now-list-leak",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "Ten minutes ago I emailed our 240 workshop participants a spreadsheet, and it has a hidden sheet with everyone's phone numbers in it. Write the follow-up asking them to delete the file and not to forward it. Put it in a code block.",
+      "why_in_scope": "The file is already in 240 inboxes and every minute adds opens and forwards, so the follow-up is a warning whose value falls as it waits. The component under test makes the answer say to send it now and name that reason. Without it a strong model may lead with damage control steps and leave the send moment vague, reason that most recipients are asleep anyway, or soften what happened into a vague note about the attachment.",
+      "rubric": [
+        "The answer says plainly to send the follow-up now, and gives the reason: the file is already in 240 inboxes and can be opened or forwarded at any moment.",
+        "Nothing in the answer suggests holding the follow-up for a better moment, for working hours or until the next day.",
+        "The answer asserts nothing about when the recipients will see the email, such as a claim that most of them are asleep or will only read it in the morning, and no such claim is used as a reason to wait.",
+        "The code block holds a complete message that says the file was sent in error, names what was exposed, a hidden sheet with participants' phone numbers, asks recipients to delete it and not to forward it, blames nobody and invents no cause, no assurance about consequences and no promise the request did not give."
+      ]
+    },
+    {
+      "id": "now-investor-after-call",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "Договорились с инвестором Сергеем: цифры я пришлю сразу после созвона. Созвон только что закончился, сейчас 21:10. Цифры: выручка за октябрь 4,2 млн, 318 заказов, средний чек 13 200. Напиши письмо. Оформи блоком кода.",
+      "why_in_scope": "The moment was fixed by the agreement itself, right after the call, so the only thing a late hour can do here is break a promise the user already made. The component under test makes the answer say to send it now and name that agreement as the reason. Without it a strong model may treat 21:10 as a reason to send in the morning instead, or assert that Сергей has finished his day.",
+      "rubric": [
+        "The answer says plainly to send the email now, and gives the reason: the user agreed with Сергей to send the numbers right after the call, and the call has just ended.",
+        "Nothing in the answer suggests waiting until the morning, scheduling the email or holding it because of the hour, and 21:10 is not offered as a reason to delay it.",
+        "The answer asserts nothing about Сергей's clock or working hours, and does not claim when he will read the email.",
+        "The code block holds a complete email in Russian to Сергей with all three figures exactly as given, выручка за октябрь 4,2 млн, 318 заказов and средний чек 13 200, and invents no others."
+      ]
+    },
+    {
+      "id": "now-movers-damage",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "The movers chipped the marble table top during today's move and the crew lead saw it happen. It's 10:50pm and I'm wrecked. I want the email to the company dated today, so the date of the damage is on record. Write it. Put it in a code block.",
+      "why_in_scope": "The user wants today's date on the email, which only one send moment can give, so any better hour costs exactly the thing being asked for. The component under test makes the answer say to send it today and tie that to the record. Without it a strong model may sympathise with an exhausted user and suggest sending it in the morning, which loses the date, or assert that the office is closed anyway.",
+      "rubric": [
+        "The answer says plainly to send the email today, before the day ends, and ties that to the fact that the send date is what puts the date of the damage on record.",
+        "Nothing in the answer suggests sending it tomorrow, waiting for business hours or sleeping on it, and neither the 10:50pm hour nor the user being tired is offered as a reason to hold it.",
+        "The answer asserts nothing about the moving company's office hours or when the email will be read; if a closed office is mentioned at all, it is not given as a reason to delay sending.",
+        "The code block holds a complete email to the moving company stating that the marble table top was chipped during today's move and that the crew lead saw it, with placeholders instead of invented job numbers, sums, repair costs or contract clauses."
+      ]
+    },
+    {
+      "id": "now-candidate-withdrew",
+      "agent": "engineering_manager",
+      "language": "ru",
+      "group": "timing-now",
+      "history": [],
+      "user_message": "Через 25 минут у Петра собеседование с Кариной на позицию бэкенд-инженера, а она только что написала мне, что снимает свою кандидатуру. Пётр сейчас к этому собеседованию готовится и просил не беспокоить его в последний час перед собеседованиями. Напиши ему сообщение. Оформи блоком кода.",
+      "why_in_scope": "The message is worth something for 25 minutes and nothing afterwards, because the colleague is preparing for an interview that will not happen. His request not to be disturbed is the pull: it gives a careful model a stated reason to hold exactly the message that must go now. The component under test makes the answer say to send it now and name the reason. Without it a strong model may honour the do-not-disturb request, propose telling him after the slot, or hand the choice back with both options weighed.",
+      "rubric": [
+        "The answer says plainly to send the message now, and gives the reason: the interview starts in about 25 minutes and Пётр is preparing for one that will not happen.",
+        "Nothing in the answer suggests waiting, holding the message until after the slot, looking for a better moment, or treating the request not to be disturbed as a reason to hold it.",
+        "The code block holds a complete short message in Russian to Пётр saying that Карина has withdrawn her candidacy and that the interview in 25 minutes is off, without inventing a reason for her withdrawal or a new plan for the vacancy."
+      ]
+    },
+    {
+      "id": "ctl-chunk-function",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write a Python function chunk(items, size) that splits a list into consecutive lists of at most size items, and raises ValueError if size is less than 1. Put it in a code block.",
+      "why_in_scope": "The output is code for the person who asked, so nothing leaves the session for another human and the component under test has no subject here. It sits near the boundary because splitting a list is often the first step of sending things in batches.",
+      "rubric": [
+        "The code block defines chunk(items, size) and returns consecutive pieces of items of at most size elements, so that a list of 5 items with size 2 gives three lists holding 2, 2 and 1 items.",
+        "It raises ValueError when size is less than 1.",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once).",
+        "The code is valid Python, uses both parameters as given and does not modify the list it is passed."
+      ]
+    },
+    {
+      "id": "ctl-mutable-default",
+      "agent": "code_reviewer",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Посмотри на эту функцию и скажи, что с ней не так.\n\ndef add_tag(tag, tags=[]):\n    tags.append(tag)\n    return tags",
+      "why_in_scope": "A code review goes back to the person who asked for it, so nothing is being sent to anyone and the component under test has no subject here. This is the quietest control in the set: the two arms should differ only by noise.",
+      "rubric": [
+        "The review finds the mutable default argument: the list is created once when the function is defined, so calls that omit tags accumulate tags across calls, and after add_tag('a') a later add_tag('b') returns ['a', 'b'].",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once).",
+        "The suggested fix makes each call that omits the argument start from an empty list, for example with tags=None and a new list created inside the function."
+      ]
+    },
+    {
+      "id": "ctl-ladder-note",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write a two-sentence message to my neighbour Priya asking whether I can borrow her ladder to clear my gutter. Put it in a code block.",
+      "why_in_scope": "The message does go to a person, but nothing in the request makes the moment of sending a choice worth anything: there is no hour, no date, no deadline and no one waiting. The component under test stays quiet in that situation, so this case catches a version that comments on timing for every message it is shown.",
+      "rubric": [
+        "The code block holds a message of at most two sentences that asks Priya whether the user can borrow her ladder and says it is for clearing the gutter.",
+        "Outside the code block the answer contains no remark about when to send the message (time of day, day of the week, waiting or sending now) and asks the user nothing about timing.",
+        "The message invents no details the request did not give, such as a day, an hour, how long the ladder is needed or the height of the house.",
+        "The message is addressed to Priya and written as a direct ask, with no subject line, no formal salutation block and no signature placeholder for the user to fill in."
+      ]
+    },
+    {
+      "id": "ctl-oleg-template",
+      "agent": "universal_agent",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Напиши короткое сообщение коллеге Олегу: попроси прислать шаблон договора подряда. Оформи блоком кода.",
+      "why_in_scope": "An ordinary request to a colleague with no hour, no date and nobody waiting, so the moment of sending carries no information and the component under test adds nothing. The case is here to measure the cost of always-on text on a plain, frequent job.",
+      "rubric": [
+        "The code block holds a short message in Russian to Олег asking him to send the шаблон договора подряда.",
+        "Outside the code block the answer contains no remark about when to send the message (time of day, day of the week, waiting or sending now) and asks the user nothing about timing.",
+        "The message invents no details the request did not give: no deadline, no contract number, no project name and no reason for the request."
+      ]
+    },
+    {
+      "id": "ctl-coach-boots",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write three sentences to my son's football coach, Mr. Dalton, asking which boots the team uses on artificial turf. Put it in a code block.",
+      "why_in_scope": "A plain question to a coach, with no hour, no deadline and nobody waiting, so the moment of sending is not a choice that costs anything and the component under test stays silent. It also checks that a stated sentence count survives, since a volunteered remark is the usual way that count gets broken.",
+      "rubric": [
+        "The code block holds three sentences addressed to Mr. Dalton that ask which boots the team uses on artificial turf.",
+        "Outside the code block the answer contains no remark about when to send the message (time of day, day of the week, waiting or sending now) and asks the user nothing about timing.",
+        "The message invents no details the request did not give, such as the son's name, his age, his shoe size, a match date or a particular shop."
+      ]
+    },
+    {
+      "id": "ctl-rewrite-token-para",
+      "agent": "tech_writer",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Перепиши этот абзац документации двумя предложениями, с тем же смыслом:\n\nВ случае если токен был скомпрометирован, администратором должна быть произведена операция ротации токена, после чего всеми клиентскими приложениями должен быть выполнен повторный вход, иначе запросы будут отклоняться с ошибкой 401.",
+      "why_in_scope": "The result is documentation text for the user's own product, not a message to a person, so the component under test has no subject here. The paragraph is about a sequence of steps, which is the kind of content that invites unasked advice.",
+      "rubric": [
+        "The rewrite is two sentences and keeps all three facts: the administrator rotates the token, client applications sign in again afterwards, and otherwise requests are rejected with error 401.",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once).",
+        "The passive constructions are replaced by an actor and an active verb, and no new facts are added, such as a rotation interval, a tool name or a token lifetime."
+      ]
+    },
+    {
+      "id": "ctl-subject-line-choice",
+      "agent": "universal_agent",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Which of these two subject lines tells customers what is changing before they open the email? Answer in one sentence.\nA: Important update regarding your subscription\nB: Your plan goes from $9 to $12 on 1 February",
+      "why_in_scope": "The user asks which of two lines carries the change itself, a smaller job than producing text to send, and the answer is capped at one sentence. The component under test stays quiet on a question like this, and the billing date inside option B is the bait: a volunteered remark about the send date would also break the one-sentence limit.",
+      "rubric": [
+        "The answer is one sentence and picks B.",
+        "It gives the reason: B names the new price and the date it takes effect, while A does not say what the update is.",
+        "The answer gives no advice or remark about when to send the email (time of day, day of the week, waiting or sending now).",
+        "It does not rewrite either subject line and does not offer a third option that was not asked for."
+      ]
+    },
+    {
+      "id": "ctl-agent-handover",
+      "agent": "agent_builder",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Напиши текст сообщения, которым мой агент-планировщик передаёт задачу агенту-исполнителю: собрать отчёт за октябрь из таблицы sales и вернуть результат в JSON с полями month, revenue, orders. Оформи блоком кода.",
+      "why_in_scope": "The message has no human recipient at all: one agent hands a task to another, and there is nobody whose reading moment could matter. The component under test has no subject here, and the case catches a version that fires on the words message and send.",
+      "rubric": [
+        "The code block holds a message that names the таблица sales, октябрь as the period, and the three response fields month, revenue and orders.",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once).",
+        "The message is self-contained: an executor with no other context knows what to compute and in what form to return it, and it invents no extra fields, filters or table names."
+      ]
+    },
+    {
+      "id": "ctl-actions-schedule",
+      "agent": "devops_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write the GitHub Actions workflow that runs pytest -q on Ubuntu with Python 3.12 every weekday at 06:00 UTC and also on pull requests. Put it in a code block.",
+      "why_in_scope": "The output is CI configuration for the user's own repository, so nothing is sent to a person and the component under test has no subject here. It is the adversarial control for vocabulary: the request is full of clock words, and a component keyed on them rather than on a human recipient would surface here.",
+      "rubric": [
+        "The workflow declares both triggers: a schedule whose cron expression fires at 06:00 Monday to Friday, and a pull_request trigger.",
+        "The job runs on an Ubuntu runner and, after checking out the repository and setting up Python 3.12, runs pytest -q.",
+        "The answer gives no advice or remark about the moment to send, post or deliver a message to a person (time of day, day of the week, waiting or delaying); the cron schedule and the triggers are the substance the request asked for and are not such advice.",
+        "The YAML is valid and adds no secrets, matrix entries or extra jobs the request did not ask for."
+      ]
+    },
+    {
+      "id": "ctl-back-dumbbells",
+      "agent": "fitness_coach",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Дай три упражнения на спину для дома, по одному предложению на каждое. Из оборудования у меня только гантели.",
+      "why_in_scope": "Ordinary coaching advice with no text going anywhere, so the component under test has no subject here. It is in the set to widen the noise floor beyond writing and code tasks.",
+      "rubric": [
+        "Three different exercises are named, each of them loading the back muscles and each doable with dumbbells alone, without a pull-up bar, machines or resistance bands.",
+        "Each exercise gets one sentence, as the user asked.",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once)."
+      ]
+    },
+    {
+      "id": "ctl-sql-dormant-customers",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Tables: customers(id, name) and orders(id, customer_id, created_at). Write the SQL that lists customers with no order in the last 90 days. Put it in a code block.",
+      "why_in_scope": "The output is a query for the user, so nothing reaches another person and the component under test has no subject here. The 90-day window is a time condition in data rather than a delivery moment, which makes it a useful check that the component keys on a human recipient.",
+      "rubric": [
+        "The query returns customers whose most recent order is older than 90 days and also customers with no orders at all, and excludes every customer that has an order inside the last 90 days.",
+        "It uses only the columns given (customers.id, customers.name, orders.customer_id, orders.created_at) and invents no table or column.",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once).",
+        "The 90-day boundary is expressed relative to the current date in SQL rather than as a hard-coded calendar date."
+      ]
+    },
+    {
+      "id": "ctl-billing-presentation-open",
+      "agent": "presentation_coach",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Дай две идеи, как начать пятиминутную презентацию для коллег о переходе на новый биллинг, чтобы сразу было понятно, зачем это им. По одному предложению на идею.",
+      "why_in_scope": "The user asks for ideas about how to open a talk, not for text to send to anyone, so the component under test has no subject here. Spoken delivery to an audience is the nearest neighbour of a sent message, which makes it a useful boundary case.",
+      "rubric": [
+        "Two different openings are given, each in one sentence, and each ties the move to the new billing system to something the colleagues themselves gain or stop suffering.",
+        "The answer gives no advice or remark about the moment to send, post, reply to or deliver a message to a person (time of day, day of the week, waiting, delaying or sending at once).",
+        "Neither idea invents facts about the new billing system that the request did not give, such as dates, prices, vendor names or migration steps."
+      ]
+    }
+  ]
+}

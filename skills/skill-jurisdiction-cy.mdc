@@ -18,6 +18,7 @@ keywords:
   - double tax treaty Cyprus
 as_of: "2026-09-22"
 review_after_days: 180
+review_on: "2027-02-15"
 sources:
   - https://taxsummaries.pwc.com/cyprus/corporate/taxes-on-corporate-income
   - https://taxsummaries.pwc.com/cyprus/individual/taxes-on-personal-income

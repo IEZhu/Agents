@@ -10,7 +10,7 @@ TARGET_EXTENSIONS = {
     '.sh', '.bash', '.zsh', '.env', '.example'
 }
 IGNORE_DIRS = {
-    '.git', '.venv', '__pycache__', 'node_modules',
+    '.git', '.venv', '.venvs', '__pycache__', 'node_modules',
     'chroma_db', 'data', 'dist', 'build',
     '.pytest_cache', '.mypy_cache', 'logs'
 }

@@ -1,0 +1,72 @@
+# Defaults for a generated `.coderabbit.yaml`, read by scripts/install_review_config.py.
+# The installer loads this file as data, overrides the per-repository values from
+# detection and command-line options, appends the selected path instructions and
+# writes the result with a managed header. Comments here do not reach the output.
+#
+# Only keys with a deliberate reason to differ from CodeRabbit's own defaults
+# belong here. Every static-analysis integration is already enabled by default,
+# so listing tools would add noise without changing behavior.
+# Reference: https://docs.coderabbit.ai/reference/configuration
+#
+# inheritance keeps the organization's web settings and merges this file into
+# them. Without it a repository file replaces those settings.
+inheritance: true
+# Reviews are written in English unless the installer is told otherwise; set
+# --language ru-RU for a repository whose own language is Russian.
+language: en-US
+reviews:
+  # assertive reports more, including the minor findings that this owner's
+  # repositories kept resolving as real defects. chill is CodeRabbit's default.
+  profile: assertive
+  auto_review:
+    enabled: true
+    # Re-review each push, which the finding cycle depends on.
+    auto_incremental_review: true
+    # The installer adds base_branches only when pull requests target a branch
+    # other than the repository default, as they do in Agents-Core (`dev`).
+  pre_merge_checks:
+    # Warning level only: these post a comment and never block a merge until the
+    # owner raises a mode to `error`.
+    title:
+      mode: warning
+      requirements: >-
+        The title names the change, not the activity. It starts with a
+        Conventional Commits type and an optional scope, stays under 72
+        characters and carries no issue number alone.
+    description:
+      # The description that disagrees with its own diff was one of the most
+      # frequent findings, so this check stays on.
+      mode: warning
+    issue_assessment:
+      mode: warning
+  path_instructions: []
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    # The instruction files CodeRabbit applies as review criteria, so this holds
+    # standards only. docs/** is deliberately absent: the docs/**/*.md path
+    # instructions treat a design, plan or research document as claims to check
+    # against the code, and expect it to go stale, which is the opposite of a
+    # rule to enforce. A repository that keeps a real standard under docs/ adds
+    # that exact path, and the installer adds the instruction file --agents-md
+    # selects when it lies inside the target, whatever its directory there,
+    # because that file holds the managed discipline section. An absolute path
+    # outside the target gets no entry: these are paths in the reviewed commit.
+    # The installer keeps only the patterns that match a file in the target
+    # repository.
+    # A string entry scopes its guidelines to the directory the file lives in
+    # and below, so the two root names govern every file while
+    # .github/copilot-instructions.md and any nested selection govern only their
+    # own subtree. Repository-wide reach for a nested entry needs the
+    # {files, applyTo} object form, which this installer does not emit yet
+    # (issue #553).
+    filePatterns:
+      - AGENTS.md
+      - CLAUDE.md
+      - .github/copilot-instructions.md
+  learnings:
+    # local keeps a repository's learnings inside it. Unrelated projects of one
+    # owner should not teach each other their conventions.
+    scope: local
+  pull_requests:
+    scope: local

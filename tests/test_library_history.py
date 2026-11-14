@@ -1300,6 +1300,17 @@ def full_events(root):
     return reader._events(reader._commits(reader._refs()))
 
 
+def full_exported(root):
+    """export_events() as computed before #535: the refs by name, nothing cached."""
+    reader = LibraryHistory(root)
+    reader._ensure_repository()
+    if reader._rev(HISTORY_REF) is None:
+        return []
+    boundary = reader.generation()
+    refs = [HISTORY_REF, *reader.accepted_refs(), *(["^" + boundary] if boundary else [])]
+    return reader._events(reader._commits(refs))
+
+
 def byte_events(root):
     """events() as computed before #371, the oracle for comparing blob IDs: each commit's events
     carry their bytes before copies are combined, so filtered and conflicting copies of a
@@ -1358,6 +1369,7 @@ def assert_cached_reads_match(root):
     Returns the full computation's outcome."""
     expected = outcome(lambda: full_events(root))
     assert outcome(lambda: byte_events(root)) == expected, "blob IDs and bytes disagree"
+    exported = outcome(lambda: full_exported(root))
     cached = str(LibraryHistory(root).root) in library_history._indexes  # else warm reads would be cold ones
     for cold in (False, True) if cached else (True,):
         emptied = set()
@@ -1368,6 +1380,7 @@ def assert_cached_reads_match(root):
                 return LibraryHistory(root)
             return warm
         warm = LibraryHistory(root)
+        assert outcome(reader("export").export_events) == exported  # #535
         assert outcome(reader("events").events) == expected
         if expected[0] == "error":
             assert outcome(lambda: reader("history").history("common/mine.md")) == expected
@@ -1721,3 +1734,72 @@ def test_the_cache_is_bounded(tmp_path, cold, monkeypatch):
         roots.append(str(history.root))
     assert list(library_history._indexes) == roots[1:]
     assert len(library_history._digest_cache) == 3
+
+
+# --- Exported history for publication (#535) ------------------------------------------------
+
+def test_export_index_walks_again_only_when_a_ref_moves(history, cold, monkeypatch):
+    path = "common/mine.md"
+    for number in range(3):
+        history.apply({path: f"# {number}\n".encode()}, flow_path=path)
+    walks, original = [], LibraryHistory._combined
+    def spy(self, records):
+        walks.append(len(records))
+        return original(self, records)
+    monkeypatch.setattr(LibraryHistory, "_combined", spy)
+    first = history.export_index()
+    assert LibraryHistory(history.root).export_index() is first
+    assert LibraryHistory(history.root).export_events() == history._hydrate(first)
+    assert len(walks) == 1
+    history.apply({path: b"# 3\n"}, flow_path=path)
+    walked = len(walks)
+    moved = LibraryHistory(history.root).export_index()
+    assert len(walks) == walked + 1 and moved is not first and len(moved) == len(first) + 1
+    monkeypatch.undo()
+    assert LibraryHistory(history.root).export_events() == full_exported(history.root)
+
+
+def test_export_index_walks_again_when_accept_moves_an_accepted_tip(history, cold):
+    """Sync accepts newly fetched remote history before it publishes; the history tip stays."""
+    first = source_event()
+    ref = portable(history, first, "stream")
+    history.adopt({}, expected_before={}, accepted_tips={"stream": history._rev(ref)})
+    assert {event["id"] for event in history.export_index()} == {first["id"]}
+    head = history._rev(HISTORY_REF)
+    second = {**source_event(previous=b"# New\n", content=b"# Next\n"), "id": "git-" + "b" * 40}
+    portable(history, second, "stream")
+    assert history.accept({"stream": history._rev(ref)}) == 1
+    assert history._rev(HISTORY_REF) == head
+    assert {event["id"] for event in LibraryHistory(history.root).export_index()} == {first["id"], second["id"]}
+    assert LibraryHistory(history.root).export_events() == full_exported(history.root)
+
+
+def test_export_index_holds_blob_ids_not_bytes(history, cold):
+    path = "common/mine.md"
+    history.apply({path: b"# Old\n"}, flow_path=path)
+    history.apply({path: b"# New\n"}, flow_path=path)
+    hydrated = history.export_events()
+    for stored, event in zip(history.export_index(), hydrated, strict=True):
+        assert {key: value for key, value in stored.items() if key not in ("content", "previous", "changes")} \
+            == {key: value for key, value in event.items() if key not in ("content", "previous", "changes")}
+        for name in ("content", "previous"):
+            assert (stored[name] is None) == (event[name] is None)
+            assert stored[name] is None or history._blob(stored[name]) == event[name]
+        assert {target: history._blob(oid) for target, oid in stored["changes"].items()} == event["changes"]
+
+
+def test_read_blobs_reads_in_bounded_batches(history, monkeypatch):
+    contents = [bytes([65 + number]) * (100 + number) for number in range(6)]
+    oids = [history.git.text("hash-object", "-w", "--stdin", input=data) for data in contents]
+    batches, original = [], LibraryHistory._objects
+    def spy(self, ids, kind):
+        if kind == "blob":
+            batches.append(list(ids))
+        return original(self, ids, kind)
+    monkeypatch.setattr(LibraryHistory, "_objects", spy)
+    monkeypatch.setattr(library_history, "READ_BATCH_BYTES", 250)
+    assert dict(history.read_blobs(oids + oids[:2])) == dict(zip(oids, contents))
+    assert [sum(len(contents[oids.index(oid)]) for oid in batch) <= 250 for batch in batches] == [True] * 3
+    assert [oid for batch in batches for oid in batch] == oids
+    with pytest.raises(HistoryError, match="invalid data"):
+        list(history.read_blobs(["0" * 40]))

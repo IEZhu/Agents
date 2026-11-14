@@ -104,8 +104,8 @@ copying every available skill:
   mid-instruction.
 
 The reusable body does not define the final answer format: the prepared package
-provides the task, acceptance criteria, worker rules, and exact result schema.
-Workers return that envelope without a full persona activation or conversation
+provides the task, acceptance criteria, worker rules, and exact result format.
+Workers return that result without a full persona activation or conversation
 footer/log call. The parent validates structure and separately assesses the
 evidence. See the [worker rules](../rules/subagents/README.md) and
 [task contract](../docs/subagent-contract.md).
@@ -206,6 +206,7 @@ does not demonstrate equal results or lower total token use including retries.
 | Agent | Trigger | Role |
 |---|---|---|
 | `lawyer` | `/lawyer` | Multi-Jurisdictional Legal Expert (Colombia, Cyprus, Georgia, Kazakhstan, Mexico, Russia, Serbia, Spain, United States) |
+| `labor_lawyer` | `/labor_lawyer` | Employment & Labour Law Expert (Colombia, Cyprus, Georgia, Kazakhstan, Mexico, Serbia, Spain, United States) |
 
 The single `lawyer` agent replaced nine country-specific clones (`colombian_lawyer`, `cypriot_lawyer`, `georgian_lawyer`, `kazakh_lawyer`, `mexican_lawyer`, `russian_lawyer`, `serbian_lawyer`, `spanish_lawyer`, `us_lawyer`). Per-jurisdiction knowledge now lives in `skill-jurisdiction-{co|cy|ge|kz|mx|ru|rs|es|us}` and is loaded into the `lawyer` agent's `capable_skills` pool — activated by country-specific keywords. Old trigger commands (`/co_lawyer`, `/cy_lawyer`, …, `/us_lawyer`) are preserved as routing aliases to `/lawyer`.
 
@@ -218,7 +219,21 @@ The single `lawyer` agent replaced nine country-specific clones (`colombian_lawy
 | `3d_print_finder` | `/3dprint` | 3D Model Search Specialist & Print Optimization Advisor |
 | `install_to_repo` | `/install_agents` | Agent Framework Installer & Repository Scaffolder |
 
+## Agent resources
+
+Some agents ship Markdown beside `system_prompt.mdc`. Personas are built from
+`system_prompt.mdc` and `subagent.mdc`; these files are reference material to
+read or copy.
+
+- [3D Print Finder overview](3d_print_finder/README.md) and
+  [example queries](3d_print_finder/examples/queries.md).
+- [Semantic expert export prompt](semantic_expert/export_prompt_v3.md), a
+  standalone v3 prompt, and the earlier
+  [v2.3 prompt](semantic_expert/tactiq_prompt.md).
+- [Universal meta-prompt](universal_agent/meta_prompt.md): a prompt to paste into
+  a new chat to generate system prompts.
+
 ---
 
-**Total agents**: 44
-**Updated**: 2026-09-30
+**Total agents**: 45
+**Updated**: 2026-10-16

@@ -26,6 +26,24 @@ still take precedence.
 Verify behavior against source and tests. Plans and old evaluation reports describe
 their recorded revision; they do not override the current implementation.
 
+## Personal issue planning context
+
+Before choosing or sequencing work on this repository's issues, read the optional
+personal plan with `get_flow(flow="user:agents-issue-plan", workspace=<authorized workspace>)`.
+It is stored in the user's personal library, not this checkout. Reading it is
+reference lookup; do not invoke `run_flow` merely to consult it. Resolve relative
+attachments from the returned `flow.source_path`, so the same reference works
+from another machine or linked worktree.
+
+Treat its dated dependencies and priorities as planning context. Recheck the
+relevant current issues, native blockers, linked PRs and source before acting;
+separate component readiness from final issue acceptance and retain every unique
+requirement. Current user scope and this repository's safety and review rules
+still govern execution. The plan grants no permission for unrelated work, GitHub
+changes, publication or merging. If it is unavailable, report that once and
+continue independent work; do not create an empty replacement. Keep personal
+plans and catalogs out of tracked repository files.
+
 ## Make changes
 
 - Inspect the branch, worktrees and existing changes first, and keep unrelated
@@ -93,9 +111,25 @@ their recorded revision; they do not override the current implementation.
   `tests/test_protocol_text.py` fails on a stale file and on a sentence the
   source states in two places, `tests/test_log_interaction_contract.py` on a
   server instruction that leaves Claude Code's windows, and
-  `tests/test_instruction_pointers.py` when a pointer of
-  `src/client_instructions.py` does not name a rule of the full instruction.
+  `tests/test_instruction_pointers.py` when a pointer of the `pointer` section
+  does not name a rule of the full text it replaces, or when
+  `src/client_instructions.py` sends the initialization pointer although a
+  checkout's instruction file is not current.
   Keep repository notes and Repository Memory outside the routing markers.
+- The separator rule of the plain-text worker result has one source too:
+  `SEPARATORS` in [subagent_text.py](src/engine/subagent_text.py), from which
+  `separator_rule` composes the sentences that both the rendered package and the
+  block between the markers of
+  [subagent-contract.md](docs/subagent-contract.md) state. Edit the source, never
+  the block, then run
+  `.venv/bin/python -m src.engine.subagent_contract_text --write` (`--check`
+  reports a stale block). `tests/test_subagent_contract_text.py` fails on a stale
+  block and on a wrap that would split a quoted spelling; the Documentation
+  workflow runs it on every pull request, because the test matrix is filtered out
+  for a change that touches neither a test nor one of its listed sources. The
+  conditions in those sentences are not generated: the labelled examples that
+  follow them in the package are executed by
+  `tests/test_subagent_exchange.py` instead (#596).
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.

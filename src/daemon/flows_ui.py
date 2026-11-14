@@ -15,10 +15,12 @@ which a cross-site page cannot send. Library sync (``/ui/api/sync…``, ``sync_u
 asks for the header on GET as well, because some of its reads reach the network, and so do
 the landing page's statistics and overview (``/ui/api/stats``, ``usage.py``; ``/ui/api/overview``,
 ``overview.py``), which only the page reads, the History tab (``/ui/api/history…``,
-``history_ui.py``), which shows the repositories' histories in full, the Autodev page
-(``/ui/api/autodev…``, ``autodev_ui.py``), which reads and writes the autodev schedule's
-settings and runs the CLIs' ``--version`` and ``--help``, and the overview's Updates section
-(``/ui/api/updates``, ``updates_ui.py``), which saves the branch the installation follows.
+``history_ui.py``), which shows the repositories' histories in full, the Memory tab
+(``/ui/api/memory…``, ``memory_ui.py``), which shows and changes the AI clients' memory files,
+the Autodev page (``/ui/api/autodev…``, ``autodev_ui.py``), which reads and writes the
+autodev schedule's settings and runs the CLIs' ``--version`` and ``--help``, and the overview's
+Updates section (``/ui/api/updates``, ``updates_ui.py``), which saves the branch the
+installation follows.
 """
 import asyncio
 import hashlib
@@ -40,6 +42,7 @@ from src.user_flows import FlowLibrary
 from src.version import agents_core_version
 from .autodev_ui import AutodevUI, is_autodev_path
 from .history_ui import HistoryUI, is_history_path
+from .memory_ui import MemoryUI, is_memory_path
 from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
 from .sync_loop import DRAINING
@@ -114,6 +117,7 @@ class FlowsUI:
         self._peer_lock = asyncio.Lock()  # one connection-table lookup at a time
         self.sync = SyncUI(service)
         self.history = HistoryUI(service)
+        self.memory = MemoryUI(service)
         self.autodev = AutodevUI(service)
         self.updates = UpdatesUI(service)
 
@@ -197,8 +201,8 @@ class FlowsUI:
                                         or request.headers.get("x-agents-ui") != "1"):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
-        page_only = (syncing or path in PAGE_READS or is_history_path(path) or is_autodev_path(path)
-                     or is_updates_path(path) or path == "/ui/api/mcp")
+        page_only = (syncing or path in PAGE_READS or is_history_path(path) or is_memory_path(path)
+                     or is_autodev_path(path) or is_updates_path(path) or path == "/ui/api/mcp")
         if page_only and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
@@ -320,6 +324,8 @@ class FlowsUI:
             return await self.sync.handle(request, path)
         if is_history_path(path):
             return await self.history.handle(request, path)
+        if is_memory_path(path):
+            return await self.memory.handle(request, path)
         if is_autodev_path(path):
             return await self.autodev.handle(request, path)
         if is_updates_path(path):

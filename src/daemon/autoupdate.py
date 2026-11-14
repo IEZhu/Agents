@@ -21,8 +21,11 @@ takes the same lease, non-blocking, for its whole transaction instead of only pr
 run cannot start between the update's check and its maintenance marker either.
 
 Targets that the transaction would refuse (a diverged branch, a dirty tree,
-changed dependency manifests) are rejected before the service is touched, so a
-blocked update never costs a restart.
+dependency changes it cannot deliver, `src.daemon.update_dependencies`) are
+rejected before the service is touched, so a blocked update never costs a
+restart. A target that changes the Python dependencies is ``available`` with an
+``environment`` note: the transaction builds its environment while the service
+serves and switches ``.venv`` to it in maintenance (`src.environments`, #181).
 
 The branch is the installation's update channel (`src.update_channel`, #381): the
 ``.env`` key ``AGENTS_AUTO_UPDATE_BRANCH``, which this scheduled run reads although its
@@ -39,13 +42,12 @@ from pathlib import Path
 import plistlib
 import subprocess
 
-from src import executables
+from src import environments, executables
 from src.file_lock import file_lock
 from src.schedules import lease as run_lease
 from . import service
 from .state import atomic_private, read_json, write_json
 from .update import NO_WINDOW, runtime_source_refusal
-from .update_dependencies import dependency_change_reason
 
 DEFAULT_INTERVAL = 900
 DEFAULT_IDLE_SECONDS = 120
@@ -259,8 +261,15 @@ def check_target(controller, remote=None, branch=None):
             return {**found, "state": "skipped", "reason": f"local branch {branch} has commits {remote}/{branch} lacks"}
     elif _git(controller, "merge-base", "--is-ancestor", head, target, check=False).returncode:
         return {**found, "state": "skipped", "reason": "not a fast-forward"}
-    if reason := dependency_change_reason(lambda *args, **kwargs: _git(controller, *args, **kwargs), head, target):
-        return {**found, "state": "skipped", "reason": reason}
+    from src import self_update
+    try:
+        needed = environments.needed(controller.config["installation"],
+                                     lambda *args, **kwargs: _git(controller, *args, **kwargs),
+                                     head, target, controller.config.get("python"), run=self_update._run_command)
+    except environments.Refused as refusal:
+        return {**found, "state": "skipped", "reason": str(refusal)}
+    if needed is not None:
+        return {**found, "state": "available", "environment": needed.reason}
     return {**found, "state": "available"}
 
 
@@ -419,4 +428,4 @@ def _run(controller):
     if result.get("state") == "deferred":
         return _record(controller, {**found, **result})
     return _record(controller, {**found, "state": str(result.get("state")),
-                                **{key: result[key] for key in ("model", "model_from") if key in result}})
+                                **{key: result[key] for key in ("model", "model_from", "reason") if key in result}})

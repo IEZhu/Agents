@@ -1,0 +1,66 @@
+# Review guidance for the c-embedded stack, grounded in bot findings on this
+# owner's repositories. See docs/review-config.md and the templates README.
+# Scope: Flipper Zero application code on FreeRTOS, the only embedded C project
+# in the corpus. The globs follow that tree, so another C project selects this
+# stack and matches nothing. Add its own globs before relying on it there.
+- path: "applications/main/subghz/views/*.c"
+  instructions: |-
+    Review how this view moves data between a worker thread and the scene handler thread.
+    Flag a model field that the worker callback writes while a scene handler reads it outside with_view_model. The model lock is the only thing that serializes those accesses, so an unlocked field can be read torn or be overwritten before the scene consumes it. Require both the write and the read to happen inside with_view_model.
+    Flag a single shared slot that carries an event payload, such as the last detected frequency, when several custom events can sit in the queue at once. A second detection overwrites the slot and the scene then handles the first event with the wrong value. Require the handler to read and clear the slot under the same model lock, or require a small pending list in the model that the scene drains, so each queued event maps to exactly one payload.
+    Flag state fields that the enter handler initializes after it starts the worker. The pair callback can fire immediately and compare against uninitialized values. Require initialization before the worker start or in the alloc function.
+    Flag an exit handler that frees the worker when a stop request has already cleared the running flag. That flag is not thread state, and furi_thread_free asserts that the thread has stopped. Require an unconditional blocking stop and join before the free.
+    Flag a repeat counter in a history or results array that one code path raises on detection while another raises it again for the same event, which inflates the displayed count by one. Require exactly one increment per detection.
+    Flag heavy storage work, such as a settings read, parse and rewrite, invoked from a worker callback, since that chain runs on the worker stack rather than on the GUI thread.
+- path: "applications/main/*/scenes/*.c"
+  instructions: |-
+    Review scene enter and exit handlers for Flipper widget and navigation lifecycle defects.
+    Flag an on_enter that adds items to a shared widget such as variable_item_list or submenu without resetting it first. When the scene was pushed with scene_manager_next_scene the parent on_exit has not run, so the previous items remain, the screen shows both sets, and index based item callbacks match the wrong row. Require a reset call before the first add.
+    Flag a label or text pointer passed to variable_item_list_add or a similar add function when it points at a stack buffer inside the enter handler. The widget stores the pointer and does not copy the text, so it dangles once the frame goes away and the menu renders garbage or crashes. Require a heap buffer or a scene owned array that lives until on_exit.
+    Flag an exit handler that decides how many allocated labels to free by querying the current item count again instead of using the count that on_enter allocated and kept in scene state, because the two can differ.
+    Flag a fallback that uses scene_manager_next_scene to push a screen while the current scene stays underneath it. Back then returns to this scene, which pushes the screen again and traps the user. Require a fallback that replaces the current scene or searches back to the earlier scene in the stack instead of pushing on top of it.
+    Flag reuse of a scene state value that belongs to another flow, since later delete and navigation branches test that value and take the wrong branch or leave the state non idle so the next entry skips initialization.
+    Flag a handler that clears a radio or receive callback before a load and leaves it cleared on the load failure path.
+    Flag a synchronous storage scan, index build or file copy inside on_enter that blocks the first frame of the view, and ask for it to move off the enter path or to be limited to the protocol that needs it.
+- path: "**/*_worker.c"
+  instructions: |-
+    Review this worker thread module for lifecycle, stack and radio sampling defects.
+    Flag an alloc function that leaves fields the thread reads uninitialized, such as a running flag, a sample hold counter or a filter accumulator. The thread starts reading them at once, so suppressed results or a garbage filter value follow. Require explicit initialization or a zeroed allocation.
+    Flag a public is_running that returns a stop request flag instead of thread state, and any teardown that can reach furi_thread_free without furi_thread_join. Signalling a worker to exit does not stop it, and the free asserts a stopped thread. Require the stop request to unblock the wait and the teardown to join unconditionally.
+    Flag a deep call chain started from the thread body or its callbacks, for example a settings read, parse and rewrite through FlipperFormat, Stream and Storage, when the thread was allocated with a small stack such as 2048 bytes. Name the stack size when raising this and require the work to move to the GUI thread or the stack to be raised deliberately.
+    Flag a scan loop that walks a shared container by index while another thread can push to it. An m-lib list can reallocate and the loop then skips or repeats entries. Require the producer to pause the worker or to queue the change until the worker has stopped.
+    Flag an RSSI or register read that follows a state strobe after a fixed delay without confirming the chip reached the expected state, and any ignored return from a wait on chip state. Require the wait result to be checked and the sample to be abandoned or the radio reset on timeout.
+    Flag a bus acquire and release whose scope does not cover a sequence that has to stay atomic, for example a release and re-acquire between a configuration strobe and the dependent read, which lets another owner reconfigure the peripheral in between.
+    Flag a cast that removes const from a preset or configuration array to satisfy a peripheral API signature.
+- path: "applications/main/*/helpers/*.c"
+  instructions: |-
+    Review helper modules for peripheral ownership and for on device cost.
+    Flag a deinit or release function that has been reduced to a no-op. The same function also runs when the user switches interface in mid session, for example from USB HID to BLE HID, or when entering a config scene, so skipping the release leaves two configurations active and a phantom device visible to the host. Require the release for every caller that is not the final exit, or require separate exit and switch paths.
+    Flag an index advance loop over a list of enabled entries that falls through when nothing is enabled and then uses a disabled entry anyway, and flag an index computation that subtracts one from a count that can be zero. Require an explicit branch that keeps the previous selection, pauses the feature or returns without changing the frequency.
+    Flag an allocation and free of a FlipperFormat, FuriString or similar object inside a loop that visits every file or every received signal. This churns and fragments the firmware heap on a hot path. Require one reusable instance that the loop rewinds, or buffers preallocated on the application struct.
+    Flag a recursive directory walk that starts at an application folder and therefore descends into large asset or keystore trees, especially where a filter callback is assumed to stop the descent while the walker descends regardless. Require a traversal that can refuse to descend, or a narrower start path, so rebuild cost stays bounded.
+    Flag a sort comparison that uses only one field when several entries can share its value. The order of equal entries then changes between rebuilds, so the first match used for display or for an auto load is not stable. Require a tie breaker such as the file path.
+- path: "furi/core/*.c"
+  instructions: |-
+    Review core allocator and memory manager code against the allocation contract that every caller relies on.
+    Flag a resize path that calls the underlying pool allocator and then touches the original block before checking the result, for example a copy whose destination is the new pointer that may be null, or a free of the original pointer on the allocation failure path. A resize must leave the original block untouched and report failure, so require the failure branch to return null before any size query, copy or free.
+    Flag a copy length that is not bounded by both the old and the new block size, and any block size query or free that can receive a null pointer.
+    Flag an allocation wrapper that reports success without inspecting the pool result, since every caller downstream treats the returned pointer as valid.
+    Say plainly which of these you confirmed by reading the code, because a successful build does not show how the allocator behaves under memory pressure on the device.
+- path: "lib/**/*.c"
+  instructions: |-
+    Review shared firmware library code for m-lib container handling and for settings round trips.
+    Flag a helper that takes an m-lib container such as FrequencyList_t by value and then inserts into it. A mutating operation can reallocate and update the list handle, so the caller keeps a stale handle and the insert is lost. Require the helper to take a pointer to the handle and to work on the dereferenced list.
+    Flag an insert that assumes an m-lib iterator inserts after the element it refers to. These containers insert before the iterator, so an end iterator used to mean the beginning appends instead, and an insert at the previous element lands one place early. Require the insert to use the first iterator whose value is greater than or equal to the new value.
+    Flag an append to a list that another function searches with an ordering assumption, for example a nearest frequency search that stops as soon as it passes the input value. Entries appended out of order are never reached, so require a sorted insert or an explicit re-sort.
+    Flag a save that writes back the entries the loader itself adds from defaults. Each launch then loads the defaults and appends the saved copies, so the list and the file grow by the default count every restart. Require the save to write user entries only, or the load to deduplicate.
+    Flag a load path that appends to a list without clearing it first, since a second load or a fallback after a partial load accumulates duplicate and stale entries that then disable or select unrelated frequencies.
+    Flag growth of a list that also drives a scan loop or a settings menu when the new entries are only needed for matching, and ask for a separate bounded list.
+- path: "applications/main/**/*.h"
+  instructions: |-
+    Review firmware headers for API contracts that callers cannot honour.
+    Flag a sentinel value that lies inside the valid domain of the data it guards, for example zero used to mean not matched for a 32 bit hash that can legitimately be zero. Callers then drop valid data or re-resolve it forever. Require a separate validity predicate, a boolean return with an out parameter, or a companion count field.
+    Flag a boolean result that has to express three outcomes, for example rebuilt, already up to date and failed, since callers cannot tell the last two apart and will act on a failure as though nothing needed doing. Require an enum or a status out parameter.
+    Flag a function that returns a pointer to a peripheral device, a furi record or an internal buffer without stating ownership, lifetime and whether null is possible, because callers otherwise free it, keep it past its lifetime or dereference it.
+    Flag fields added to an application context struct that nothing populates, reads or frees. A declared field implies an ownership contract that the alloc and free functions must carry out, and a reader cannot tell a dead field from one whose cleanup was forgotten.
+    Flag a field that is assigned on only one allocation branch, such as a transmit only variant, while a guard elsewhere tests it as a pointer, since the untouched field holds garbage and the guard passes.

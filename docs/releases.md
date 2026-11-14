@@ -73,8 +73,9 @@ This is the one description of the release procedure; the README links it.
    metadata when adding optional dependencies, refresh the lock file through its
    normal tooling, and rerun the relevant checks. Pending-feature banners and
    branch-pinned examples must be updated against integrated source before they
-   become released instructions. The dated [parallel-feature checklist](documentation-audit-2026-10-18.md#parallel-feature-integration)
-   records the current documentation submission's dependencies.
+   become released instructions. The dated
+   [pre-promotion record](documentation-audit-2026-10-25.md#before-the-promotion)
+   lists the dependencies and checks of the coming promotion.
 4. Open one `dev` into `main` PR, or update the existing promotion PR. Describe
    the complete range since the last release, its validation, and the issue
    closing references required above. If documentation or another prerequisite
@@ -133,6 +134,12 @@ requires their versions to match, and creates `vVERSION` there, for example
 `v26.10.18.0805`. Later commits and workflow reruns cannot select a different
 revision or version. An existing lightweight or annotated tag resolving to that
 merge commit is reused; annotated tag objects are dereferenced before comparison.
+A tag the job creates is confirmed from the create response itself. The two reads
+that have to see what a name points at now, the one after a name conflict and the
+final verification, are retried for a few seconds, so a replica that has not
+caught up no longer fails a correct publication. The first lookup of a release is
+not retried, and a tag object still unreadable when that waiting ends fails with
+its own error rather than as a tag that moved.
 If the canonical tag targets another object, publication fails: prepare a higher
 `VERSION` through `dev` and a new reviewed promotion. It never adds a `-prN`
 suffix to a canonical release, moves a tag, or deletes one. Missing commits,
@@ -213,11 +220,12 @@ particularly if `main` advances while Glama is processing a release.
 GitHub publication and Glama publication are separate outcomes. A green Actions
 publication job proves that the tag and GitHub Release exist, not that Glama
 has finished. Check Glama's build/startup result and public version before
-announcing the container update. The listing currently uses SemVer
-`26.10.14+1807` for calendar version `26.10.14.1807`; verify the next automatic
-version too. These provider mappings and
-delivery of a `GITHUB_TOKEN`-created release to Auto-Release have not yet been
-confirmed by an end-to-end automatic release in this repository.
+announcing the container update. On 2026-10-15 the listing used SemVer
+`26.10.14+1807` for calendar version `26.10.14.1807`. The workflow then
+published the GitHub Releases `v26.10.15.1905`, `v26.10.16.2026` and
+`v26.10.16.2041` with `GITHUB_TOKEN`; no Glama version for them is recorded in
+this repository, so the calendar-to-SemVer mapping and the delivery of such a
+release to Auto-Release remain unconfirmed. Verify both for the next release.
 
 The job deliberately does not chain a second Actions workflow on `release`:
 events created by `GITHUB_TOKEN` generally do not start another Actions run.
