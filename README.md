@@ -726,7 +726,7 @@ It is **safe by default**:
   anthropic, so the `local-inference` extra is carried and an automatically built
   environment also gets `httpx>=0.28.1,<0.29`. Plain requirements of one
   distribution from several places become one line with all their specifiers
-  (`pytest>=9.1,<10,>=8.0`); lines with extras, markers or URLs stay as written. A
+  (`pytest>=7.0.0,<10,>=8.0`); lines with extras, markers or URLs stay as written. A
   complete environment with the same requirements is reused. The stores are
   built with it, and activation points `.venv` at it after the fast-forward and
   the store move, so the re-exec starts on it; client configurations keep naming
