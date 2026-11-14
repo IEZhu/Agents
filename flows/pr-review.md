@@ -449,7 +449,8 @@ print(quota.pause_observation('github.com/OWNER:coderabbitai', pause))
 
 5. **Publish an automatic review as consumed.** A reviewer that runs itself on a
    push cannot be queued, and its run still spends the allowance. Publish a
-   `consumed` observation (`quota.consumed_observation`) with the evidence after
+   `consumed` observation (`quota.consumed_observation`), which carries no next
+   free time, with the evidence after
    you observe it instead of claiming it after the fact.
 
 Two reviewers on one pull request are separate allowances and are claimed

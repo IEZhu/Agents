@@ -17,6 +17,10 @@ from src.daemon.state import private_dir
 
 #: Soft-stale liveness threshold; a participant quiet for longer is suspected.
 HEARTBEAT_DEADLINE_SECONDS = 120
+#: A client reads an allowance response's own time, whose clock is not this
+#: coordinator's. Skew is tolerated; a date beyond it is refused, because a
+#: future observation would hold the reviewer until that date for everyone.
+OBSERVATION_SKEW_SECONDS = 300
 
 
 def digest(value):
@@ -51,13 +55,25 @@ def _published_next_free(holder, resource_key):
     clears the checkpoint while the reviewer is still paused.
     """
     published = [observation["next_free_at"] for observation in holder.get("external_quota", ())
-                 if observation["resource_key"] == resource_key and observation["next_free_at"] is not None]
+                 if observation["resource_key"] == resource_key and observation["kind"] == "paused"
+                 and observation["next_free_at"] is not None]
     return max(published) if published else None
 
 
 def _lapsed_holder(holder, now):
     """Whether this holder has gone quiet past the heartbeat deadline."""
     return now - holder["last_seen"] > HEARTBEAT_DEADLINE_SECONDS
+
+
+def _lapsed_assignment(holder, resource, now):
+    """An allowance assigned to a lapsed session excludes nobody.
+
+    The same rule as for its claim, in the places that read an agreement's
+    assignments: a file assignment keeps blocking, because the dead holder's
+    edits are still in the checkout.
+    """
+    return (resource["resource_type"] == EXTERNAL_QUOTA and holder is not None
+            and _lapsed_holder(holder, now))
 
 
 def _error(error):
@@ -722,11 +738,15 @@ class CooperationService:
                             raise CooperationError("claim_conflict")
                 else:
                     self._claim_conflicts(db, repo, owner, [resource], now)
+            holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
             for other in bodies(db, "agreements", repo):
                 if other["agreement_id"] == agreement["agreement_id"] or other["state"] not in ("committed", "active", "checkpointed", "suspended"):
                     continue
                 for resource in agreement["terms"]["resources"]:
-                    if any(resource["owner"] != prior["owner"] and resources_conflict(resource, prior) for prior in other["terms"]["resources"]):
+                    competing = [prior for prior in other["terms"]["resources"]
+                                 if resource["owner"] != prior["owner"] and resources_conflict(resource, prior)
+                                 and not _lapsed_assignment(holders.get(prior["owner"]), prior, now)]
+                    if competing:
                         raise CooperationError("claim_conflict", "Competing committed agreement")
             agreement["state"] = "committed"
             db.execute("DELETE FROM dependencies WHERE repository_id=? AND agreement_id=?", (repo, agreement["agreement_id"]))
@@ -783,9 +803,7 @@ class CooperationService:
                     # excludes nobody, exactly as its claim stops excluding in
                     # _claim_conflicts: otherwise one crash under an agreement
                     # would freeze that reviewer for every other session.
-                    assignee = holders.get(owned["owner"])
-                    if (owned["resource_type"] == EXTERNAL_QUOTA and assignee is not None
-                            and _lapsed_holder(assignee, now)):
+                    if _lapsed_assignment(holders.get(owned["owner"]), owned, now):
                         continue
                     raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
         self._claim_conflicts(db, repo, subject, resources, now)
@@ -828,13 +846,36 @@ class CooperationService:
             db.execute("INSERT INTO artifacts VALUES (?,?,?,?) ON CONFLICT(repository_id,id) DO UPDATE SET body=excluded.body", (artifact["artifact_id"], repo, subject["participant_id"], canonical(artifact)))
         subject["checkpoint"] = {**action, "revision": revision, "created_at": now}
         if action["external_quota"]:
-            # Keep the latest observation of each kind per allowance, newest
-            # last, bounded like any published list: a pause and the record of
-            # allowance already spent say different things about one reviewer.
-            published = {(observation["resource_key"], observation["kind"]): observation
-                         for observation in (*subject.get("external_quota", ()), *action["external_quota"])}
-            subject["external_quota"] = sorted(
-                published.values(), key=lambda o: (o["observed_at"], o["resource_key"], o["kind"]))[-MAX_ITEMS:]
+            if any(observation["observed_at"] > now + OBSERVATION_SKEW_SECONDS
+                   for observation in action["external_quota"]):
+                raise CooperationError("invalid_request",
+                                       "An allowance observation cannot be dated past this coordinator's clock")
+            # One observation of each kind per allowance, decided by the time
+            # of the evidence rather than of the publication: a session may
+            # report an older response after a newer one. A pause and a record
+            # of allowance already spent say different things, so both are kept.
+            published: dict[tuple[str, str], dict] = {}
+            for observation in (*subject.get("external_quota", ()), *action["external_quota"]):
+                identity = (observation["resource_key"], observation["kind"])
+                prior = published.get(identity)
+                if prior is None or observation["observed_at"] >= prior["observed_at"]:
+                    published[identity] = observation
+            # A pause still in the future is what other sessions wait on, so
+            # the bound drops expired pauses and spent-allowance records first
+            # and never a live pause: losing one would let the next holder
+            # request a review inside it.
+            def order(item):
+                return item[1]["observed_at"], item[0]
+
+            live_keys = {identity for identity, observation in published.items()
+                         if observation["kind"] == "paused" and observation["next_free_at"] > now}
+            if len(live_keys) > MAX_ITEMS:
+                raise CooperationError("invalid_request",
+                                       "More live allowance pauses than one participant can publish")
+            live = sorted((item for item in published.items() if item[0] in live_keys), key=order)
+            rest = sorted((item for item in published.items() if item[0] not in live_keys), key=order)
+            kept = live + rest[max(0, len(live) + len(rest) - MAX_ITEMS):]
+            subject["external_quota"] = [observation for _, observation in sorted(kept, key=order)]
         if action["agreement_id"]:
             agreement = self._agreement(db, repo, action["agreement_id"])
             if subject["participant_id"] not in agreement["required_participants"]:

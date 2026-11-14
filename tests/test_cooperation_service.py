@@ -14,7 +14,7 @@ from src.cooperation.admin import cleanup
 from src.cooperation.identity import CooperationIdentity
 from src.cooperation import quota
 from src.cooperation.models import PROTOCOL, ApplyResponse, ReadResponse, parse_apply, parse_read, parse_register
-from src.cooperation.service import CooperationService
+from src.cooperation.service import CooperationService, _published_next_free
 from src.cooperation.store import CooperationError, Store, canonical
 
 
@@ -1108,3 +1108,96 @@ def test_a_lapsed_allowance_frees_an_agreement_assignment(h):
     # stop excluding here too, while the file assignment still holds.
     assert h.acquire(live, file)["error"] == "claim_conflict"
     assert h.acquire(live, allowance)["status"] == "ok"
+
+
+def _pause(h, reviewer, *, observed_at=None, wait=3600.0):
+    key = quota.quota_key("github.com", "IEZhu", reviewer)
+    pause = quota.observed_pause(reviewer, "limit reached for this account", observed_at=observed_at or h.now,
+                                 default_seconds=wait)
+    return quota.pause_observation(key, pause)
+
+
+def test_an_observation_dated_past_the_coordinator_clock_is_refused(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder = h.register("holder", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    # A client reads the platform's own time, so some skew is tolerated.
+    near = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now + 60)
+    assert h.checkpoint(holder, name="near", external_quota=[near])["status"] == "ok"
+    future = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now + 86400)
+    refused = h.checkpoint(holder, name="future", external_quota=[future])
+    assert refused["error"] == "invalid_request"
+    other = h.register("other", scope=[allowance])
+    assert h.acquire(other, allowance)["next_free_at"] == near["next_free_at"]
+
+
+def test_the_newest_evidence_wins_not_the_newest_publication(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    newer = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now, wait=3600.0)
+    older = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now - 100, wait=60.0)
+    assert h.checkpoint(holder, name="newer", external_quota=[newer])["status"] == "ok"
+    # A session may read an older response after a newer one; the later
+    # publication must not shorten the wait every other session repeats.
+    assert h.checkpoint(holder, name="older", external_quota=[older])["status"] == "ok"
+    assert h.acquire(other, allowance)["next_free_at"] == newer["next_free_at"]
+    published = _participant(h, holder)["external_quota"]
+    assert [observation["observed_at"] for observation in published] == [newer["observed_at"]]
+
+
+def test_the_published_bound_drops_spent_records_before_a_live_pause(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    live = _pause(h, UNKNOWN_REVIEWER)
+    assert h.checkpoint(holder, name="live", external_quota=[live])["status"] == "ok"
+    spent = [quota.consumed_observation(quota.quota_key("github.com", "IEZhu", f"reviewer-{index}"),
+                                        "an automatic review nobody requested", observed_at=h.now + index)
+             for index in range(50)]
+    assert h.checkpoint(holder, name="spent", external_quota=spent)["status"] == "ok"
+    published = _participant(h, holder)["external_quota"]
+    assert len(published) == 50
+    # The pause other sessions are waiting on is never the record that goes.
+    assert live in published
+    assert h.acquire(other, allowance)["next_free_at"] == live["next_free_at"]
+    crowd = [_pause(h, f"reviewer-{index}", observed_at=h.now + index) for index in range(50)]
+    assert h.checkpoint(holder, name="crowd", external_quota=crowd)["error"] == "invalid_request"
+
+
+def test_a_lapsed_assignee_does_not_block_a_new_agreement(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    scope = [allowance, file]
+    dead, peer = h.register("dead", scope=scope), h.register("peer", scope=scope)
+    old = h.apply(dead, h.proposal([dead, peer], resources=[{**allowance, "owner": dead["participant_id"]},
+                                                            {**file, "owner": dead["participant_id"]}]))["agreement"]
+    h.ack(dead, old)
+    assert h.ack(peer, old)["agreement"]["state"] == "committed"
+    fresh_a, fresh_b = h.register("fresh-a", scope=scope), h.register("fresh-b", scope=scope)
+    for _ in range(3):
+        h.now += 60
+        for live in (peer, fresh_a, fresh_b):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # The lapsed session's assignment cannot keep agreement coordination shut
+    # for the allowance, while its file assignment still does.
+    blocked = h.apply(fresh_a, h.proposal([fresh_a, fresh_b], name="files",
+                                          resources=[{**file, "owner": fresh_a["participant_id"]}]))["agreement"]
+    h.ack(fresh_a, blocked)
+    assert h.ack(fresh_b, blocked)["error"] == "claim_conflict"
+    allowed = h.apply(fresh_a, h.proposal([fresh_a, fresh_b], name="allowance",
+                                          resources=[{**allowance, "owner": fresh_a["participant_id"]}]))["agreement"]
+    h.ack(fresh_a, allowed)
+    assert h.ack(fresh_b, allowed)["agreement"]["state"] == "committed"
+
+
+def test_only_a_pause_contributes_a_published_next_free_time():
+    key = "github.com/iezhu:coderabbitai"
+    holder = {"external_quota": [
+        {"resource_key": key, "kind": "consumed", "evidence": "spent", "observed_at": 1000.0,
+         "next_free_at": 9000.0, "wait_source": None},
+        {"resource_key": key, "kind": "paused", "evidence": "limit reached", "observed_at": 1000.0,
+         "next_free_at": 4600.0, "wait_source": "default"}]}
+    # The model refuses a consumed record that carries a time, and the reader
+    # does not lean on that alone: a row stored before the rule would still be
+    # read, and only a pause may say when the reviewer is free again.
+    assert _published_next_free(holder, key) == 4600.0

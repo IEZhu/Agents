@@ -241,18 +241,20 @@ def pause_observation(resource_key: object, pause: Pause) -> dict:
             "next_free_at": pause.next_free_at, "wait_source": pause.source}
 
 
-def consumed_observation(resource_key: object, evidence: object, *, observed_at: float,
-                         next_free_at: float | None = None) -> dict:
+def consumed_observation(resource_key: object, evidence: object, *, observed_at: float) -> dict:
     """Checkpoint record for allowance spent by a review nobody requested.
 
     An automatic review cannot be queued, so it is published after the fact
-    rather than claimed. Without a stated reset there is no next free time.
+    rather than claimed. It carries no next free time: other sessions repeat a
+    published time in their own refusals, and a run that already happened says
+    nothing about when the next one may. A response that does state a wait is
+    a pause, so publish it with ``pause_observation``.
     """
     if not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool) or observed_at < 0:
         raise ValueError("observed_at must be a nonnegative timestamp")
     return {"resource_key": canonical_quota_key(resource_key), "kind": "consumed",
             "evidence": _text(evidence, "evidence"), "observed_at": float(observed_at),
-            "next_free_at": next_free_at, "wait_source": None}
+            "next_free_at": None, "wait_source": None}
 
 
 def resource(resource_key: object, *, access: str = ACCESS) -> dict:

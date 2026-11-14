@@ -192,3 +192,20 @@ def test_a_wait_the_reviewer_states_beats_a_fixed_reset():
     assert ({rule.rule_id for rule in quota._STATED_RULES} | {rule.rule_id for rule in quota._FIXED_RULES}
             == {rule.rule_id for rule in quota.WAIT_RULES})
     assert not {rule.rule_id for rule in quota._STATED_RULES} & {rule.rule_id for rule in quota._FIXED_RULES}
+
+
+def test_a_consumed_record_publishes_no_wait_at_all():
+    # Other sessions repeat a published time in their own refusals, and a run
+    # that already happened says nothing about when the next one may.
+    record = quota.consumed_observation("github.com/iezhu:coderabbitai",
+                                        "CodeRabbit reviewed the push automatically", observed_at=500.0)
+    assert (record["next_free_at"], record["wait_source"]) == (None, None)
+    with pytest.raises(TypeError):
+        quota.consumed_observation("github.com/iezhu:coderabbitai", "spent", observed_at=500.0,
+                                   next_free_at=900.0)
+    with pytest.raises(ValueError, match="consumed allowance"):
+        ExternalQuotaObservation.model_validate({**record, "next_free_at": 900.0})
+    with pytest.raises(ValueError, match="stated wait requires"):
+        ExternalQuotaObservation.model_validate({**record, "wait_source": "default"})
+    with pytest.raises(ValueError, match="consumed allowance"):
+        ExternalQuotaObservation.model_validate({**record, "next_free_at": 900.0, "wait_source": "default"})

@@ -265,6 +265,8 @@ class ExternalQuotaObservation(StrictModel):
             raise ValueError("the next free time cannot precede its evidence")
         if self.next_free_at is not None and self.next_free_at - self.observed_at > MAX_WAIT_SECONDS:
             raise ValueError("the published wait exceeds the maximum an allowance pause may state")
+        if self.kind == "consumed" and (self.next_free_at is not None or self.wait_source is not None):
+            raise ValueError("a consumed allowance publishes no next free time; publish a pause for a wait")
         return self
 
 
