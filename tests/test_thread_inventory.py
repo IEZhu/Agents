@@ -1326,6 +1326,19 @@ def test_powershell_commands_that_cannot_be_classified_are_listed_not_dropped():
     assert (other["git_mutations"], other["unclassified_commands"], other["shell_writes"]) == ([], [], [])
 
 
+def test_a_chain_that_cannot_run_still_names_its_forge_reference():
+    """A forge reference says what the thread was about, not what succeeded, so it is collected from
+    a chain whose operator 5.1 does not have, exactly as that chain's write targets are. Only the git
+    and gh classification is withheld there, because the line's own syntax cannot say which commands
+    were meant. Reporting the number and withholding the verdict is the conservative pair: a reader
+    reaches the pull request and still sees the line in `unclassified_commands`."""
+    chain = thread_inventory.inventory(powershell("gh pr view 7 || gh pr create --title t --body b", "r1"))
+    assert [(r["kind"], r["number"]) for r in chain["github_refs"]] == [("pull", 7)]
+    assert [c["command"] for c in chain["unclassified_commands"]] == [
+        "gh pr view 7 || gh pr create --title t --body b"]
+    assert chain["git_mutations"] == []
+
+
 def test_only_the_powershell_program_name_is_case_insensitive():
     """PowerShell resolves `GIT` to the same executable, so an uppercase program name with a real
     subcommand is the write it performs. Git and gh parse their own subcommands case sensitively,
