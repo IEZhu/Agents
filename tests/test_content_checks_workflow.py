@@ -21,7 +21,10 @@ will collect, expands a glob against the tree because the shell does, and asks
 whether any of those paths is this file. So `echo pytest x.py` is not evidence,
 `--collect-only` and its undashed spellings are not, a whole-file `--deselect`
 is not, and `...freshness.py.bak` is not; while a glob, a quoted path and a
-`./` spelling all are, because each of them really runs the file.
+`./` spelling all are, because each of them really runs the file. Over a
+recorded argv the same reader is literal instead: the shell has had that token
+already, so a `*` left in it is one pytest was handed and answered with `file or
+directory not found`, and expanding it here credited every file it matched.
 
 The schedule is read twice as hard. A cron has to be one GitHub Actions can
 schedule, field by field *and* as a whole, because `99 5 * * 1` and
@@ -374,31 +377,42 @@ def unquoted(token):
     return token
 
 
-def names_the_file(path, test_file):
+def names_the_file(path, test_file, literal=False):
     """True when this pytest argument selects that file: the path, or a glob over it.
 
-    A leading `./` is stripped, because it is the same file. Quotes are stripped
-    too, since the shell removes them, but whether they were there decides what
-    the argument means: an unquoted glob reaches pytest already expanded, so the
-    file really is an argument of the command that runs, and
+    A leading `./` is stripped, because it is the same file to pytest. Quotes
+    are stripped too, since the shell removes them, but whether they were there
+    decides what the argument means: an unquoted glob reaches pytest already
+    expanded, so the file really is an argument of the command that runs, and
     `.github/workflows/user-sync.yml` already commits that form -- while a
     quoted one does not expand at all. Measured, `pytest 'tests/test_skill_*.py'`
     answers `ERROR: file or directory not found` and runs nothing, so it is not
     evidence however much it looks like the form above.
 
+    `literal` is what an argument a shim recorded gets, and it turns both of
+    those readings off. The shell has already had that token -- quotes removed,
+    a glob expanded or, inside quotes, not -- so what the log holds is what the
+    process received and nothing in it is a pattern any more: the quoted glob
+    above arrives as the single argument `tests/test_skill_*.py`, and expanding
+    it here credited every content check it matched to a step that ran none of
+    them. A quote character left in a recorded argument belongs to the path for
+    the same reason. The `./` is normalised either way, because pytest collects
+    `./x.py` as `x.py`.
+
     A partially quoted token such as `tests/'test_skill_'*.py` is left as it is
     and matches nothing, which is a miss rather than a mistake. A bare directory
     is still not a name -- that is the trade the docstring states.
     """
-    cleaned = unquoted(path)
+    cleaned = path if literal else unquoted(path)
     quoted = cleaned is not path
     if cleaned.startswith("./"):
         cleaned = cleaned[2:]
     if cleaned == test_file:
         return True
-    if not quoted and any(character in cleaned for character in "*?["):
-        return fnmatch.fnmatch(test_file, cleaned)
-    return False
+    if literal or quoted:
+        return False
+    return (any(character in cleaned for character in "*?[")
+            and fnmatch.fnmatch(test_file, cleaned))
 
 
 def normalised_option(token):
@@ -509,7 +523,7 @@ def pipefail_in_effect(shell):
     return any("pipefail" in word for word in template)
 
 
-def runs_the_file(argv, test_file):
+def runs_the_file(argv, test_file, literal=False):
     """True when this argv is a pytest run of that file, by its own arguments.
 
     Calling pytest is not running its tests: `--collect-only` and its relatives
@@ -518,13 +532,18 @@ def runs_the_file(argv, test_file):
     One reader for a written command and for a recorded one, so the two cannot
     answer differently about the same arguments; what differs is where the argv
     came from, and an argv `recorded_argv` could not read is no argv at all.
+
+    Where it came from decides one reading, which `literal` carries to
+    `names_the_file`: a written token is one the shell has yet to expand, and a
+    recorded one is what the process was handed.
     """
     args = None if argv is None else pytest_arguments(argv)
     if args is None:
         return False
     if suppresses_the_run(args) or deselects_the_file(args, test_file):
         return False
-    return any(names_the_file(path, test_file) for path in pytest_paths(args))
+    return any(names_the_file(path, test_file, literal)
+               for path in pytest_paths(args))
 
 
 def runs_as_pytest_argument(commands, test_file, pipefail=False):
@@ -1651,14 +1670,16 @@ def recorded_pytest_runs(commands, test_file):
     """The recorded commands that really handed this file to pytest.
 
     The same reader, over the argv the shims saw instead of over the script's
-    text. The same refusals apply for the same reasons: a recorded
-    `--collect-only` collected the file and ran none of it, and a recorded
-    whole-file `--deselect` dropped it. What the shell did with the command --
-    an `&`, a pipe -- is not in the argv it handed over, so it is read from the
-    script's text instead, where `runs_as_pytest_argument` is what reads it.
+    text, and literally: a recorded argument is what the process received, so
+    the glob is the shell's business and is over by then. The same refusals
+    apply for the same reasons: a recorded `--collect-only` collected the file
+    and ran none of it, and a recorded whole-file `--deselect` dropped it. What
+    the shell did with the command -- an `&`, a pipe, a `||` -- is not in the
+    argv it handed over, so it is read from the script's text instead, where
+    `runs_as_pytest_argument` and `invocations_the_step_survives` read it.
     """
     return [command for command in commands
-            if runs_the_file(recorded_argv(command), test_file)]
+            if runs_the_file(recorded_argv(command), test_file, literal=True)]
 
 
 def executed_verdict(test_file, documents):
@@ -2446,6 +2467,50 @@ def test_the_recording_keeps_the_argument_boundaries_the_shell_made():
     quoted = execute_step("python -B -m pytest \"it's a path\" -q\n")
     assert quoted.problem is None, quoted.problem
     assert recorded_argv(quoted.commands[0])[4] == "it's a path", quoted.commands
+
+
+def test_a_recorded_argument_is_read_as_the_literal_it_is():
+    """The shell is already behind a recorded argv, so nothing in it is a glob.
+
+    A quoted glob reaches the recorder as the one literal argument
+    `tests/test_skill_*.py`, which real pytest answers with `ERROR: file or
+    directory not found` -- and expanding it here credited every content check
+    the pattern matched, from a step that ran none of them. The written reading
+    has to keep expanding, because there the shell has not run yet and a
+    committed workflow spells a glob; the recorded reading must not, because by
+    then it is done.
+    """
+    wildcard = ["python", "-m", "pytest", "tests/test_skill_*.py"]
+    assert runs_the_file(wildcard, SCHEDULED_BY_CALENDAR), (
+        "the written spelling is expanded by the shell and still counts")
+    assert not runs_the_file(wildcard, SCHEDULED_BY_CALENDAR, literal=True), (
+        "a recorded wildcard is the argument pytest was handed, not a pattern")
+    # What the shell really did hand over still counts, in both spellings, or
+    # this would refuse every recorded run instead of the unexpanded ones.
+    for spelling in (SCHEDULED_BY_CALENDAR, f"./{SCHEDULED_BY_CALENDAR}"):
+        assert runs_the_file(["pytest", spelling], SCHEDULED_BY_CALENDAR,
+                             literal=True), spelling
+    # A quote character in a recorded argument belongs to the path: `shlex` took
+    # the shell's own quoting off the log line before this reader saw the token,
+    # so what is left is a name no tree holds.
+    assert not runs_the_file(["pytest", f"'{SCHEDULED_BY_CALENDAR}'"],
+                             SCHEDULED_BY_CALENDAR, literal=True)
+
+
+@EXECUTES_STEPS
+def test_a_quoted_glob_is_recorded_as_the_literal_pytest_refuses():
+    """And the recorder's own verdict over that line has to refuse it too.
+
+    The pair of this is the case below, where the unquoted spelling of the same
+    glob is expanded by the shell before the shim sees it and really does run
+    the file. One script apart, the two decide what a `*` in the log means.
+    """
+    run = execute_step("python -B -m pytest 'tests/test_skill_*.py' -q\n")
+    assert run.problem is None, run.problem
+    [line] = run.commands
+    assert recorded_argv(line)[4] == "tests/test_skill_*.py", line
+    assert recorded_pytest_runs(run.commands, SCHEDULED_BY_CALENDAR) == [], (
+        f"a literal wildcard was read as a glob over the tree: {line}")
 
 
 @EXECUTES_STEPS
