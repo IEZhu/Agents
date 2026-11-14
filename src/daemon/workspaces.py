@@ -424,8 +424,14 @@ def _same_directory(root, requested):
     Both sides are resolved first, and the casefolded match is then confirmed against the
     filesystem with `samefile`, because a case-sensitive filesystem can hold two different
     directories whose names differ only in case: there the identity check fails and the
-    refusal stands. A requested path that does not exist cannot be the same directory as
-    anything and stays refused too.
+    refusal stands.
+
+    What `samefile` confirms is the ancestor slice, not the whole requested path, so a
+    directory inside the root that does not exist yet is accepted through the root it sits
+    in. That is deliberate: such a path still names a place inside the registered
+    repository, and refusing it would take the session's repository-scoped tools away over
+    a directory it is about to create. A path whose ancestor slice is not the root is
+    refused whether it exists or not, which is the case this function is here to keep.
     """
     try:
         target = Path(requested).expanduser()

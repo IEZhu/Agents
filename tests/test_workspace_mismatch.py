@@ -19,6 +19,7 @@ import pytest
 import src.server as server
 from src.daemon.app import create_app
 from src.daemon.workspaces import (ClientContext, WorkspaceMismatch, WorkspaceRegistry,
+                                   _same_directory,
                                    resolve_client_context)
 from src.engine import config as engine_config
 from src.flows import FlowCatalog
@@ -285,6 +286,45 @@ def test_the_remedy_names_no_subcommand_that_rewrites_a_client_configuration(tmp
     source = Path(control.__file__).read_text(encoding="utf-8")
     assert f'migrate.add_argument("--clients", default="{MIGRATE_CLIENTS}")' in source
     assert "workspace register requires a path" in source, "the narrow action, by its own name"
+
+
+def test_a_place_inside_the_root_that_does_not_exist_yet_is_still_the_same_directory(tmp_path):
+    """`samefile` confirms the ancestor slice, not the whole requested path, and that is right.
+
+    A session naming a directory it is about to create, under another spelling of the root, still
+    names a place inside the registered repository. Requiring the requested path itself to exist
+    would take every repository-scoped tool away from that session over a directory that is one
+    mkdir old, which is the refusal this function exists to remove. A path whose ancestor slice is
+    not the root stays refused whether it exists or not, and that is what is asserted last.
+    """
+    root = (tmp_path / "Registered").resolve()
+    root.mkdir()
+    assert _same_directory(root, str(root)), "the root under its own spelling"
+    elsewhere = tmp_path.resolve() / "Other"
+    elsewhere.mkdir()
+    assert not _same_directory(root, str(elsewhere)), "a sibling is not the root"
+    assert not _same_directory(root, str(elsewhere / "not-created-yet"))
+    variant = tmp_path.resolve() / "registered"
+    if not variant.exists():
+        pytest.skip("a case-sensitive filesystem: the respelling names a different directory")
+    assert _same_directory(root, str(variant)), "the root respelled"
+    assert _same_directory(root, str(variant / "not-created-yet"))
+    assert _same_directory(root, str(variant / "not" / "created" / "yet"))
+
+
+def test_the_shared_workspace_description_does_not_promise_an_unconditional_roots_check():
+    """21 parameters share this sentence, so what it promises has to be what happens.
+
+    Over stdio the argument is checked against the client's MCP roots only when this session's
+    root is not already pinned: `resolve_client_context` returns a native hook context first, and
+    an `AGENTS_CLIENT_REPO_ROOT` override decides alone, with the argument never compared to a
+    root at all. The description said the path must lie inside the client's roots, full stop.
+    """
+    from src.schemas.tool_args import WORKSPACE_DESC
+
+    assert "already pinned" in WORKSPACE_DESC, (
+        "the stdio sentence has to name the case where the argument is ignored instead of checked")
+    assert "never widens" in WORKSPACE_DESC
 
 
 def test_the_fallback_journal_remedy_is_narrow_too():
