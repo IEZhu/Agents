@@ -1446,20 +1446,24 @@ def test_a_cmdlet_path_array_names_every_file_it_writes():
         ["C:/work/repo/a.txt"], ["C:/work/repo/b.txt"], ["C:/work/repo/c.txt"]]
 
 
-def test_out_file_writes_the_one_destination_its_parameter_declares():
-    """`Out-File` declares its destination as a single `string`, not a `string[]`: a comma builds
-    an array all the same, and a `string` parameter takes one as its elements joined by `$OFS`, a
-    single space. So `Out-File -FilePath c.txt , d.txt` writes one file named `c.txt d.txt`, and
-    splitting that value the way a `string[]` is split named two writes the cmdlet never performs.
-    Its positional destination is the same parameter, so it is read the same way."""
+def test_an_array_given_to_a_scalar_destination_names_no_file():
+    """`Out-File` declares its destination as a single `string`, not a `string[]`, and a comma
+    builds an array all the same. What the call then wrote is not one reading: a `string`
+    parameter can take an array as its elements joined by `$OFS` into `c.txt d.txt`, and cmdlet
+    parameter binding can refuse a collection where a scalar `string` is declared, in which case
+    the command fails and writes nothing at all. Both readings are a file this report would name
+    that nobody created, and splitting the value the way a `string[]` is split names two. So the
+    call is listed as unclassified and no file is named for it. One destination is a write,
+    positional or named, and `Set-Content` keeps every element of its declared `string[]`."""
     inv = thread_inventory.inventory(powershell(
         "Out-File -FilePath c.txt , d.txt\nOut-File -LiteralPath e.txt,f.txt\nOut-File g.txt,h.txt\n"
         "Out-File -FilePath one.txt", "of1"))
-    assert [w["files"] for w in inv["shell_writes"]] == [
-        ["C:/work/repo/c.txt d.txt"],
-        ["C:/work/repo/e.txt f.txt"],
-        ["C:/work/repo/g.txt h.txt"],
-        ["C:/work/repo/one.txt"]]
+    assert [w["files"] for w in inv["shell_writes"]] == [["C:/work/repo/one.txt"]]
+    assert [c["command"] for c in inv["unclassified_commands"]] == [
+        "Out-File -FilePath c.txt , d.txt", "Out-File -LiteralPath e.txt,f.txt", "Out-File g.txt,h.txt"]
+    kept = thread_inventory.inventory(powershell("git log | Out-File -FilePath a.txt,b.txt > c.txt", "of2"))
+    assert [w["files"] for w in kept["shell_writes"]] == [["C:/work/repo/c.txt"]]  # the redirection stands
+    assert [c["command"] for c in kept["unclassified_commands"]] == ["Out-File -FilePath a.txt,b.txt > c.txt"]
 
 
 def test_a_powershell_variable_target_keeps_its_literal_and_only_null_writes_nothing():

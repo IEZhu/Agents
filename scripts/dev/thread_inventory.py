@@ -1133,7 +1133,10 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
-        targets = _powershell_writes(segment, defined) if powershell else _written_files(segment, tokens)
+        if powershell:
+            targets, unresolved = _powershell_writes(segment, defined)
+        else:
+            targets, unresolved = _written_files(segment, tokens), False
         kept = []
         for path in dict.fromkeys(_resolve(target, run_dir) or target for target in targets):
             if not SCRATCHPAD_PATH.search(path):
@@ -1149,12 +1152,15 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             parent = _parent_directory(path)
             if parent:
                 sink["directories"].setdefault(parent, ts)
+        shown = _first_line(KEYWORD_PREFIX.sub("", segment))
         if written:
-            sink["shell_writes"].append({"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)),
-                                         "by": actor, "files": written})
-        if not tokens:
+            sink["shell_writes"].append({"ts": ts, "command": shown, "by": actor, "files": written})
+        if not tokens and not unresolved:
             continue
-        program = tokens[0].lower() if powershell else tokens[0]  # PowerShell names are case-insensitive
+        # A destination the write scan could not resolve leaves the statement listed whatever its
+        # program is: what the call wrote is not established, so it is neither a write nor a pass.
+        unclassified = unresolved
+        program = (tokens[0].lower() if powershell else tokens[0]) if tokens else ""  # PowerShell folds case
         chdir = program in PS_CHDIR if powershell else program == "cd"
         source, script = _shell_input(tokens) if not powershell and program in SHELLS else (None, None)
         if source == "script" and script:
@@ -1179,8 +1185,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
         elif program in defined:
             # A body defined in this command, whose statements the segmenter did not read: what
             # the call ran is not established here, so it is listed instead of passing silently.
-            sink["unclassified_commands"].append(
-                {"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)), "by": actor})
+            unclassified = True
         elif program in ("git", "gh"):
             if program == "git":
                 _git_paths(tokens, run_dir, ts, sink)
@@ -1192,11 +1197,11 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
                 # Windows PowerShell 5.1 has no such operator, so the line as written runs nothing
                 # and its own syntax cannot say which commands were meant: it is listed, not read.
                 kind = "unknown"
-            shown = _first_line(KEYWORD_PREFIX.sub("", segment))
             if kind == "write":
                 sink["git_mutations"].append({"ts": ts, "command": shown, "by": actor})
-            elif kind == "unknown":
-                sink["unclassified_commands"].append({"ts": ts, "command": shown, "by": actor})
+            unclassified = unclassified or kind == "unknown"
+        if unclassified:
+            sink["unclassified_commands"].append({"ts": ts, "command": shown, "by": actor})
     for token in TOKEN_SPLIT.split(command):  # heredoc bodies too: a script there may write the file
         path = token.rstrip(".,:")
         if SCRATCHPAD_PATH.search(path) and (path.startswith("/") or WINDOWS_PATH.match(path)):
@@ -1581,11 +1586,14 @@ def _powershell_tokens(segment: str, commas: bool = False) -> list[str]:
     return tokens
 
 
-def _powershell_writes(segment: str, defined: Collection[str] = ()) -> list[str]:
-    """Files one PowerShell statement writes: the targets of its unquoted `>` and `>>`
-    redirections and the paths of a `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only
-    redirects one stream into another, and `$null` is the bit bucket rather than a file. Any other
-    variable keeps its unexpanded literal, as a Bash redirection does, so the write is not lost.
+def _powershell_writes(segment: str, defined: Collection[str] = ()) -> tuple[list[str], bool]:
+    """Files one PowerShell statement writes, and whether a call in it names a destination this
+    reading cannot resolve into the files it wrote.
+
+    The files are the targets of its unquoted `>` and `>>` redirections and the paths of a
+    `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only redirects one stream into
+    another, and `$null` is the bit bucket rather than a file. Any other variable keeps its
+    unexpanded literal, as a Bash redirection does, so the write is not lost.
 
     A name in ``defined`` is not the cmdlet it is spelled like: the command defined a function of
     that name, so the call runs a body whose statements this reading never saw and creates nothing
@@ -1594,7 +1602,7 @@ def _powershell_writes(segment: str, defined: Collection[str] = ()) -> list[str]
 
     The statement is tokenised here rather than taken from the caller, because a cmdlet's path
     argument may be an array and only words that keep an unquoted comma can be split into one."""
-    files, index, quote = [], 0, None
+    files, unresolved, index, quote = [], False, 0, None
     while index < len(segment):
         char = segment[index]
         if quote:
@@ -1621,10 +1629,14 @@ def _powershell_writes(segment: str, defined: Collection[str] = ()) -> list[str]
     for command in _ps_statements(_powershell_tokens(segment, commas=True)):
         name = command[0].lower() if command[:1] else ""
         if name in PS_WRITE_CMDLETS and name not in defined:
-            for target in _ps_targets(command[1:], name in PS_SCALAR_PATH):
+            targets = _ps_targets(command[1:], name in PS_SCALAR_PATH)
+            if targets is None:
+                unresolved = True
+                continue
+            for target in targets:
                 if target and target.lower() not in PS_NULL:
                     files.append(target)
-    return files
+    return files, unresolved
 
 
 def _ps_statements(tokens: list[str]) -> list[list[str]]:
@@ -1667,14 +1679,18 @@ def _ps_array(args: list[str], index: int) -> tuple[list[str], int]:
     return values, index
 
 
-def _ps_targets(args: list[str], scalar: bool = False) -> list[str]:
+def _ps_targets(args: list[str], scalar: bool = False) -> list[str] | None:
     """The files a `Set-Content`, `Add-Content` or `Out-File` call writes: the value of `-Path`,
-    `-LiteralPath` or `-FilePath`, or else its first positional argument.
+    `-LiteralPath` or `-FilePath`, or else its first positional argument. None when the call
+    names more destinations than its parameter declares, which is no list of files at all.
 
     A `string[]` destination names one file per element, and every one of them is written. With
-    ``scalar`` the destination is a single `string`, which no array reaches: its elements arrive
-    joined, so the call writes that one name and reporting one file per element would name writes
-    the cmdlet never performs. `PS_SCALAR_PATH` holds the cmdlets whose destination is scalar.
+    ``scalar`` the destination is a single `string`, which `PS_SCALAR_PATH` holds the cmdlets of,
+    and an array given to one is not a reading this helper can take: the elements can arrive
+    joined by `$OFS` into a single name, and cmdlet parameter binding can refuse a collection
+    where a scalar `string` is declared, which fails the command and writes nothing. Reporting
+    either the joined name or one file per element names a write nobody performed, so the call is
+    unresolved and `_shell` lists it instead.
     """
     positional, index = [], 0
     while index < len(args):
@@ -1692,10 +1708,10 @@ def _ps_targets(args: list[str], scalar: bool = False) -> list[str]:
     return _ps_destination(positional, scalar)
 
 
-def _ps_destination(values: list[str], scalar: bool) -> list[str]:
-    """The files an array of destination elements writes: all of them, or, for a parameter that
-    takes one `string`, the single name its elements are joined into by `$OFS`, one space."""
-    return [" ".join(values)] if scalar and len(values) > 1 else values
+def _ps_destination(values: list[str], scalar: bool) -> list[str] | None:
+    """The files an array of destination elements writes: all of them, or None for a parameter
+    that declares one `string` and was given more than one element."""
+    return None if scalar and len(values) > 1 else values
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
