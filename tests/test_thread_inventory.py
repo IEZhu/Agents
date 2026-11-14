@@ -1401,6 +1401,25 @@ def test_a_quoted_scratchpad_path_with_a_space_is_still_reported():
     assert [w["files"] for w in outside["shell_writes"]] == [["/work/repo/my notes.md"]]
 
 
+def test_two_scratchpad_writes_whose_names_differ_by_a_space_both_survive():
+    """A parsed target is never dropped as a fragment, however another target spells its name.
+
+    The field has two sources: a write's target, parsed from the command, and a path merely
+    mentioned in it, picked up by a scan over blanks-separated words. That scan cuts a quoted path
+    at its space, and the cut is a path no write created, so it goes. Judging both sources together
+    went too far: here `notes` is a real write and a space-prefixed sibling of `notes old.md`, and a
+    filter that cannot tell parsed from inferred loses it. Both have to arrive.
+    """
+    inv = thread_inventory.inventory(bash(
+        f"echo x > '{SCRATCH}/notes'; echo y > '{SCRATCH}/notes old.md'", "sp6"))
+    assert inv["scratchpad_paths"] == [f"{SCRATCH}/notes", f"{SCRATCH}/notes old.md"]
+    # The cut still goes, and a path only mentioned still arrives.
+    cut = thread_inventory.inventory(bash(f"echo hi > '{SCRATCH}/my notes.md'", "sp7"))
+    assert cut["scratchpad_paths"] == [f"{SCRATCH}/my notes.md"]
+    mentioned = thread_inventory.inventory(bash(f"cat {SCRATCH}/plain.md", "sp8"))
+    assert mentioned["scratchpad_paths"] == [f"{SCRATCH}/plain.md"]
+
+
 def test_a_windows_edit_path_has_one_spelling_and_names_its_directory():
     """The same file written by an edit tool and by the shell is one entry of files_written."""
     inv = thread_inventory.inventory([

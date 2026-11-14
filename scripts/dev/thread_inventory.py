@@ -1160,25 +1160,30 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
     for token in TOKEN_SPLIT.split(command):  # heredoc bodies too: a script there may write the file
         path = token.rstrip(".,:")
         if SCRATCHPAD_PATH.search(path) and (path.startswith("/") or WINDOWS_PATH.match(path)):
-            sink["scratch"].setdefault(_resolve(path, None) or path, ts)  # one spelling for a Windows path
+            # Inferred, not parsed: this scan reads blanks-separated words, so it keeps its own
+            # bucket and `_scratchpad_paths` drops a fragment of a parsed target from it alone.
+            sink["scratch_tokens"].setdefault(_resolve(path, None) or path, ts)
 
 
-def _scratchpad_paths(scratch: dict) -> list[str]:
-    """The session-local paths this thread touched, without the cuts the token scan leaves.
+def _scratchpad_paths(parsed: dict, inferred: dict) -> list[str]:
+    """The session-local paths this thread touched: every parsed target, and the inferred ones
+    that are not fragments of a parsed target.
 
-    The token scan reads a command as blanks-separated words, so a quoted path with a space
-    reaches it cut at that space. Recording the parsed target beside it is what keeps the write
-    visible, but the cut stays in the field as well, and a cut is a path no write created: the
-    very thing this inventory must not report. A recorded path that another recorded path
-    continues after a single space is such a cut, and only a blanks split produces that shape.
+    Two sources fill this field. A write's target is parsed from the command, and a path merely
+    mentioned anywhere in it is picked up by a scan over blanks-separated words. That scan cuts a
+    quoted path at its space, so `'.../my notes.md'` reaches it as `.../my`, and a cut is a path
+    no write created: the very thing this inventory must not report.
 
-    A directory whose own name is a prefix of a file beside it, with a space between, goes with
-    the cuts. That costs nothing: the file already names the directory, and reporting one fewer
-    inferred parent is the right direction of error for a field that answers what was written.
+    So an inferred path is dropped when a parsed target continues it after a single space, which
+    is the shape only a blanks split produces, and a parsed target is never dropped. Judging the
+    two together would lose a real write: `echo x > '<s>/notes'` and `echo y > '<s>/notes old.md'`
+    are both parsed targets, and the first is a space-prefixed sibling of the second.
     """
-    paths = sorted(scratch)
-    return [path for path in paths
-            if not any(other.startswith(path + " ") for other in paths if other != path)]
+    targets = sorted(parsed)
+    fragments = [path for path in sorted(inferred)
+                 if path not in parsed
+                 and not any(target.startswith(path + " ") for target in targets)]
+    return sorted({*targets, *fragments})
 
 
 def _written_files(segment: str, tokens: list[str]) -> list[str]:
@@ -1651,7 +1656,7 @@ def _in_time_order(items: list[dict]) -> list[dict]:
 
 def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
-            "logging": 0, "client_local": Counter(), "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
+            "logging": 0, "client_local": Counter(), "scratch": {}, "scratch_tokens": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
             "activity": [],  # the times of the transcript's entries, which bound the memory scan
             "unclassified_commands": [], "skipped": 0, "shell_writes": [],
@@ -1919,7 +1924,7 @@ def summarize(sink: dict) -> dict:
         "logging_calls": sink["logging"],
         "client_local_calls": dict(sink["client_local"]),
         "background_tasks": background,
-        "scratchpad_paths": _scratchpad_paths(sink["scratch"]),
+        "scratchpad_paths": _scratchpad_paths(sink["scratch"], sink["scratch_tokens"]),
         "corrections": _in_time_order(sink["corrections"]),
         "skipped_entries": sink["skipped"],
     }
