@@ -53,17 +53,26 @@ can no longer redden the step, so a backgrounded command is not evidence -- and
 a single `|` is refused for the same reason under the shell the committed steps
 get, where the left side of a pipe loses its exit status.
 
-Executing a step is a trust boundary, and the boundary is stated rather than
-assumed: pytest here runs a workflow's own shell on whoever's machine runs this
-suite, reachable from a pull-request diff a maintainer checks out. What bounds
-it is a throwaway tree with HOME inside it, a PATH holding the shims and a
-four-program allowlist and nothing else, a refusal to start a step that
-redirects to an absolute path, and an assertion that every step either guard
-executes starts only a shimmed or allowed program. An unshimmed program is
-`command not found`, which is a problem rather than a real execution. What is
-still not bounded is what a shimmed program could be made to do with the tree
-it is given, and nothing confines memory, time beyond the timeout, or a program
-the allowlist carries.
+Executing a step is a trust boundary, and what the boundary is is what the
+code refuses: pytest here runs a workflow's own shell on whoever's machine runs
+this suite, reachable from a pull-request diff a maintainer checks out. The
+sentence that stood here claimed more than the code held, and a pre-mortem
+measured three ways out of it, each one leaving the step a clean recorded run:
+an absolute program that was not an interpreter, which PATH never saw; a `..`
+spelling of a shim path, written 0755 outside the tree before the step started;
+and a redirection through `~`, which the reader of the spelling could not place.
+So every refusal is read before anything starts, by one reader that the
+executor and the assertion over the committed steps share: a command word has
+to be a shim or one of the four programs on the
+allowlist, a shim path has to stay inside the tree, and a redirection target
+has to be a literal path inside it -- which refuses `~`, `$` and a backtick,
+because the shell expands those when the step runs and not when this reads.
+What bounds the step that does start is a throwaway tree with HOME inside it
+and a PATH holding the shims and that allowlist and nothing else. A step this
+guard refuses is a verdict about the step and fails; a runner that could not
+answer skips. What is still not bounded is what a shimmed program could be made
+to do with the tree it is given, what a program on the allowlist can do, or
+memory and time beyond the timeout.
 
 The recorder's own log is the other thing a step could reach: its path used to
 travel in the step's environment, so a step could write the line the guard then
@@ -800,9 +809,12 @@ ALWAYS_SHIMMED = ("python", "python3", "pytest", "pip", "pip3", "uv", "uvx")
 # resolved to the real binaries, and a redirection to an absolute path left the
 # throwaway tree. So PATH now holds the shim directory and these, and nothing
 # else. Each is here because a step or a case in this module really runs it, and
-# none of them reaches the network or installs anything. A program outside both
-# lists is `command not found`, which `bash -e` turns into the `problem` this
-# module already models -- never a real execution, and never an empty log.
+# none of them reaches the network or installs anything. A command word outside
+# both lists is refused before the step starts, which is a verdict about the
+# step rather than a runner that could not answer; one this reader does not see
+# as a command word is still `command not found` under `bash -e`, which stays
+# the `problem` this module already models -- never a real execution, and never
+# an empty log.
 ALLOWED_PROGRAMS = ("cat", "chmod", "ls", "mkdir")
 # Shell words that start no program: builtins and the keywords `logical_commands`
 # leaves standing on their own. An unlisted one is reported rather than allowed,
@@ -816,9 +828,19 @@ SHELL_WORDS = frozenset({
     "until", "wait", "while",
 })
 # A redirection is the one write a step can make without starting a program, so
-# an absolute target is how a script leaves the tree while every program it runs
-# is shimmed. `2>&1` is not one of these: its target is a descriptor.
+# its target is how a script leaves the tree while every program it runs is
+# shimmed. `2>&1` is not one of these: its target is a descriptor.
 REDIRECTION_TARGET = re.compile(r"(?:^|\s)\d*>>?\s*([^\s|;&<>]+)")
+# A here-document's delimiter, in both of the spellings a step writes: `<<WORD`
+# and `<<'WORD'`, with `<<-` for the tab-stripping form. `without_here_documents`
+# uses it to tell a program from the data one is fed.
+HERE_DOCUMENT = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
+# A target holding one of these is not a path at all until the shell expands it,
+# which happens when the step runs and not when this module reads: `~` is the
+# home directory, `$NAME` and `${NAME}` a variable, `$(...)` and a backtick the
+# output of a command. `> ~/../x` was measured writing beside the throwaway tree
+# while the reader of the spelling saw nothing to refuse.
+EXPANDS_AT_RUNTIME = re.compile(r"[~$`]")
 # Writing to these touches nothing, and a step that silences output writes one.
 HARMLESS_TARGETS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr"})
 PIP_EXECUTABLE = re.compile(r"^(?:\S*/)?pip[\d.]*$")
@@ -879,9 +901,20 @@ def recorded(log, calls):
     return lines, None
 # `status` is the shell's exit code, or None when the step was never started;
 # `commands` what the shims recorded, in order; `output` the script's own
-# output; and `problem` why this reader could not answer, which is a different
-# verdict from a step that ran no pytest and is never evidence of either.
-StepRun = namedtuple("StepRun", "status commands output problem")
+# output; `problem` why this reader could not answer, which is a different
+# verdict from a step that ran no pytest and is never evidence of either; and
+# `refused` whether that problem is this guard's own verdict about the step --
+# a program, a path or a redirection it does not cover -- rather than this
+# machine saying it could not measure. The two were one answer, and the one
+# answer skipped: a step that names `grep` turned the executing guard off while
+# the pull request stayed green. A refusal fails instead.
+StepRun = namedtuple("StepRun", "status commands output problem refused",
+                     defaults=(False,))
+
+
+def refused_step(reason):
+    """A step this guard will not execute, with why, and nothing started."""
+    return StepRun(None, [], "", f"the step was not executed: {reason}", True)
 # Executing a step is the expensive half and the answer does not depend on the
 # host: every candidate step runs a platform-neutral `python -m pytest`, and
 # what the recorder sees on macOS it sees on ubuntu. Measured, it cost +3.3 s on
@@ -1001,39 +1034,93 @@ EXECUTES_STEPS = pytest.mark.skipif(
     UNEXECUTABLE is not None, reason=UNEXECUTABLE or "")
 
 
-def write_shim(path, text):
-    """Put this recording shim at this path and make it executable."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
-    path.chmod(0o755)
+def leaves_the_tree(path):
+    """True when this spelling does not stay inside the tree it is joined to.
+
+    Lexically, because this answers before the tree exists and before anything
+    is written: an absolute path replaces the tree it is joined to, and a `..`
+    that `normpath` cannot cancel climbs out of it. `leaves_the_tree("a/../b")`
+    is False and `leaves_the_tree("a/../../b")` is True, which is the
+    difference the head of this branch did not make -- it asked whether the
+    spelling started with `/`, so every `..` spelling counted as a path inside
+    the tree. The real path is checked again where a file is written, which is
+    the answer that also covers a symlink no reading can see.
+    """
+    return path.startswith("/") or os.path.normpath(path).split(os.sep)[0] == ".."
+
+
+def write_shim(tree, path, text):
+    """Put this recording shim inside this tree, or say why it was not written.
+
+    The containment is checked here because this is the line that writes: a
+    parents `mkdir`, a `write_text` and a `chmod 0o755` at `tree / path`, with
+    nothing between them at the head of this branch. A `..` spelling of a shim
+    path resolves outside the tree, and one was measured leaving a 0755
+    `#!/bin/sh` stub beside it that survived the tree's cleanup -- anywhere the
+    user can write, over an existing file of that name, a real interpreter
+    included. `shim_plan` refuses the same spelling by reading before anything
+    is created; this is what the resolved path says, so a symlink answers too.
+    """
+    destination = tree / path
+    if not destination.resolve().is_relative_to(tree.resolve()):
+        return f"`{path}` resolves outside {tree}"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(text)
+    destination.chmod(0o755)
+    return None
 
 
 def shim_plan(script):
-    """Which program names, relative paths and absolute paths a shim must cover.
+    """Which program names, paths inside the tree and paths outside it a shim covers.
 
     Read by the same expressions as the static reader, so the recorder covers
     exactly what that reader would call pytest, plus pip. A bare name is
-    answered by a shim directory at the front of PATH. A relative path such as
-    `.venv/bin/pytest` is written at that path inside the copied tree, because
-    PATH does not decide a path. An absolute path cannot be intercepted at all:
-    it is returned so the caller refuses to execute the step, since running it
-    would start the real program -- the real pytest over the real content
-    checks, from inside the guard that checks them.
+    answered by a shim directory at the front of PATH. A path inside the tree,
+    such as `.venv/bin/pytest`, is written at that path in the copied tree,
+    because PATH does not decide a path. A path that leaves the tree cannot be
+    covered at all and is returned so the caller refuses the step: an absolute
+    one would start the real program -- the real pytest over the real content
+    checks, from inside the guard that checks them -- and a `..` spelling named
+    a file to create outside the tree, which is what it was measured doing.
     """
-    names, relative, absolute = set(ALWAYS_SHIMMED), set(), set()
+    names, inside, outside = set(ALWAYS_SHIMMED), set(), set()
     for command in logical_commands(script):
         for token in command.split():
             bare = unquoted(token)
             if not (PYTEST_EXECUTABLE.match(bare) or PYTHON_EXECUTABLE.match(bare)
                     or PIP_EXECUTABLE.match(bare)):
                 continue
-            if bare.startswith("/"):
-                absolute.add(bare)
+            if leaves_the_tree(bare):
+                outside.add(bare)
             elif "/" in bare:
-                relative.add(bare)
+                inside.add(bare)
             else:
                 names.add(bare)
-    return sorted(names), sorted(relative), sorted(absolute)
+    return sorted(names), sorted(inside), sorted(outside)
+
+
+def without_here_documents(script):
+    """This script with every here-document body and its delimiter line removed.
+
+    A here-document is data a program is fed, not a sequence of commands, and
+    `logical_commands` reads one as commands on purpose: a path named inside it
+    has to count as named, because hiding the command there and leaving the
+    path visible is one of the eight forms #632 recorded. The reader that
+    decides what may run needs the other answer -- `cat <<'PLAN'` ends with a
+    line reading `PLAN`, which starts no program, and the lines between it
+    start none either.
+    """
+    kept, delimiter = [], None
+    for line in re.sub(r"\\\s*\n\s*", " ", script).splitlines():
+        if delimiter is not None:
+            if line.strip() == delimiter:
+                delimiter = None
+            continue
+        kept.append(line)
+        opened = HERE_DOCUMENT.search(line)
+        if opened:
+            delimiter = opened.group(1)
+    return "\n".join(kept) + "\n"
 
 
 def unconfined_programs(script):
@@ -1041,29 +1128,50 @@ def unconfined_programs(script):
 
     Read with the same expressions as everything else here: `shim_plan` says
     what a shim covers, and a word that is a shell builtin or a keyword starts
-    nothing. What is left is what would run for real, which is what the
-    assertion over the committed steps refuses.
+    nothing. What is left is what would run for real. This used to be asked by
+    an assertion over the committed steps and by nothing else -- not by the
+    executor, and not by the CI job that executes steps for the manifests
+    guard, which does not run this module at all -- so a step whose command
+    word was `/usr/bin/touch` was started and counted as a clean recorded run.
+    The executor asks it now, through `why_this_guard_refuses`.
+
+    Three words at a command position start nothing and are not reported, each
+    of them a place where this reader is reading something that is not a
+    command: a here-document's own lines, a `name()` function definition, and a
+    word beginning with `-`, which is an option and means the split landed
+    inside a command rather than at the start of one. What a word this reader
+    misses falls back to is the old answer and not an execution: PATH holds the
+    shims and the allowlist and nothing else, so the program is `command not
+    found`. This reading is what makes that boundary a loud refusal instead of
+    a status 127 nobody reads.
     """
-    names, relative, absolute = shim_plan(script)
-    shimmed = {*names, *relative, *absolute}
+    names, inside, outside = shim_plan(script)
+    shimmed = {*names, *inside, *outside}
     found = []
-    for command in logical_commands(script):
+    for command in logical_commands(without_here_documents(script)):
         word = command_word(command)
         if word is None or word in shimmed or word in SHELL_WORDS:
             continue
-        if word in ALLOWED_PROGRAMS:
+        if word in ALLOWED_PROGRAMS or word.endswith("()") or word.startswith("-"):
             continue
         found.append(word)
     return sorted(set(found))
 
 
 def writes_outside_the_tree(script):
-    """Every redirection target of this script that the throwaway tree does not hold.
+    """Every redirection target of this script that is not a literal path inside it.
 
-    An absolute path is outside the copy by construction, and `..` climbs out of
-    it; both were measured succeeding, with the guard still recording and still
-    passing. `/dev/null` and the standard streams are the exception, because
-    writing there touches nothing and a step that silences output writes one.
+    Accepted the other way round, because the spelling is all this has: a
+    target is a path this guard can place only when it holds no expansion and
+    stays inside the tree. An absolute path is outside the copy by
+    construction, `..` climbs out of it, and `~`, `$NAME`, `$(...)` and a
+    backtick are not paths yet at all -- the shell expands them when the step
+    runs, long after this answer is given. The first two were measured
+    succeeding and `> ~/../x` was measured writing beside the tree, each with
+    the guard still recording and still passing, because the reader asked only
+    whether the spelling began with `/` or `..`. `/dev/null` and the standard
+    streams are the exception, because writing there touches nothing and a step
+    that silences output writes one.
     """
     escaping = []
     for command in logical_commands(script):
@@ -1071,9 +1179,46 @@ def writes_outside_the_tree(script):
             target = unquoted(target)
             if target in HARMLESS_TARGETS:
                 continue
-            if target.startswith("/") or target.split("/")[0] == "..":
+            if EXPANDS_AT_RUNTIME.search(target) or leaves_the_tree(target):
                 escaping.append(target)
     return sorted(set(escaping))
+
+
+def why_this_guard_refuses(script):
+    """Every reason this guard will not execute this script, read before it runs.
+
+    One reader for the executor and for the assertion over the committed steps,
+    so the line the executor holds is the line a workflow edit is measured
+    against, and on every leg rather than only where steps are executed. Three
+    reasons, each of them a way out of the tree that was measured working: a
+    program neither a shim nor the allowlist covers, which PATH never decides
+    for an absolute path and which `command not found` only reports after the
+    fact; a shim path that does not stay inside the tree, which the harness
+    wrote there 0755 before the step started; and a redirection target this
+    reader cannot place as a literal path inside the tree.
+
+    A reason here is a verdict about the step, which fails. It is not the same
+    answer as a runner that could not measure, which skips.
+    """
+    reasons = []
+    outside = shim_plan(script)[2]
+    if outside:
+        reasons.append(
+            "it runs " + ", ".join(f"`{path}`" for path in outside)
+            + ", which PATH cannot intercept and no shim inside the throwaway "
+            "tree can stand in for")
+    unconfined = unconfined_programs(script)
+    if unconfined:
+        reasons.append(
+            "it starts " + ", ".join(f"`{word}`" for word in unconfined)
+            + ", which is neither shimmed nor on the allowlist, so running it "
+            "would run the real program")
+    escaping = writes_outside_the_tree(script)
+    if escaping:
+        reasons.append(
+            "it writes to " + ", ".join(f"`{path}`" for path in escaping)
+            + ", which is not a literal path inside the throwaway tree")
+    return reasons
 
 
 def shell_argv(shell, script_file):
@@ -1135,23 +1280,20 @@ def execute_step(script, *, shell=None, env=None, working_directory=None, timeou
     no variable at all, because the guard against a workflow redirecting the log
     was never the guard against a workflow writing it.
 
-    A program the shims do not cover and the machine does not have stops the
-    script under `bash -e`; that non-zero status is returned as a `problem`
-    with the last line of output, rather than as an empty log, because "could
-    not run this" and "ran no pytest" are different answers.
+    What the script may do at all is decided before any of that, by
+    `why_this_guard_refuses`, and a script it names a reason for is not
+    started: the refusals are the boundary, and three of them were measured
+    missing. A program this guard does not cover and the machine does not have
+    still stops the script under `bash -e` when the reader did not see it as a
+    command word; that non-zero status is returned as a `problem` with the last
+    line of output, rather than as an empty log, because "could not run this"
+    and "ran no pytest" are different answers -- and both of them differ again
+    from "this guard will not run that", which is what `refused` carries.
     """
-    names, relative, absolute = shim_plan(script)
-    if absolute:
-        return StepRun(None, [], "", (
-            "the script runs " + ", ".join(f"`{path}`" for path in absolute)
-            + ", which PATH cannot intercept, so the step was not executed"
-        ))
-    escaping = writes_outside_the_tree(script)
-    if escaping:
-        return StepRun(None, [], "", (
-            "the script writes to " + ", ".join(f"`{path}`" for path in escaping)
-            + ", which is outside the throwaway tree, so the step was not executed"
-        ))
+    refusals = why_this_guard_refuses(script)
+    if refusals:
+        return refused_step("; ".join(refusals))
+    names, inside, _ = shim_plan(script)
     with tempfile.TemporaryDirectory() as scratch:
         scratch = Path(scratch)
         tree = scratch / "tree"
@@ -1173,9 +1315,13 @@ def execute_step(script, *, shell=None, env=None, working_directory=None, timeou
         calls.touch()
         text = shim_text(log, calls)
         for name in names:
-            write_shim(shims / name, text)
-        for path in relative:
-            write_shim(tree / path, text)
+            problem = write_shim(shims, name, text)
+            if problem:
+                return refused_step(problem)
+        for path in inside:
+            problem = write_shim(tree, path, text)
+            if problem:
+                return refused_step(problem)
         script_file = scratch / "step.sh"
         script_file.write_text(script)
         argv, problem = shell_argv(shell, str(script_file))
@@ -1252,13 +1398,16 @@ def recorded_pytest_runs(commands, test_file):
 def executed_verdict(test_file, documents):
     """Execute every step that names this file and say what the recorder saw.
 
-    Returns `(evidence, measured, reasons)`: whether some step really handed the
-    file to pytest, how many steps gave an answer either way, and why the rest
-    gave none. The three are what `require_a_recorded_run` decides on, and
-    taking the workflows as an argument is what lets a constructed one be asked
-    the same question as the committed ones.
+    Returns `(evidence, measured, reasons, refusals)`: whether some step really
+    handed the file to pytest, how many steps gave an answer either way, why
+    the rest gave none, and which of them this guard refused to execute at all.
+    The four are what `require_a_recorded_run` decides on, and taking the
+    workflows as an argument is what lets a constructed one be asked the same
+    question as the committed ones. A refusal is kept apart because it is a
+    verdict about the step and fails, where a reason may be a runner that could
+    not answer and skips.
     """
-    reasons, measured = [], 0
+    reasons, refusals, measured = [], [], 0
     for name, workflow in documents.items():
         for job_name, job, step in steps_passing_the_file(workflow, test_file):
             skipped = skip_reasons(workflow, job_name, step)
@@ -1274,30 +1423,42 @@ def executed_verdict(test_file, documents):
                 run_default(workflow, job, step, "working-directory")[0],
             )
             if run.problem:
-                reasons.append(f"{name} ({job_name}): {run.problem}")
+                where = f"{name} ({job_name}): {run.problem}"
+                (refusals if run.refused else reasons).append(where)
             elif recorded_pytest_runs(run.commands, test_file):
-                return True, measured + 1, reasons
+                return True, measured + 1, reasons, refusals
             else:
                 measured += 1
                 reasons.append(
                     f"{name} ({job_name}): the script started "
                     f"{len(run.commands)} recorded command(s) and none of them ran "
                     f"{test_file}: {run.commands}")
-    return False, measured, reasons
+    return False, measured, reasons, refusals
 
 
-def require_a_recorded_run(test_file, measured, problems):
+def require_a_recorded_run(test_file, measured, problems, refusals=()):
     """Pass, skip or fail on what executing the candidate steps answered.
 
-    Three answers, not two. A step that was executed and ran no pytest over the
-    file is the bypass this module exists to catch, and it fails. A candidate
-    set whose every answer was a problem is a measurement nobody made -- no bash
-    on PATH, a temp filesystem mounted `noexec`, a shim shebang the kernel
-    refuses, pytest refusing a committed argv, the timeout on a contended runner
-    -- and an unusable runner must not read as a bypass, so it skips carrying
-    those reasons. Nothing naming the file at all is the original failure and
-    stays one.
+    Four answers, not two. A step this guard will not execute is a verdict
+    about the step -- it names a program, a path or a redirection the harness
+    does not cover -- so it fails: a workflow edit that reaches outside what
+    the throwaway tree bounds has to break the build rather than quietly stop
+    measuring, which is what it did when `grep` in a step read as a runner that
+    could not answer. A step that was executed and ran no pytest over the file
+    is the bypass this module exists to catch, and it fails. A candidate set
+    whose every answer was a problem is a measurement nobody made -- no bash on
+    PATH, a temp filesystem mounted `noexec`, a shim shebang the kernel
+    refuses, pytest refusing a committed argv, the timeout on a contended
+    runner -- and an unusable runner must not read as a bypass, so it skips
+    carrying those reasons. Nothing naming the file at all is the original
+    failure and stays one.
     """
+    if refusals:
+        pytest.fail(
+            f"a step that names {test_file} is one this guard will not execute, "
+            "so whether a run really hands the file to pytest was never "
+            "measured: " + "; ".join(refusals)
+        )
     if problems and not measured:
         pytest.skip(
             f"this guard could not measure whether a step really runs {test_file}: "
@@ -1343,11 +1504,11 @@ def test_running_the_step_really_hands_the_file_to_pytest(test_file):
     calendar case has always used, and a step it disqualifies is a reason rather
     than a run.
     """
-    evidence, measured, reasons = executed_verdict(
+    evidence, measured, reasons, refusals = executed_verdict(
         test_file, {path.name: load_workflow(path) for path in WORKFLOWS})
     if evidence:
         return
-    require_a_recorded_run(test_file, measured, reasons)
+    require_a_recorded_run(test_file, measured, reasons, refusals)
 
 
 def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
@@ -2072,23 +2233,25 @@ FORGED_RECORD = (
 
 @EXECUTES_STEPS
 def test_the_step_cannot_name_the_recorder_s_log():
-    """The forged construction, verbatim, and why it no longer records anything.
+    """The forged construction, verbatim, and the two answers that stop it.
 
-    Reading cannot refuse it: the right side of `||` is a real pytest command
-    over all three files, so the static half says yes and must -- bash never
-    reaches it, which is exactly what executing the step is for. What closes it
-    is that the step has no way to address the log: the paths are baked into
-    each shim's own text per run, and no variable in the step's environment
-    holds either of them, so the `:-/dev/null` default takes over and the
-    append goes nowhere.
+    Reading cannot refuse the construction: the right side of `||` is a real
+    pytest command over all three files, so the static half says yes and must
+    -- bash never reaches it, which is exactly what executing the step is for.
+    Two things stop it. Its redirection target is a variable, which is not a
+    path this guard can place inside the throwaway tree, so the step is not
+    executed at all. And the step would have no way to address the log even if
+    it were: the paths are baked into each shim's own text per run and no
+    variable in the step's environment holds either of them, which the second
+    step below is what measures.
     """
     assert runs_as_pytest_argument(
         logical_commands(FORGED_RECORD), SCHEDULED_BY_CALENDAR
     ), "the static half is supposed to be satisfied; that is the premise here"
     run = execute_step(FORGED_RECORD)
-    assert run.problem is None, run.problem
     assert run.commands == [], (
         f"a step forged the recorder's log: {run.commands}")
+    assert run.refused and "CONTENT_CHECK_RECORDED_ARGV" in run.problem, run.problem
     assert recorded_pytest_runs(run.commands, SCHEDULED_BY_CALENDAR) == []
     told = execute_step(
         'printf "%s\\n" "${CONTENT_CHECK_RECORDED_ARGV:-unset}"\n')
@@ -2098,18 +2261,22 @@ def test_the_step_cannot_name_the_recorder_s_log():
 
 
 @EXECUTES_STEPS
-def test_a_recorded_line_no_shim_wrote_is_refused():
-    """And if a step finds the path anyway, the count is what catches the line.
+def test_a_recorded_line_no_shim_wrote_is_refused(tmp_path):
+    """And if a line reaches the log anyway, the count is what catches it.
 
     The shim's own text is readable by the step that runs it -- a shebang
     script has to be readable to be executed -- so baking the path in moves it
-    out of the environment without putting it beyond a determined script. The
-    second half of the answer is arithmetic: each shim records one line and
-    counts one invocation, so a log holding more lines than the shims were
-    invoked times is a log with a line no shim wrote, and the whole run is
-    reported as a measurement rather than read as evidence. The script below
-    does exactly that, reading the path out of the shim with shell builtins and
-    appending one line beside one real invocation.
+    out of the environment without putting it beyond a determined script. Two
+    answers stand between that script and the log. The script below reads the
+    path out of the shim with shell builtins and appends through `$log`, and a
+    redirection target this reader cannot place as a literal path inside the
+    tree is refused before the step starts, so it is never executed. Should a
+    line reach the log by some route this reader does not see, the arithmetic
+    is what reports it: each shim records one line and counts one invocation,
+    so a log holding more lines than the shims were invoked times is a log with
+    a line no shim wrote, and the whole run is reported as a measurement rather
+    than read as evidence. That half is asked of `recorded` directly, on the
+    two files a run leaves behind, because no step can reach them any more.
     """
     script = (
         'shim="$(command -v pytest)"\n'
@@ -2124,27 +2291,44 @@ def test_a_recorded_line_no_shim_wrote_is_refused():
     )
     run = execute_step(script)
     assert run.commands == [], run.commands
-    assert run.problem and "no shim wrote" in run.problem, run.problem
+    assert run.refused and "$log" in run.problem, run.problem
+    log, calls = tmp_path / "recorded-argv", tmp_path / "invocations"
+    log.write_text("pytest tests/test_skill_freshness.py\n")
+    calls.write_text(".")
+    assert recorded(log, calls) == (["pytest tests/test_skill_freshness.py"], None)
+    log.write_text("pytest forged.py\npytest tests/test_skill_freshness.py\n")
+    lines, forged = recorded(log, calls)
+    assert lines == [] and forged and "no shim wrote" in forged, (lines, forged)
 
 
 @EXECUTES_STEPS
-def test_an_unshimmed_program_is_a_problem_not_a_real_execution():
+def test_an_unshimmed_program_is_refused_before_it_is_command_not_found():
     """The trust boundary: executing a step means running a diff as shell here.
 
     A maintainer who runs this suite over a pull request runs that branch's
     workflow scripts on their own machine. cwd and HOME are redirected and the
     programs that could be pytest are shimmed, which left every other program
     on the machine reachable -- measured, `git` and `curl` resolved to the real
-    binaries. PATH now holds the shim directory and a small allowlist and
-    nothing else, so an unshimmed program is `command not found`, `bash -e`
-    stops there, and the step becomes the `problem` this module already models
-    rather than a real execution.
+    binaries. PATH holds the shim directory and a small allowlist and nothing
+    else, and a command word outside both is refused by reading before the
+    script is started at all, which is a verdict about the step.
+
+    `command not found` is what is left for a program this reader does not see
+    as a command word -- here behind `eval`, which starts nothing itself. That
+    one is still a `problem`: `bash -e` stops, nothing was recorded, and the
+    answer is that this runner could not measure rather than that the step is
+    one the guard refuses.
     """
     run = execute_step("git --version\n" + CONTROL_COMMAND + "\n")
     assert run.commands == [], (
         f"the step reached {run.commands} after an unshimmed program")
-    assert run.problem and "exited" in run.problem, run.problem
-    assert "not found" in run.output, run.output
+    assert run.refused is True, run.problem
+    assert run.problem and "`git`" in run.problem, run.problem
+    hidden = execute_step("eval 'git --version'\n" + CONTROL_COMMAND + "\n")
+    assert hidden.commands == [], hidden.commands
+    assert hidden.refused is False, hidden.problem
+    assert hidden.problem and "exited" in hidden.problem, hidden.problem
+    assert "not found" in hidden.output, hidden.output
 
 
 @EXECUTES_STEPS
@@ -2167,16 +2351,120 @@ def test_a_step_writing_outside_the_throwaway_tree_is_refused():
     assert execute_step("ls tests > /dev/null\n").problem is None
 
 
-def test_every_step_this_guard_executes_runs_only_confined_programs():
-    """And the line is held by an assertion, not by what the steps happen to run.
+@EXECUTES_STEPS
+def test_a_shim_path_that_climbs_out_of_the_tree_is_refused(tmp_path, monkeypatch):
+    """`../x/pytest` never was inside the tree, and the harness wrote it there.
 
-    Both guards execute every step whose script mentions pytest, so the
-    containment claim is a claim about those steps. Today each of them starts
-    only `python` or `python3`, which are shimmed; the assertion is what makes
-    that a fact about the repository rather than a convention, and a step that
-    reached for anything else would be reported here instead of running it.
+    A token counted as absolute only when it started with `/`, so a `..`
+    spelling was a relative path -- and the relative paths are exactly the ones
+    a shim is written at, by a parents `mkdir`, a `write_text` and a
+    `chmod 0o755` under the throwaway tree with nothing in between. Measured at
+    the head of this branch: a 0755 `#!/bin/sh` stub appeared beside the tree,
+    from a step whose only unusual feature was that spelling, and survived the
+    tree's cleanup. Any line of any workflow holding such a token would have
+    done it, anywhere the user can write, an interpreter included. A spelling
+    that does not stay inside the tree is refused exactly as an absolute one.
     """
-    unconfined = {}
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    escaped = tmp_path / "escaped" / "pytest"
+    run = execute_step("echo ../../escaped/pytest\n" + CONTROL_COMMAND + "\n")
+    assert not escaped.exists(), (
+        f"a shim was written at {escaped}, outside the throwaway tree")
+    assert run.commands == [], run.commands
+    assert run.problem and "../../escaped/pytest" in run.problem, run.problem
+
+
+@EXECUTES_STEPS
+def test_an_absolute_program_this_guard_cannot_shim_is_refused(tmp_path):
+    """The refusal covered the three interpreter spellings and nothing else.
+
+    `shim_plan` reads a token only when the pytest, python or pip expression
+    matches it, so an absolute path to any other program entered no plan and
+    was never refused -- while PATH, which holds the shims and the allowlist,
+    is not consulted for an absolute path at all. Measured at the head of this
+    branch: a step whose command word was `/usr/bin/touch` created the file it
+    was given, and the step was reported as a clean recorded run. What refuses
+    it now is the same reading the committed steps are asserted against.
+    """
+    marker = tmp_path / "absolute-program-ran"
+    run = execute_step(f"/usr/bin/touch {marker}\n" + CONTROL_COMMAND + "\n")
+    assert not marker.exists(), f"an absolute program ran and wrote {marker}"
+    assert run.commands == [], run.commands
+    assert run.problem and "/usr/bin/touch" in run.problem, run.problem
+
+
+@EXECUTES_STEPS
+def test_a_redirection_target_that_expands_at_runtime_is_refused(tmp_path, monkeypatch):
+    """`~`, `$VAR` and `$(...)` are not paths this reader can place.
+
+    A target was refused only when it started with `/` or its first segment was
+    `..`, which reads the spelling and not the path: `~`, a variable and a
+    command substitution are expanded by the shell when the step runs, long
+    after this answer is given. Measured at the head of this branch:
+    `> ~/../x` wrote beside the throwaway tree and the step was a clean
+    recorded run. A target is accepted now only when it is a literal path that
+    stays inside the tree.
+    """
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    escaped = tmp_path / "escaped-by-tilde"
+    run = execute_step(
+        "echo forged > ~/../../escaped-by-tilde\n" + CONTROL_COMMAND + "\n")
+    assert not escaped.exists(), f"the step wrote {escaped}, outside the tree"
+    assert run.commands == [], run.commands
+    assert run.problem and "escaped-by-tilde" in run.problem, run.problem
+    for target in ("~/x", "$HOME/x", "${HOME}/x", "$(pwd)/x", "`pwd`/x", "a/../../x"):
+        assert writes_outside_the_tree(f"echo forged > {target}\n") == [target], target
+    # A literal path inside the tree is still a write this guard allows.
+    assert writes_outside_the_tree("echo fine > build/log\n") == []
+
+
+@EXECUTES_STEPS
+def test_a_program_this_guard_does_not_cover_is_a_failure_not_a_skip():
+    """`command not found` is not an unusable runner, and it read as one.
+
+    A program that is neither shimmed nor on the allowlist stops the script
+    under `bash -e` with status 127, which the executor returns as a problem --
+    the answer kept for a runner that cannot measure. Nothing was measured, so
+    the assertion skipped: a maintainer who adds `grep`, `tee`, `jq`,
+    `coverage` or `timeout` to a step, or a redirection to an unset
+    `$GITHUB_STEP_SUMMARY`, turns this guard off while the pull request stays
+    green. The two answers are separated now. A step this guard will not
+    execute is a verdict about the step and fails; a runner that cannot answer
+    still skips.
+    """
+    script = "grep -q pytest tests/test_skill_invariants.py\n" + CONTROL_COMMAND + "\n"
+    run = execute_step(script)
+    assert run.commands == [], run.commands
+    assert run.problem and "grep" in run.problem, run.problem
+    verdict = executed_verdict(
+        SCHEDULED_BY_CALENDAR,
+        {"w.yml": {"jobs": {"content": {"steps": [{"run": script}]}}}})
+    assert verdict[0] is False
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as outcome:
+        require_a_recorded_run(SCHEDULED_BY_CALENDAR, *verdict[1:])
+    assert isinstance(outcome.value, pytest.fail.Exception), (
+        "a step naming a program this guard does not cover has to fail rather "
+        f"than skip: {outcome.value}")
+    # A runner that really could not answer still skips, or the split is one-sided.
+    with pytest.raises(pytest.skip.Exception):
+        require_a_recorded_run(SCHEDULED_BY_CALENDAR, 0,
+                               ["w.yml (content): the script did not finish in 120s"])
+
+
+def test_every_step_this_guard_executes_stays_inside_what_it_confines():
+    """And the line is held by an assertion on every leg, not where steps run.
+
+    Both guards execute every step whose script mentions pytest, so what the
+    executor refuses is a claim about those steps. One third of that claim was
+    asserted here -- the programs -- and the other two thirds nowhere; and the
+    CI job that executes steps for the manifests guard does not run this module
+    at all, so even that third was asserted on one leg only. This reads the
+    committed steps with the executor's own reader, on every leg and without
+    starting anything, so a workflow edit that reaches outside the tree breaks
+    the build loudly instead of turning a guard into a skip. Today every such
+    step starts only `python` or `python3`, which are shimmed.
+    """
+    refused = {}
     for path in WORKFLOWS:
         for job in (load_workflow(path).get("jobs") or {}).values():
             if not isinstance(job, dict):
@@ -2185,13 +2473,22 @@ def test_every_step_this_guard_executes_runs_only_confined_programs():
                 if not (isinstance(step, dict) and isinstance(step.get("run"), str)
                         and "pytest" in step["run"]):
                     continue
-                found = unconfined_programs(step["run"])
-                if found:
-                    unconfined[f"{path.name}: {step.get('name', step['run'][:40])}"] = found
-    assert unconfined == {}, (
-        "a step this guard executes starts a program that is neither shimmed nor "
-        f"on the allowlist, so running it would run the real program: {unconfined}"
+                reasons = why_this_guard_refuses(step["run"])
+                if reasons:
+                    refused[f"{path.name}: {step.get('name', step['run'][:40])}"] = reasons
+    assert refused == {}, (
+        "a step this guard executes reaches outside what the throwaway tree, the "
+        f"shim PATH and the allowlist confine: {refused}"
     )
+    # The reader really answers, or the assertion above is a tautology. One
+    # case per reason, each of them measured escaping at the head of this branch.
+    for script in (
+        "grep -q x tests/test_skill_invariants.py\n" + CONTROL_COMMAND + "\n",
+        "/usr/bin/touch escaped\n" + CONTROL_COMMAND + "\n",
+        "echo ../../escaped/pytest\n" + CONTROL_COMMAND + "\n",
+        CONTROL_COMMAND + " >> $GITHUB_STEP_SUMMARY\n",
+    ):
+        assert why_this_guard_refuses(script), script
 
 
 @pytest.mark.parametrize("platform, environment, confined", [
@@ -2263,7 +2560,7 @@ def test_a_step_a_run_never_reaches_is_not_evidence():
     """
     gated = {"jobs": {"content": {"steps": [
         {"run": CONTROL_COMMAND, "if": "${{ false }}"}]}}}
-    evidence, measured, reasons = executed_verdict(
+    evidence, measured, reasons, _ = executed_verdict(
         SCHEDULED_BY_CALENDAR, {"gated.yml": gated})
     assert evidence is False
     assert measured == 0, "a step a run never reaches measures nothing"

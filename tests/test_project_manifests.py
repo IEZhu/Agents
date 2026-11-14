@@ -38,20 +38,37 @@ pays for the steps that could reach the file under test, not for every step in
 the repository that mentions pytest, and only on the CI leg that executes --
 measured, the two together were +22.6 s on each of three matrix legs.
 
-A step this guard cannot execute, an argv pytest refuses, and a step a run
-never reaches are reported as measurements that could not be made, never as a
-file that does not run; a candidate set where every answer is one of those is an
-unusable runner rather than a bypass, and skips. Where the stubs stop is stated
-too: they share the path and nothing else, holding one test called
-`test_executed` and no marks, so an argv that selects with `-k` or `-m` asks
-about the real file's names and markers and is unmeasurable here. A path reaches
-pytest as itself; anything inside the file does not.
+An argv pytest refuses and a step a run never reaches are reported as
+measurements that could not be made, never as a file that does not run; a
+candidate set where every answer is one of those is an unusable runner rather
+than a bypass, and skips. A step the recording harness refuses to execute is
+the other answer and fails, because it is a verdict about the step: a
+maintainer who adds an ordinary program to a step used to turn this guard into
+a silent skip on a green pull request.
+
+Handing a recorded argv to a real program is a trust boundary of its own, and
+at first it was an open one: the argv went to `python -m pytest` with no `env`
+and no bound on what a path argument could name, so a workflow's own text
+decided what the inner pytest deleted (`--basetemp` is removed recursively
+before it is recreated), where it wrote (`--junitxml`), what configuration it
+read (`-c`, `--rootdir`, `-o`) and what it imported (`-p`), while the session's
+own `PYTEST_ADDOPTS` could decide the verdict. The inner run gets a built
+environment now, every path argument has to resolve inside the stub tree, and
+an argv carrying one of those options is a measurement this guard does not
+make.
+
+Where the stubs stop is stated too: they share the path and nothing else,
+holding one test called `test_executed` and no marks, so an argv that selects
+with `-k` or `-m` asks about the real file's names and markers and is
+unmeasurable here. A path reaches pytest as itself; anything inside the file
+does not.
 """
 
 from collections import namedtuple
 from fnmatch import fnmatch
 from functools import lru_cache
 from pathlib import Path
+import os
 import re
 import subprocess
 import sys
@@ -106,6 +123,33 @@ ANSWERING_EXIT_CODES = frozenset({0, 1, 5})
 # answer about the stub, and it was measured wrong in both directions. Neither
 # is read as a verdict now; both are the measurement this guard cannot make.
 SELECTING_OPTIONS = frozenset({"-k", "-m"})
+# Options that reach outside the tree the inner run is given, whatever its path
+# arguments say, so an argv carrying one is not handed to pytest at all. Read in
+# the pinned pytest's own source rather than recalled: a given `--basetemp` that
+# exists is removed recursively before it is recreated
+# (`_pytest/tmpdir.py`, `TempPathFactory.getbasetemp`), `--junitxml` writes its
+# report wherever it is told, `-c` and `--rootdir` move the configuration a run
+# reads, and `-o` sets any ini option, `addopts` included. The trigger is
+# ordinary: a workflow step that records `--basetemp=<dir>`, or a `--junitxml`
+# a maintainer types.
+UNBOUNDED_OPTIONS = frozenset({"--basetemp", "--junitxml", "--rootdir", "-c", "-o"})
+# `-p` is the sixth and the one with a measurable exception. `-p NAME` imports a
+# module as a plugin, which is arbitrary code; `-p no:NAME` only blocks one and
+# imports nothing (`_pytest/config/__init__.py`, `consider_pluginarg`). The
+# committed steps of this repository write `-p no:cacheprovider` and nothing
+# else, and refusing that spelling would turn the guards over
+# `tests/test_project_manifests.py`, `tests/test_install_review_config.py` and
+# `tests/test_install_setup_options.py` into permanent skips -- which is the
+# failure the paragraph above is about, bought to close a hole that spelling
+# does not open.
+BLOCKS_A_PLUGIN = "no:"
+# What the inner pytest keeps of this process's environment, which on a POSIX
+# host is nothing: `sys.executable` finds its own interpreter and site-packages
+# without help, and `PYTEST_ADDOPTS` alone was enough to decide every verdict
+# this module gives -- measured, `--collect-only` in it turned "this file runs"
+# into "this file does not run". Windows needs these to start a process and to
+# seed its random generator at all.
+KEPT_FROM_THE_HOST = ("SystemRoot", "SYSTEMROOT", "COMSPEC", "PATHEXT")
 PYTEST_TIMEOUT = 120
 # The modes that make pytest parse a file and run none of its tests, each one
 # measured on every run by the pytest that is installed rather than listed here
@@ -124,8 +168,10 @@ Executed = namedtuple("Executed", "files problem")
 # `hosts` the workflows that really run the file; `problems` the steps and
 # commands this guard could not measure, which is a third answer and not a no;
 # `measured` how many of them pytest did answer, because a candidate set that
-# answered nothing at all is an unusable runner rather than a bypass.
-Invocation = namedtuple("Invocation", "hosts problems measured")
+# answered nothing at all is an unusable runner rather than a bypass; and
+# `refusals` the steps the recording harness will not execute, which is a
+# verdict about the step and fails rather than skipping.
+Invocation = namedtuple("Invocation", "hosts problems measured refusals")
 SCRATCH = []
 
 
@@ -270,6 +316,73 @@ def selects_a_subset(arguments) -> list[str]:
                    if argument.partition("=")[0] in SELECTING_OPTIONS})
 
 
+def unbounded_options(arguments) -> list[str]:
+    """The options in this argv that let a run reach outside the tree it is given.
+
+    Both of pytest's spellings of `-p` are read, the separate word and the
+    glued one, because it is the one option here with a value that decides the
+    answer: `no:NAME` blocks a plugin and anything else imports a module. A
+    long option that merely begins with `-p`, such as `--pdb`, is not it.
+    """
+    found = []
+    for index, argument in enumerate(arguments):
+        option = argument.partition("=")[0]
+        if option in UNBOUNDED_OPTIONS:
+            found.append(option)
+        elif argument.startswith("-p") and not argument.startswith("--"):
+            value = argument[2:] or (
+                arguments[index + 1] if index + 1 < len(arguments) else "")
+            if not value.startswith(BLOCKS_A_PLUGIN):
+                found.append("-p")
+    return sorted(set(found))
+
+
+def outside_the_stub_tree(arguments, tree) -> list[str]:
+    """Every argument of this argv that spells a path the stub tree does not hold.
+
+    A path is what an inner run can reach, and the argv is a workflow's own
+    text: an argument pytest collects is a path, the value of an option written
+    with `=` can be one, and a node id's path is the part before `::`. The
+    answer comes from the resolved path rather than from the spelling, so an
+    absolute path, a `..` that climbs out and a symlink are one question; a
+    value that is no path at all, such as the `short` of `--tb=short`, names
+    something inside the tree and is left alone.
+    """
+    root = tree.resolve()
+    found = []
+    for argument in arguments:
+        spelled = argument.partition("=")[2] if argument.startswith("-") else argument
+        spelled = spelled.partition("::")[0]
+        if not spelled:
+            continue
+        if not (root / spelled).resolve().is_relative_to(root):
+            found.append(argument)
+    return sorted(set(found))
+
+
+def inner_environment(tree) -> dict:
+    """The environment the inner pytest gets: built, not inherited.
+
+    The step executor already builds one, for the same reason and against the
+    same risk, and this one is built the same way: nothing of the session's own
+    environment on a POSIX host, with the temporary directory inside the tree
+    so that what the run writes for itself is written there too.
+    """
+    temporary = tree / ".tmp"
+    temporary.mkdir(exist_ok=True)
+    environment = {
+        "PATH": os.defpath,
+        "HOME": str(tree),
+        "TMPDIR": str(temporary),
+        "TMP": str(temporary),
+        "TEMP": str(temporary),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    environment.update({name: os.environ[name] for name in KEPT_FROM_THE_HOST
+                        if name in os.environ})
+    return environment
+
+
 @lru_cache(maxsize=None)
 def executed_files(arguments, stubs) -> Executed:
     """Which of these files the real pytest executes a test in, given this argv.
@@ -280,6 +393,16 @@ def executed_files(arguments, stubs) -> Executed:
     `--deselect` exclude, `-k` and `-m` select, `--collect-only` and its
     relatives collect and execute nothing, and an option that consumes its value
     consumes it, with no table of such options anywhere here.
+
+    What pytest is handed is bounded, because the argv is a workflow's own text
+    and pytest is a real program: an argv carrying one of `UNBOUNDED_OPTIONS`
+    or `-p` with a module to import is not run at all, every path it spells has
+    to resolve inside the stub tree, and the environment is built rather than
+    inherited. Each of those was a way for a recorded line to act on the
+    machine running this suite while the guard reported a pass -- measured, an
+    absolute `--junitxml` wrote its report outside the tree and the file still
+    counted as run -- and each of them is now the third answer rather than a
+    subprocess.
 
     What pytest is not asked is a selection. `-k` and `-m` choose by test name
     and by marker, which are properties of the real file's contents, and the
@@ -305,9 +428,23 @@ def executed_files(arguments, stubs) -> Executed:
             + ", ".join(f"`{option}`" for option in selecting)
             + ", which is a question about the real file's test names and markers; "
             "this guard's stub shares only its path, so what ran is unknown"))
+    unbounded = unbounded_options(arguments)
+    if unbounded:
+        return Executed(frozenset(), (
+            "`" + " ".join(arguments) + "` carries "
+            + ", ".join(f"`{option}`" for option in unbounded)
+            + ", which lets a run delete, write, configure or import outside the "
+            "tree it is given, so this guard does not hand it to pytest"))
     tree, problem = stub_tree()
     if problem:
         return Executed(frozenset(), problem)
+    outside = outside_the_stub_tree(arguments, tree)
+    if outside:
+        return Executed(frozenset(), (
+            "`" + " ".join(arguments) + "` names "
+            + ", ".join(f"`{argument}`" for argument in outside)
+            + ", which is not a path inside the tree this guard gives pytest, so "
+            "it does not hand it to pytest"))
     log = tree / RECORD
     log.unlink(missing_ok=True)
     for name in stubs:
@@ -318,7 +455,8 @@ def executed_files(arguments, stubs) -> Executed:
     try:
         finished = subprocess.run(
             [sys.executable, "-m", "pytest", *arguments],
-            cwd=tree, capture_output=True, text=True, timeout=PYTEST_TIMEOUT,
+            cwd=tree, env=inner_environment(tree),
+            capture_output=True, text=True, timeout=PYTEST_TIMEOUT,
         )
     finally:
         for name in stubs:
@@ -347,7 +485,7 @@ def invocation(path: str, documents: dict) -> Invocation:
     left between them is which recorded program was started, by the same
     `pytest_invocation` the #632 guard uses on the same log lines.
     """
-    hosts, problems, measured = [], [], 0
+    hosts, problems, refusals, measured = [], [], [], 0
     for name, document in documents.items():
         for job_name, job, step in pytest_candidates(document):
             # The narrowing: a step that names no spelling of this path is not
@@ -367,7 +505,8 @@ def invocation(path: str, documents: dict) -> Invocation:
                 run_default(document, job, step, "working-directory")[0],
             )
             if run.problem:
-                problems.append(f"{name} ({job_name}): {run.problem}")
+                where = f"{name} ({job_name}): {run.problem}"
+                (refusals if run.refused else problems).append(where)
                 continue
             ran, answered, unmeasured = False, 0, []
             for command in run.commands:
@@ -392,27 +531,37 @@ def invocation(path: str, documents: dict) -> Invocation:
             if answered or not unmeasured:
                 measured += 1
             problems.extend(unmeasured)
-    return Invocation(hosts, problems, measured)
+    return Invocation(hosts, problems, measured, refusals)
 
 
 def require_a_host(path: str, run: Invocation) -> None:
     """Pass, skip or fail on what the candidate steps answered about this path.
 
-    The same three answers the #632 harness makes: a step that was executed and
+    The same four answers the #632 harness makes: a step that was executed and
     whose argv pytest did answer, with the file not among what ran, is the
-    failure this module exists for; a candidate set where every answer was a
-    problem is a measurement that was not made, and an unusable runner -- no
+    failure this module exists for; a step the recording harness will not
+    execute is a verdict about the step and fails too, because a workflow edit
+    that reaches outside what the harness bounds has to break the build rather
+    than quietly stop measuring; and a candidate set where every answer was a
+    problem is a measurement that was not made, where an unusable runner -- no
     bash, a `noexec` temp filesystem, a shim the kernel refuses, a 120 s timeout
-    on a contended runner, an argv pytest rejects -- must not read as a bypass.
+    on a contended runner, an argv pytest rejects or one this guard does not
+    hand it -- must not read as a bypass.
     """
+    unresolved = [*run.problems, *run.refusals]
     if run.hosts:
-        if run.problems:
+        if unresolved:
             warnings.warn(
-                f"{len(run.problems)} candidate(s) for {path} could not be "
+                f"{len(unresolved)} candidate(s) for {path} could not be "
                 "measured; another workflow answered instead: "
-                + "; ".join(run.problems),
+                + "; ".join(unresolved),
                 UnmeasuredCandidate, stacklevel=2)
         return
+    if run.refusals:
+        pytest.fail(
+            f"a step that names {path} is one this guard will not execute, so "
+            "whether a run really hands the file to pytest was never measured: "
+            + "; ".join(run.refusals))
     if run.problems and not run.measured:
         pytest.skip(
             f"this guard could not measure whether a workflow runs {path}: "
@@ -633,16 +782,22 @@ def test_a_command_that_only_collects_is_not_a_run():
 def test_a_measurement_this_guard_cannot_make_is_not_a_no():
     """A step that was never executed, and an argv pytest refused, say so.
 
-    Both are the distinction #632 insisted on: "could not ask" and "ran nothing"
-    must not be allowed to look alike, because the first one silently passing as
-    the second is how a guard stops guarding.
+    Both are the distinction #632 insisted on: "could not ask" and "ran
+    nothing" must not be allowed to look alike, because the first one silently
+    passing as the second is how a guard stops guarding. They are not the same
+    answer as each other either. An absolute interpreter path is a step the
+    recording harness refuses, which is a verdict about the step and fails; an
+    option no installed plugin provides is pytest refusing the command, which
+    nobody can do anything about from here and reads as unmeasured.
     """
     wanted = "tests/test_install_setup_options.py"
     absolute = invocation(wanted, {"w.yml": step(f"/usr/bin/pytest {wanted}")})
     assert absolute.hosts == []
-    assert absolute.problems and "was not executed" in absolute.problems[0]
+    assert absolute.problems == []
+    assert absolute.refusals and "was not executed" in absolute.refusals[0]
     refused = invocation(wanted, {"w.yml": step(f"pytest --no-such-option {wanted}")})
     assert refused.hosts == []
+    assert refused.refusals == []
     assert refused.problems and "pytest refused" in refused.problems[0]
 
 
@@ -651,16 +806,17 @@ def test_a_candidate_set_whose_every_answer_is_a_problem_is_unmeasured():
     """An unusable runner reads as unmeasured rather than as a bypass.
 
     Both documents below are candidates that name the file and neither can be
-    measured: the first spells an absolute interpreter path PATH cannot
-    intercept, so the step is never executed, and the second hands pytest an
-    option no installed plugin provides, so pytest refuses the whole command.
-    The guard used to fail on exactly this, which is what a runner without bash,
-    with a `noexec` temp filesystem or with a contended 120 s timeout looks like.
+    measured: the first hands pytest an option no installed plugin provides, so
+    pytest refuses the whole command, and the second carries `--junitxml`, which
+    writes wherever it is told and is therefore an argv this guard does not hand
+    to pytest at all. The guard used to fail on exactly this, which is what a
+    runner without bash, with a `noexec` temp filesystem or with a contended
+    120 s timeout looks like.
     """
     wanted = "tests/test_install_setup_options.py"
     run = invocation(wanted, {
-        "absolute.yml": step(f"/usr/bin/pytest {wanted}"),
         "refused.yml": step(f"pytest --no-such-option {wanted}"),
+        "unbounded.yml": step(f"pytest --junitxml=report.xml {wanted}"),
     })
     assert run.hosts == []
     assert run.measured == 0, "neither of these could be measured"
@@ -726,6 +882,89 @@ def test_an_argv_that_selects_a_subset_is_a_measurement_this_guard_cannot_make()
 
 
 @EXECUTES_STEPS
+def test_the_inner_pytest_does_not_inherit_this_session_s_environment(monkeypatch):
+    """The environment alone can decide what the inner run collects.
+
+    The recorded argv went to `python -m pytest` with no `env` argument, so the
+    inner run inherited whatever started the suite. `PYTEST_ADDOPTS` is enough
+    on its own: measured at the head of this branch, `--collect-only` in it
+    turned every answer from "this file runs" into "this file does not run",
+    which is the verdict this module exists to give and the one direction that
+    reads as a bypass. The inner pytest gets a built environment now, the way
+    the step executor already builds one.
+    """
+    wanted = f"tests/{Path(__file__).name}"
+    stubs = RECORDED_FILES | frozenset({wanted})
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--collect-only")
+    answer = executed_files((wanted, "-q", "--tb=line"), stubs)
+    assert answer.problem is None, answer.problem
+    assert wanted in answer.files, (
+        "the session's own PYTEST_ADDOPTS decided what the inner pytest ran: "
+        f"{sorted(answer.files)}")
+
+
+@EXECUTES_STEPS
+def test_an_argv_that_reaches_outside_the_stub_tree_is_never_handed_to_pytest(tmp_path):
+    """A recorded argv is a workflow's text, and it went to a real program unfiltered.
+
+    The only refusal was a `-k` or `-m` selection; everything else ran, with no
+    bound on what a path argument could name. pytest removes a given
+    `--basetemp` recursively before recreating it, writes `--junitxml` wherever
+    it is told, reads its configuration from `-c` and `--rootdir`, sets any ini
+    option from `-o`, and imports a module named by `-p`. Measured at the head
+    of this branch: `--junitxml` wrote a report outside the stub tree and the
+    guard reported the file as run. Such an argv is a measurement this guard
+    does not make, which is the answer it already has for a question it cannot
+    put to pytest.
+    """
+    wanted = f"tests/{Path(__file__).name}"
+    stubs = RECORDED_FILES | frozenset({wanted})
+    report = tmp_path / "escaped-junit.xml"
+    for arguments in (
+        (f"--junitxml={report}", wanted),
+        (f"--basetemp={tmp_path / 'basetemp'}", wanted),
+        ("--rootdir=/", wanted),
+        ("-c", "/dev/null", wanted),
+        ("-o", "addopts=--collect-only", wanted),
+        ("-p", "tests.ci_shard", wanted),
+        ("-pno_such_plugin", wanted),
+        ("--ignore=../..", wanted),
+        ("/etc", wanted),
+        (wanted, "../.."),
+    ):
+        answer = executed_files(arguments, stubs)
+        assert answer.files == frozenset(), arguments
+        assert answer.problem, arguments
+    assert not report.exists(), f"the inner pytest wrote {report}, outside the stub tree"
+    # The spelling every committed step writes stays measurable, or this refuses
+    # the repository's own wiring: `-p no:NAME` blocks a plugin and imports nothing.
+    measured = executed_files((wanted, "-q", "-p", "no:cacheprovider"), stubs)
+    assert measured.problem is None, measured.problem
+    assert wanted in measured.files, sorted(measured.files)
+
+
+@EXECUTES_STEPS
+def test_a_step_this_guard_will_not_execute_fails_instead_of_skipping():
+    """The skip that a maintainer's ordinary edit used to buy.
+
+    A program the recording harness does not cover stops the script with status
+    127, which arrives here as a problem, and a candidate set of nothing but
+    problems skips -- so adding `grep` to a step left the assertion silent and
+    the pull request green. A step the harness refuses is a verdict about the
+    step and fails now; a runner that could not answer still skips.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    run = invocation(wanted, {"w.yml": step(
+        f"grep -q pytest {wanted}\npytest {wanted}\n")})
+    assert run.hosts == [], run.hosts
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as outcome:
+        require_a_host(wanted, run)
+    assert isinstance(outcome.value, pytest.fail.Exception), (
+        f"a step this guard will not execute has to fail rather than skip: "
+        f"{outcome.value}")
+
+
+@EXECUTES_STEPS
 def test_a_step_that_names_another_file_is_never_executed():
     """The cost scaled with the repository instead of with the guard.
 
@@ -747,9 +986,9 @@ def test_a_step_that_names_another_file_is_never_executed():
     assert (run.hosts, run.problems, run.measured) == ([], [], 0), (
         "a step naming another file was executed anyway")
     naming = {"w.yml": step(f"/usr/bin/pytest {wanted}")}
-    assert invocation(wanted, naming).problems, (
-        "the same step naming this file has to be executed, or the case above is "
-        "about nothing")
+    assert invocation(wanted, naming).refusals, (
+        "the same step naming this file has to reach the harness, or the case "
+        "above is about nothing")
     for command in (
         f"pytest {wanted}",
         "pytest tests/test_install_*.py",
