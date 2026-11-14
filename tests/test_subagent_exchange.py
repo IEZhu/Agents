@@ -873,3 +873,12 @@ def test_old_exchange_files_are_pruned(worker_tree):
     os.utime(old, (past, past))
     receipt = subagent_exchange.store(package)
     assert not old.exists() and Path(receipt.context_path).exists()
+
+
+def test_empty_reference_diagnostic_names_the_subagents_transcript_directory(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-running.jsonl"
+    transcript.write_text(json.dumps({"type": "user", "message": {"content": "start"}}) + "\n", encoding="utf-8")
+    with pytest.raises(subagent_exchange.ContractError) as error:
+        subagent_exchange.read_result(str(transcript))
+    assert "~/.claude/projects/<project>/<session>/subagents/" in str(error.value)
+    assert "agent-<id>.jsonl" in str(error.value)

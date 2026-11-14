@@ -509,3 +509,13 @@ def test_progress_messages_are_defined_on_every_surface():
     rule = (ROOT / "rules/rule-answer-timestamp.mdc").read_text(encoding="utf-8")
     assert ("Applies only to the final answer that ends with the footer, never to progress messages "
             "(the protocol's \"Progress messages\" section defines them).") in rule
+
+
+def test_generated_surfaces_name_the_subagents_transcript_before_the_output_file():
+    """Step 3 names the per-session transcript first; every generated surface carries it and is fresh."""
+    directory = "~/.claude/projects/<project>/<session>/subagents/"
+    assert protocol_text.stale_files() == []
+    for path in (ROOT / "CLAUDE.md", ROOT / "scripts" / "templates" / "routing-protocol-core.md"):
+        text = path.read_text(encoding="utf-8")
+        assert directory in text, path
+        assert "use it only as a fallback when it is not empty" in text, path

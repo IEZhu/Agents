@@ -236,5 +236,7 @@ def read_result(reference) -> str:
             raise ContractError("invalid_text", "The result file is not valid UTF-8 text.", "$.result_ref") from None
     if not text or not text.strip():
         raise ContractError("result_ref_empty", "result_ref holds no result yet: the worker may still be "
-                            "running.", "$.result_ref")
+                            "running, or a background agent's .output file is empty on this client; "
+                            "pass its transcript, agent-<id>.jsonl in the subagents directory under "
+                            "~/.claude/projects/<project>/<session>/subagents/.", "$.result_ref")
     return text
