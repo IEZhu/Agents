@@ -927,6 +927,24 @@ def test_gitlab_merge_request_keeps_its_own_kind_and_real_url():
                      "first_seen": "2026-11-05T14:20:01Z"}]
 
 
+def test_a_forge_link_on_plain_http_keeps_its_kind():
+    """`HTTP_URL` accepts both schemes, so a link that reaches this classifier may be either, and
+    the scheme is not what tells the kinds apart. A self-hosted GitLab served over plain http is
+    still a merge request, and github.com over http is still a pull request. Matching `https://`
+    alone dropped the first to `forge_pull_request`, which is the promise the kind carries."""
+    gitlab = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 106, "prRepository": "grp/sub/proj",
+         "prUrl": "http://git.example.org/grp/sub/proj/-/merge_requests/106",
+         "timestamp": "2026-11-05T14:20:01Z"}])["github_refs"]
+    assert [(r["kind"], r["url"]) for r in gitlab] == [
+        ("merge_request", "http://git.example.org/grp/sub/proj/-/merge_requests/106")]
+    github = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 7, "prRepository": "Owner/Repo",
+         "prUrl": "http://github.com/Owner/Repo/pull/7",
+         "timestamp": "2026-11-05T14:20:01Z"}])["github_refs"]
+    assert [(r["kind"], r["url"]) for r in github] == [("pull", "https://github.com/Owner/Repo/pull/7")]
+
+
 def test_github_pull_request_keeps_its_github_url():
     entries = [{"type": "pr-link", "prNumber": 7, "prRepository": "Owner/Repo",
                 "prUrl": "https://github.com/Owner/Repo/pull/7", "timestamp": "2026-11-05T14:20:01Z"}]

@@ -64,8 +64,8 @@ MAX_COMMAND = 200
 MAX_DEPTH = 20  # nested substitutions and subshells parsed recursively
 ARITHMETIC_SCAN = 4096  # how far `((` looks for its `))` before it is read as subshells
 HTTP_URL = re.compile(r"https?://\S+\Z")
-GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
-GITLAB_MR_URL = re.compile(r"https://([\w.-]+(?::\d+)?)/((?:[\w.-]+/)+[\w.-]+)/-/merge_requests/(\d+)")
+GITHUB_URL = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
+GITLAB_MR_URL = re.compile(r"https?://([\w.-]+(?::\d+)?)/((?:[\w.-]+/)+[\w.-]+)/-/merge_requests/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
 # A pull request on a forge that is neither github.com nor GitLab: only its own link names the host.
 FORGE_PULL_REQUEST = "forge_pull_request"
