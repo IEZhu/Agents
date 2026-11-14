@@ -140,7 +140,12 @@ plans and catalogs out of tracked repository files.
   `grep -rn "<basename>" .github/workflows/` and read each hit in its block: a
   hit in a `paths:` list only means the workflow starts, while a hit in a `run:`
   command, or on one of its continuation lines, means that step collects the
-  file. Then add it to a step that runs on every platform the test needs, which
+  file. No hit at all does not mean no step collects it: a `run:` command may
+  name a glob instead of the file, so list the globs as well
+  (`grep -rhoE "tests/[A-Za-z0-9_]*\*[A-Za-z0-9_.]*" .github/workflows/*.yml`)
+  and check whether one that covers your file sits in a command rather than in
+  a filter. Most of those globs are filter entries; when this was written two of
+  them were in a `run:` command. Then add it to a step that runs on every platform the test needs, which
   is not the same as the workflow's matrix: `shared-runtime.yml` has a
   POSIX-only step (`if: runner.os != 'Windows'`), so a Windows guard added there
   passes everywhere without ever running on Windows. Confirm by reading that
