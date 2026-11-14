@@ -185,6 +185,15 @@ previous one is still running. Failed, skipped, cancelled, missing or
 inconsistent results and changed identities never establish success; assess
 optional skips explicitly under the project's rules.
 
+When the host watches the pull request itself, as the Claude desktop app's
+Auto-fix monitor does (it wakes the session on failing checks, merge conflicts
+and review comments), offer that monitor to the user as soon as the pull request
+is open, and switch it on only when they agree. While it is on, it observes CI:
+do not start the helper or poll check runs for the same head. Read the checks
+once when a step needs their result (in that app, from the pull request status
+it reports), and keep a watcher of your own only for what the monitor does not
+report, such as a bot review of the head that brings no comments.
+
 Review the diff yourself first, as a reviewer would: correctness, edge cases,
 error handling, concurrency and platform differences (a lock that only works on
 POSIX, for example), security and tests. Do this for the whole PR before the
@@ -276,6 +285,15 @@ successful status alone does not clear actionable findings. If the available
 signals disagree, investigate and keep the review pending. Explicit
 unavailability is handled under the rules below. Record the head, evidence
 links and completion times in the working record and final report.
+
+Read a review's whole body before counting it as clean. Copilot's overview
+opens with a verdict and one summary sentence before any list of issues. That
+sentence can name a problem that has no inline thread (on one pull request it
+asked for human assessment of a rollback race that could delete a concurrent
+write), while the line below it says "No open issues", which counts inline
+threads only. A problem named only in the summary is a finding for
+[step 4](#4-resolve-findings-and-repeat): reproduce it or rule it out, and
+record which.
 
 Use bounded waits with backoff and keep the user informed of meaningful changes.
 A wait timeout alone does not establish quota exhaustion or unavailability.

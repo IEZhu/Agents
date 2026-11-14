@@ -148,22 +148,37 @@ def _payload_template(key: str) -> list[str]:
 EXAMPLE_LABEL = re.compile(r" {2}(right|wrong) \(([^)]*)\): (.*)")
 
 
+def separator_rule() -> list[str]:
+    """The sentences that state the separator rule, generated from ``SEPARATORS``.
+
+    Both surfaces that state the rule compose it from here: the rendered package a worker
+    reads, below, and the block of ``docs/subagent-contract.md`` that
+    ``src.engine.subagent_contract_text`` writes. The conditions in these sentences are not
+    derived from the patterns — "spaced" and "outside a code span" live in ``_split``'s
+    control flow — so the labelled examples that follow them are executed by
+    ``tests/test_subagent_exchange.py`` instead of being described a second time (#596).
+    """
+    write = WRITE_SEPARATOR.spelling
+    sentences = [
+        f"Where the form shows '{write}', write exactly that: {WRITE_SEPARATOR.note}. "
+        "Not a plain hyphen, not an en dash '–', not nothing at all. It has to stand in "
+        "the line's own text, outside any `code span`, because that is where it is "
+        "looked for. Every evidence line, finding, changes item and artifacts item "
+        "needs one."]
+    sentences += [f"'{separator.spelling}' ({separator.note}) still separates a line where no "
+                  f"'{write}' appears outside a code span, but do not write it."
+                  for separator in SEPARATORS if not separator.write_it]
+    sentences.append("A line where none of them appears outside a code span is reported as "
+                     "separator_required.")
+    return sentences
+
+
 def _separator_rules() -> list[str]:
-    """The separator rule and its examples, generated from ``SEPARATORS``."""
+    """The rule from ``separator_rule`` and the examples that execute its conditions."""
     tolerated = [s for s in SEPARATORS if not s.write_it]
     write = WRITE_SEPARATOR.spelling
-    lines = ["### The separator",
-             f"Where the form shows '{write}', write exactly that: {WRITE_SEPARATOR.note}. "
-             "Not a plain hyphen, not an en dash '–', not nothing at all. It has to stand in "
-             "the line's own text, outside any `code span`, because that is where it is "
-             "looked for. Every evidence line, finding, changes item and artifacts item "
-             "needs one."]
-    for separator in tolerated:
-        lines.append(
-            f"'{separator.spelling}' ({separator.note}) still separates a line where no "
-            f"'{write}' appears outside a code span, but do not write it.")
-    lines.append("A line where none of them appears outside a code span is reported as "
-                 "separator_required. These examples are the two parts of one line:")
+    lines = ["### The separator", *separator_rule(),
+             "These examples are the two parts of one line:"]
     lines += [f"  right ('{write}' outside a code span): src/app.py:12{write}The token is logged."]
     lines += [f"  right ('{s.spelling}' outside a code span, with no '{write}' there): "
               f"src/app.py:12{s.spelling}The token is logged." for s in tolerated]

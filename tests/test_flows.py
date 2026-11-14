@@ -120,6 +120,19 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
     assert "on GitLab read that flow's own paragraph on the equivalents" in review
 
 
+def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
+    """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("offer that monitor to the user as soon as the pull request is open",
+                   "switch it on only when they agree",
+                   "do not start the helper or poll check runs for the same head",
+                   "keep a watcher of your own only for what the monitor does not report",
+                   "Read a review's whole body before counting it as clean.",
+                   'says "No open issues", which counts inline threads only',
+                   "A problem named only in the summary is a finding"):
+        assert phrase in review, phrase
+
+
 def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
     """#510: a queue was improvised once per item. Each step below had to be rediscovered."""
     catalog = FlowCatalog()

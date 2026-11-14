@@ -168,7 +168,11 @@ def repository_files(repo: Path) -> list[str]:
             relative = item.relative_to(repo)
             if set(relative.parts) & VENDOR_DIRECTORIES:
                 continue
-            walked.append(str(relative))
+            # as_posix, not str: these paths become globs in the written
+            # configuration, and the git branch above always reports forward
+            # slashes, so a native separator here would both disagree with it
+            # and emit a glob no reviewer resolves.
+            walked.append(relative.as_posix())
         return walked
     listed: list[str] = []
     omitted: list[str] = []

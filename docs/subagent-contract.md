@@ -176,23 +176,32 @@ revision), `status` and, for `input_required`, `question`. Sections are `summary
 payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
 `artifacts`, `limitations`, `remaining_work` and `question`; empty ones are omitted. A
 list item starts with `- `, continuation lines are indented, a finding's recommendation
-follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry. The
-` — ` separator between the two parts of a line is one space, an em dash (U+2014) and one
-space, and it is required throughout: every `## evidence` line needs it, and so does every
-`## changes` item, every `## artifacts` item and every finding. The separator is read
-outside code spans, so an em dash inside backticks belongs to that side of the line
-instead of separating it, and a line where neither ` — ` nor ` -- ` appears outside a
-code span is reported as `separator_required`. A code span is a run of
-backticks closed by a run of the same length, the rule Markdown itself uses, so a span
-opened with two backticks may hold a single backtick, and a run that nothing closes is
-literal text. For workers written before this contract named one spelling, a spaced
-` -- ` still separates a line in which no spaced em dash appears outside a code span: an
-em dash inside a span, or one written without spaces around it, leaves that fallback in
-place. The rendered format records this while telling the worker to write ` — `. A
-finding whose `fix:` line is missing or empty is rejected as `recommendation_required`,
-and one that merely confirms something needs that line too, saying what to keep: the
-typed payload keeps `recommendation` required, so a parent is never handed a review item
-whose recommendation it has to chase. Evidence IDs
+follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry.
+
+The separator between the two parts of a line has one source, `SEPARATORS` in
+`src/engine/subagent_text.py`, and the block below is written from it by
+`src.engine.subagent_contract_text`, so this document states the rule rather than a copy
+of it. It is the text the rendered package puts in front of a worker; the labelled
+examples that follow it there are each run through the parser they illustrate by
+`tests/test_subagent_exchange.py`, which is how the conditions in these sentences are
+checked instead of being described twice.
+
+<!-- >>> separator rule (managed by src.engine.subagent_contract_text) >>> -->
+> Where the form shows ' — ', write exactly that: one space, an em dash (U+2014) and one
+> space. Not a plain hyphen, not an en dash '–', not nothing at all. It has to stand in
+> the line's own text, outside any `code span`, because that is where it is looked for.
+> Every evidence line, finding, changes item and artifacts item needs one. ' -- ' (the
+> spelling accepted before this contract named one) still separates a line where no ' — '
+> appears outside a code span, but do not write it. A line where none of them appears
+> outside a code span is reported as separator_required.
+<!-- <<< separator rule <<< -->
+
+A code span is a run of backticks closed by a run of the same length, the rule Markdown
+itself uses, so a span opened with two backticks may hold a single backtick, and a run
+that nothing closes is literal text. A finding whose `fix:` line is missing or empty is
+rejected as `recommendation_required`, and one that merely confirms something needs that
+line too, saying what to keep: the typed payload keeps `recommendation` required, so a
+parent is never handed a review item whose recommendation it has to chase. Evidence IDs
 are unique; in a text result a repeated citation of one ID inside a single item counts
 once, including a finding's explanation and its `fix:` line together, and does not fail
 validation. A JSON result keeps the stricter rule and reports
