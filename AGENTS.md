@@ -136,11 +136,15 @@ plans and catalogs out of tracked repository files.
   list or glob already covers it. On #604 a test written to guard
   `newline="\n"` on Windows passed CI without ever executing there, because
   `shared-runtime.yml` lists `tests/test_subagent*.py` under its `paths:` filter
-  while none of its step commands named the file. After adding a test, grep the
-  step commands rather than the filters
-  (`grep -rn "<basename>" .github/workflows/`), add it to the workflow whose
-  platforms the test needs, and run that step's own command before claiming the
-  platform is covered.
+  while none of its step commands named the file. After adding a test,
+  `grep -rn "<basename>" .github/workflows/` and read each hit in its block: a
+  hit in a `paths:` list only means the workflow starts, while a hit in a `run:`
+  command, or on one of its continuation lines, means that step collects the
+  file. Then add it to a step that runs on every platform the test needs, which
+  is not the same as the workflow's matrix: `shared-runtime.yml` has a
+  POSIX-only step (`if: runner.os != 'Windows'`), so a Windows guard added there
+  passes everywhere without ever running on Windows. Confirm by reading that
+  step's own conclusion in the platform's job, not the job's.
 - Run checks appropriate to the changed contract and report their actual result.
   Run only one heavy test or embedding process at a time.
 - In GitHub issue and PR descriptions, keep each prose paragraph and list item on one physical line. Do not hard-wrap text to a fixed width; preserve meaningful paragraph, list, table and code-block boundaries.
