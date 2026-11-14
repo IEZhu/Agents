@@ -663,6 +663,37 @@ async def test_a_call_that_names_the_memory_root_is_described_from_the_memory_ro
     assert await resolve_client_context(plain, str(main)) is carried
     assert carried.report_root() == main
 
+@pytest.mark.asyncio
+async def test_a_named_worktree_inside_the_memory_root_is_described_from_the_worktree(
+        bundle, repositories, describers, monkeypatch):
+    """Both authorized roots cover a nested grant, and the deeper one was named (CR2 F1).
+
+    A linked worktree is usually registered inside its own main checkout -- this repository
+    keeps them under `.worktrees/` -- so `context.root` covers the grant as well as the grant
+    does and matched first. The report then carried the main checkout's path, hash and summary
+    for a call that named the worktree, which is the very mismatch this parameter exists to
+    correct. The memory-root test above uses a worktree beside the main checkout, where the
+    first match happens to be the right one, so it passed throughout.
+    """
+    main, _other, _inside = repositories
+    (main / ".worktrees").mkdir()
+    nested = linked_worktree(main, main / ".worktrees" / "feature", name="nested")
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    context = await resolve_client_context(http_context(main, grants=(nested,)), str(nested))
+    assert context.root == main, "the memory root is untouched"
+    assert context.mismatch is None, "a grant of this session is not another repository"
+    assert context.report_root() == nested, "the report follows the worktree the call named"
+    report = (await _http_activate(http_context(main, identity="nested", grants=(nested,)),
+                                   workspace=str(nested)))["repo_context"]
+    assert report["repo_path"] == str(nested), report
+    assert report["registered_workspace"] == str(main)
+    assert report["repo_hash"] == RepoDescriber(repo_path=str(nested)).compute_repo_hash()
+    assert describers == [str(nested)], "nothing described the main checkout in its place"
+    # Naming the memory root itself is still answered from the memory root (CR1 F1).
+    carried = await resolve_client_context(
+        http_context(main, identity="root", grants=(nested,)), str(main))
+    assert carried.report_root() == main, "the explicit memory-root choice is unchanged"
+
 
 @pytest.mark.asyncio
 async def test_a_summary_file_that_leaves_the_checkout_is_refused_before_it_is_read(

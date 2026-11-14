@@ -374,6 +374,7 @@ def _workspace_argument(context, workspace):
     not another one; only a path outside every authorized root is a `mismatch`.
 
     The authorized root a report then follows is reported as `covering_root` (`_named_root`),
+    the most specific of the roots that cover the named path (`_most_specific`),
     and a path that names an authorized root under another spelling as `respelled`, which is
     noted and never refused. An empty mapping leaves the context as it is.
 
@@ -383,13 +384,29 @@ def _workspace_argument(context, workspace):
     if context.transport != "http" or workspace is None or context.error is not None or context.root is None:
         return {}
     authorized = (context.root, *context.cooperation_roots)
-    for root in authorized:
-        if _covers(root, workspace):
-            return _named_root(context, root)
-    for root in authorized:
-        if _same_directory(root, workspace):
-            return {"respelled": workspace, **_named_root(context, root)}
+    if covering := [root for root in authorized if _covers(root, workspace)]:
+        return _named_root(context, _most_specific(covering))
+    if respelled := [root for root in authorized if _same_directory(root, workspace)]:
+        return {"respelled": workspace, **_named_root(context, _most_specific(respelled))}
     return {"mismatch": workspace}
+
+
+def _most_specific(roots):
+    """The deepest of the authorized roots that cover one named path (CR2 F1).
+
+    A linked worktree is commonly registered inside its own main checkout -- this very
+    repository keeps them under `.worktrees/` -- so the memory root covers such a grant
+    just as the grant itself does. Taking the first match then answered about the main
+    checkout for a call that named the worktree, which is the report this parameter exists
+    to correct; `report_root` would have followed the single grant correctly had nothing
+    been recorded at all.
+
+    Every root reaching here covers the same path, so each is that path or an ancestor of
+    it: they form one chain and the deepest is the one the call named. A call that names
+    the memory root is covered by the memory root alone, so that explicit choice (CR1 F1)
+    is unchanged.
+    """
+    return max(roots, key=lambda root: len(root.parts))
 
 
 def _named_root(context, root):
