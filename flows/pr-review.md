@@ -470,10 +470,11 @@ CodeRabbit's automatic pass whatever the allowance says, so a push into an
 exhausted window spends that attempt and the pass never re-runs by itself; the
 head then needs exactly one explicit request once the window opens. A push
 inside an open window is reviewed without any request. The surfaces that look
-like state are not: a summary comment was rewritten sixteen seconds after a
-refusal with no pause block in it at all, an empty `COMMENTED` review appears on
-the current head whenever the reviewer replies in an older thread, and a round
-that finds nothing creates no review object, so completion shows up as the
+like state are not: a summary comment is rewritten within seconds of a refusal
+and may then hold no pause block at all, so its silence says nothing and only
+the wait it does state can be read; an empty `COMMENTED` review appears on the
+current head whenever the reviewer replies in an older thread; and a round that
+finds nothing creates no review object, so completion shows up as the
 walkthrough's `coveredCommitId` reaching that head. Do not derive an interval
 between windows either: two such models, each from two observations, were
 contradicted within the hour by the wait the reviewer itself stated.
