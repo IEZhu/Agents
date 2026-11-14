@@ -1489,6 +1489,30 @@ def test_a_windows_scratchpad_write_reaches_the_scratchpad_paths():
     assert inv["shell_writes"] == []
 
 
+def test_a_definition_in_a_child_scope_shadows_nothing_outside_it():
+    """Shadowing is about the name a later statement reaches, and scope decides that.
+
+    `& { function Set-Content { } }` defines it in the scope the block runs in, so the call after
+    the block still reaches the cmdlet and its write is real. Treating any definition anywhere in
+    the command as a shadow dropped that write, which is the opposite error from the phantom file
+    the shadowing check was added for, and the worse one here: a write that happened and is not
+    reported. Only a definition at the command's own level shadows, and the statements of either
+    are still taken back, because that is about what ran.
+    """
+    child = thread_inventory.inventory(powershell(
+        "& { function Set-Content { } }; Set-Content -Path real.txt -Value x", "s1"))
+    assert [w["files"] for w in child["shell_writes"]] == [["C:/work/repo/real.txt"]]
+    nested = thread_inventory.inventory(powershell(
+        "if ($x) { function Set-Content { } }\nSet-Content -Path real.txt -Value x", "s2"))
+    assert [w["files"] for w in nested["shell_writes"]] == [["C:/work/repo/real.txt"]]
+    # The case the shadowing check exists for still answers as it did.
+    top = thread_inventory.inventory(powershell(
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x", "s3"))
+    assert top["shell_writes"] == []
+    assert [c["command"] for c in top["unclassified_commands"]] == [
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x"]
+
+
 def test_a_defined_body_keeps_its_forge_reference_and_performs_nothing():
     """Two decisions on this helper meet here, and they point opposite ways for one text.
 

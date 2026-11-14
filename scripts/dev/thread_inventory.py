@@ -1432,7 +1432,13 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
                 # are taken back at the closing brace. The name stays, so that a later call of it
                 # is reported rather than passed over.
                 defining = braces
-                segments.extend((DEFINE, name) for name in names)
+                if braces == 1:
+                    # Only a definition at the command's own level shadows anything a later
+                    # statement names: `& { function Set-Content { } }` defines it in the child
+                    # scope the block runs in, and the call after the block still reaches the
+                    # cmdlet. Its statements are taken back either way, which is about what ran
+                    # and not about what the name means afterwards.
+                    segments.extend((DEFINE, name) for name in names)
                 mark = len(segments)
             index += 1
         elif char == "}":
@@ -1628,6 +1634,12 @@ def _powershell_writes(segment: str, defined: Collection[str] = ()) -> tuple[lis
     # elements of an array: `Set-Content -Path a.txt,b.txt` writes both of the files it names
     for command in _ps_statements(_powershell_tokens(segment, commas=True)):
         name = command[0].lower() if command[:1] else ""
+        # A review asked for `Module\Set-Content` to escape the shadowing, since a qualified call
+        # reaches the cmdlet whatever a function of the bare name does. It cannot be done here:
+        # `_powershell_tokens` has already dropped the qualifier, so this reading cannot tell the
+        # two spellings apart, and crediting a write on the guess would report a file that may
+        # never have been written. Such a call is listed in `unclassified_commands` instead, which
+        # is the answer for a statement this reader cannot settle.
         if name in PS_WRITE_CMDLETS and name not in defined:
             targets = _ps_targets(command[1:], name in PS_SCALAR_PATH)
             if targets is None:
