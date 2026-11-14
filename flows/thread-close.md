@@ -291,8 +291,11 @@ subagent or user), and what the thread claimed about it. Cover:
   or a remote one reach `external_writes` that way. A host tool you do not
   recognize in either field is the helper reporting that the surface moved:
   decide what it does before accepting the audit.
-  Likewise, `unclassified_commands` lists git and gh commands the helper could
-  not classify as reads or writes.
+  Likewise, `unclassified_commands` lists the commands the helper read but could
+  not settle: a git or gh command it classified as neither a read nor a write, a
+  call of a name the same command defined, whose body it never saw, and a write
+  whose destination its reading cannot resolve. Such a command is in no other
+  field, so treat each one as a change that may have happened.
 - **Scheduled work**: wake-ups and cron jobs, from `scheduled`.
 - **Session-local items**, which vanish with the session:
   - scratchpad and temporary files (`scratchpad_paths`);
