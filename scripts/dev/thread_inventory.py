@@ -1098,7 +1098,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
-        targets = _powershell_writes(segment, tokens) if powershell else _written_files(segment, tokens)
+        targets = _powershell_writes(segment) if powershell else _written_files(segment, tokens)
         kept = []
         for path in dict.fromkeys(_resolve(target, run_dir) or target for target in targets):
             if not SCRATCHPAD_PATH.search(path):
@@ -1366,9 +1366,12 @@ def _powershell_here_string(command: str, index: int, quote: str) -> int:
     return len(command)
 
 
-def _ps_words(text: str) -> list[str]:
+def _ps_words(text: str, commas: bool = False) -> list[str]:
     """Words of one PowerShell statement, without their quotes. A backslash is a path separator,
-    not an escape; the escape character is a backtick, and `>` and `>>` are words of their own."""
+    not an escape; the escape character is a backtick, and `>` and `>>` are words of their own.
+
+    With ``commas``, an unquoted comma is a word of its own as well, which is what separates the
+    elements of an array: a comma inside a quoted word is part of that word, as a file name's is."""
     words, word, quote, index, started = [], [], None, 0, False
 
     def end_word() -> None:
@@ -1405,6 +1408,9 @@ def _ps_words(text: str) -> list[str]:
             words.append(operator)
             index += len(operator)
             continue
+        elif commas and char == ",":
+            end_word()
+            words.append(",")
         else:
             word.append(char)
             started = True
@@ -1437,13 +1443,13 @@ def _ps_word(text: str, index: int) -> tuple[str, int]:
     return (words[0] if words else ""), index
 
 
-def _powershell_tokens(segment: str) -> list[str]:
+def _powershell_tokens(segment: str, commas: bool = False) -> list[str]:
     """Tokens of one PowerShell statement from its command on, which is reduced to its name.
 
     An output capture, the call operator and a leading keyword come off the front, so
     `$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' rev-parse HEAD` is still a git command.
     """
-    tokens = _ps_words(PS_ASSIGNMENT.sub("", segment.strip()))
+    tokens = _ps_words(PS_ASSIGNMENT.sub("", segment.strip()), commas)
     while tokens and (tokens[0] in PS_CALL or tokens[0].lower() in PS_KEYWORDS):
         tokens = tokens[1:]
     if tokens:
@@ -1451,11 +1457,14 @@ def _powershell_tokens(segment: str) -> list[str]:
     return tokens
 
 
-def _powershell_writes(segment: str, tokens: list[str]) -> list[str]:
+def _powershell_writes(segment: str) -> list[str]:
     """Files one PowerShell statement writes: the targets of its unquoted `>` and `>>`
-    redirections and the path of a `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only
+    redirections and the paths of a `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only
     redirects one stream into another, and `$null` is the bit bucket rather than a file. Any other
-    variable keeps its unexpanded literal, as a Bash redirection does, so the write is not lost."""
+    variable keeps its unexpanded literal, as a Bash redirection does, so the write is not lost.
+
+    The statement is tokenised here rather than taken from the caller, because a cmdlet's path
+    argument may be an array and only words that keep an unquoted comma can be split into one."""
     files, index, quote = [], 0, None
     while index < len(segment):
         char = segment[index]
@@ -1478,11 +1487,13 @@ def _powershell_writes(segment: str, tokens: list[str]) -> list[str]:
                 files.append(target)
             continue
         index += 1
-    for command in _ps_statements(tokens):
+    # the cmdlet calls are read from words that keep an unquoted comma, which separates the
+    # elements of an array: `Set-Content -Path a.txt,b.txt` writes both of the files it names
+    for command in _ps_statements(_powershell_tokens(segment, commas=True)):
         if command[:1] and command[0].lower() in PS_WRITE_CMDLETS:
-            target = _ps_target(command[1:])
-            if target and target.lower() not in PS_NULL:
-                files.append(target)
+            for target in _ps_targets(command[1:]):
+                if target and target.lower() not in PS_NULL:
+                    files.append(target)
     return files
 
 
@@ -1510,20 +1521,39 @@ def _ps_statements(tokens: list[str]) -> list[list[str]]:
     return commands
 
 
-def _ps_target(args: list[str]) -> str | None:
-    """The file a `Set-Content`, `Add-Content` or `Out-File` call writes: the value of `-Path`,
-    `-LiteralPath` or `-FilePath`, or else its first positional argument."""
-    positional, skip = None, False
-    for index, arg in enumerate(args):
-        name = arg.lower()
-        if skip:
-            skip = False
-        elif name in PS_PATH_PARAMETERS:
-            return args[index + 1] if index + 1 < len(args) else None
-        elif name.startswith("-"):
-            skip = name in PS_VALUE_PARAMETERS
-        elif positional is None:
-            positional = arg
+def _ps_array(args: list[str], index: int) -> tuple[list[str], int]:
+    """The elements of the array that starts at ``index``, and the index after it. `_ps_words` keeps
+    an unquoted comma as a word of its own, so `a.txt,b.txt` is two elements while a comma inside a
+    quoted name stays part of that one name. A comma may have blanks around it."""
+    values = []
+    while index < len(args):
+        if args[index] == ",":
+            index += 1
+            continue
+        values.append(args[index])
+        index += 1
+        if not (index < len(args) and args[index] == ","):
+            break
+    return values, index
+
+
+def _ps_targets(args: list[str]) -> list[str]:
+    """The files a `Set-Content`, `Add-Content` or `Out-File` call writes: the value of `-Path`,
+    `-LiteralPath` or `-FilePath`, or else its first positional argument. Each of them takes an
+    array, and every file it names is written, so every element is a target of its own."""
+    positional, index = [], 0
+    while index < len(args):
+        name = args[index].lower()
+        if name in PS_PATH_PARAMETERS:
+            return _ps_array(args, index + 1)[0]
+        if name.startswith("-"):
+            index += 1
+            if name in PS_VALUE_PARAMETERS:
+                _, index = _ps_array(args, index)  # the value is this parameter's, not a path
+        elif positional:
+            index += 1
+        else:
+            positional, index = _ps_array(args, index)
     return positional
 
 

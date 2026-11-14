@@ -1335,6 +1335,28 @@ def test_powershell_writes_cmdlet_targets_and_redirections():
     assert plain["shell_writes"] == []  # a duplicated stream, $null and quoted text write no file
 
 
+def test_a_cmdlet_path_array_names_every_file_it_writes():
+    """A path parameter of `Set-Content`, `Add-Content` and `Out-File` takes an array, and every
+    element of it is written. Reading the whole value as one word reported a single file called
+    `a.txt,b.txt`, which no write created, and lost the two that it did. The array is split at
+    unquoted commas only, so a comma inside a quoted name stays part of the name, and the value of
+    another parameter is never mistaken for a path."""
+    inv = thread_inventory.inventory(powershell(
+        "Set-Content -Path a.txt,b.txt -Value hi\nOut-File -FilePath c.txt , d.txt\n"
+        'Add-Content -LiteralPath "my file.txt","other,name.txt" -Value x\n'
+        "Set-Content e.txt,f.txt hi", "arr1"))
+    assert [w["files"] for w in inv["shell_writes"]] == [
+        ["C:/work/repo/a.txt", "C:/work/repo/b.txt"],
+        ["C:/work/repo/c.txt", "C:/work/repo/d.txt"],
+        ["C:/work/repo/my file.txt", "C:/work/repo/other,name.txt"],
+        ["C:/work/repo/e.txt", "C:/work/repo/f.txt"]]
+    single = thread_inventory.inventory(powershell(
+        "Set-Content -Value one,two -Path a.txt\nSet-Content -Encoding utf8,ascii -Path b.txt -Value x\n"
+        "Set-Content -Path $null,c.txt -Value x", "arr2"))
+    assert [w["files"] for w in single["shell_writes"]] == [
+        ["C:/work/repo/a.txt"], ["C:/work/repo/b.txt"], ["C:/work/repo/c.txt"]]
+
+
 def test_a_powershell_variable_target_keeps_its_literal_and_only_null_writes_nothing():
     """A write whose path is a variable is still a write, as it is in Bash: only `$null` is no file."""
     kept = thread_inventory.inventory(powershell(
