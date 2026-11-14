@@ -844,17 +844,35 @@ ALLOWED_PROGRAMS = ("cat", "chmod", "ls", "mkdir")
 # leaves standing on their own. An unlisted one is reported rather than allowed,
 # which is the safe direction for a list that decides what may run.
 SHELL_WORDS = frozenset({
-    ":", ".", "[", "[[", "]]", "{", "}", "(", ")", "!", "break", "case", "cd",
-    "command", "continue", "do", "done", "echo", "elif", "else", "esac", "eval",
-    "exec", "exit", "export", "false", "fi", "for", "function", "hash", "if",
+    ":", "[", "[[", "]]", "{", "}", "(", ")", "!", "break", "case", "cd",
+    "continue", "do", "done", "echo", "elif", "else", "esac",
+    "exit", "export", "false", "fi", "for", "function", "hash", "if",
     "in", "local", "printf", "pwd", "read", "return", "select", "set", "shift",
-    "source", "test", "then", "time", "trap", "true", "type", "umask", "unset",
+    "test", "then", "true", "type", "umask", "unset",
     "until", "wait", "while",
 })
+# The words above that hand the command on to another word, which this reader
+# then never sees at a command position. They were in that list, so `eval ...`,
+# `exec ...`, `command ...`, `. ...`, `source ...`, `time ...` and
+# `trap ... EXIT` each started whatever they were given with nothing to say
+# about it. They are reported now, each by name, because none of them is a
+# program a shim could stand in for and all of them start one. `cd` stays in
+# the list above: it starts nothing, and where it may go is read separately.
+DISPATCHING_WORDS = frozenset({
+    ".", "command", "eval", "exec", "source", "time", "trap",
+})
+# A function definition in either spelling GitHub's shells accept: `name()` and
+# `function name`, with or without the parentheses. The shell resolves a
+# function name before it looks at PATH, so a definition hands the name the
+# reader trusts to a body this reader does not follow.
+FUNCTION_DEFINITION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\)$")
 # A redirection is the one write a step can make without starting a program, so
 # its target is how a script leaves the tree while every program it runs is
-# shimmed. `2>&1` is not one of these: its target is a descriptor.
-REDIRECTION_TARGET = re.compile(r"(?:^|\s)\d*>>?\s*([^\s|;&<>]+)")
+# shimmed. `2>&1` is not one of these: its target is a descriptor. The operator
+# needs no whitespace in front of it, because the shell needs none either:
+# `echo forged>/tmp/out` is a write, and a reader that asked for a space before
+# the `>` saw nothing to refuse in it.
+REDIRECTION_TARGET = re.compile(r"\d*>>?\s*([^\s|;&<>]+)")
 # A here-document's delimiter, in both of the spellings a step writes: `<<WORD`
 # and `<<'WORD'`, with `<<-` for the tab-stripping form. `without_here_documents`
 # uses it to tell a program from the data one is fed.
@@ -1232,15 +1250,17 @@ def unconfined_programs(script):
     word was `/usr/bin/touch` was started and counted as a clean recorded run.
     The executor asks it now, through `why_this_guard_refuses`.
 
-    Three words at a command position start nothing and are not reported, each
-    of them a place where this reader is reading something that is not a
-    command: a here-document's own lines, a `name()` function definition, and a
-    word beginning with `-`, which is an option and means the split landed
-    inside a command rather than at the start of one. What a word this reader
-    misses falls back to is the old answer and not an execution: PATH holds the
-    shims and the allowlist and nothing else, so the program is `command not
-    found`. This reading is what makes that boundary a loud refusal instead of
-    a status 127 nobody reads.
+    Three words at a command position start nothing here and are not reported
+    by this reader, each of them a place where it is reading something that is
+    not a program: a here-document's own lines, a `name()` function definition,
+    which `defines_a_function` answers for, and a word beginning with `-`,
+    which is an option and means the split landed inside a command rather than
+    at the start of one. A word that hands the command on -- `eval`, `exec`,
+    `command`, `.`, `source`, `time`, `trap` -- is not one of them and has its
+    own reader too. What a word this reader misses falls back to is the old
+    answer and not an execution: PATH holds the shims and the allowlist and
+    nothing else, so the program is `command not found`. This reading is what
+    makes that refusal a loud one instead of a status 127 nobody reads.
     """
     names, inside, outside = shim_plan(script)
     shimmed = {*names, *inside, *outside}
@@ -1249,10 +1269,99 @@ def unconfined_programs(script):
         word = command_word(command)
         if word is None or word in shimmed or word in SHELL_WORDS:
             continue
-        if word in ALLOWED_PROGRAMS or word.endswith("()") or word.startswith("-"):
+        if word in ALLOWED_PROGRAMS or word in DISPATCHING_WORDS:
+            continue
+        if FUNCTION_DEFINITION.match(word) or word.startswith("-"):
             continue
         found.append(word)
     return sorted(set(found))
+
+
+def dispatches_a_command(script):
+    """Every word of this script that starts a program this reader never sees.
+
+    `eval`, `exec`, `command`, `.`, `source`, `time` and `trap` each take a
+    command and run it, so the word at the command position is theirs and the
+    program is somewhere in their arguments -- which is where this reader stops
+    looking. They were listed as words that start nothing, beside `cd` and
+    `echo`, so `eval 'git --version'` was a step the executor started with
+    nothing to say about it; what stopped the program was PATH and
+    `command not found`, after the script had run.
+
+    Reported rather than followed, because following them means parsing a shell
+    one word deeper every round: `eval` takes a string the shell re-reads,
+    `trap` takes one it runs at a signal, and `command` takes the name PATH
+    would resolve anyway.
+    """
+    found = []
+    for command in logical_commands(without_here_documents(script)):
+        word = command_word(command)
+        if word in DISPATCHING_WORDS:
+            found.append(word)
+    return sorted(set(found))
+
+
+def defines_a_function(script):
+    """Every shell function this script defines, in both spellings.
+
+    A function is the one program name a shim cannot stand in for: the shell
+    resolves a function before it looks at PATH, so `pytest() { ... }` makes
+    `pytest` the body of that function and the shim in the PATH directory is
+    never reached. The definition used to be skipped as a word that starts
+    nothing, which is true of the definition and says nothing about the call --
+    and the body is not read either, because `logical_commands` sees its first
+    command behind the `name()` word.
+
+    So a definition is a reason. Reading the body instead would mean deciding
+    which name the shell resolves where, which is the parse this module does
+    not do.
+    """
+    found = []
+    for command in logical_commands(without_here_documents(script)):
+        tokens = without_separator(command).split()
+        index = command_position(tokens)
+        words = [unquoted(token) for token in tokens[index : index + 2]]
+        if not words:
+            continue
+        if words[0] == "function" and len(words) > 1:
+            found.append(words[1].partition("(")[0])
+        elif FUNCTION_DEFINITION.match(words[0]):
+            found.append(words[0][:-2])
+        elif len(words) > 1 and words[1] == "()":
+            found.append(words[0])
+    return sorted({name for name in found if name})
+
+
+def changes_directory_outside_the_tree(script):
+    """Every `cd` target of this script that is not a literal path inside the tree.
+
+    `cd` starts no program, which is why it is a shell word, and it moves where
+    every relative path in the rest of the script lands -- so a step could
+    `cd /tmp` and write beside the throwaway tree with a target this reader
+    read as relative and harmless. Its argument is read by the same expressions
+    as a redirection target, for the same reason: a path is one this guard can
+    place only when it holds no expansion and stays inside the tree.
+
+    A `..` is refused although it may well land inside the tree, because this
+    reader does not track where the script already stands -- the answer would
+    depend on every `cd` before it. `cd` with no argument is HOME, which is
+    inside the tree, and `cd -` is wherever a `cd` this reader did allow came
+    from.
+    """
+    escaping = []
+    for command in logical_commands(without_here_documents(script)):
+        tokens = without_separator(command).split()
+        index = command_position(tokens)
+        if index >= len(tokens) or unquoted(tokens[index]) != "cd":
+            continue
+        for token in tokens[index + 1 :]:
+            target = unquoted(token)
+            if target.startswith("-"):
+                continue
+            if EXPANDS_AT_RUNTIME.search(target) or leaves_the_tree(target):
+                escaping.append(target)
+            break
+    return sorted(set(escaping))
 
 
 def writes_outside_the_tree(script):
@@ -1286,16 +1395,22 @@ def why_this_guard_refuses(script):
 
     One reader for the executor and for the assertion over the committed steps,
     so the line the executor holds is the line a workflow edit is measured
-    against, and on every leg rather than only where steps are executed. Three
-    reasons, each of them a way out of the tree that was measured working: a
-    program neither a shim nor the allowlist covers, which PATH never decides
-    for an absolute path and which `command not found` only reports after the
-    fact; a shim path that does not stay inside the tree, which the harness
-    wrote there 0755 before the step started; and a redirection target this
-    reader cannot place as a literal path inside the tree.
+    against, and on every leg rather than only where steps are executed. Six
+    reasons, each of them a way past the shims that was measured working or
+    read off the code by review: a program neither a shim nor the allowlist
+    covers, which PATH never decides for an absolute path and which `command
+    not found` only reports after the fact; a shim path that does not stay
+    inside the tree, which the harness wrote there 0755 before the step
+    started; a word that dispatches a command this reader never sees; a
+    function definition, which gives a trusted name a body instead; a `cd` out
+    of the tree, after which a relative write is not relative to it; and a
+    redirection target this reader cannot place as a literal path inside the
+    tree.
 
     A reason here is a verdict about the step, which fails. It is not the same
-    answer as a runner that could not measure, which skips.
+    answer as a runner that could not measure, which skips. What is not on this
+    list is in the module docstring's list of shapes that walk past the shims
+    and are not refused, which is the other half of the same statement.
     """
     reasons = []
     outside = shim_plan(script)[2]
@@ -1310,6 +1425,24 @@ def why_this_guard_refuses(script):
             "it starts " + ", ".join(f"`{word}`" for word in unconfined)
             + ", which is neither shimmed nor on the allowlist, so running it "
             "would run the real program")
+    dispatching = dispatches_a_command(script)
+    if dispatching:
+        reasons.append(
+            "it dispatches through " + ", ".join(f"`{word}`" for word in dispatching)
+            + ", which starts a program at a position this reader does not read")
+    functions = defines_a_function(script)
+    if functions:
+        reasons.append(
+            "it defines the shell function(s) "
+            + ", ".join(f"`{name}`" for name in functions)
+            + ", which the shell resolves before PATH, so a shim never answers "
+            "for that name and this reader does not follow the body")
+    entered = changes_directory_outside_the_tree(script)
+    if entered:
+        reasons.append(
+            "it changes directory to " + ", ".join(f"`{path}`" for path in entered)
+            + ", which is not a literal path inside the throwaway tree, so what "
+            "the rest of the script writes is not relative to it either")
     escaping = writes_outside_the_tree(script)
     if escaping:
         reasons.append(
@@ -2153,9 +2286,11 @@ def test_the_parser_reads_the_steps_of_the_workflow_it_is_given():
 # content checks never execute, so each was verified by applying it to the
 # committed workflow, running this guard, and then running the step's script
 # the way Actions runs one with argv-recording shims in place of python and
-# pytest. `closed_by` says which half of this module refuses it: `running` for
-# the seven whose pytest line is never reached, and `reading` for the one that
-# does reach it and still is not evidence.
+# pytest. `closed_by` says what refuses it: `running` for the six whose pytest
+# line is never reached, `reading` for the one that does reach it and still is
+# not evidence, and `refusing` for the function definition, which the executor
+# will not start at all -- the shell resolves a function name before PATH, so
+# the shim for that name would never have answered.
 CONTROL_COMMAND = (
     "python -B -m pytest"
     " tests/test_skill_freshness.py"
@@ -2175,7 +2310,7 @@ RECORDED_BYPASSES = (
     ("a shell function named pytest",
      "pytest() { echo skipped; }\n"
      "pytest tests/test_skill_freshness.py tests/test_skill_invariants.py"
-     " tests/test_source_check_classification.py -q\n", "running"),
+     " tests/test_source_check_classification.py -q\n", "refusing"),
     ("a stub the step writes itself",
      "mkdir -p .tools\n"
      "printf '#!/bin/sh\\necho stubbed\\n' > .tools/pytest\n"
@@ -2189,15 +2324,20 @@ RECORDED_BYPASSES = (
 
 @pytest.mark.parametrize("name, script, closed_by", RECORDED_BYPASSES)
 def test_a_recorded_bypass_hands_nothing_to_pytest(name, script, closed_by):
-    """None of the eight is evidence, and which half refuses it is part of the case.
+    """None of the eight is evidence, and what refuses it is part of the case.
 
-    The seven marked `running` are asserted to satisfy the static reader first.
-    That is not a formality: it is what keeps the recorder honest about its own
-    cases, and a case that some later reading rule catches by itself has to be
-    moved to `reading` rather than left looking like proof that the recorder
-    works. Then the script is executed and its log holds no pytest over the
-    file. The eighth runs pytest and is refused by reading, because the step no
-    longer waits for it.
+    Every case but one is asserted to satisfy the static reader first. That is
+    not a formality: it is what keeps the recorder honest about its own cases,
+    and a case that some later reading rule catches by itself has to be moved
+    to `reading` rather than left looking like proof that the recorder works.
+    Then the script is executed and its log holds no pytest over the file.
+
+    Two are a different answer. The trailing `&` runs pytest and is refused by
+    reading, because the step no longer waits for it. The function definition
+    is refused before anything starts, since a name the shell resolves to a
+    function never reaches the shim that was written for it -- the recorder
+    could only ever have reported an empty log there, which is the answer this
+    module must not confuse with a step that ran nothing.
     """
     read_as_evidence = runs_as_pytest_argument(
         logical_commands(script), SCHEDULED_BY_CALENDAR
@@ -2212,6 +2352,10 @@ def test_a_recorded_bypass_hands_nothing_to_pytest(name, script, closed_by):
         "it, so this case belongs to `reading`"
     )
     run = execute_step(script)
+    if closed_by == "refusing":
+        assert run.refused and run.commands == [], (name, run)
+        assert "function" in run.problem, run.problem
+        return
     assert run.problem is None, run.problem
     assert recorded_pytest_runs(run.commands, SCHEDULED_BY_CALENDAR) == [], (
         f"{name} really did run pytest over {SCHEDULED_BY_CALENDAR}: {run.commands}"
@@ -2458,17 +2602,23 @@ def test_an_unshimmed_program_is_refused_before_it_is_command_not_found():
     script is started at all, which is a verdict about the step.
 
     `command not found` is what is left for a program this reader does not see
-    as a command word -- here behind `eval`, which starts nothing itself. That
-    one is still a `problem`: `bash -e` stops, nothing was recorded, and the
-    answer is that this runner could not measure rather than that the step is
-    one the guard refuses.
+    as a command word -- here inside a command substitution, which is one of
+    the shapes the module docstring lists as walking past the shims. That one
+    is still a `problem`: `bash -e` stops, nothing was recorded, and the answer
+    is that this runner could not measure rather than that the step is one the
+    guard refuses. `eval` used to be the example and is a refusal now, which is
+    the case below.
     """
     run = execute_step("git --version\n" + CONTROL_COMMAND + "\n")
     assert run.commands == [], (
         f"the step reached {run.commands} after an unshimmed program")
     assert run.refused is True, run.problem
     assert run.problem and "`git`" in run.problem, run.problem
-    hidden = execute_step("eval 'git --version'\n" + CONTROL_COMMAND + "\n")
+    dispatched = execute_step("eval 'git --version'\n" + CONTROL_COMMAND + "\n")
+    assert dispatched.commands == [], dispatched.commands
+    assert dispatched.refused is True, dispatched.problem
+    assert dispatched.problem and "`eval`" in dispatched.problem, dispatched.problem
+    hidden = execute_step('version="$(git --version)"\n' + CONTROL_COMMAND + "\n")
     assert hidden.commands == [], hidden.commands
     assert hidden.refused is False, hidden.problem
     assert hidden.problem and "exited" in hidden.problem, hidden.problem
@@ -2649,6 +2799,40 @@ def test_a_configuration_that_disables_the_only_candidate_fails():
                                ["w.yml (content): the script did not finish in 120s"])
 
 
+@EXECUTES_STEPS
+@pytest.mark.parametrize("name, script, words", [
+    ("a redirection the shell needs no space for",
+     "echo forged>{target}\n", "it writes to"),
+    ("a `cd` and then a relative write",
+     "cd {directory}\necho forged > escaped-the-tree\n", "it changes directory"),
+    ("a dispatching builtin", "eval 'touch {target}'\n", "it dispatches through"),
+    ("a function under a name a shim would have answered for",
+     "pytest() {{ touch {target}; }}\npytest tests/test_skill_freshness.py\n",
+     "it defines the shell function"),
+])
+def test_the_cheap_ways_round_the_shims_are_refused(name, script, words, tmp_path):
+    """Four shapes that cost a line each to read and left the shims standing.
+
+    None of them is a claim that the confinement is a boundary -- the module
+    docstring lists the shapes that still walk past it, and a shell has more of
+    them than this reader enumerates. They are here because each was free to
+    close and each is the kind of mistake a workflow can make without meaning
+    anything by it: a redirection written without a space, a `cd` before a
+    relative write, a command dispatched through `eval`, and a function
+    standing in for a program.
+
+    Each case is asserted twice: the reader names it, and the step is not
+    started, with the file it would have written still absent afterwards.
+    """
+    marker = tmp_path / "escaped-the-tree"
+    filled = script.format(target=marker, directory=tmp_path)
+    reasons = why_this_guard_refuses(filled)
+    assert any(words in reason for reason in reasons), (name, reasons)
+    run = execute_step(filled)
+    assert run.refused and run.commands == [], (name, run)
+    assert not marker.exists(), f"{name} reached {marker} outside the tree"
+
+
 def test_every_step_this_guard_executes_stays_inside_what_it_confines():
     """And the line is held by an assertion on every leg, not where steps run.
 
@@ -2679,12 +2863,17 @@ def test_every_step_this_guard_executes_stays_inside_what_it_confines():
         f"shim PATH and the allowlist confine: {refused}"
     )
     # The reader really answers, or the assertion above is a tautology. One
-    # case per reason, each of them measured escaping at the head of this branch.
+    # case per reason: the first four were measured escaping at the head of
+    # this branch, the last four are the shapes review read off the code.
     for script in (
         "grep -q x tests/test_skill_invariants.py\n" + CONTROL_COMMAND + "\n",
         "/usr/bin/touch escaped\n" + CONTROL_COMMAND + "\n",
         "echo ../../escaped/pytest\n" + CONTROL_COMMAND + "\n",
         CONTROL_COMMAND + " >> $GITHUB_STEP_SUMMARY\n",
+        "echo forged>/tmp/content-guard-no-whitespace\n" + CONTROL_COMMAND + "\n",
+        "cd /tmp\necho forged > beside-the-tree\n" + CONTROL_COMMAND + "\n",
+        "eval 'touch escaped'\n" + CONTROL_COMMAND + "\n",
+        "pytest() { touch escaped; }\npytest tests/test_skill_freshness.py\n",
     ):
         assert why_this_guard_refuses(script), script
 
