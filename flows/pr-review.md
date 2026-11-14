@@ -439,15 +439,15 @@ Register those keys in the scope passed to `cooperation_register`, then:
    observation with its next free time, the verbatim evidence and whether the
    wait was `stated`, came from a `rule` or was the `default`:
 
-```bash
-.venv/bin/python -c "
-from src.cooperation import quota
-pause = quota.observed_pause('coderabbitai[bot]', 'Review limit reached. Next included review available in 23 minutes.', observed_at=1763150400)
-print(quota.pause_observation('github.com/OWNER:coderabbitai', pause))
-"
-```
+   ```bash
+   .venv/bin/python -c "
+   from src.cooperation import quota
+   pause = quota.observed_pause('coderabbitai[bot]', 'Review limit reached. Next included review available in 23 minutes.', observed_at=1763150400)
+   print(quota.pause_observation('github.com/OWNER:coderabbitai', pause))
+   "
+   ```
 
-5. **Publish an automatic review as consumed.** A reviewer that runs itself on a
+6. **Publish an automatic review as consumed.** A reviewer that runs itself on a
    push cannot be queued, and its run still spends the allowance. Publish a
    `consumed` observation (`quota.consumed_observation`), which carries no next
    free time, with the evidence after
