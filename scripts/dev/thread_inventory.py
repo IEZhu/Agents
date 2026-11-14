@@ -108,7 +108,8 @@ STARTED = {
     "Agent": re.compile(r"\s*Async agent launched.*?agentId: (\w+)", re.S),
 }
 STOPPED = re.compile(r"Successfully stopped task: (\w+)")  # in TaskStop results
-MEMORY_PATH = re.compile(r"/projects/[^/]+/memory/")
+# Either separator: a Windows client records `C:\Users\u\.claude\projects\p\memory\x.md`.
+MEMORY_PATH = re.compile(r"[/\\]projects[/\\][^/\\]+[/\\]memory[/\\]")
 # Phrases with which a model takes back its own earlier statement. They are candidates
 # for the audit, not conclusions: the flow reads each one in context.
 CORRECTION = re.compile(
@@ -1316,7 +1317,7 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
         path = data.get("file_path") or data.get("notebook_path")
         if isinstance(path, str) and path:
             _file(sink, path, ts, actor)
-            if MEMORY_PATH.search(path):
+            if MEMORY_PATH.search(path):  # either separator
                 if path not in sink["memory"] or _earlier(ts, sink["memory"][path]["ts"]):
                     sink["memory"][path] = {"ts": ts, "by": actor}
             if "/scratchpad" in path:
@@ -1409,6 +1410,47 @@ def summarize(sink: dict) -> dict:
     }
 
 
+def detect_memory_files(directories: list[Path], first: str | None, last: str | None, known: set[str]) -> dict:
+    """Memory files whose modification time falls inside the session's span, whoever wrote them.
+
+    A script that opens and writes a file itself is neither an edit-tool call nor a redirection, so
+    ``memory_writes`` cannot see it. This is a lower bound found by modification time, not an observed
+    tool call: a file changed by another session in the same span is listed too, and a file written
+    in the span and changed again later is missed. A directory that is missing or cannot be read adds
+    a note instead of a failure.
+    """
+    from datetime import datetime, timezone
+
+    def epoch(stamp):
+        try:
+            return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+        except (AttributeError, ValueError):
+            return None
+
+    start, end = epoch(first), epoch(last)
+    found, notes = [], []
+    seen = {path.replace("\\", "/") for path in known}
+    for directory in dict.fromkeys(directories):
+        if not directory.is_dir():
+            notes.append({"directory": str(directory), "status": "missing"})
+            continue
+        try:
+            files = [p for p in directory.rglob("*") if p.is_file()]
+            stamped = [(p, p.stat().st_mtime) for p in files]
+        except OSError as error:  # missing, not a directory, or no permission
+            notes.append({"directory": str(directory), "status": "unreadable",
+                          "reason": type(error).__name__})
+            continue
+        if start is None or end is None:
+            notes.append({"directory": str(directory), "status": "no session span"})
+            continue
+        for path, mtime in sorted(stamped):
+            if start <= mtime <= end + 1 and str(path).replace("\\", "/") not in seen:
+                stamp = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                found.append({"path": str(path), "mtime": stamp, "detected_by": "modification time"})
+    return {"memory_files_detected": found, "memory_scan_notes": notes}
+
+
 def inventory(entries: list[dict]) -> dict:
     """The thread's artifacts and signals from one transcript's entries."""
     return _masked(summarize(scan(entries)))
@@ -1492,6 +1534,10 @@ def collect(paths: list[Path]) -> dict:
     result["transcripts"] = [str(path) for path in paths]
     result["unreadable_lines"] = bad
     result["git_roots"] = git_roots(result["directories"])
+    # The memory directory sits beside the transcripts: <config>/projects/<project>/memory.
+    memory_dirs = [Path(path).parent / "memory" for path in paths]
+    result.update(detect_memory_files(memory_dirs, result["first"], result["last"],
+                                      {item["path"] for item in result["memory_writes"]}))
     return _masked(result)
 
 

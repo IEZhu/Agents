@@ -875,3 +875,69 @@ def test_gitlab_merge_request_link_in_text_is_not_a_github_pull_request():
 def test_repository_starting_with_a_dollar_sign_is_not_recorded(command):
     refs = thread_inventory.inventory(bash(command, "r"))["github_refs"]
     assert refs and all(r["repository"] is None and r["url"] is None for r in refs)
+
+
+WIN_MEMORY = "C:\\Users\\u\\.claude\\projects\\p\\memory\\"
+
+
+@pytest.mark.parametrize("tool_name, data", [
+    ("Write", {"file_path": WIN_MEMORY + "fact.md", "content": "x"}),
+    ("Edit", {"file_path": WIN_MEMORY + "fact.md", "old_string": "a", "new_string": "b"}),
+])
+def test_memory_writes_accept_windows_backslash_paths(tool_name, data):
+    inv = thread_inventory.inventory(assistant([tool(tool_name, data, "w1")], "2026-10-02T09:00:00Z", "m1"))
+    assert [m["path"] for m in inv["memory_writes"]] == [WIN_MEMORY + "fact.md"]
+
+
+def _session_with_memory(tmp_path, command_ts="2026-10-02T09:00:00Z"):
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    entries = [human("go", "2026-10-02T09:00:00Z"),
+               *bash("python3 - <<'PY'\nopen('m','w').write('x')\nPY", "b1", ts="2026-10-02T09:05:00Z")]
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
+    return project, transcript
+
+
+def _mtime(stamp):
+    from datetime import datetime
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+
+
+def test_memory_files_written_by_a_script_are_detected_by_modification_time(tmp_path):
+    project, transcript = _session_with_memory(tmp_path)
+    inside, before, after = (project / "memory" / n for n in ("inside.md", "before.md", "after.md"))
+    for path, stamp in ((inside, "2026-10-02T09:03:00Z"), (before, "2026-10-01T09:00:00Z"),
+                        (after, "2026-10-03T09:00:00Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp), _mtime(stamp)))
+    result = thread_inventory.collect([transcript])
+    assert result["memory_writes"] == []  # nothing was observed as a tool call
+    assert [(m["path"], m["detected_by"]) for m in result["memory_files_detected"]] == [
+        (str(inside), "modification time")]
+    assert result["memory_scan_notes"] == []
+
+
+def test_a_memory_file_seen_as_a_tool_call_is_not_listed_again_as_detected(tmp_path):
+    project, transcript = _session_with_memory(tmp_path)
+    known = project / "memory" / "known.md"
+    known.write_text("x")
+    os.utime(known, (_mtime("2026-10-02T09:03:00Z"),) * 2)
+    result = thread_inventory.detect_memory_files([project / "memory"], "2026-10-02T09:00:00Z",
+                                                  "2026-10-02T09:05:00Z", {str(known)})
+    assert result["memory_files_detected"] == []
+
+
+def test_a_missing_or_unreadable_memory_directory_is_a_note_not_a_failure(tmp_path):
+    missing = thread_inventory.detect_memory_files([tmp_path / "nope"], "2026-10-02T09:00:00Z",
+                                                   "2026-10-02T09:05:00Z", set())
+    assert missing == {"memory_files_detected": [],
+                       "memory_scan_notes": [{"directory": str(tmp_path / "nope"), "status": "missing"}]}
+    plain_file = tmp_path / "file"
+    plain_file.write_text("x")
+    not_a_dir = thread_inventory.detect_memory_files([plain_file], "2026-10-02T09:00:00Z",
+                                                     "2026-10-02T09:05:00Z", set())
+    assert not_a_dir["memory_files_detected"] == [] and not_a_dir["memory_scan_notes"][0]["status"] == "missing"
+    _, transcript = _session_with_memory(tmp_path / "other")
+    (transcript.parent / "memory").rmdir()
+    assert thread_inventory.collect([transcript])["memory_scan_notes"][0]["status"] == "missing"
