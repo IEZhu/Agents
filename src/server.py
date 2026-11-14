@@ -1391,9 +1391,9 @@ async def route_and_load(
     protocol_version=2 and current_persona. Returns separate instruction blocks.
     ROUTE_REQUIRED needs get_agent_context with the same version and descriptor.
     Explicit known roles can be loaded directly. Pass workspace, your working
-    directory: the first SUCCESS or NO_CHANGE in a workspace carries its repository
-    context in repo_context, and a workspace outside this session's grant carries the
-    workspace_mismatch report there instead of a description.
+    directory: the first SUCCESS or NO_CHANGE of this session in a workspace carries
+    its repository context in repo_context, and a workspace outside this session's
+    grant carries the workspace_mismatch report there instead of a description.
     """
     call_id = await _persona_debug_request(
         "route_and_load", query=query, chat_history=chat_history,
@@ -1430,10 +1430,10 @@ async def get_agent_context(
     instructions; use refresh_persona_context to refresh the same role's skills.
     SUCCESS contains separate blocks and a descriptor; apply only when its
     replaces_activation_id matches your current activation. Preserve the dialogue.
-    Pass workspace, your working directory: the first SUCCESS or NO_CHANGE in a
-    workspace carries its repository context in repo_context, and a workspace outside
-    this session's grant carries the workspace_mismatch report there instead of a
-    description.
+    Pass workspace, your working directory: the first SUCCESS or NO_CHANGE of this
+    session in a workspace carries its repository context in repo_context, and a
+    workspace outside this session's grant carries the workspace_mismatch report there
+    instead of a description.
     """
     call_id = await _persona_debug_request(
         "get_agent_context", agent_name=agent_name, query=query, reasoning=reasoning,

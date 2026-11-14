@@ -7,7 +7,7 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field, replace as replace_fields
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.engine import protocol_text
@@ -229,6 +229,18 @@ _report_lock = threading.Lock()
 # One server process serves the few workspaces its client registered; the bound only keeps a
 # long-lived process from growing a report per path it ever resolved.
 _MAX_REPORTED_WORKSPACES = 64
+
+# Which caller has already been told what, and at which decision: the repository hash for a
+# described workspace, the failure for one that could not be resolved. The lookup above is a
+# cache of what the tree says and is shared by every session in the process; this is the
+# "has this caller been told" decision and must not be, because one process serves several
+# sessions — the Claude desktop app starts a single stdio server for all of its Code
+# sessions, and the HTTP daemon serves every session on the machine. Keyed per process the
+# report fired for the first session and for nobody else (#576 pre-mortem P-C1).
+_reported_callers: dict[tuple[str, str], str] = {}
+# A few callers per workspace, and a caller is forgotten only to keep a long-lived process
+# bounded; forgetting one costs a repeated report, never a missed one.
+_MAX_REPORTED_CALLERS = 256
 # How long a record may answer on its own. Its stat marks catch a changed top level, a
 # rewritten or deleted CLAUDE.md and a new stored hash at once; a directory created deeper
 # than they reach is picked up at the next recheck instead of on the next activation.
@@ -241,11 +253,15 @@ MAX_REPORT_PREVIEW_CHARS = 800
 
 @dataclass(frozen=True)
 class _ReportRecord:
-    """What was reported for one workspace, and the cheap inputs it was decided from."""
+    """What a workspace's lookup last decided, and the cheap inputs it was decided from.
+
+    ``report`` holds the payload every caller of this workspace gets, without any field that
+    belongs to one caller: the ``workspace_id`` of a pending report is added per caller, so a
+    second session is never handed the first one's (#576 pre-mortem P-C1).
+    """
     repo_hash: str
     described: bool
-    # The pending report to repeat verbatim; None once the workspace is described.
-    report: dict | None
+    report: dict
     inputs: tuple[str, ...]
     marks: tuple[tuple[int, int] | None, ...]
     checked_at: float
@@ -267,6 +283,19 @@ NO_WORKSPACE_INSTRUCTION = (
     "No workspace resolved, so nothing was described and no repository was assumed: the "
     "installation checkout is never described in a workspace's place. Start the session in the "
     "project or register it, then call describe_repo before exploring files.")
+# What a report whose described checkout is not the session's memory root has to say. History
+# normalizes a linked worktree to its main checkout, so the memory root of a worktree session
+# is that main checkout: a description taken there would be another branch's, and the hash
+# with it (#576 pre-mortem P-C2). The report follows the checkout the call named instead and
+# says which root its path, hash and preview belong to.
+OTHER_CHECKOUT_NOTE = (
+    "This report describes {described}, the checkout this call named and this session is "
+    "granted, so the path, repo_hash and preview above are that checkout's; this session's "
+    "memory is registered for {registered}.")
+OTHER_CHECKOUT_REASON = (
+    "other_checkout: write_repo_summary resolves its repo_path inside the registered "
+    "workspace {registered}, not the described checkout {described}, so the values above "
+    "cannot persist a summary of what was described.")
 
 
 async def with_repo_context(response: str, *, ctx=None, workspace=None) -> str:
@@ -303,32 +332,78 @@ async def _repo_context(ctx, workspace) -> dict | None:
         # Over HTTP only the request carries the workspace, and an activation call that does not
         # forward its MCP context cannot see it: report nothing rather than guess a repository.
         return None
+    client = None
     try:
         client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
         # A workspace no authorized root covers is never described in the registered one's place:
         # the caller gets the refusal the repository-scoped tools raise for it (#576).
         client.require_workspace_match()
-        root = client.workspace_root()
+        registered = client.workspace_root()
+        root = client.report_root()
         workspace_id = client.workspace_id
     except WorkspaceMismatch as mismatch:
         return {"status": "workspace_mismatch", "error": str(mismatch), **mismatch.details()}
     except (WorkspaceError, OSError, RuntimeError) as failure:
-        return {"status": "unavailable", "error": str(failure),
-                "instruction": NO_WORKSPACE_INSTRUCTION}
-    return await asyncio.to_thread(_describe_workspace, root, workspace_id)
+        return _unavailable_report(client, failure)
+    return await asyncio.to_thread(_describe_workspace, root, workspace_id,
+                                   _caller_identity(client),
+                                   None if root == registered else registered)
 
 
-def _describe_workspace(root, workspace_id=None) -> dict | None:
+def _caller_identity(client) -> str:
+    """Who "already reported" is decided for, within one server process (#576 P-C1).
+
+    Over HTTP that is the registered workspace the request carries; over stdio the origin the
+    context was resolved from, with the directory a workspace-less call claimed, which is all
+    that distinguishes two sessions of one shared stdio server. Two HTTP sessions registered
+    for the same workspace share one identity: nothing in the request separates them, and the
+    cost is the report reaching one of them, not none.
+    """
+    if client is None:
+        return f"{os.environ.get('AGENTS_TRANSPORT') or 'stdio'}:unresolved"
+    if client.transport == "http":
+        return f"http:{client.workspace_id or ''}"
+    return f"{client.transport}:{client.source or ''}:{client.claimed or ''}"
+
+
+def _unavailable_report(client, failure) -> dict | None:
+    """The report for a workspace that did not resolve, once per caller (#576 P-C3).
+
+    This decision is recorded like a described one. Without a record nothing suppressed a
+    repeat, so every activation of a workspace-less session carried the same instruction
+    again; the failure is the decision token, so a changed error is reported afresh.
+    """
+    if not _tell_once(("unavailable", _caller_identity(client)), str(failure)):
+        return None
+    return {"status": "unavailable", "error": str(failure),
+            "instruction": NO_WORKSPACE_INSTRUCTION}
+
+
+def _tell_once(key: tuple[str, str], token: str) -> bool:
+    """True when *key* has not been told *token* yet, and record that it now has."""
+    with _report_lock:
+        if _reported_callers.get(key) == token:
+            return False
+        _reported_callers[key] = token
+        while len(_reported_callers) > _MAX_REPORTED_CALLERS:
+            _reported_callers.pop(next(iter(_reported_callers)))
+    return True
+
+
+def _describe_workspace(root, workspace_id=None, caller="", registered=None) -> dict | None:
     """The read-only half of describe_repo for *root*, or None when it was already reported.
 
-    The record of the last report is consulted first, and while its inputs are unchanged the
+    The lookup record of *root* is consulted first, and while its inputs are unchanged the
     answer comes from it without hashing anything: only a stat of the repository root, its
     CLAUDE.md, its stored hash and the manifests the hash reads. ``plan`` hashes the tree and
     reads the managed section; nothing is written, so an activation never starts a repository
-    write. The describer always receives the resolved workspace as its ``repo_path``: without
-    one it would describe the installation's own checkout, which is why an unresolved workspace
-    never reaches this function. The prompt stays with describe_repo, whose instruction names
-    it — a context bundle is budgeted at 24,000 characters.
+    write. That record says what the tree is and serves every session in the process; whether
+    *caller* has been told is a separate decision (#576 pre-mortem P-C1), taken in ``_answer``.
+    The describer always receives the resolved workspace as its ``repo_path``: without one it
+    would describe the installation's own checkout, which is why an unresolved workspace never
+    reaches this function. *registered* is this session's memory root when the described
+    checkout is not it. The prompt stays with describe_repo, whose instruction names it — a
+    context bundle is budgeted at 24,000 characters.
     """
     from src.memory.describer import RepoDescriber
     key = str(root)
@@ -337,7 +412,7 @@ def _describe_workspace(root, workspace_id=None) -> dict | None:
     if record is not None and time.monotonic() - record.checked_at < _RECHECK_SECONDS \
             and _stat_marks(record.inputs) == record.marks:
         # Nothing the last decision was read from has changed: answer from the record.
-        return dict(record.report) if record.report is not None else None
+        return _answer(key, record, workspace_id, caller)
     describer = RepoDescriber(repo_path=key)
     decision = describer.plan()
     inputs = _report_inputs(describer)
@@ -348,34 +423,56 @@ def _describe_workspace(root, workspace_id=None) -> dict | None:
         # instead of walking the tree for an answer that cannot have changed.
         report = {"status": "needs_summary", "workspace": key, "repo_path": describer.repo_path,
                   "repo_hash": decision.current_hash,
-                  "instruction": _undescribed_instruction(describer)}
-        if workspace_id:
-            # write_repo_summary refuses an HTTP call without the workspace_id its own
-            # needs_summary carries, so the instruction above is followable only with it.
-            report["workspace_id"] = workspace_id
-        _remember(key, _ReportRecord(decision.current_hash, False, report, inputs, marks,
-                                     time.monotonic()))
-        return dict(report)
-    if record is not None and record.described and record.repo_hash == decision.current_hash:
-        # Reported already, and the tree still agrees with what was reported. Keep the record
-        # fresh so the next activation stops at the stat marks again.
-        _remember(key, replace_fields(record, inputs=inputs, marks=marks,
-                                      checked_at=time.monotonic()))
-        return None
-    report = {**describer.up_to_date_response(decision, preview_chars=MAX_REPORT_PREVIEW_CHARS),
-              "workspace": key, "instruction": DESCRIBED_INSTRUCTION}
-    _remember(key, _ReportRecord(decision.current_hash, True, None, inputs, marks,
-                                 time.monotonic()))
+                  "instruction": _undescribed_instruction(describer, registered)}
+    else:
+        report = {**describer.up_to_date_response(decision,
+                                                  preview_chars=MAX_REPORT_PREVIEW_CHARS),
+                  "workspace": key, "instruction": DESCRIBED_INSTRUCTION}
+        if registered is not None:
+            report["instruction"] += " " + OTHER_CHECKOUT_NOTE.format(described=key,
+                                                                      registered=registered)
+    if registered is not None:
+        # Which root the path, hash and preview belong to is part of the report, not left to
+        # the caller to infer from a workspace it did not name (#576 pre-mortem P-C2).
+        report["registered_workspace"] = str(registered)
+    record = _ReportRecord(decision.current_hash, not decision.needs_refresh, report, inputs,
+                           marks, time.monotonic())
+    _remember(key, record)
+    return _answer(key, record, workspace_id, caller)
+
+
+def _answer(key: str, record: "_ReportRecord", workspace_id, caller: str) -> dict | None:
+    """What *caller* is told for the workspace *key*, given its current lookup record.
+
+    A described repository is reported once per caller and per hash, so a second session of
+    the same process is told as well, and a described tree that moved is told again. A pending
+    needs_summary is reported on every activation until the summary is written (#600), with
+    this caller's own ``workspace_id`` rather than the one the record was built for.
+    """
+    if record.described:
+        if not _tell_once((key, caller), record.repo_hash):
+            return None
+        return dict(record.report)
+    report = dict(record.report)
+    if workspace_id:
+        # write_repo_summary refuses an HTTP call without the workspace_id its own
+        # needs_summary carries, so the instruction above is followable only with it.
+        report["workspace_id"] = workspace_id
     return report
 
 
-def _undescribed_instruction(describer) -> str:
+def _undescribed_instruction(describer, registered=None) -> str:
     """What to do about a repository with no current description.
 
     A workspace write_repo_summary always refuses — the running installation and its runtime
     source — is never advised to persist one: describe_repo's own instruction says what to do
-    with the overview there instead.
+    with the overview there instead. A checkout that is not the session's memory root is the
+    same case: `workspace_target` resolves a write inside the memory root, so a summary
+    written from this report would not be the described checkout's (#576 pre-mortem P-C2).
     """
+    if registered is not None:
+        return PROTECTED_INSTRUCTION.format(reason=OTHER_CHECKOUT_REASON.format(
+            registered=registered, described=describer.repo_path))
     rejection = describer.write_rejection_reason()
     return PROTECTED_INSTRUCTION.format(reason=rejection) if rejection else UNDESCRIBED_INSTRUCTION
 

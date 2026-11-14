@@ -86,8 +86,21 @@ def assert_mismatch(payload, registered, requested):
     assert payload["code"] == "workspace_mismatch"
     assert payload["registered_workspace"] == str(registered)
     assert payload["requested_workspace"] == str(requested)
-    assert f"migrate --workspace {requested}" in payload["remedy"]
-    assert "start a session" in payload["remedy"]
+    assert_narrow_remedy(payload["remedy"], requested)
+    assert "starts a session" in payload["remedy"]
+
+
+# What `python -m src.daemon migrate` rewrites unless it is told otherwise: a refusal that
+# enforces a grant must not hand back a command that reconfigures three AI clients (P-C4).
+MIGRATE_CLIENTS = "codex,claude,cursor"
+
+
+def assert_narrow_remedy(remedy, requested):
+    """The remedy names the narrow action, addresses the user, and quotes no caller path."""
+    assert "workspace register" in remedy
+    assert "migrate" not in remedy, "the remedy must not name the configuration rewriter"
+    assert str(requested) not in remedy, "a caller-supplied path is not put in a command line"
+    assert "The user" in remedy, "the remedy is addressed to the user, not to the model"
 
 
 @pytest.mark.asyncio
@@ -249,7 +262,29 @@ def test_the_mismatch_error_is_a_workspace_error_with_both_roots(tmp_path):
     details = error.details()
     assert set(details) == {"code", "registered_workspace", "requested_workspace", "remedy"}
     assert details["code"] == "workspace_mismatch"
-    assert str(Path(tmp_path / "b")) in details["remedy"]
+    assert details["requested_workspace"] == str(tmp_path / "b"), "reported as data"
+    assert_narrow_remedy(details["remedy"], tmp_path / "b")
+
+
+def test_the_remedy_names_no_subcommand_that_rewrites_a_client_configuration(tmp_path):
+    """A refusal that enforces a grant must not return the command that widens it (P-C4).
+
+    `migrate` rewrites the configuration of every client in `--clients`, which defaults to
+    all three, so an unattended run acting on this sentence would reconfigure three AI
+    clients on the user's machine and be granted, next session, the repository the refusal had
+    just denied. `workspace register` only records a root. The requested path is a
+    caller-supplied string and is reported as data, never interpolated into a command line.
+    """
+    from src.daemon import control
+
+    remedy = WorkspaceMismatch(tmp_path / "a", str(tmp_path / "b")).details()["remedy"]
+    assert_narrow_remedy(remedy, tmp_path / "b")
+    for command in ("migrate", "audit", "install", "restore-clients"):
+        assert f"src.daemon {command}" not in remedy, command
+    # Why `migrate` is the one that must not be named, and `workspace register` the one that is.
+    source = Path(control.__file__).read_text(encoding="utf-8")
+    assert f'migrate.add_argument("--clients", default="{MIGRATE_CLIENTS}")' in source
+    assert "workspace register requires a path" in source, "the narrow action, by its own name"
 
 
 @pytest.mark.asyncio
@@ -394,7 +429,7 @@ async def test_the_four_flow_tools_keep_the_mismatch_code_and_both_roots(reposit
         assert payload["code"] == "workspace_mismatch", name
         assert payload["registered_workspace"] == str(registered), name
         assert payload["requested_workspace"] == str(other), name
-        assert f"migrate --workspace {other}" in payload["remedy"], name
+        assert_narrow_remedy(payload["remedy"], other)
         # Three fail for want of the repository scope; set_flow_persona finds no flow in a
         # library it cannot search, and says so, with the same roots and remedy beside it.
         expected = ("flow_not_found: " if name == "set_flow_persona" else
@@ -403,3 +438,75 @@ async def test_the_four_flow_tools_keep_the_mismatch_code_and_both_roots(reposit
     # A built-in flow needs no repository scope, so the same call still answers.
     answered = json.loads(await server.get_flow("check", ctx=ctx, workspace=str(other)))
     assert answered["status"] == "success"
+
+
+def _case_insensitive(root):
+    """Whether this filesystem gives the same directory under another spelling of its name."""
+    try:
+        return root.with_name(root.name.lower()).samefile(root)
+    except OSError:
+        return False
+
+
+@pytest.mark.asyncio
+async def test_a_registered_root_named_under_another_spelling_is_noted_not_refused(tmp_path,
+                                                                                  flow_library):
+    """One respelling must not cost a session its repository tools for good (P-C5).
+
+    `_covers` decides by exact containment of resolved paths and `Path.resolve()` does not
+    normalize case, so on this filesystem one real directory named under another spelling was
+    a mismatch: `require_workspace_match` then refused `describe_repo`, `write_repo_summary`,
+    `run_flow` and a `scope=repo` listing for the whole session, with two paths in the message
+    that the user reads as identical.
+    """
+    registered = tmp_path / "Registered"
+    registered.mkdir()
+    _seed_repo(registered)
+    registered = registered.resolve()
+    if not _case_insensitive(registered):
+        pytest.skip("this filesystem holds the two spellings apart")
+    respelled = str(registered.with_name(registered.name.lower()))
+    assert respelled != str(registered) and Path(respelled).samefile(registered)
+    ctx = http_context(registered)
+    for named in (respelled, str(Path(respelled) / "src")):
+        context = await resolve_client_context(ctx, named)
+        assert context.root == registered, "the grant still decides the root"
+        assert context.mismatch is None, named
+        context.require_workspace_match()
+        note = context.workspace_note()
+        assert note and named in note and str(registered) in note and "ignored" in note
+    described = json.loads(await server.describe_repo(ctx=ctx, workspace=respelled))
+    assert described["status"] == "needs_summary" and described["repo_path"] == str(registered)
+    listed = json.loads(await server.list_flows(scope="repo", ctx=ctx, workspace=respelled))
+    assert listed["status"] == "success" and listed["repo"]["path"] == str(registered)
+    started = json.loads(await server.run_flow("check", ctx=ctx, workspace=respelled))
+    assert started["status"] == "needs_execution" and started["repo_path"] == str(registered)
+    # A path that is genuinely elsewhere keeps the refusal, however it is spelled.
+    elsewhere = tmp_path / "Other"
+    elsewhere.mkdir()
+    for named in (str(elsewhere), str(elsewhere).lower(), str(registered) + "-sibling"):
+        refused = json.loads(await server.describe_repo(ctx=ctx, workspace=named))
+        assert refused["status"] == "error" and refused["code"] == "workspace_mismatch", named
+        assert refused["requested_workspace"] == named
+
+
+def test_a_respelling_the_filesystem_does_not_confirm_stays_refused(tmp_path):
+    """The casefolded match decides nothing on its own: `samefile` confirms it (P-C5).
+
+    A case-sensitive filesystem can hold two different directories whose names differ only in
+    case, which is why the comparison is a shortlist and the filesystem settles it. A removed
+    directory asks that same question: the strings still match, the identity check cannot, and
+    the refusal stands.
+    """
+    from src.daemon import workspaces
+    root = tmp_path / "Registered"
+    root.mkdir()
+    root = root.resolve()
+    (root / "src").mkdir()
+    respelled = str(root.with_name(root.name.lower()))
+    for named in (respelled, str(Path(respelled) / "src")):
+        assert workspaces._same_directory(root, named) is _case_insensitive(root), named
+    (root / "src").rmdir()
+    root.rmdir()
+    assert workspaces._same_directory(root, respelled) is False
+    assert workspaces._same_directory(root, str(root)) is False

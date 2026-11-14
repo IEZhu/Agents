@@ -23,7 +23,15 @@ from src.runtime_paths import installation_root
 from src.schemas.protocol import PersonaDescriptor, PersonaResponse
 from tests.test_describer import _seed_repo, _valid_summary
 from tests.test_subagent import prepared, worker_tree  # noqa: F401
-from tests.test_workspace_mismatch import http_context, repositories  # noqa: F401
+from tests.test_workspace_mismatch import (assert_narrow_remedy, http_context,  # noqa: F401
+                                           linked_worktree, repositories)
+
+
+@pytest.fixture(autouse=True)
+def forget_reports(monkeypatch):
+    """Both records are process-global, and what one test reported is not another's state."""
+    monkeypatch.setattr(persona, "_reported_workspaces", {})
+    monkeypatch.setattr(persona, "_reported_callers", {})
 
 
 @pytest.fixture
@@ -173,10 +181,11 @@ async def test_an_unavailable_workspace_is_reported_and_describes_nothing(bundle
     for absent in ("path", "workspace", "repo_path", "repo_hash", "summary_preview"):
         assert absent not in report
     assert str(installation_root()) not in json.dumps(report)
-    # Nothing was described, so nothing is marked described and the report keeps coming.
+    # Nothing was described, so nothing is marked described; the decision is recorded for
+    # this caller instead, and the same instruction does not ride on every activation.
     assert describers == []
     assert str(workspace) not in persona._reported_workspaces
-    assert (await activate())["repo_context"]["status"] == "unavailable"
+    assert "repo_context" not in await activate()
 
 
 @pytest.mark.asyncio
@@ -200,7 +209,7 @@ async def test_a_workspace_outside_the_registered_root_is_not_described(bundle, 
     assert report["status"] == "workspace_mismatch" and report["code"] == "workspace_mismatch"
     assert report["registered_workspace"] == str(registered)
     assert report["requested_workspace"] == str(other)
-    assert f"migrate --workspace {other}" in report["remedy"]
+    assert_narrow_remedy(report["remedy"], other)
     assert "summary_preview" not in report and "repo_hash" not in report
     assert describers == [] and str(registered) not in persona._reported_workspaces
     answered = json.loads(await persona.load_persona(
@@ -318,7 +327,7 @@ async def test_a_tool_call_naming_an_uncovered_workspace_gets_the_c1_refusal(
     assert report["status"] == "workspace_mismatch" and report["code"] == "workspace_mismatch"
     assert report["registered_workspace"] == str(registered)
     assert report["requested_workspace"] == str(other)
-    assert f"migrate --workspace {other}" in report["remedy"]
+    assert_narrow_remedy(report["remedy"], other)
     assert "summary_preview" not in report and describers == []
 
 
@@ -453,9 +462,10 @@ async def test_a_resolution_only_the_installation_fallback_answers_is_unavailabl
 @pytest.mark.asyncio
 async def test_the_record_of_reported_workspaces_stays_bounded(bundle, tmp_path, monkeypatch):
     """Past the bound the oldest workspace is evicted and reports again (C-T3)."""
-    monkeypatch.setattr(persona, "_reported_workspaces", {})
-    assert 0 < persona._MAX_REPORTED_WORKSPACES <= 1024, "the shipped bound must stay small"
+    for bound in (persona._MAX_REPORTED_WORKSPACES, persona._MAX_REPORTED_CALLERS):
+        assert 0 < bound <= 1024, "the shipped bounds must stay small"
     monkeypatch.setattr(persona, "_MAX_REPORTED_WORKSPACES", 2)
+    monkeypatch.setattr(persona, "_MAX_REPORTED_CALLERS", 2)
     for name in ("CLAUDE_PROJECT_DIR", "AGENTS_TRANSPORT"):
         monkeypatch.delenv(name, raising=False)
     roots = []
@@ -482,3 +492,104 @@ async def test_a_reporting_response_still_validates_as_a_persona_response(bundle
     _write_summary(workspace)
     raw = await server.get_agent_context("software_engineer", "q", protocol_version=2)
     assert PersonaResponse.model_validate_json(raw).repo_context == json.loads(raw)["repo_context"]
+
+
+async def _http_activate(ctx, query="Fix the failing import"):
+    return json.loads(await server.get_agent_context(
+        "software_engineer", query, protocol_version=2, ctx=ctx))
+
+
+@pytest.mark.asyncio
+async def test_every_session_of_one_server_process_is_told_not_only_the_first(
+        bundle, repositories, monkeypatch):
+    """"Already reported" is decided per caller, never per process (P-C1).
+
+    One process serves several sessions in both deployments that ship: the Claude desktop app
+    starts a single stdio server for all of its Code sessions, and the HTTP daemon serves
+    every session on the machine. Keyed by the root alone, the report fired for the first
+    session and for nobody else, and a second session was handed the first one's workspace_id
+    while the report was pending.
+    """
+    registered, _other, _inside = repositories
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    for identity in ("session-a", "session-b"):
+        report = (await _http_activate(http_context(registered, identity=identity)))["repo_context"]
+        assert report["status"] == "needs_summary", identity
+        assert report["workspace_id"] == identity, "each caller gets its own workspace_id"
+    _write_summary(registered)
+    described = (await _http_activate(http_context(registered, identity="session-a")))["repo_context"]
+    assert described["status"] == "up-to-date"
+    # The same caller is still told once, and the other session is told as well.
+    assert "repo_context" not in await _http_activate(http_context(registered, identity="session-a"))
+    second = (await _http_activate(http_context(registered, identity="session-b")))["repo_context"]
+    assert second["status"] == "up-to-date", "a second session of the same process is told too"
+    assert second["hash"] == described["hash"]
+
+
+@pytest.mark.asyncio
+async def test_a_worktree_session_is_described_from_the_checkout_it_runs_in(bundle, repositories,
+                                                                           tmp_path, monkeypatch):
+    """A worktree session must not be handed another branch's description (P-C2).
+
+    Registration maps the named directory to its main checkout (`config._main_checkout`) and
+    keeps the worktree as a physical grant, so the memory root of a worktree session is the
+    main checkout. Reported from there, the session received the main checkout's managed
+    summary, written for a different branch, with the instruction to read it instead of
+    exploring the tree, and a `repo_hash` that belongs to the main checkout.
+    """
+    main, _other, _inside = repositories
+    worktree = linked_worktree(main, tmp_path / "worktree")
+    (worktree / "BRANCH.md").write_text("# Only on this branch\n", encoding="utf-8")
+    assert engine_config._main_checkout(worktree) == main, "the normalization that causes this"
+    main_summary = _write_summary(main)
+    kept = (main / "CLAUDE.md").read_text(encoding="utf-8")
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    ctx = http_context(main, grants=(worktree,))
+    report = (await _http_activate(ctx))["repo_context"]
+    assert report["status"] == "needs_summary", "the worktree has no description of its own"
+    assert report["workspace"] == str(worktree) and report["repo_path"] == str(worktree)
+    assert report["registered_workspace"] == str(main), "the report says which root it describes"
+    assert report["repo_hash"] == RepoDescriber(repo_path=str(worktree)).compute_repo_hash()
+    assert report["repo_hash"] != main_summary["hash"], "the hash belongs to the described root"
+    assert "Project Identity" not in json.dumps(report), "not the other branch's summary"
+    # A needs_summary acted on from here must not persist into the main checkout.
+    assert "to persist the overview" not in report["instruction"], "no write is advised"
+    assert "instead of writing a summary" in report["instruction"]
+    assert "other_checkout" in report["instruction"]
+    refused = json.loads(await server.write_repo_summary(
+        summary=_valid_summary(), repo_hash=report["repo_hash"], repo_path=report["repo_path"],
+        workspace_id=report["workspace_id"], ctx=ctx, workspace=str(worktree)))
+    assert refused["status"] == "error" and "within workspace" in refused["error"]
+    assert (main / "CLAUDE.md").read_text(encoding="utf-8") == kept, "the main checkout is intact"
+    assert not (worktree / "CLAUDE.md").exists()
+    # A call that names the worktree, as the parameter asks it to, reads the same way.
+    named = json.loads(await server.get_agent_context(
+        "software_engineer", "q", protocol_version=2, ctx=http_context(
+            main, identity="named", grants=(worktree, main)), workspace=str(worktree)))
+    assert named["repo_context"]["repo_path"] == str(worktree)
+    assert named["repo_context"]["registered_workspace"] == str(main)
+    # Once the worktree is described, the preview is its own file.
+    _write_summary(worktree)
+    described = (await _http_activate(http_context(main, identity="later", grants=(worktree,))))["repo_context"]
+    assert described["status"] == "up-to-date" and described["path"] == str(worktree / "CLAUDE.md")
+    assert described["registered_workspace"] == str(main)
+    assert str(main) in described["instruction"] and str(worktree) in described["instruction"]
+
+
+@pytest.mark.asyncio
+async def test_an_unavailable_workspace_is_recorded_like_a_described_one(bundle, workspace,
+                                                                        tmp_path, monkeypatch):
+    """P-C3's record half: the unavailable branch recorded nothing, so it repeated forever.
+
+    `with_repo_context` runs on every SUCCESS and NO_CHANGE, and the unavailable branch
+    returns before `_describe_workspace`, so nothing suppressed a repeat: every activation of
+    a workspace-less session carried the same instruction again.
+    """
+    monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(Path.home()))
+    engine_config._reset_client_repo_root_cache()
+    first = (await activate(workspace=str(tmp_path / "one")))["repo_context"]
+    assert first["status"] == "unavailable"
+    assert "repo_context" not in await activate(workspace=str(tmp_path / "one")), \
+        "the same caller is told once"
+    later = (await activate(workspace=str(tmp_path / "two")))["repo_context"]
+    assert later["status"] == "unavailable", "another caller is still told once"
