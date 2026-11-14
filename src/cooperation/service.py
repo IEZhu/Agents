@@ -728,17 +728,25 @@ class CooperationService:
         db.execute("INSERT INTO acknowledgements VALUES (?,?,?,?,?) ON CONFLICT DO UPDATE SET body=excluded.body", (repo, agreement["agreement_id"], agreement["proposal_revision"], subject["participant_id"], canonical(acknowledgement)))
         acknowledged = {row[0] for row in db.execute("SELECT participant_id FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=?", (repo, agreement["agreement_id"], agreement["proposal_revision"]))}
         if acknowledged == set(agreement["required_participants"]):
+            holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
             for resource in agreement["terms"]["resources"]:
                 owner = self._participant(db, repo, resource["owner"])
                 if agreement["pattern"] == "handoff":
                     # A committed handoff does not transfer anything yet. The old
                     # owner retains the claim until its release-ready transfer.
                     for claim in bodies(db, "claims", repo):
-                        if resources_conflict(resource, claim["resource"]) and claim["participant_id"] not in agreement["required_participants"]:
-                            raise CooperationError("claim_conflict")
+                        if claim["participant_id"] in agreement["required_participants"]:
+                            continue
+                        if not resources_conflict(resource, claim["resource"]):
+                            continue
+                        # The same exception as the acquire and agreement paths:
+                        # a lapsed holder's allowance claim excludes nobody, or
+                        # one crash would shut handoff coordination for it too.
+                        if _lapsed_allowance(holders[claim["participant_id"]], claim, now):
+                            continue
+                        raise CooperationError("claim_conflict")
                 else:
                     self._claim_conflicts(db, repo, owner, [resource], now)
-            holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
             for other in bodies(db, "agreements", repo):
                 if other["agreement_id"] == agreement["agreement_id"] or other["state"] not in ("committed", "active", "checkpointed", "suspended"):
                     continue

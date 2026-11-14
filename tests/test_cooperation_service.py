@@ -1201,3 +1201,27 @@ def test_only_a_pause_contributes_a_published_next_free_time():
     # does not lean on that alone: a row stored before the rule would still be
     # read, and only a pause may say when the reviewer is free again.
     assert _published_next_free(holder, key) == 4600.0
+
+
+def test_a_lapsed_allowance_does_not_block_a_handoff_commit(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    scope = [allowance, file]
+    dead = h.register("dead", scope=scope)
+    assert h.acquire(dead, allowance, file)["status"] == "ok"
+    old, new = h.register("old", scope=scope), h.register("new", scope=scope)
+    assert h.checkpoint(old, name="cp")["status"] == "ok"
+    for _ in range(3):
+        h.now += 60
+        for live in (old, new):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # The handoff branch checks claims of its own, so the lapse exception has
+    # to hold there as well: a dead session's allowance claim excludes nobody,
+    # while its file claim still does, because its edits are in the checkout.
+    files = h.apply(old, h.proposal([old, new], name="files", owner=old, pattern="handoff",
+                                    resources=[{**file, "owner": old["participant_id"]}]))["agreement"]
+    h.ack(old, files)
+    assert h.ack(new, files, accepted_checkpoint="cp")["error"] == "claim_conflict"
+    quota_handoff = h.apply(old, h.proposal([old, new], name="allowance", owner=old, pattern="handoff",
+                                            resources=[{**allowance, "owner": old["participant_id"]}]))["agreement"]
+    h.ack(old, quota_handoff)
+    assert h.ack(new, quota_handoff, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
