@@ -69,7 +69,7 @@ class API:
         if self.failure:
             raise self.failure
         self.tags[data["ref"].removeprefix("refs/tags/")] = data["sha"]
-        return {}
+        return {"ref": data["ref"], "object": {"type": "commit", "sha": data["sha"]}}
 
 
 def test_publishes_exact_merge_calendar_version_and_not_current_main():
@@ -212,6 +212,93 @@ def test_concurrent_create_converges_without_updating_refs(race, tag):
     api = API(race=race)
     assert release.publish(promotion(), REPO, api)["tag"] == tag
     assert {method for method, _, _ in api.calls} <= {"GET", "POST"}
+
+
+def test_a_created_tag_is_confirmed_from_the_write_not_from_a_later_read():
+    """A replica that has no ref under the new name yet must not fail a correct publication."""
+    class Lagging(API):
+        def request(self, method, path, data=None):
+            written = super().request(method, path, data)
+            if method == "POST":
+                self.tags.clear()  # whichever replica serves the next read has not caught up
+            return written
+    api = Lagging()
+    result = release.publish(promotion(), REPO, api)
+    assert result["status"] == "created" and result["tag"] == "v26.10.14.1200"
+    posted = next(index for index, call in enumerate(api.calls) if call[0] == "POST")
+    assert not [path for _, path, _ in api.calls[posted + 1:] if path.startswith("/git/ref/")]
+
+
+def test_a_concurrent_create_is_reused_after_a_lagging_ref_read(monkeypatch):
+    """The read that follows a 422 knows the name is taken, so a 404 there is lag, not a deletion."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+
+    class Lagging(API):
+        posted = False
+
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/ref/") and self.posted:
+                self.posted = False
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            self.posted = method == "POST"
+            return super().request(method, path, data)
+    api = Lagging(race=SHA)
+    assert release.publish(promotion(), REPO, api)["status"] == "existing"
+
+
+def test_a_concurrent_annotated_tag_is_reused_after_a_lagging_object_read(monkeypatch):
+    """A ref can reach a replica before the annotated tag object it points at, and that 404 is lag too."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+    obj = "c" * 40
+
+    class Lagging(API):
+        lag = 1
+
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/tags/") and self.lag:
+                self.lag -= 1
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Lagging(race={"type": "tag", "sha": obj}, tag_objects={obj: {"type": "commit", "sha": SHA}})
+    assert release.publish(promotion(), REPO, api)["status"] == "existing"
+    assert sum(method == "POST" for method, _, _ in api.calls) == 1
+
+
+def test_an_annotated_object_that_stays_unreadable_keeps_its_own_error(monkeypatch):
+    """An unknown tag target is not a changed one, so the object's own 404 is what gets reported."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+
+    class Unreadable(API):
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/tags/"):
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Unreadable(race={"type": "tag", "sha": "c" * 40})
+    with pytest.raises(HTTPError) as error:
+        release.publish(promotion(), REPO, api)
+    assert error.value.code == 404
+    assert sum(path.startswith("/git/tags/") for _, path, _ in api.calls) == release.TAG_READ_ATTEMPTS
+
+
+def test_a_mixed_sequence_of_404s_reports_the_read_that_failed(monkeypatch):
+    """A name seen with an unreadable object and then not at all is no proof that it was removed."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+    obj = "c" * 40
+
+    class Vanishing(API):
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/tags/"):
+                self.calls.append((method, path, data))
+                self.tags.clear()  # whichever replica serves the next ref read has no tag under it
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Vanishing(race={"type": "tag", "sha": obj}, tag_objects={obj: {"type": "commit", "sha": SHA}})
+    with pytest.raises(HTTPError) as error:
+        release.publish(promotion(), REPO, api)
+    assert error.value.code == 404  # not the 422, which would claim the name is taken by another object
 
 
 def test_both_names_conflict_fails_and_preserves_tags():
@@ -386,6 +473,39 @@ def test_release_tag_moved_by_another_writer_is_reported():
             return result
     with pytest.raises(RuntimeError, match="no longer targets"):
         release.publish_release(promotion(), REPO, Moved())
+
+
+def test_the_published_tag_check_waits_out_a_lagging_ref_read(monkeypatch):
+    """A 404 for a tag this run created must not be reported as another writer deleting it."""
+    monkeypatch.setattr(release, "sleep", lambda _: None)
+
+    class Lagging(ReleaseAPI):
+        lag = 1
+
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/ref/") and self.release and self.lag:
+                self.lag -= 1
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            return super().request(method, path, data)
+    api = Lagging()
+    assert release.publish_release(promotion(), REPO, api)["github_release"] == "created"
+
+
+def test_a_tag_that_never_comes_back_is_reported_after_bounded_waiting(monkeypatch):
+    """Waiting out lag must not turn a tag another writer really removed into an endless retry."""
+    waits = []
+    monkeypatch.setattr(release, "sleep", waits.append)
+
+    class Deleted(ReleaseAPI):
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/git/ref/") and self.release:
+                self.calls.append((method, path, data))
+                raise http_error(404)
+            return super().request(method, path, data)
+    with pytest.raises(RuntimeError, match="no longer targets"):
+        release.publish_release(promotion(), REPO, Deleted())
+    assert waits == [release.TAG_READ_DELAY] * (release.TAG_READ_ATTEMPTS - 1)
 
 
 def test_non_release_event_does_not_publish_a_github_release():

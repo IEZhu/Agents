@@ -391,7 +391,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div id="e-actions" class="hidden">
       <div id="e-seg" class="seg inline" role="group" aria-label="Flow view"></div>
       <button id="e-toc" class="hidden" aria-pressed="false">Contents</button>
-      <select id="history" title="Saved versions"></select>
+      <select id="history" title="Saved versions" aria-label="Saved versions"></select>
       <button id="toggle-upstream" class="hidden">Show built-in</button>
       <button id="copy-user" class="hidden">Edit copy for me</button>
       <button id="copy-repo" class="hidden">Edit copy for this repository</button>
@@ -406,12 +406,12 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div id="h-actions" class="hidden">
       <div id="h-seg" class="seg inline" role="group" aria-label="History view"></div>
       <button id="h-toc" class="hidden" aria-pressed="false">Contents</button>
-      <select id="h-file" title="History files"></select>
+      <select id="h-file" title="History files" aria-label="History files"></select>
     </div>
     <div id="m-actions" class="hidden">
       <div id="m-seg" class="seg inline" role="group" aria-label="Memory view"></div>
       <button id="m-toc" class="hidden" aria-pressed="false">Contents</button>
-      <select id="m-store" title="Configuration directory"></select>
+      <select id="m-store" title="Configuration directory" aria-label="Configuration directory"></select>
       <button id="m-new">New item</button>
     </div>
   </div>

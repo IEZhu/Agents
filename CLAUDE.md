@@ -354,6 +354,14 @@ preserve them.
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`,
   and the web UI switches single rules, skills and implants off for the
   installation (`src/component_toggles.py`).
+- The separator rule of the plain-text worker result has one source too:
+  `SEPARATORS` in `src/engine/subagent_text.py`, from which `separator_rule`
+  composes the sentences that both the rendered package and the block between the
+  markers of `docs/subagent-contract.md` state. Edit the source, never the block,
+  then run `.venv/bin/python -m src.engine.subagent_contract_text --write`
+  (`--check` reports a stale block). The conditions in those sentences are not
+  generated: the labelled examples that follow them in the package are executed by
+  `tests/test_subagent_exchange.py` instead (#596).
 - `describe_repo()` reads repository context without sampling or writing.
   `write_repo_summary(...)` explicitly persists the managed summary and refuses
   the running installation/source root before creating a lock or cache. Follow
