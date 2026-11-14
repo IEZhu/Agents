@@ -86,7 +86,8 @@ from src.artifacts.store import ArtifactError
 from src.engine import protocol_text, readiness
 from src.engine import model_tiers, subagent_exchange, subagent_ledger
 from src.engine.subagent import prepare_subagent
-from src.engine.subagent_validation import ContractError, assess_result, bounded_object, diagnostics
+from src.engine.subagent_validation import (ContractError, assess_result, bounded_object, diagnostics,
+                                              wrapped_arguments)
 from src.schemas.subagent import (MAX_REQUEST_CHARS, PreparationError, PreparationRequest,
                                  PreparationResponse, PreparedPackage, ValidationResponse)
 from src.cooperation.models import (RegisterResponse, ReadResponse, ApplyResponse,
@@ -184,6 +185,12 @@ class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
             if name == "get_subagent_context":
                 bounded_object(arguments, max_chars=MAX_REQUEST_CHARS)
                 fields = {*PreparationRequest.model_fields, "delivery"}
+                wrapped = wrapped_arguments(arguments, {
+                    **{field_name: field.is_required() for field_name, field in PreparationRequest.model_fields.items()},
+                    "delivery": False})
+                if wrapped is not None:
+                    response = PreparationError(errors=wrapped).model_dump(mode="json")
+                    return [TextContent(type="text", text=json.dumps(response))], response
             else:
                 fields = ("contract", "contract_revision", "result", "result_ref")
             for key in arguments:
@@ -1213,7 +1220,8 @@ async def get_subagent_context(
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.
 
-    Unknown arguments are rejected. Total original request limit: 48000 canonical
+    Unknown arguments are rejected; a request sent as one unnamed field instead of named
+    arguments is reported as arguments_wrapped with the accepted fields. Total original request limit: 48000 canonical
     JSON characters, including unknown fields. This tool does not spawn workers.
     Require status: prepared before spawning. By default (delivery file) the result is a
     receipt: launch a fresh native worker with its launch text (the worker reads the package

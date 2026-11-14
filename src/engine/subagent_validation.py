@@ -13,7 +13,8 @@ from src.engine import model_tiers
 from src.engine.subagent_text import (TextFormatError, dropped_positions, excerpt,
                                       is_text_result, parse_result)
 from src.schemas.subagent import (ContractExecution, Diagnostic, Escalation, MAX_ERRORS,
-                                  MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_RESULT_CHARS, RESULT_MODELS,
+                                  MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_REQUEST_CHARS,
+                                  MAX_RESULT_CHARS, RESULT_MODELS,
                                   TaskContract, Truncation, ValidationResponse)
 
 # The identity the header carries, checked against the retained contract in every path.
@@ -64,6 +65,37 @@ def diagnostics(error: Exception, prefix: str = "$",
     if isinstance(error, ContractError):
         return [diagnostic(prefix + error.path[1:], error.code, str(error))]
     return [diagnostic(prefix, "invalid_input", "Input could not be validated.")]
+
+
+# What a client that could not map the arguments onto the tool's schema sends instead of them.
+WRAPPER_KEYS = frozenset({"__unparsedToolInput", "unparsedToolInput"})
+
+
+def wrapped_arguments(arguments: dict, fields: dict[str, bool]) -> list[Diagnostic] | None:
+    """Diagnostics for a request that arrived as one unnamed field, or None when it did not.
+
+    `fields` maps every accepted argument to whether it is required. Only the wrapper's name,
+    type and size are reported, never its content, and an ordinary unknown field is not a
+    wrapper: it stays `extra_forbidden` in the caller (#630).
+    """
+    key = next((name for name in arguments if name in WRAPPER_KEYS), None)
+    if key is None:
+        return None
+    value = arguments[key]
+    kind = "string" if isinstance(value, str) else type(value).__name__
+    size = len(value) if isinstance(value, str) else len(json.dumps(value, ensure_ascii=False, default=str))
+    path = f"$.{key}"
+    required = ", ".join(name for name, needed in fields.items() if needed)
+    optional = ", ".join(name for name, needed in fields.items() if not needed)
+    return [
+        diagnostic(path, "arguments_wrapped",
+                   f"Arguments arrived as one unnamed field, {key} ({kind}, {size} chars), not as named "
+                   "fields. The server cannot read it; resend each field by name."),
+        diagnostic(path, "arguments_wrapped", f"Required: {required}. Optional: {optional}."),
+        diagnostic(path, "arguments_wrapped",
+                   f"Limits: request {MAX_REQUEST_CHARS} JSON chars; task and each list item 4000 chars; "
+                   "lists 50 items. The tool description lists every limit; load its schema first."),
+    ]
 
 
 def decides_next_action(reported: Diagnostic) -> bool:
