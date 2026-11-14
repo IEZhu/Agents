@@ -1555,6 +1555,8 @@ def _workspace_report(client, root: Path) -> dict:
         "workspace": {"root": str(root), "source": client.source or client.transport},
         "pid": os.getpid(),
     }
+    if note := client.workspace_note():
+        report["workspace_note"] = note  # the argument was not followed; the root above is used (#576)
     with _history_errors_lock:
         failure = _history_errors.get(str(root))
     if failure:
@@ -1644,7 +1646,8 @@ async def log_interaction(
 
     Returns at once, before either sink is written:
     ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
-    plus ``workspace`` (``root``, ``source``), ``pid``, ``history_last_error``
+    plus ``workspace`` (``root``, ``source``), ``workspace_note`` (only when the call named a
+    workspace outside the registered root: that argument was ignored and the root was used), ``pid``, ``history_last_error``
     (``code``, ``errno``, ``path``, ``at``; only after an earlier history write
     failed) and the attribution (with ``warnings`` and an ``instruction`` when it
     was incomplete). While retrieval is still warming up, ``langfuse`` is
@@ -2010,6 +2013,7 @@ async def read_history(
     the entries kept for the same claimed directory, ``query`` as a text match.
 
     Returns JSON: {entries, total, mode, omitted?, instruction?, workspace,
+    workspace_note? (a workspace argument outside the registered root was ignored),
     pid, history_last_error?}; mode is recency, semantic or entry. Entries
     (machine: null for this checkout's own):
     - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.

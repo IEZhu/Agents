@@ -223,3 +223,43 @@ def test_the_mismatch_error_is_a_workspace_error_with_both_roots(tmp_path):
     assert set(details) == {"code", "registered_workspace", "requested_workspace", "remedy"}
     assert details["code"] == "workspace_mismatch"
     assert str(Path(tmp_path / "b")) in details["remedy"]
+
+
+@pytest.mark.asyncio
+async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_argument(repositories):
+    """log_interaction and read_history never refuse (#576): the note says what was not followed."""
+    registered, other, inside = repositories
+    ctx = http_context(registered)
+
+    async def log(named):
+        return json.loads(await server.log_interaction(
+            agent_name="universal_agent", query="q", response_content="r", ctx=ctx, workspace=named))
+
+    async def read(named):
+        return json.loads(await server.read_history(ctx=ctx, workspace=named))
+
+    for call in (log, read):
+        ignored = await call(str(other))
+        # The workspace actually used is the registered one, exactly as without a note.
+        assert ignored["workspace"]["root"] == str(registered)
+        assert ignored["workspace"] == (await call(None))["workspace"]
+        note = ignored["workspace_note"]
+        assert str(other) in note and str(registered) in note and "ignored" in note
+        # A matching argument, a directory inside the root and no argument add no note.
+        for named in (str(registered), str(inside), None):
+            answered = await call(named)
+            assert "workspace_note" not in answered
+            assert answered["workspace"]["root"] == str(registered)
+
+
+@pytest.mark.asyncio
+async def test_the_workspace_note_leaves_the_history_it_writes_in_the_registered_root(repositories):
+    registered, other, _ = repositories
+    ctx = http_context(registered)
+    result = json.loads(await server.log_interaction(
+        agent_name="universal_agent", query="note-check", response_content="kept", ctx=ctx,
+        workspace=str(other)))
+    assert result["workspace_note"] and result["workspace"]["root"] == str(registered)
+    assert await asyncio.to_thread(server.drain_pending_logs, 5)
+    assert "note-check" in (registered / "history.md").read_text(encoding="utf-8")
+    assert not (other / "history.md").exists()

@@ -202,6 +202,17 @@ class ClientContext:
         if self.mismatch is not None:
             raise WorkspaceMismatch(self.workspace_root(), self.mismatch)
 
+    def workspace_note(self):
+        """For a call that named a workspace the grant does not cover, what was used instead (#576).
+
+        The history tools keep answering for the registered root; this sentence is how they say
+        so. None when the argument matched, or no workspace was named.
+        """
+        if self.mismatch is None:
+            return None
+        return (f"The workspace argument {self.mismatch} was ignored: this session is registered for "
+                f"{self.workspace_root()}, and that is the workspace used.")
+
     def target(self, requested=None):
         self.require_root()
         return self.workspace_target(requested)
