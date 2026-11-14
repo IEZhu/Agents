@@ -38,18 +38,26 @@ def test_catalog_preserves_all_dense_model_variants():
 
 # The dense catalog is a class-level list, so a registration outlives the test that made it
 # unless tests/conftest.py restores it. These two run in file order: the second one fails if
-# that fixture is removed, which is how the full-run-only catalog failure reached dev.
+# that fixture is removed, which is how the full-run-only catalog failure reached dev. A
+# selection or a shard can run the second one without the first, and then it skips rather
+# than pass an assertion it never exercised; tests/ci_shard.py shards by node id, so demanding
+# the order instead would fail there without protecting anything.
 _LEAK_PROBE = "tests/leak-probe"
+_probe_registered = False
 
 
 def test_a_custom_model_registers_into_the_catalog():
+    global _probe_registered
     runtime.TextEmbedding.add_custom_model(
         model=_LEAK_PROBE, pooling=runtime.PoolingType.DISABLED, normalization=True,
         sources=runtime.ModelSource(hf=_LEAK_PROBE), dim=8)
+    _probe_registered = True
     assert any(m["model"] == _LEAK_PROBE for m in runtime.TextEmbedding.list_supported_models())
 
 
 def test_the_previous_registration_did_not_leak_into_this_test():
+    if not _probe_registered:
+        pytest.skip("needs the registration above in this process: undoing it is what this asserts")
     assert all(m["model"] != _LEAK_PROBE for m in runtime.TextEmbedding.list_supported_models())
 
 
