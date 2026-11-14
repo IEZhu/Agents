@@ -21,7 +21,8 @@ import tempfile
 import time
 
 from src.engine.subagent_validation import ContractError, canonical_json, contract_fingerprint
-from src.schemas.subagent import MAX_RESULT_CHARS, PreparedPackage, PreparedReceipt
+from src.schemas.subagent import (CONTEXT_BUDGET_REASON, MAX_RESULT_CHARS, PreparedPackage,
+                                  PreparedReceipt)
 
 RETENTION_SECONDS = 7 * 24 * 3600
 MAX_CONTRACT_BYTES = 256 * 1024
@@ -84,7 +85,7 @@ def store(package: PreparedPackage) -> PreparedReceipt:
         execution=package.execution, omitted=[f"{decision.kind}/{decision.id}"
                                               for decision in package.selection
                                               if not decision.selected
-                                              and decision.reason == "context_budget"] or None)
+                                              and decision.reason == CONTEXT_BUDGET_REASON] or None)
 
 
 def load_contract(revision) -> dict:
@@ -204,6 +205,13 @@ def final_message(lines) -> str | None:
     return final.strip() if final and final.strip() else None
 
 
+# The one place this sentence is written: diagnostic() cuts a message at 240 characters, so the
+# surface test that checks every result_ref wording reads it from here instead of a raised error.
+EMPTY_REFERENCE = ("result_ref holds no result yet: the worker may be running, or its .output is empty. "
+                   "Pass an absolute path: projects/<project>/<session>/subagents/agent-<id>.jsonl, "
+                   "or workflows/wf_<id>/ in it, under CLAUDE_CONFIG_DIR or the .claude home.")
+
+
 def read_result(reference) -> str:
     """The worker's result named by ``result_ref``: a result file, or the final assistant
     message of a Claude Code agent transcript (``agent-<id>.jsonl``, a task ``.output``) or a
@@ -241,8 +249,5 @@ def read_result(reference) -> str:
         except UnicodeDecodeError:
             raise ContractError("invalid_text", "The result file is not valid UTF-8 text.", "$.result_ref") from None
     if not text or not text.strip():
-        raise ContractError("result_ref_empty", "result_ref holds no result yet: the worker may still be "
-                            "running, or its .output file is empty. Pass its transcript instead: "
-                            "~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl, "
-                            "or workflows/wf_<id>/ under it.", "$.result_ref")
+        raise ContractError("result_ref_empty", EMPTY_REFERENCE, "$.result_ref")
     return text

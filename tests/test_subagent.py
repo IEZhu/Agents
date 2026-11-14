@@ -230,6 +230,28 @@ def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
     assert all(name + " instructions" in result.worker_context for name in subagent.WORKER_RULE_IDS)
 
 
+def test_the_budget_reason_has_one_name_for_the_preparer_and_the_receipt(worker_tree):
+    """The receipt's `omitted` list is the only channel that reports a component the budget cost.
+
+    It is built by matching the reason this module writes, so the two join on one string, and a
+    rename reaching only one of them leaves `omitted` permanently absent — indistinguishable to a
+    parent from a package that lost nothing. The string has one name now; this test is what fails
+    if either side stops using it, and it reads the dropped names rather than deriving them from
+    the same literal twice.
+    """
+    from src.engine import subagent_exchange
+    from src.schemas.subagent import CONTEXT_BUDGET_REASON
+
+    package = prepared(max_context_chars=prepared(max_skills=0).context_chars + 35)
+    budgeted = [f"{decision.kind}/{decision.id}" for decision in package.selection
+                if not decision.selected and decision.reason == CONTEXT_BUDGET_REASON]
+    receipt = subagent_exchange.store(package)
+    assert budgeted and receipt.omitted == budgeted, (budgeted, receipt.omitted)
+    # Named independently of the reason: what the receipt lists is absent from what was loaded.
+    assert set(receipt.omitted).isdisjoint(f"skills/{name}" for name in package.descriptor.skills_loaded)
+    assert CONTEXT_BUDGET_REASON == "context_budget"  # the value both modules store, pinned once
+
+
 def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
     path = worker_tree / "rules/subagents/rule-worker-cooperation.mdc"
     path.write_text(path.read_text() + "\n" + "Mandatory cooperation instruction. " * 500)

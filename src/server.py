@@ -1276,7 +1276,7 @@ async def validate_subagent_result(
     contract: ta.unparsed_arg("object", "The contract object retained from an inline package. Give this or contract_revision, never a worker replacement.") = None,
     contract_revision: ta.unparsed_arg("string", "The receipt's contract_revision: the server validates against the contract it stored at preparation. Give this or contract.") = None,
     result: ta.unparsed_arg("string", "The worker's output, unchanged: its text result, or a JSON result as an object or string (at most 128000 characters). Give this or result_ref.") = None,
-    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead: a result file, a Claude Code agent transcript (agent-<id>.jsonl in ~/.claude/projects/<project>/<session>/subagents/ for a background agent or in that directory's workflows/wf_<id>/ subdirectory for a Workflow agent, or the background agent's .output file only when it is not empty) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
+    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead, read as given and never expanded, so a path starting with ~ is rejected: a result file, a Claude Code agent transcript (agent-<id>.jsonl in projects/<project>/<session>/subagents/ under the Claude Code configuration directory, CLAUDE_CONFIG_DIR when it is set and otherwise .claude in the home directory, for a background agent or in that directory's workflows/wf_<id>/ subdirectory for a Workflow agent, or the background agent's .output file only when it is not empty) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
 ) -> ValidationResponse:
     """Validate worker output structurally against the retained or server-stored contract.
 
@@ -1286,10 +1286,13 @@ async def validate_subagent_result(
     Prefer contract_revision and result_ref: nothing is retyped, and the server checks the
     exact bytes the worker produced; result_sha256 identifies them. Rejects unknown tool
     arguments. Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
-    statuses and evidence references. Limits: 128000 characters, nesting 12, 10000 JSON nodes,
-    100 items per result array (50 for text lists), strings 4000 characters, and at most 20
-    diagnostics, with identity and status ones reported first and truncated.produced counting
-    what the cap dropped. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
+    statuses and evidence references. Reports the first stage that failed — the contract, then
+    the line format, then the schema, then the statuses and evidence references — so errors holds
+    what that stage found and a later stage may report its own once these are corrected. Limits:
+    128000 characters, nesting 12, 10000 JSON nodes, 100 items per result array (50 for text
+    lists), strings 4000 characters, and at most 20 diagnostics, with identity and status ones
+    reported first and truncated.produced counting the diagnostics that stage produced, not
+    distinct problems. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
     establishes truth, authorization or issue completion. For a contract prepared with
     complexity, escalation names the next tier when the result is invalid, failed, partial or
     has a failed check. Prepare a new attempt with that complexity and a new attempt_id; for

@@ -519,7 +519,7 @@ def test_generated_surfaces_name_both_transcript_locations_before_the_output_fil
     agent-<id>.jsonl in it. The order is asserted, not just the presence: the directory is the
     first location the parent reads, and .output is the fallback behind it.
     """
-    directory = "~/.claude/projects/<project>/<session>/subagents/"
+    directory = "projects/<project>/<session>/subagents/"
     surfaces = {path.name: path.read_text(encoding="utf-8") for path in
                 (ROOT / "CLAUDE.md", ROOT / "scripts" / "templates" / "routing-protocol-core.md",
                  ROOT / "scripts" / "templates" / "memory-routing.md")}
@@ -529,3 +529,34 @@ def test_generated_surfaces_name_both_transcript_locations_before_the_output_fil
         assert "workflows/wf_<id>/" in text, name
         assert text.index(directory) < text.index(".output"), name
         assert "only as a fallback when it is not empty" in text, name
+
+
+@pytest.mark.asyncio
+async def test_no_surface_names_the_transcript_by_a_home_relative_path():
+    """Every surface naming result_ref names a directory the parent can build an absolute path in.
+
+    read_result rejects a path that is not absolute, and `~` is not expanded, so a parent that
+    copied `~/.claude/projects/...` verbatim was answered invalid_result_ref. CLAUDE_CONFIG_DIR
+    is an accepted transcript root in subagent_exchange._transcript_roots and was named on no
+    surface at all, leaving a parent whose configuration directory is elsewhere with no path to
+    build and the inline result the same step forbids retyping.
+    """
+    import src.server as server_module
+    from src.engine import subagent_exchange
+
+    tools = {tool.name: tool for tool in await server_module.mcp.list_tools()}
+    surfaces = {
+        "routing-protocol-core.md": (ROOT / "scripts/templates/routing-protocol-core.md").read_text(encoding="utf-8"),
+        "memory-routing.md": (ROOT / "scripts/templates/memory-routing.md").read_text(encoding="utf-8"),
+        "server_instructions": protocol_text.server_instructions(),
+        "result_ref_description": tools["validate_subagent_result"].inputSchema[
+            "properties"]["result_ref"]["description"],
+        "result_ref_empty": subagent_exchange.EMPTY_REFERENCE,
+        "subagent-contract.md": (ROOT / "docs/subagent-contract.md").read_text(encoding="utf-8"),
+    }
+    for name, text in surfaces.items():
+        flat = _flat(text)
+        assert "~/.claude/projects" not in flat, name
+        assert "CLAUDE_CONFIG_DIR" in flat, name
+        assert "projects/<project>/<session>/subagents/" in flat, name
+        assert "absolute" in flat.lower(), name

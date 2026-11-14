@@ -242,8 +242,9 @@ async def test_mcp_empty_reference_names_both_transcript_locations_whole(worker_
     assert not response["valid"]
     message = next(item["message"] for item in response["errors"] if item["code"] == "result_ref_empty")
     assert len(message) < 240 and message.endswith(".")
-    assert "~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl" in message
+    assert "projects/<project>/<session>/subagents/agent-<id>.jsonl" in message
     assert "workflows/wf_<id>/" in message  # the Workflow location, the tail a cut message loses
+    assert "CLAUDE_CONFIG_DIR" in message and "~" not in message  # a ~ path is not absolute (P-B3)
 
 
 @pytest.mark.asyncio
@@ -251,7 +252,8 @@ async def test_the_tool_descriptions_carry_the_transcript_paths_and_the_marker(w
     """Neither gate generates these two texts, and they are what a calling model reads (#581, #589)."""
     tools = {tool.name: tool for tool in await server.mcp.list_tools()}
     reference = tools["validate_subagent_result"].inputSchema["properties"]["result_ref"]["description"]
-    assert "~/.claude/projects/<project>/<session>/subagents/" in reference
+    assert "projects/<project>/<session>/subagents/" in reference
+    assert "CLAUDE_CONFIG_DIR" in reference and "~/.claude/projects" not in reference
     assert "workflows/wf_<id>/" in reference and "Workflow transcript dir" not in reference
     assert "truncated.produced" in tools["validate_subagent_result"].description
     assert "omitted" in tools["get_subagent_context"].description

@@ -12,7 +12,7 @@ from src.engine import subagent_exchange
 from src.engine.subagent import prepare_subagent
 from src.engine.subagent_text import CONTRACT_PREFIX_CHARS, PAYLOAD_KEYS
 from src.engine.subagent_validation import contract_fingerprint, validate_result
-from src.schemas.subagent import MAX_ERRORS, PreparedPackage
+from src.schemas.subagent import MAX_ERRORS, PreparedPackage, ValidationResponse
 from tests.test_subagent import codes, prepared, request, worker_tree  # noqa: F401
 
 PAYLOADS = {
@@ -234,6 +234,63 @@ def test_json_evidence_rejects_over_the_cap_are_counted(worker_tree):
     assert not response.valid
     assert {error.code for error in response.errors} == {"unknown_evidence_id"}, response.errors
     assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 25
+
+
+def test_the_marker_claims_no_more_than_the_stage_that_produced_the_errors(worker_tree):
+    """Validation returns at the first failing stage, so no marker cannot mean 'nothing else'.
+
+    One result, two problems in different stages: a broken separator in the first finding and an
+    unknown evidence reference in the second. Round one answers `separator_required` alone and
+    carries no marker, because the evidence stage never ran; round two, with only the separator
+    repaired, answers `unknown_evidence_id`. A parent that read the absent marker as "errors
+    holds every problem the validation found" spends a worker round learning otherwise, which is
+    what the shipped description used to promise (#589).
+    """
+    package = prepared(result_type="review")
+    contract = package.contract.model_dump(mode="json")
+    both = text_result(package, payload=("## findings\n"
+                                         "- high src/app.py:12 The token is logged.[^e1]\n"
+                                         "  fix: Drop it from the message.\n"
+                                         "- low src/app.py:40 — The guard is fine.[^e9]\n"
+                                         "  fix: Keep the guard."))
+    first = validate_result(contract, both)
+    assert [(error.path, error.code) for error in first.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], first.errors
+    assert first.truncated is None, "nothing was capped: the stage produced one diagnostic"
+
+    second = validate_result(contract, both.replace("src/app.py:12 The token", "src/app.py:12 — The token"))
+    assert [(error.path, error.code) for error in second.errors] == [
+        ("$.result.result.findings[1].evidence_ids", "unknown_evidence_id")], second.errors
+
+    shipped = ValidationResponse.model_json_schema()["$defs"]["Truncation"]["description"]
+    assert "every problem that stage found" in shipped, shipped
+    assert "is everything the validation found" not in shipped, shipped
+    assert "a later stage may still report its own" in shipped, shipped
+
+
+@pytest.mark.asyncio
+async def test_produced_counts_diagnostics_and_not_distinct_problems(worker_tree):
+    """One habit repeated down a list is one problem and many diagnostics.
+
+    A hundred findings that each omit the same five fields produce 500 diagnostics, not 100 and
+    not 5. A parent reading `produced` as the problems the response does not list reads a result
+    that needs one correction as unsalvageable, so both shipped texts say what the number counts.
+    """
+    from tests.test_subagent import report
+
+    package = prepared(result_type="review")
+    value = report(package)
+    value["result"]["findings"] = [{} for _ in range(100)]
+    response = validate_result(package.contract.model_dump(mode="json"), value)
+    assert codes(response) == {"missing"}, response.errors
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 500
+
+    assert "not distinct problems" in ValidationResponse.model_json_schema()["$defs"]["Truncation"]["description"]
+    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    described = " ".join(tools["validate_subagent_result"].description.split())
+    assert "diagnostics that stage produced, not distinct problems" in described, described
+    assert "counting what the cap dropped" not in described, described
+    assert "Reports the first stage that failed" in described, described
 
 
 def test_a_finding_may_cite_the_same_evidence_twice(worker_tree):
@@ -1025,5 +1082,7 @@ def test_empty_reference_diagnostic_names_the_subagents_transcript_directory(wor
     transcript.write_text(json.dumps({"type": "user", "message": {"content": "start"}}) + "\n", encoding="utf-8")
     with pytest.raises(subagent_exchange.ContractError) as error:
         subagent_exchange.read_result(str(transcript))
-    assert "~/.claude/projects/<project>/<session>/subagents/" in str(error.value)
+    assert "projects/<project>/<session>/subagents/" in str(error.value)
     assert "agent-<id>.jsonl" in str(error.value)
+    # The path a parent copies must be one read_result accepts: it expands no ~ (P-B3).
+    assert "~" not in str(error.value) and "CLAUDE_CONFIG_DIR" in str(error.value)
