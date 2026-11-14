@@ -412,6 +412,19 @@ def _caller_identity(client) -> str:
     that distinguishes two sessions of one shared stdio server. Two HTTP sessions registered
     for the same workspace share one identity: nothing in the request separates them, and the
     cost is the report reaching one of them, not none.
+
+    Two sessions sharing one stdio server share an identity for the same reason, and there is
+    nothing stable to use instead (CR1 F3). A stdio process runs exactly one `ServerSession`
+    over its single pipe pair (`mcp.server.lowlevel.Server.run`), so the Code sessions the
+    Claude desktop app multiplexes over one server are not separate MCP sessions, and two
+    stdio servers are separate processes that share no record at all. That session carries
+    only the initialize handshake — `client_params`, whose fields are `protocolVersion`,
+    `capabilities`, `clientInfo` (`name`, `title`, `version`, `icons`, `websiteUrl`), `meta`
+    and `task` — and exposes no session identifier; the request carries a per-request
+    `request_id` and a `_meta` whose one declared field is `progressToken`. FastMCP's
+    `Context.client_id` reads a non-standard `_meta.client_id`, a value the caller chooses for
+    itself, so it cannot decide this either. `tests/test_workspace_activation.py` pins that
+    reading, so a session identity the SDK gains later is noticed here.
     """
     if client is None:
         return f"{os.environ.get('AGENTS_TRANSPORT') or 'stdio'}:unresolved"

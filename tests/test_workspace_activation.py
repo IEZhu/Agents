@@ -8,6 +8,7 @@ a repeat in the same unchanged workspace, its own report for another workspace a
 a reported failure that marks nothing described and never describes the installation checkout in
 a workspace's place, and no report at all in a prepared worker's contract.
 """
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import src.server as server
+from src.daemon import workspaces
 from src.daemon.workspaces import WorkspaceRegistry, resolve_client_context
 from src.engine import config as engine_config
 from src.engine import persona
@@ -526,6 +528,50 @@ async def test_every_session_of_one_server_process_is_told_not_only_the_first(
     second = (await _http_activate(http_context(registered, identity="session-b")))["repo_context"]
     assert second["status"] == "up-to-date", "a second session of the same process is told too"
     assert second["hash"] == described["hash"]
+
+
+def test_a_stdio_call_carries_no_identity_that_separates_two_sessions():
+    """Why the stdio twin of the shared caller identity is a limitation, not a fix (CR1 F3).
+
+    Two sessions of one shared stdio server get one caller identity, as two HTTP sessions
+    registered for the same workspace do, so the second is not told about a described
+    repository. The honest reason is that nothing stable identifies them: a stdio process runs
+    one `ServerSession` over its single pipe pair, which is why the Code sessions the Claude
+    desktop app multiplexes over one server are not separate MCP sessions and two stdio servers
+    are separate processes sharing no record. This pins what the session and the request
+    actually carry, so a session identity a later SDK gains is noticed here instead of staying
+    an assumption in a comment.
+    """
+    from mcp.server.session import ServerSession
+    from mcp.shared.context import RequestContext
+    from mcp.types import Implementation, InitializeRequestParams, RequestParams
+
+    def identifiers(names):
+        """Names that would carry the identity of a calling session, if one existed."""
+        flattened = {name: name.lower().replace("_", "") for name in names}
+        return sorted(name for name, flat in flattened.items()
+                      if "sessionid" in flat or flat in ("id", "clientid", "callerid"))
+
+    surfaces = {
+        "ServerSession": [name for name in dir(ServerSession) if not name.startswith("_")],
+        "InitializeRequestParams": list(InitializeRequestParams.model_fields),
+        "clientInfo": list(Implementation.model_fields),
+        "_meta": list(RequestParams.Meta.model_fields),
+        "RequestContext": [field.name for field in dataclasses.fields(RequestContext)],
+    }
+    for name, names in surfaces.items():
+        assert identifiers(names) == [], f"{name} gained a session identifier: {names}"
+    # What they do carry: one initialize handshake, and per request an id and a progress token.
+    assert "client_params" in surfaces["ServerSession"]
+    assert set(surfaces["InitializeRequestParams"]) >= {"protocolVersion", "capabilities",
+                                                        "clientInfo"}
+    assert set(surfaces["clientInfo"]) >= {"name", "version"}
+    assert surfaces["_meta"] == ["progressToken"]
+    assert set(surfaces["RequestContext"]) >= {"request_id", "meta", "session", "request"}
+    # `request` is the HTTP request, None over stdio, which is what `_http_request` reads.
+    assert workspaces._http_request(SimpleNamespace(
+        request_context=RequestContext(request_id="r", meta=None, session=None,
+                                       lifespan_context=None))) is None
 
 
 @pytest.mark.asyncio
