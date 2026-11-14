@@ -99,6 +99,7 @@ import yaml
 from tests.test_content_checks_workflow import (  # the #632 harness, not a second one
     EXECUTES_STEPS,
     backgrounded,
+    caught,
     effective_shell,
     logical_commands,
     pipefail_in_effect,
@@ -587,17 +588,20 @@ def executed_files(arguments, stubs, directory=None) -> Executed:
 def cannot_redden_the_step(script: str, path: str, shell) -> list[str]:
     """This script's pytest commands over `path`, when the step survives all of them.
 
-    Two commands run and prove nothing. A backgrounded one hands its failure to
-    a job the step no longer waits for, and one on the left of a pipe loses its
+    Three commands run and prove nothing. A backgrounded one hands its failure
+    to a job the step no longer waits for; one on the left of a pipe loses its
     exit status under `bash -e {0}`, the template a step with no `shell:` key
-    gets -- so a content check failing there cannot redden the step, whatever
-    the recorder saw it start. `shell: bash` is the other answer, because GitHub
-    expands it with `-eo pipefail`.
+    gets; and one on the left of a `||` has its failure answered by the
+    alternative -- so a content check failing in any of the three cannot redden
+    the step, whatever the recorder saw it start. `shell: bash` is the other
+    answer for the pipe alone, because GitHub expands it with `-eo pipefail`.
 
-    The other module has read this from the start, and this consumer did not:
-    `pytest x.py | cat` reached the recorder, the inner pytest confirmed the
-    file ran, and the workflow was credited with a run whose failure nobody
-    would ever see. It is read from the script's text because the shell's
+    The other module has read the first two from the start, and this consumer
+    did not: `pytest x.py | cat` reached the recorder, the inner pytest
+    confirmed the file ran, and the workflow was credited with a run whose
+    failure nobody would ever see. The `||` was read by neither, because
+    `logical_commands` dropped it, so `pytest x.py || true` counted as a wired
+    check in both. It is read from the script's text because the shell's
     plumbing is not in the argv the shim was handed.
 
     An empty list means the recorder decides alone, and that covers two
@@ -612,7 +616,8 @@ def cannot_redden_the_step(script: str, path: str, shell) -> list[str]:
     for command in logical_commands(script):
         if not runs_the_file(without_separator(command).split(), path):
             continue
-        if not (backgrounded(command) or (piped(command) and not pipefail)):
+        if not (backgrounded(command) or caught(command)
+                or (piped(command) and not pipefail)):
             return []
         swallowed.append(without_separator(command))
     return swallowed
@@ -1042,11 +1047,17 @@ def test_a_run_whose_failure_the_step_survives_is_not_a_host():
     were credited as a workflow that runs the file, which is a run nobody would
     ever see fail.
 
+    `pytest x.py || true` is the third position and was read by neither module,
+    because `logical_commands` dropped the `||` and left a command that looks
+    bare: measured under `bash -e`, the alternative answers the left side's
+    failure and the script carries on, so the check cannot fail the step either.
+
     The reading is the other module's and comes from the script's text, because
     what the shell did with the command is not in the argv the shim recorded.
     """
     wanted = "tests/test_install_setup_options.py"
-    for command in (f"pytest {wanted} | cat", f"pytest {wanted} &"):
+    for command in (f"pytest {wanted} | cat", f"pytest {wanted} &",
+                    f"pytest {wanted} || true"):
         run = invocation(wanted, {"w.yml": step(command)})
         assert run.hosts == [], command
         assert run.measured == 1, (command, run.problems)

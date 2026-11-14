@@ -54,7 +54,10 @@ handed is a recorded fact rather than an inference. The seventh is closed by
 reading after all: `&` hands the command to the background, where its failure
 can no longer redden the step, so a backgrounded command is not evidence -- and
 a single `|` is refused for the same reason under the shell the committed steps
-get, where the left side of a pipe loses its exit status. The eighth, a shell
+get, where the left side of a pipe loses its exit status. The left of a `||` is
+refused with them: measured under `bash -e`, `false || true` followed by another
+command exits 0, so the alternative answers the check's failure instead of the
+step. The eighth, a shell
 function under the name pytest, is refused before anything starts: the shell
 resolves a function before PATH, so the shim written for that name would never
 have answered and an empty log would have meant nothing.
@@ -182,11 +185,13 @@ VALUE_OPTIONS = frozenset({
 # A `#` that begins a token comments out the rest of the line, and each of these
 # starts a new command, so a file name after either one is never pytest's argument.
 INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
-# A single `&` and a single `|` are in the list for what they say about the
-# command they follow, which is why the group captures: `logical_commands` keeps
-# either one on that command, and `backgrounded` and `piped` read them back.
+# A single `&`, a single `|` and a `||` are in the list for what they say about
+# the command they follow, which is why the group captures: `logical_commands`
+# keeps any of the three on that command, and `backgrounded`, `piped` and
+# `caught` read them back. The longer spelling comes first, because
+# `without_separator` takes the first of these that matches.
 COMMAND_SEPARATOR = re.compile(r"(;|&&|\|\||\||&)")
-KEPT_SEPARATORS = ("&", "|")
+KEPT_SEPARATORS = ("&", "||", "|")
 # Options that make pytest parse the file and run none of its tests: it is
 # collected, listed or described, and nothing in it executes. Spelled without
 # their dashes, because pytest answers to `--collectonly` and `--setuponly` as
@@ -253,7 +258,9 @@ def logical_commands(script):
     pytest in the background, and `backgrounded` below is what reads that. A
     single `|` is kept the same way and for the same reason: the left side of a
     pipe loses its exit status under the shell the committed steps get, so
-    `piped` below has to be able to see it.
+    `piped` below has to be able to see it. A `||` is kept for the third form of
+    the same fact -- the alternative answers the left side's failure -- and
+    `caught` reads it back off the command it belongs to.
     """
     joined = re.sub(r"\\\s*\n\s*", " ", script)
     out = []
@@ -270,7 +277,7 @@ def logical_commands(script):
 
 
 def without_separator(command):
-    """The command without the `&` or `|` that `logical_commands` kept on it."""
+    """The command without the `&`, `||` or `|` that `logical_commands` kept on it."""
     for separator in KEPT_SEPARATORS:
         if command.endswith(f" {separator}"):
             return command[: -len(separator) - 1]
@@ -507,6 +514,29 @@ def piped(command):
     return command.split()[-1:] == ["|"]
 
 
+def caught(command):
+    """True when a `||` handed this command's failure to an alternative.
+
+    `pytest x.py || true` runs pytest and the step cannot fail over it:
+    measured under `bash -e`, `false || true` with a command after it leaves
+    the script running and exits 0, because the list's status is the
+    alternative's. A check whose failure is swallowed is not a check, which is
+    the same objection the trailing `&` and the left of a pipe answer to -- and
+    `logical_commands` was dropping the `||` entirely, so both consumers of
+    this reader counted `pytest x.py || true` as a wired check.
+
+    The alternative itself is not read, so `pytest x.py || exit 1`, which does
+    carry the failure, is refused with the rest. That is the direction to err
+    in: reading the right-hand side means modelling what a shell does with a
+    list, and crediting a run whose failure nobody ever sees is the thing this
+    module exists to stop. `&&` is deliberately untouched, because the left of
+    one carries its failure when the list is the script's last command and
+    loses it otherwise -- measured both ways -- and that is a position this
+    reader does not track.
+    """
+    return command.split()[-1:] == ["||"]
+
+
 def pipefail_in_effect(shell):
     """True when the shell GitHub starts for this `shell` value sets pipefail.
 
@@ -549,15 +579,16 @@ def runs_the_file(argv, test_file, literal=False):
 def runs_as_pytest_argument(commands, test_file, pipefail=False):
     """True when some written command runs pytest over this file as its argument.
 
-    Beyond what `runs_the_file` reads, two commands run and still prove
-    nothing: one the shell backgrounds, whose failure the step survives, and
-    one on the left of a pipe unless the step's own shell sets pipefail.
-    Neither can redden the step. `pipefail` is a keyword because the default is
-    the template the committed steps get, and a caller that knows the step's
-    shell has to say so.
+    Beyond what `runs_the_file` reads, three commands run and still prove
+    nothing: one the shell backgrounds, whose failure the step survives, one on
+    the left of a pipe unless the step's own shell sets pipefail, and one whose
+    failure a `||` hands to an alternative. None of them can redden the step.
+    `pipefail` is a keyword because the default is the template the committed
+    steps get, and a caller that knows the step's shell has to say so.
     """
     for command in commands:
-        if backgrounded(command) or (piped(command) and not pipefail):
+        if (backgrounded(command) or caught(command)
+                or (piped(command) and not pipefail)):
             continue
         if runs_the_file(without_separator(command).split(), test_file):
             return True
@@ -2004,6 +2035,10 @@ def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     ("pytest tests/a.py & echo b", ["pytest tests/a.py &", "echo b"]),
     ("pytest tests/a.py &\npytest tests/b.py",
      ["pytest tests/a.py &", "pytest tests/b.py"]),
+    # And so does a `||`, where the command keeps the whole two-character
+    # spelling rather than half of it.
+    ("pytest tests/a.py || true", ["pytest tests/a.py ||", "true"]),
+    ("true || pytest tests/a.py", ["true ||", "pytest tests/a.py"]),
 ])
 def test_the_parser_reads_a_script_the_way_a_shell_would(script, expected):
     """A comment is not a command, and a continuation is not two of them."""
@@ -2589,6 +2624,12 @@ def test_a_step_this_guard_cannot_execute_is_reported_not_read_as_an_empty_log(
     ("python -m pytest tests/test_skill_freshness.py -q | tee log", False),
     # Refused although a `wait` would bind the status again: see `backgrounded`.
     ("python -m pytest tests/test_skill_freshness.py -q &\nwait", False),
+    # The left of a `||`, whose failure the alternative answers; the right of
+    # one is a command the step does fail on, and the forged-record case below
+    # rests on its still counting.
+    ("python -m pytest tests/test_skill_freshness.py -q || true", False),
+    ("python -m pytest tests/test_skill_freshness.py -q || exit 1", False),
+    ("true || python -m pytest tests/test_skill_freshness.py -q", True),
 ])
 def test_a_backgrounded_command_is_not_evidence(script, evidence):
     """The one of the eight that reading closes, and `&&` is not `&`.
@@ -2599,6 +2640,10 @@ def test_a_backgrounded_command_is_not_evidence(script, evidence):
     the half of this worth getting wrong-way-round. A single `|` is the one that
     moved: under `bash -e` it discards the left side's status exactly as `&`
     does, and the cases above decide it by the step's own shell.
+
+    The left of a `||` moved for the same reason and one case above is the
+    price: `|| exit 1` really does carry the failure and is refused anyway,
+    because `caught` does not read the alternative.
     """
     assert runs_as_pytest_argument(
         logical_commands(script), SCHEDULED_BY_CALENDAR
