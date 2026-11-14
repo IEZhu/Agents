@@ -1148,21 +1148,25 @@ def test_the_newest_evidence_wins_not_the_newest_publication(h):
 
 def test_the_published_bound_drops_spent_records_before_a_live_pause(h):
     allowance = _allowance(UNKNOWN_REVIEWER)
-    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    others = [_allowance(f"reviewer-{index}") for index in range(49)]
+    scope = [allowance, *others]
+    holder, other = h.register("holder", scope=scope), h.register("other", scope=scope)
     assert h.acquire(holder, allowance)["status"] == "ok"
+    spent = [quota.consumed_observation(record["resource_key"], "an automatic review nobody requested",
+                                        observed_at=h.now + index)
+             for index, record in enumerate([allowance, *others])]
+    assert h.checkpoint(holder, name="spent", external_quota=spent)["status"] == "ok"
     live = _pause(h, UNKNOWN_REVIEWER)
     assert h.checkpoint(holder, name="live", external_quota=[live])["status"] == "ok"
-    spent = [quota.consumed_observation(quota.quota_key("github.com", "IEZhu", f"reviewer-{index}"),
-                                        "an automatic review nobody requested", observed_at=h.now + index)
-             for index in range(50)]
-    assert h.checkpoint(holder, name="spent", external_quota=spent)["status"] == "ok"
     published = _participant(h, holder)["external_quota"]
+    # Fifty keys and fifty one records, because a pause and a spent record of
+    # one allowance are two: the record that goes is never the live pause.
     assert len(published) == 50
-    # The pause other sessions are waiting on is never the record that goes.
     assert live in published
     assert h.acquire(other, allowance)["next_free_at"] == live["next_free_at"]
-    crowd = [_pause(h, f"reviewer-{index}", observed_at=h.now + index) for index in range(50)]
-    assert h.checkpoint(holder, name="crowd", external_quota=crowd)["error"] == "invalid_request"
+    crowd = [_pause(h, f"reviewer-{index}", observed_at=h.now + index) for index in range(49)]
+    assert h.checkpoint(holder, name="crowd", external_quota=crowd)["status"] == "ok"
+    assert len([o for o in _participant(h, holder)["external_quota"] if o["kind"] == "paused"]) == 50
 
 
 def test_a_lapsed_assignee_does_not_block_a_new_agreement(h):
@@ -1225,3 +1229,19 @@ def test_a_lapsed_allowance_does_not_block_a_handoff_commit(h):
                                             resources=[{**allowance, "owner": old["participant_id"]}]))["agreement"]
     h.ack(old, quota_handoff)
     assert h.ack(new, quota_handoff, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+
+
+def test_an_observation_about_an_unregistered_allowance_is_refused(h):
+    allowance, foreign = _allowance(UNKNOWN_REVIEWER), _allowance("coderabbitai[bot]")
+    holder = h.register("holder", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    # Every session reads published observations and holds its request on them,
+    # so a session could otherwise pause a reviewer it never registered and
+    # suppress allowance it has nothing to do with.
+    refused = h.checkpoint(holder, name="foreign", external_quota=[
+        quota.pause_observation(foreign["resource_key"], quota.observed_pause(
+            "coderabbitai[bot]", "limit reached", observed_at=h.now))])
+    assert refused["error"] == "scope_denied"
+    assert h.checkpoint(holder, name="own", external_quota=[_pause(h, UNKNOWN_REVIEWER)])["status"] == "ok"
+    assert not _participant(h, holder)["external_quota"] or [
+        o["resource_key"] for o in _participant(h, holder)["external_quota"]] == [allowance["resource_key"]]

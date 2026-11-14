@@ -11,7 +11,7 @@ import uuid
 from .identity import CooperationIdentity, IdentityError, normalize_resource
 from .models import MAX_ITEMS, PROTOCOL, EventEnvelope, ApplyResponse
 from .policy import resources_conflict, find_cycle, cyclic_components, ordered_ready, effective_priorities
-from .quota import RESOURCE_TYPE as EXTERNAL_QUOTA
+from .quota import ACCESS as EXTERNAL_QUOTA_ACCESS, RESOURCE_TYPE as EXTERNAL_QUOTA
 from .store import AdministrationLock, CooperationError, Store, bodies, canonical
 from src.daemon.state import private_dir
 
@@ -854,6 +854,8 @@ class CooperationService:
             db.execute("INSERT INTO artifacts VALUES (?,?,?,?) ON CONFLICT(repository_id,id) DO UPDATE SET body=excluded.body", (artifact["artifact_id"], repo, subject["participant_id"], canonical(artifact)))
         subject["checkpoint"] = {**action, "revision": revision, "created_at": now}
         if action["external_quota"]:
+            self._scope([{"resource_type": EXTERNAL_QUOTA, "resource_key": observation["resource_key"],
+                          "access": EXTERNAL_QUOTA_ACCESS} for observation in action["external_quota"]], subject)
             if any(observation["observed_at"] > now + OBSERVATION_SKEW_SECONDS
                    for observation in action["external_quota"]):
                 raise CooperationError("invalid_request",
