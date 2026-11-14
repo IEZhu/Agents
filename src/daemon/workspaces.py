@@ -198,11 +198,14 @@ class ClientContext:
     # Recorded, never followed: tools that answer about a repository refuse, history tools
     # note it. A linked worktree of the registered repository is covered by its grant.
     mismatch: str | None = None
-    # The owner-registered physical checkout that covers the `workspace` this call named,
-    # when it is not the memory root: the worktree a session runs in, which history
-    # normalizes to its main checkout. Only a repository *report* follows it, so that the
-    # description and hash belong to the tree the session is in and not to another branch's
-    # (#576 pre-mortem P-C2); every write and target still resolves inside `root`.
+    # The authorized root that covers the `workspace` this call named: an owner-registered
+    # physical checkout, such as the worktree a session runs in and history normalizes to its
+    # main checkout, or the memory root itself. Only a repository *report* follows it, so that
+    # the description and hash belong to the tree the call named and not to another branch's
+    # (#576 pre-mortem P-C2); every write and target still resolves inside `root`. Set
+    # whenever a named workspace matched, including a match on the memory root, because that
+    # is an explicit choice and must not fall into the fallback for a call that named nothing
+    # (CR1 F1).
     covering_root: Path | None = None
     # The `workspace` a call named that is an authorized root under another spelling: the
     # same real directory, which `Path.resolve()` does not normalize the case of. Noted like
@@ -242,17 +245,19 @@ class ClientContext:
                 f"{self.workspace_root()}, and that is the workspace used.")
 
     def report_root(self):
-        """The checkout a repository report describes: the grant that covers what was named.
+        """The checkout a repository report describes: the root that covers what was named.
 
         `workspace_root` is the memory root, which is the main checkout for a worktree session
         because history normalizes a linked worktree to it. A description of that root would
         be another branch's, so a report follows the authorized physical checkout the call
         named instead (#576 pre-mortem P-C2). Targets, writes and history are unchanged.
 
-        A call that names no workspace still has one checkout when the registration carries a
-        single physical grant beside the memory root: that grant is the directory the
-        registration was made from. Several grants name no one checkout, so the memory root
-        stands.
+        Only a call that named no workspace falls back: it still has one checkout when the
+        registration carries a single physical grant beside the memory root, which is the
+        directory the registration was made from. Several grants name no one checkout, so the
+        memory root stands. A call that named the memory root recorded it as `covering_root`
+        and is answered about it, because naming a root is a choice and the fallback stands in
+        for the absence of one (CR1 F1).
         """
         root = self.workspace_root()
         if self.covering_root is not None:
@@ -373,10 +378,12 @@ def _workspace_argument(context, workspace):
     its own working directory, as the parameter asks it to, therefore names one repository and
     not another one; only a path outside every authorized root is a `mismatch`.
 
-    A grant that is not the memory root is reported as `covering_root`, which only a
-    repository report follows, and a path that names an authorized root under another spelling
-    as `respelled`, which is noted and never refused. An empty mapping leaves the context as
-    it is.
+    The authorized root that covers the named path is reported as `covering_root`, which only
+    a repository report follows, and a path that names an authorized root under another
+    spelling as `respelled`, which is noted and never refused. The memory root is recorded
+    like any other match, so that an explicit choice of it is not left to `report_root`'s
+    fallback for a call that named nothing (CR1 F1). An empty mapping leaves the context as it
+    is.
 
     Only HTTP keeps a registered root against the argument; a stdio workspace is checked
     against the client's own MCP roots above and answered as named, so it never mismatches.
@@ -386,11 +393,10 @@ def _workspace_argument(context, workspace):
     authorized = (context.root, *context.cooperation_roots)
     for root in authorized:
         if _covers(root, workspace):
-            return {} if root == context.root else {"covering_root": root}
+            return {"covering_root": root}
     for root in authorized:
         if _same_directory(root, workspace):
-            fields = {"respelled": workspace}
-            return fields if root == context.root else {**fields, "covering_root": root}
+            return {"respelled": workspace, "covering_root": root}
     return {"mismatch": workspace}
 
 

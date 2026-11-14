@@ -9,6 +9,7 @@ a reported failure that marks nothing described and never describes the installa
 a workspace's place, and no report at all in a prepared worker's contract.
 """
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import src.server as server
+from src.daemon.workspaces import resolve_client_context
 from src.engine import config as engine_config
 from src.engine import persona
 from src.memory.describer import RepoDescriber
@@ -494,9 +496,9 @@ async def test_a_reporting_response_still_validates_as_a_persona_response(bundle
     assert PersonaResponse.model_validate_json(raw).repo_context == json.loads(raw)["repo_context"]
 
 
-async def _http_activate(ctx, query="Fix the failing import"):
+async def _http_activate(ctx, query="Fix the failing import", workspace=None):
     return json.loads(await server.get_agent_context(
-        "software_engineer", query, protocol_version=2, ctx=ctx))
+        "software_engineer", query, protocol_version=2, ctx=ctx, workspace=workspace))
 
 
 @pytest.mark.asyncio
@@ -574,6 +576,40 @@ async def test_a_worktree_session_is_described_from_the_checkout_it_runs_in(bund
     assert described["status"] == "up-to-date" and described["path"] == str(worktree / "CLAUDE.md")
     assert described["registered_workspace"] == str(main)
     assert str(main) in described["instruction"] and str(worktree) in described["instruction"]
+
+
+@pytest.mark.asyncio
+async def test_a_call_that_names_the_memory_root_is_described_from_the_memory_root(
+        bundle, repositories, describers, tmp_path, monkeypatch):
+    """An explicit choice must beat the fallback that stands in for no choice (CR1 F1).
+
+    The single-grant fallback exists for a call that names no workspace: the one physical grant
+    beside the memory root is then the directory the registration was made from. A call that
+    names the memory root itself was covered by `context.root`, which recorded no
+    `covering_root`, and fell into that same fallback — so the session that asked about the main
+    checkout was handed the worktree's hash, path and summary instead.
+    """
+    main, _other, inside = repositories
+    worktree = linked_worktree(main, tmp_path / "worktree")
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    ctx = http_context(main, grants=(worktree,))
+    for named in (str(main), str(main) + os.sep, str(inside), "nested"):
+        context = await resolve_client_context(ctx, named)
+        assert context.root == main, named
+        assert context.report_root() == main, f"{named} names the memory root"
+    for identity, named in (("named-root", str(main)), ("named-inside", str(inside))):
+        report = (await _http_activate(http_context(main, identity=identity, grants=(worktree,)),
+                                       workspace=named))["repo_context"]
+        assert report["status"] == "needs_summary", named
+        assert report["workspace"] == str(main) and report["repo_path"] == str(main), named
+        assert "registered_workspace" not in report, "the described root is the memory root"
+        assert "to persist the overview" in report["instruction"], "a write is possible here"
+    assert describers == [str(main)], "the second caller answers from the main checkout's record"
+    # A call that names nothing still follows the single grant: that case is unchanged.
+    silent = (await _http_activate(http_context(main, identity="silent",
+                                                grants=(worktree,))))["repo_context"]
+    assert silent["workspace"] == str(worktree)
+    assert silent["registered_workspace"] == str(main)
 
 
 @pytest.mark.asyncio
