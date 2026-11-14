@@ -258,6 +258,23 @@ class Diagnostic(StrictModel):
     message: str = Field(max_length=240)
 
 
+class Truncation(StrictModel):
+    """Present only when the cap dropped diagnostics this validation had already produced.
+
+    Validation runs in stages — the contract, then the line format, then the schema, then the
+    status invariants and evidence references — and reports the first stage that failed. So the
+    marker's absence states that `errors` holds every problem that stage found, which a response
+    could not state before: a parent could not tell the first twenty problems from all of them,
+    and fixing the twenty it saw earned a fresh set (#589). It is not a statement about the whole
+    result: a later stage may still report its own problems once these are corrected.
+
+    `produced` counts the diagnostics that stage produced, not distinct problems. One habit
+    repeated down a list counts once per diagnostic it caused, so a hundred findings that each
+    omit the same five fields produce 500.
+    """
+    produced: int = Field(ge=1)
+
+
 class ValidationResponse(StrictModel):
     valid: bool
     errors: Annotated[list[Diagnostic], Field(max_length=MAX_ERRORS)]
@@ -266,10 +283,11 @@ class ValidationResponse(StrictModel):
     # SHA-256 of the exact result text (or canonical JSON of a result object) that was checked,
     # so a parent can cite the validated bytes without quoting them (#453).
     result_sha256: Revision | None = None
+    truncated: Truncation | None = None
 
     @model_serializer(mode="wrap")
     def omit_absent_escalation(self, handler):
-        return _omit_none(handler(self), "escalation", "result_sha256")
+        return _omit_none(handler(self), "escalation", "result_sha256", "truncated")
 
 
 class WorkerDescriptor(StrictModel):
@@ -278,6 +296,14 @@ class WorkerDescriptor(StrictModel):
     skills_loaded: list[str]
     implants_loaded: list[str]
     rules_loaded: list[str]
+
+
+# The reason a component was dropped to fit the context budget. The preparer writes it onto the
+# decision and the receipt's `omitted` list is built by matching it, so the two modules join on
+# this one string: it has a name here rather than a literal at each end, because a rename that
+# reached only one of them would leave `omitted` permanently absent, which a parent cannot tell
+# apart from a package that lost nothing.
+CONTEXT_BUDGET_REASON = "context_budget"
 
 
 class SelectionDecision(StrictModel):
@@ -325,10 +351,13 @@ class PreparedReceipt(StrictModel):
     launch: str
     descriptor: WorkerDescriptor
     execution: ExecutionPlan | None = None
+    # "<kind>/<id>" of every component the context budget cost this package, absent when none was
+    # dropped: the receipt carries no selection list, so without it the trade is invisible.
+    omitted: list[str] | None = None
 
     @model_serializer(mode="wrap")
     def omit_absent_execution(self, handler):
-        return _omit_none(handler(self), "execution")
+        return _omit_none(handler(self), "execution", "omitted")
 
 
 class PreparationError(StrictModel):

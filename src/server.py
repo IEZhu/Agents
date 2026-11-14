@@ -86,7 +86,8 @@ from src.artifacts.store import ArtifactError
 from src.engine import protocol_text, readiness
 from src.engine import model_tiers, subagent_exchange, subagent_ledger
 from src.engine.subagent import prepare_subagent
-from src.engine.subagent_validation import ContractError, assess_result, bounded_object, diagnostics
+from src.engine.subagent_validation import (ContractError, assess_result, bounded_object, diagnostics,
+                                              wrapped_arguments)
 from src.schemas.subagent import (MAX_REQUEST_CHARS, PreparationError, PreparationRequest,
                                  PreparationResponse, PreparedPackage, ValidationResponse)
 from src.cooperation.models import (RegisterResponse, ReadResponse, ApplyResponse,
@@ -184,6 +185,12 @@ class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
             if name == "get_subagent_context":
                 bounded_object(arguments, max_chars=MAX_REQUEST_CHARS)
                 fields = {*PreparationRequest.model_fields, "delivery"}
+                wrapped = wrapped_arguments(arguments, {
+                    **{field_name: field.is_required() for field_name, field in PreparationRequest.model_fields.items()},
+                    "delivery": False})
+                if wrapped is not None:
+                    response = PreparationError(errors=wrapped).model_dump(mode="json")
+                    return [TextContent(type="text", text=json.dumps(response))], response
             else:
                 fields = ("contract", "contract_revision", "result", "result_ref")
             for key in arguments:
@@ -1213,7 +1220,8 @@ async def get_subagent_context(
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.
 
-    Unknown arguments are rejected. Total original request limit: 48000 canonical
+    Unknown arguments are rejected; a request sent as one unnamed field instead of named
+    arguments is reported as arguments_wrapped with the accepted fields. Total original request limit: 48000 canonical
     JSON characters, including unknown fields. This tool does not spawn workers.
     Require status: prepared before spawning. By default (delivery file) the result is a
     receipt: launch a fresh native worker with its launch text (the worker reads the package
@@ -1224,7 +1232,8 @@ async def get_subagent_context(
     validate_subagent_result; require valid: true before accepting or integrating it, then
     assess evidence/acceptance criteria yourself. Endpoint failure does not authorize an
     unprepared worker or unvalidated result. Missing compact sources or an insufficient
-    mandatory-context budget return an error with no partial package. With complexity, the
+    mandatory-context budget return an error with no partial package; a receipt's omitted
+    names every component the budget dropped. With complexity, the
     package carries execution: the tier after floors, the newest model of that tier for the
     client, and spawn, the arguments for the host's launching tool (Agent, spawn_agent or
     Task; a Claude Code Workflow agent takes the same model in agent() options). Floors may
@@ -1267,7 +1276,7 @@ async def validate_subagent_result(
     contract: ta.unparsed_arg("object", "The contract object retained from an inline package. Give this or contract_revision, never a worker replacement.") = None,
     contract_revision: ta.unparsed_arg("string", "The receipt's contract_revision: the server validates against the contract it stored at preparation. Give this or contract.") = None,
     result: ta.unparsed_arg("string", "The worker's output, unchanged: its text result, or a JSON result as an object or string (at most 128000 characters). Give this or result_ref.") = None,
-    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead: a result file, a Claude Code agent transcript (Workflow transcript dir agent-<id>.jsonl, or a background agent's .output file) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
+    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead, read as given and never expanded, so a path starting with ~ is rejected: a result file, a Claude Code agent transcript (agent-<id>.jsonl in projects/<project>/<session>/subagents/ under the Claude Code configuration directory, CLAUDE_CONFIG_DIR when it is set and otherwise .claude in the home directory, for a background agent or in that directory's workflows/wf_<id>/ subdirectory for a Workflow agent, or the background agent's .output file only when it is not empty) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
 ) -> ValidationResponse:
     """Validate worker output structurally against the retained or server-stored contract.
 
@@ -1277,9 +1286,13 @@ async def validate_subagent_result(
     Prefer contract_revision and result_ref: nothing is retyped, and the server checks the
     exact bytes the worker produced; result_sha256 identifies them. Rejects unknown tool
     arguments. Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
-    statuses and evidence references. Limits: 128000 characters, nesting 12, 10000 JSON nodes,
-    100 items per result array (50 for text lists), strings 4000 characters, and at most 20
-    diagnostics. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
+    statuses and evidence references. Reports the first stage that failed — the contract, then
+    the line format, then the schema, then the statuses and evidence references — so errors holds
+    what that stage found and a later stage may report its own once these are corrected. Limits:
+    128000 characters, nesting 12, 10000 JSON nodes, 100 items per result array (50 for text
+    lists), strings 4000 characters, and at most 20 diagnostics, with identity and status ones
+    reported first and truncated.produced counting the diagnostics that stage produced, not
+    distinct problems. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
     establishes truth, authorization or issue completion. For a contract prepared with
     complexity, escalation names the next tier when the result is invalid, failed, partial or
     has a failed check. Prepare a new attempt with that complexity and a new attempt_id; for

@@ -1,7 +1,8 @@
 # Task-scoped subagent context and exchange contract
 
 Status: implemented; mandatory delegation guidance updated 2026-10-11; compact
-exchange added 2026-10-24; text-result diagnostics collected 2026-11-06.
+exchange added 2026-10-24; text-result diagnostics collected 2026-11-06;
+truncation marker and diagnostic order added 2026-11-14.
 Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This reference describes
 the implemented worker API; the ordinary persona protocol remains version 2.
 
@@ -132,8 +133,10 @@ files older than seven days; validation by `contract_revision` then returns
 `contract_unknown`, so validate a result within that time. The tool returns a
 receipt of under 2,000 characters instead of the package: `protocol`, `status`,
 `delivery: file`, `task_id`, `attempt_id`, `contract_revision`, `context_path`,
-`context_chars`, `context_sha256`, `launch`, `descriptor` and, with `complexity`,
-`execution`. The parent starts the worker with `launch` as its prompt (the worker
+`context_chars`, `context_sha256`, `launch`, `descriptor`, with `complexity`,
+`execution`, and, when the context budget dropped components, `omitted`, their
+`<kind>/<id>` (the receipt carries no selection list, so nothing else would say
+a skill was traded for the budget). The parent starts the worker with `launch` as its prompt (the worker
 reads the package file itself), keeps `contract_revision`, and never holds the
 package or the contract. If the files cannot be written, file delivery returns
 `exchange_unwritable`; retry with `delivery="inline"`. `delivery="inline"` returns
@@ -220,9 +223,15 @@ structured-output runners: the autodev launcher passes `result_schema` to the CL
 **Validation by reference.** `validate_subagent_result` takes the contract as
 `contract_revision` (the stored copy, whose fingerprint is rechecked) or `contract`, and
 the output as `result_ref` or `result`, exactly one of each. `result_ref` is an absolute
-path the server reads: a result file, or the final assistant message of a Claude Code
-agent transcript (`agent-<id>.jsonl` in a Workflow's transcript directory, a background
-agent's `.output` file, including a `SubagentHandback`) or of a Codex `rollout-*.jsonl`.
+path the server reads as given, so a path beginning with `~` is answered
+`invalid_result_ref`: a result file, or the final assistant message of a Claude Code
+agent transcript (`agent-<id>.jsonl` in `projects/<project>/<session>/subagents/` under the
+Claude Code configuration directory — `CLAUDE_CONFIG_DIR` when it is set, otherwise
+`.claude` in the home directory — for a background agent and in that directory's
+`workflows/wf_<id>/` subdirectory for a Workflow agent, or that agent's `.output` file
+while it is not empty) or of a Codex `rollout-*.jsonl`. A `SubagentHandback` in that message is the result on its own: the text
+blocks beside it are the worker's narration and are dropped, unless its message is empty or
+blank, which carries no result and leaves those text blocks the result.
 A result file must lie under a temporary directory or the exchange directory; a
 transcript (`.jsonl`, `.output`) may also lie in a `~/.claude*` or `~/.codex` home
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), whose settings and credentials stay
@@ -392,7 +401,18 @@ resolution in v1: JSON Schemas come only from the fixed built-in result models.
 One validation of a text result reports every per-line format error it found instead of
 stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
 `invalid_severity`, `invalid_check` and `recommendation_required` are collected across the
-whole result, within the same limit of 20 diagnostics. A line whose error was collected is
+whole result, within the same limit of 20 diagnostics. Identity and status diagnostics are
+reported ahead of the per-line ones, so the cap drops a format error rather than the diagnostic
+that decides the parent's next action. A response whose diagnostics were cut carries
+`truncated` with `produced`, the number that stage produced before the cap; its absence
+states that `errors` holds every problem **that stage** found, so a correction round that fixes
+them expects no fresh set from the same stage, while a response carrying the marker will have
+more to report once those are fixed. It says nothing about the stages that did not run: a result
+whose format errors are repaired is answered next by the status invariants and the evidence
+references, with or without the marker, which is why a parent returns the diagnostics it has
+rather than treating a marker-free response as the whole account of the result. `produced`
+counts diagnostics and not distinct problems, so one habit repeated down a list — a hundred
+findings each missing the same five fields — reports 500 rather than one. A line whose error was collected is
 skipped rather than guessed — the result is invalid either way, and nothing is repaired —
 and its diagnostic keeps that line's own position, such as `$.result.result.changes[2]`.
 A run of consecutive
@@ -416,8 +436,9 @@ Quoting is all that happens to it: a reference inside the line stays a reference
 never read, so validation stays structural.
 
 Return `valid: true/false`, a bounded list of errors with field paths and error
-codes, `verification: structural_only`, `result_sha256` when the result could be
-read and, for a contract prepared with `complexity`, possibly `escalation`.
+codes, `verification: structural_only`, `truncated` when the cap dropped
+diagnostics, `result_sha256` when the result could be read and, for a contract
+prepared with `complexity`, possibly `escalation`.
 Validation reads only the stored contract and `result_ref` and does not write
 project memory or mutate persona state. It does not prove claims, rerun
 tests, open artifacts, establish authorization or mark the issue complete. The
