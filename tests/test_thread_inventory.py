@@ -1325,6 +1325,32 @@ def test_an_unclosed_powershell_definition_keeps_the_statements_of_its_body():
     assert [m["command"] for m in inv["git_mutations"]] == ["git push origin main"]
 
 
+def test_a_definition_whose_brace_opens_the_next_line_still_performs_nothing():
+    """A newline between a definition's header and its `{` is PowerShell formatting.
+
+    The newline ends a statement, so the flush there left `function Publish` behind as a segment
+    of its own and the brace that followed read an empty header: the body became statements that
+    ran, and `git push origin main` was reported for a function nobody called. A header is taken
+    back from that segment instead, and only a header, because `function Publish` and `$block =`
+    cannot stand as statements while `if (…)` and `foreach (…)` can: the bodies of those run
+    where they stand and keep their statements, whichever line their brace opens.
+    """
+    defined = thread_inventory.inventory(powershell(
+        "function Publish\n{\ngit push origin main\n}\nfilter Keep\n{\ngit tag v1\n}\n"
+        "$block =\n{\nSet-Content -Path a.txt -Value x\n}", "nl1"))
+    assert defined["git_mutations"] == [] and defined["shell_writes"] == []
+    assert defined["unclassified_commands"] == []  # nothing called any of them
+    called = thread_inventory.inventory(powershell(
+        "function Publish\n{\ngit push origin main\n}\nPublish", "nl2"))
+    assert called["git_mutations"] == []
+    assert [c["command"] for c in called["unclassified_commands"]] == ["Publish"]
+    blocks = thread_inventory.inventory(powershell(
+        "if ($a)\n{\ngit add .\n}\nforeach ($f in $files)\n{\ngit rm $f\n}\n"
+        "try\n{\ngit push origin main\n}\ncatch\n{\ngit reset --hard\n}", "nl3"))
+    assert [m["command"] for m in blocks["git_mutations"]] == [
+        "git add .", "git rm $f", "git push origin main", "git reset --hard"]
+
+
 def test_powershell_here_strings_are_bodies_not_commands():
     inv = thread_inventory.inventory(powershell(
         "git commit -F - @'\ngit push origin main\nSet-Content C:\\evil.txt x\n'@", "h1"))

@@ -1412,6 +1412,14 @@ def _powershell_parse(command: str, index: int, depth: int, nested: bool = False
             head = "".join(current).strip()
             flush()  # the statements of a block, a hash table or a script block stand on their own
             braces += 1
+            if not head and defining is None and segments and isinstance(segments[-1], str):
+                # A newline between a definition's header and its brace is PowerShell formatting,
+                # and the flush there left the header in the previous segment. It is taken back as
+                # the header, because `function Publish` and `$block =` cannot stand as statements
+                # of their own: reading an empty header instead made the body of a function nobody
+                # called a run of statements. `_ps_defined` returns None for anything else, so an
+                # `if (…)` or `foreach (…)` written that way keeps the statements that do run.
+                head = segments[-1]
             names = _ps_defined(head) if defining is None else None
             if names is not None:
                 # Only defined here, so nothing in the body runs where it stands: its statements
