@@ -163,7 +163,46 @@ def test_the_combined_diagnostics_stay_within_the_error_cap(worker_tree):
     text = text_result(package).replace("[^e1]: src/app.py:12 — logger.info prints the header", broken)
     response = validate_result(package.contract.model_dump(mode="json"), text)
     assert not response.valid and len(response.errors) == MAX_ERRORS, response.errors
+    assert response.truncated is not None and response.truncated.produced == 30
     assert len(response.result_sha256) == 64
+
+
+def over_cap_result(package, lines=25, status="bogus"):
+    """The shape measured in #589: more malformed evidence lines than the cap, a status the
+    envelope does not allow and a summary over its 4,000 characters."""
+    broken = "\n".join(f"[^e{index}]: src/app.py:{index} line {index}" for index in range(lines))
+    text = text_result(package, status=status).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header\n"
+        "[^e2]: pytest tests/test_app.py -q — 12 passed", broken)
+    return text.replace("Checked the log path.", "x" * 4100)
+
+
+def test_the_response_says_how_many_diagnostics_the_cap_dropped(worker_tree):
+    """Nothing distinguished 'these are all the problems' from 'these are the first twenty' (#589)."""
+    package = prepared(result_type="implementation")
+    contract = package.contract.model_dump(mode="json")
+    response = validate_result(contract, over_cap_result(package))
+    assert len(response.errors) == MAX_ERRORS, response.errors
+    assert response.truncated is not None and response.truncated.produced == 27
+
+    just_under = validate_result(contract, over_cap_result(package, lines=1))
+    assert len(just_under.errors) == 3 and just_under.truncated is None, just_under.errors
+    one = text_result(package).replace("[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 logger")
+    reported = validate_result(contract, one).model_dump(mode="json")
+    assert len(reported["errors"]) == 1 and "truncated" not in reported, reported
+    assert "truncated" not in validate_result(contract, text_result(package)).model_dump(mode="json")
+
+
+def test_an_identity_and_a_status_diagnostic_survive_the_cap(worker_tree):
+    """The two diagnostics that decide the parent's next action used to be the ones dropped (#589)."""
+    package = prepared(result_type="implementation")
+    text = over_cap_result(package).replace(f"attempt: {package.attempt_id}", "attempt: attempt-9")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors[:2]] == [
+        ("$.result.attempt_id", "identity_mismatch"),
+        ("$.result.status", "literal_error")], response.errors
+    assert {error.code for error in response.errors[2:]} == {"separator_required"}
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 28
 
 
 def test_a_finding_may_cite_the_same_evidence_twice(worker_tree):

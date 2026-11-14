@@ -1,7 +1,8 @@
 # Task-scoped subagent context and exchange contract
 
 Status: implemented; mandatory delegation guidance updated 2026-10-11; compact
-exchange added 2026-10-24; text-result diagnostics collected 2026-11-06.
+exchange added 2026-10-24; text-result diagnostics collected 2026-11-06;
+truncation marker and diagnostic order added 2026-11-14.
 Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This reference describes
 the implemented worker API; the ordinary persona protocol remains version 2.
 
@@ -392,7 +393,13 @@ resolution in v1: JSON Schemas come only from the fixed built-in result models.
 One validation of a text result reports every per-line format error it found instead of
 stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
 `invalid_severity`, `invalid_check` and `recommendation_required` are collected across the
-whole result, within the same limit of 20 diagnostics. A line whose error was collected is
+whole result, within the same limit of 20 diagnostics. Identity and status diagnostics are
+reported ahead of the per-line ones, so the cap drops a format error rather than the diagnostic
+that decides the parent's next action. A response whose diagnostics were cut carries
+`truncated` with `produced`, the number the validation produced before the cap; its absence
+states that `errors` holds every problem found, so a correction round that fixes them expects
+no fresh set, while a response carrying the marker will have more to report once those are
+fixed. A line whose error was collected is
 skipped rather than guessed — the result is invalid either way, and nothing is repaired —
 and its diagnostic keeps that line's own position, such as `$.result.result.changes[2]`.
 A run of consecutive
@@ -416,8 +423,9 @@ Quoting is all that happens to it: a reference inside the line stays a reference
 never read, so validation stays structural.
 
 Return `valid: true/false`, a bounded list of errors with field paths and error
-codes, `verification: structural_only`, `result_sha256` when the result could be
-read and, for a contract prepared with `complexity`, possibly `escalation`.
+codes, `verification: structural_only`, `truncated` when the cap dropped
+diagnostics, `result_sha256` when the result could be read and, for a contract
+prepared with `complexity`, possibly `escalation`.
 Validation reads only the stored contract and `result_ref` and does not write
 project memory or mutate persona state. It does not prove claims, rerun
 tests, open artifacts, establish authorization or mark the issue complete. The

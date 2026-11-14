@@ -258,6 +258,16 @@ class Diagnostic(StrictModel):
     message: str = Field(max_length=240)
 
 
+class Truncation(StrictModel):
+    """Present only when the cap dropped diagnostics this validation had already produced.
+
+    Its absence is the statement that `errors` is everything the validation found, which a
+    response could not make before: a parent could not tell the first twenty problems from
+    all of them, and fixing the twenty it saw earned a fresh set (#589).
+    """
+    produced: int = Field(ge=1)
+
+
 class ValidationResponse(StrictModel):
     valid: bool
     errors: Annotated[list[Diagnostic], Field(max_length=MAX_ERRORS)]
@@ -266,10 +276,11 @@ class ValidationResponse(StrictModel):
     # SHA-256 of the exact result text (or canonical JSON of a result object) that was checked,
     # so a parent can cite the validated bytes without quoting them (#453).
     result_sha256: Revision | None = None
+    truncated: Truncation | None = None
 
     @model_serializer(mode="wrap")
     def omit_absent_escalation(self, handler):
-        return _omit_none(handler(self), "escalation", "result_sha256")
+        return _omit_none(handler(self), "escalation", "result_sha256", "truncated")
 
 
 class WorkerDescriptor(StrictModel):
