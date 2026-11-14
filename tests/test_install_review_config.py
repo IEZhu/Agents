@@ -18,8 +18,10 @@ spec.loader.exec_module(installer)
 # CodeRabbit's configuration schema v2 caps one instruction at this length.
 INSTRUCTION_LIMIT = 20000
 
-# FIFOs, mode bits and shell hooks have no Windows equivalent. Hard links do, so
-# those cases stay enabled there.
+# FIFOs, mode bits and shell hooks have no Windows equivalent, and neither does a
+# filename whose bytes are not valid UTF-8: NTFS names are UTF-16 and git reports
+# them encodable, so the surrogate case below is POSIX by construction rather than
+# by preference. Hard links do have an equivalent, so those cases stay enabled.
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32",
                                 reason="POSIX-only: FIFOs, mode bits and shell hooks")
 
@@ -364,6 +366,7 @@ def test_the_listing_does_not_decode_with_the_locale_codec(tmp_path, monkeypatch
     assert "text" not in recorded
 
 
+@POSIX_ONLY
 def test_a_name_that_is_not_utf_8_does_not_abort_the_listing(tmp_path, monkeypatch, capsys):
     repo = git_repo(tmp_path / "repo", {"ok.py": "x\n"})
     # Exactly what the call yields for a repository holding a latin-1 filename,
@@ -456,6 +459,9 @@ def test_walk_fallback_survives_a_vendor_named_ancestor(tmp_path, monkeypatch):
     paths = installer.repository_files(repo)
 
     assert sorted(paths) == ["src/a.py", "src/b.py"]
+    # Forward slashes on every platform: these paths become globs in the written
+    # configuration, where a backslash resolves against nothing.
+    assert not [path for path in paths if "\\" in path]
     assert "python" in installer.detect_stacks(paths)
 
 
