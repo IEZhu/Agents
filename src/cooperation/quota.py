@@ -140,15 +140,14 @@ class WaitRule:
             raise ValueError("a rule either extracts a wait or states a fixed one")
 
     def matches_reviewer(self, reviewer: str) -> bool:
-        """Match the identity exactly, or as the first segment of a longer slug.
+        """Match the canonical identity exactly; a row without one matches all.
 
-        One reviewer ships under several slugs, as ``copilot`` and
-        ``copilot-pull-request-reviewer`` are the same budget. A row that
-        matches too widely only changes how long a pause lasts; it can never
-        let a session spend an allowance it did not claim.
+        ``REVIEWER_ALIASES`` has already folded the slugs that share a budget,
+        so matching a prefix as well would only guess: a reviewer that merely
+        shares a prefix is a different budget, and an unlisted slug is served
+        better by the default backoff than by another reviewer's reset.
         """
-        return (self.reviewer is None or reviewer == self.reviewer
-                or reviewer.startswith(self.reviewer + "-"))
+        return self.reviewer is None or reviewer == self.reviewer
 
     def wait(self, evidence: str) -> tuple[float, str] | None:
         """Return the wait in seconds and the verbatim matched span, or None."""

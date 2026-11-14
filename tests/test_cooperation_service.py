@@ -1263,3 +1263,41 @@ def test_the_live_pause_bound_cannot_be_exceeded_while_scope_shares_it():
     assert len(parse_register({"protocol": PROTOCOL, "checkout_path": "/tmp", "task_id": "at-the-bound",
                                "attempt_id": "1", "root_task_id": "at-the-bound",
                                "scope": scope[:-1]}).scope) == models.MAX_ITEMS
+
+
+def test_a_recovered_holder_does_not_block_the_session_that_took_its_allowance(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    dead, peer = h.register("dead", scope=[allowance]), h.register("peer", scope=[allowance])
+    held = h.apply(dead, h.proposal([dead, peer], resources=[
+        {**allowance, "owner": dead["participant_id"]}]))["agreement"]
+    h.ack(dead, held)
+    assert h.ack(peer, held)["agreement"]["state"] == "committed"
+    assert h.acquire(dead, allowance, agreement_id="agreement")["status"] == "ok"
+    taker, witness = h.register("taker", scope=[allowance]), h.register("witness", scope=[allowance])
+    for _ in range(3):
+        h.now += 60
+        for live in (peer, taker, witness):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    fresh = h.apply(taker, h.proposal([taker, witness], name="fresh", resources=[
+        {**allowance, "owner": taker["participant_id"]}]))["agreement"]
+    h.ack(taker, fresh)
+    assert h.ack(witness, fresh)["agreement"]["state"] == "committed"
+    # The holder comes back: recovery advances its generation and leaves the
+    # old agreement suspended behind it. Its assignment must stop excluding
+    # the session that took the allowance while it was away, or the two block
+    # each other for good, since the holder cannot acquire through a suspended
+    # agreement either.
+    assert h.recover(dead)["status"] == "ok"
+    assert h.apply(dead, {"kind": "heartbeat"})["status"] == "ok"
+    assert h.acquire(taker, allowance, agreement_id="fresh")["status"] == "ok"
+    # A file assignment from the same recovered holder keeps excluding.
+    file = resource("src/a.py")
+    other_dead = h.register("other-dead", scope=[file])
+    neighbour = h.register("neighbour", scope=[file])
+    files = h.apply(other_dead, h.proposal([other_dead, neighbour], name="files", resources=[
+        {**file, "owner": other_dead["participant_id"]}]))["agreement"]
+    h.ack(other_dead, files)
+    assert h.ack(neighbour, files)["agreement"]["state"] == "committed"
+    assert h.acquire(other_dead, file, agreement_id="files")["status"] == "ok"
+    assert h.recover(other_dead)["status"] == "ok"
+    assert h.acquire(neighbour, file)["error"] == "claim_conflict"

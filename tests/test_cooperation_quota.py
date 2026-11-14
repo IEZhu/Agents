@@ -209,3 +209,16 @@ def test_a_consumed_record_publishes_no_wait_at_all():
         ExternalQuotaObservation.model_validate({**record, "wait_source": "default"})
     with pytest.raises(ValueError, match="consumed allowance"):
         ExternalQuotaObservation.model_validate({**record, "next_free_at": 900.0, "wait_source": "default"})
+
+
+def test_a_reviewer_that_only_shares_a_prefix_is_a_different_budget():
+    quota_limit = "the user who requested the review has reached their quota limit."
+    # Aliases fold the slugs that really share a budget, so a reviewer that
+    # merely starts the same way gets the default pause, not Copilot's reset.
+    stranger = quota.observed_pause("copilot-nebula-reviewer[bot]", quota_limit, observed_at=0.0)
+    assert (stranger.source, stranger.rule_id, stranger.wait_seconds) == (
+        "default", None, quota.DEFAULT_BACKOFF_SECONDS)
+    known = quota.observed_pause("copilot-pull-request-reviewer[bot]", quota_limit, observed_at=0.0)
+    assert (known.source, known.rule_id, known.wait_seconds) == ("rule", "copilot_account_quota", 86400.0)
+    assert (quota.quota_key("github.com", "iezhu", "copilot-nebula-reviewer")
+            != quota.quota_key("github.com", "iezhu", "copilot-pull-request-reviewer"))

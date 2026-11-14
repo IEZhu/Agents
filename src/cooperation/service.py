@@ -65,15 +65,28 @@ def _lapsed_holder(holder, now):
     return now - holder["last_seen"] > HEARTBEAT_DEADLINE_SECONDS
 
 
-def _lapsed_assignment(holder, resource, now):
-    """An allowance assigned to a lapsed session excludes nobody.
+def _stale_assignment(holder, resource, agreement, now):
+    """Whether an agreement's allowance assignment still excludes other sessions.
 
     The same rule as for its claim, in the places that read an agreement's
     assignments: a file assignment keeps blocking, because the dead holder's
     edits are still in the checkout.
+
+    An allowance stops excluding while its owner's heartbeat has lapsed, and
+    also once that owner has moved on to a new generation. Recovery advances
+    the generation and deliberately leaves prior agreements behind, so without
+    the second rule a recovered holder and the session that took the allowance
+    while it was away would block each other for good: the holder cannot
+    acquire through its suspended agreement, and the other session is refused
+    by that agreement's assignment as soon as a heartbeat refreshes it.
     """
-    return (resource["resource_type"] == EXTERNAL_QUOTA and holder is not None
-            and _lapsed_holder(holder, now))
+    if resource["resource_type"] != EXTERNAL_QUOTA or holder is None:
+        return False
+    if _lapsed_holder(holder, now):
+        return True
+    bound = next((binding["generation"] for binding in agreement["task_bindings"]
+                  if binding["participant_id"] == resource["owner"]), None)
+    return bound is not None and bound != holder["generation"]
 
 
 def _error(error):
@@ -753,7 +766,7 @@ class CooperationService:
                 for resource in agreement["terms"]["resources"]:
                     competing = [prior for prior in other["terms"]["resources"]
                                  if resource["owner"] != prior["owner"] and resources_conflict(resource, prior)
-                                 and not _lapsed_assignment(holders.get(prior["owner"]), prior, now)]
+                                 and not _stale_assignment(holders.get(prior["owner"]), prior, other, now)]
                     if competing:
                         raise CooperationError("claim_conflict", "Competing committed agreement")
             agreement["state"] = "committed"
@@ -807,11 +820,12 @@ class CooperationService:
                         continue
                     if not any(resources_conflict(resource, owned) for resource in resources):
                         continue
-                    # An allowance assigned to a session whose heartbeat lapsed
-                    # excludes nobody, exactly as its claim stops excluding in
+                    # An allowance assigned to a session that went silent, or
+                    # that has since recovered into a new generation, excludes
+                    # nobody, exactly as its claim stops excluding in
                     # _claim_conflicts: otherwise one crash under an agreement
                     # would freeze that reviewer for every other session.
-                    if _lapsed_assignment(holders.get(owned["owner"]), owned, now):
+                    if _stale_assignment(holders.get(owned["owner"]), owned, other, now):
                         continue
                     raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
         self._claim_conflicts(db, repo, subject, resources, now)
