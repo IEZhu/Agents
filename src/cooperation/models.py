@@ -639,6 +639,10 @@ class Participant(StrictModel):
     intent: ResourceList
     checkpoint: RecordedCheckpoint | None
     running: bool
+    # Published allowance observations outlive the checkpoint that carried
+    # them: the next work unit clears the checkpoint, while the reviewer stays
+    # paused and other sessions still have to read that time.
+    external_quota: Annotated[list[ExternalQuotaObservation], Field(max_length=MAX_ITEMS)] = Field(default_factory=list)
     reason: Text | None = None
     checkpoint_spec: CheckpointSpec | None = None
     terminal_at: Timestamp | None = None

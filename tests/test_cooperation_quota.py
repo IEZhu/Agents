@@ -167,3 +167,28 @@ def test_the_cap_holds_at_the_boundary_wherever_the_record_was_built():
     stated = quota.observed_pause("coderabbitai", "retry after 999999999 minutes", observed_at=500.0)
     assert ExternalQuotaObservation.model_validate(
         quota.pause_observation("github.com/iezhu:coderabbitai", stated)).next_free_at == 500.0 + quota.MAX_WAIT_SECONDS
+
+
+def test_one_budget_behind_two_platform_slugs_produces_one_key():
+    # The wait rules already treat these slugs as one budget; the key has to
+    # agree, or two sessions claim two resources and spend one allowance.
+    assert quota.reviewer_identity("Copilot-Pull-Request-Reviewer[bot]") == "copilot"
+    assert (quota.quota_key("github.com", "iezhu", "copilot-pull-request-reviewer[bot]")
+            == quota.quota_key("github.com", "iezhu", "Copilot") == "github.com/iezhu:copilot")
+    assert quota.canonical_quota_key("github.com/iezhu:copilot-pull-request-reviewer") == "github.com/iezhu:copilot"
+    # Aliases are data about known slugs, not a rule about reviewers at large.
+    assert quota.quota_key("github.com", "iezhu", UNKNOWN) == "github.com/iezhu:nebula-reviewer"
+
+
+def test_a_wait_the_reviewer_states_beats_a_fixed_reset():
+    stated = quota.observed_pause("copilot", "Copilot has reached their quota limit. Try again in 2 hours.",
+                                  observed_at=0.0)
+    assert (stated.rule_id, stated.wait_seconds, stated.source) == ("stated_hours", 7200.0, "stated")
+    silent = quota.observed_pause("copilot-pull-request-reviewer[bot]",
+                                  "Copilot: the user who requested the review has reached their quota limit.",
+                                  observed_at=0.0)
+    assert (silent.rule_id, silent.wait_seconds, silent.source) == ("copilot_account_quota", 86400.0, "rule")
+    # Every rule belongs to exactly one of the two passes.
+    assert ({rule.rule_id for rule in quota._STATED_RULES} | {rule.rule_id for rule in quota._FIXED_RULES}
+            == {rule.rule_id for rule in quota.WAIT_RULES})
+    assert not {rule.rule_id for rule in quota._STATED_RULES} & {rule.rule_id for rule in quota._FIXED_RULES}

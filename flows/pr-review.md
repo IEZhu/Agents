@@ -413,19 +413,26 @@ Register those keys in the scope passed to `cooperation_register`, then:
    every reviewer this round will ask, because a claim set is all-or-none.
    Nothing else in this flow needs the claim: reading check runs, waiting for a
    review already running and resolving findings spend no allowance.
-2. **When the key is held, do not send the request.** The refusal carries the
+2. **A claim proves exclusivity, not available allowance.** After acquiring,
+   and before each explicit request, read the published observations for that
+   key from a `cooperation_read` snapshot and hold the request while the
+   applicable `next_free_at` is still ahead. A session that published a pause
+   releases the key as soon as its round ends, so the next holder inherits the
+   wait rather than a free reviewer, and the claim says nothing about it.
+3. **When the key is held, do not send the request.** The refusal carries the
    holder, the `resource_key` and, when the holder published one, its
    `next_free_at`. Record both, read any published observation from the
    participants in a `cooperation_read` snapshot, continue with the other
    reviewers, and treat that reviewer as unavailable for this round if the
    recorded time has not passed. Do not wait on another session's claim in a
    loop.
-3. **Heartbeat while you hold it.** A claim whose holder goes quiet past the
-   120-second soft-stale threshold stops excluding other sessions, so a crashed
-   session cannot freeze a reviewer for everyone. The reverse also holds: let
+4. **Heartbeat while you hold it.** A claim whose holder goes quiet past the
+   120-second soft-stale threshold stops excluding other sessions, and so does
+   an allowance an agreement assigned to a session that went quiet, so a
+   crashed session cannot freeze a reviewer for everyone. The reverse also holds: let
    the claim lapse while still alive and another session may spend the budget
    you were waiting on.
-4. **Publish and release when the round ends.** Record a release-ready
+5. **Publish and release when the round ends.** Record a release-ready
    `checkpoint` and release the claims as soon as the round completes or a pause
    is published; never hold the allowance across a wait for findings to be
    fixed. A pause goes into `checkpoint.external_quota` as a `paused`

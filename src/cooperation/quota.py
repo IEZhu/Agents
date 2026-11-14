@@ -25,6 +25,11 @@ DEFAULT_BACKOFF_SECONDS = 3600.0
 MAX_WAIT_SECONDS = 7 * 86400.0
 #: GitHub appends this to an app's login on reviews but not on check runs.
 BOT_SUFFIX = "[bot]"
+#: Platform slugs that spend one allowance. GitHub reports Copilot as
+#: `copilot-pull-request-reviewer` on a review and as `copilot` elsewhere,
+#: and both draw on the account's single Copilot budget, so a key built from
+#: either surface has to be the same key.
+REVIEWER_ALIASES = {"copilot-pull-request-reviewer": "copilot"}
 
 _HOST = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
 _NAME = re.compile(r"^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$")
@@ -64,14 +69,14 @@ def reviewer_identity(reviewer: object) -> str:
 
     One reviewer appears as ``coderabbitai[bot]`` on a review and
     ``coderabbitai`` on a check run. Both spend the same allowance, so both
-    have to produce the same key.
+    have to produce the same key, and so do the slugs in ``REVIEWER_ALIASES``.
     """
     text = _text(reviewer, "reviewer").casefold()
     if text.endswith(BOT_SUFFIX):
         text = text[: -len(BOT_SUFFIX)].strip()
     if not _NAME.match(text):
         raise ValueError("reviewer must be a platform login or app slug")
-    return text
+    return REVIEWER_ALIASES.get(text, text)
 
 
 def quota_key(host: object, account: object, reviewer: object) -> str:
@@ -172,6 +177,13 @@ WAIT_RULES: tuple[WaitRule, ...] = (
 )
 
 
+#: A stated wait is read before a fixed reset: the fixed number is the
+#: documented reset of a response that states none, so preferring it would
+#: hold the allowance longer than the reviewer itself asked for.
+_STATED_RULES = tuple(rule for rule in WAIT_RULES if rule.unit_seconds is not None)
+_FIXED_RULES = tuple(rule for rule in WAIT_RULES if rule.fixed_seconds is not None)
+
+
 @dataclass(frozen=True)
 class Pause:
     """A reviewer's allowance pause, measured from the evidence's own time."""
@@ -206,17 +218,18 @@ def observed_pause(reviewer: object, evidence: object, *, observed_at: float,
         raise ValueError("observed_at must be a nonnegative timestamp")
     if not 0 < default_seconds <= MAX_WAIT_SECONDS:
         raise ValueError("the default backoff must be positive and at most MAX_WAIT_SECONDS")
-    for rule in WAIT_RULES:
-        if not rule.matches_reviewer(identity):
-            continue
-        found = rule.wait(text)
-        if found is None:
-            continue
-        seconds, quote = found
-        seconds = min(float(seconds), MAX_WAIT_SECONDS)
-        source: WaitSource = "stated" if rule.unit_seconds is not None else "rule"
-        return Pause(identity, float(observed_at), seconds,
-                     float(observed_at) + seconds, source, rule.rule_id, quote)
+    for rules in (_STATED_RULES, _FIXED_RULES):
+        for rule in rules:
+            if not rule.matches_reviewer(identity):
+                continue
+            found = rule.wait(text)
+            if found is None:
+                continue
+            seconds, quote = found
+            seconds = min(float(seconds), MAX_WAIT_SECONDS)
+            source: WaitSource = "stated" if rule.unit_seconds is not None else "rule"
+            return Pause(identity, float(observed_at), seconds,
+                         float(observed_at) + seconds, source, rule.rule_id, quote)
     return Pause(identity, float(observed_at), float(default_seconds),
                  float(observed_at) + float(default_seconds), "default", None, text)
 

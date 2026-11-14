@@ -1067,3 +1067,44 @@ def test_a_published_pause_cannot_push_other_sessions_past_the_capped_wait(h):
     with pytest.raises(ValueError, match="maximum"):
         h.checkpoint(holder, name="absurd",
                      external_quota=[{**capped, "next_free_at": h.now + quota.MAX_WAIT_SECONDS + 1}])
+
+
+def _participant(h, actor):
+    return [p for p in h.read()["participants"] if p["participant_id"] == actor["participant_id"]][0]
+
+
+def test_a_published_pause_outlives_the_work_unit_that_published_it(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    pause = quota.observed_pause(UNKNOWN_REVIEWER, "Nebula: this account is out of review budget.", observed_at=h.now)
+    assert h.checkpoint(holder, name="round-1",
+                        external_quota=[quota.pause_observation(allowance["resource_key"], pause)])["status"] == "ok"
+    assert _release(h, holder, reason="pause published")["status"] == "ok"
+    # The next work unit clears the checkpoint while the reviewer stays paused,
+    # so the time every other session reads cannot live only in it.
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    assert _participant(h, holder)["checkpoint"] is None
+    refused = h.acquire(other, allowance)
+    assert refused["error"] == "claim_conflict"
+    assert refused["next_free_at"] == pause.next_free_at
+    assert [(o["kind"], o["next_free_at"]) for o in _participant(h, holder)["external_quota"]] == [
+        ("paused", pause.next_free_at)]
+
+
+def test_a_lapsed_allowance_frees_an_agreement_assignment(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    scope = [allowance, file]
+    dead, live = h.register("dead", scope=scope), h.register("live", scope=scope)
+    assigned = [{**allowance, "owner": dead["participant_id"]}, {**file, "owner": dead["participant_id"]}]
+    agreement = h.apply(dead, h.proposal([dead, live], resources=assigned))["agreement"]
+    h.ack(dead, agreement)
+    assert h.ack(live, agreement)["agreement"]["state"] == "committed"
+    assert h.acquire(dead, allowance, file, agreement_id="agreement")["status"] == "ok"
+    for _ in range(3):
+        h.now += 60
+        assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # The assignment outlives the holder's heartbeat, so the allowance has to
+    # stop excluding here too, while the file assignment still holds.
+    assert h.acquire(live, file)["error"] == "claim_conflict"
+    assert h.acquire(live, allowance)["status"] == "ok"
