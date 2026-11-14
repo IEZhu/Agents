@@ -212,8 +212,9 @@ REPO_CONTEXT_FIELD = "repo_context"
 # Statuses whose response applies or keeps an activation. ROUTE_REQUIRED is an intermediate
 # result and ERROR activated nothing, so neither carries a repository report.
 _ACTIVATED_STATUSES = ("SUCCESS", "NO_CHANGE")
-# The workspaces this process has already reported, each with the repository hash it reported
-# them at. A different workspace, a changed hash or a restarted process reports again.
+# The workspaces this process has already reported as described, each with the repository hash
+# it reported them at. A pending needs_summary is never recorded: it is reported on every
+# activation until the summary is written. A different workspace, a changed hash or a restarted process reports again.
 #
 # This records the reporting, not the activation: protocol 2 keeps activation state in the
 # caller's dialogue, and no block, descriptor, footer or revision depends on this mapping.
@@ -309,6 +310,11 @@ def _describe_workspace(root) -> dict | None:
         {**describer.up_to_date_response(decision), "workspace": key,
          "instruction": DESCRIBED_INSTRUCTION}
     )
+    if decision.needs_refresh:
+        # A pending needs_summary is not completed work: the summary was not written, so the
+        # next activation reports it again until it is (#459). Nothing depends on the hash
+        # staying stable here, because nothing is recorded for it.
+        return report
     with _report_lock:
         _reported_workspaces[key] = decision.current_hash
         while len(_reported_workspaces) > _MAX_REPORTED_WORKSPACES:

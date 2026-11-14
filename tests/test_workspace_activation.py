@@ -71,6 +71,11 @@ def describers(monkeypatch):
     return built
 
 
+def _write_summary(root):
+    describer = RepoDescriber(repo_path=str(root))
+    return describer.write_summary(_valid_summary(), describer.compute_repo_hash())
+
+
 async def activate(agent="software_engineer", query="Fix the failing import", **extra):
     return json.loads(await server.get_agent_context(agent, query, protocol_version=2, **extra))
 
@@ -95,8 +100,9 @@ async def test_first_activation_in_a_workspace_carries_the_describe_repo_result(
 @pytest.mark.asyncio
 async def test_a_repeated_activation_in_the_same_unchanged_workspace_carries_nothing(bundle,
                                                                                     workspace):
+    _write_summary(workspace)
     first = await activate()
-    assert "repo_context" in first
+    assert first["repo_context"]["status"] == "up-to-date"
     switched = await activate("lawyer", "Read this fictional contract",
                               current_persona=PersonaDescriptor.model_validate(first["persona"]))
     assert switched["status"] == "SUCCESS" and "repo_context" not in switched
@@ -107,12 +113,14 @@ async def test_a_repeated_activation_in_the_same_unchanged_workspace_carries_not
 
 @pytest.mark.asyncio
 async def test_another_workspace_gets_its_own_report(bundle, workspace, tmp_path, monkeypatch):
+    _write_summary(workspace)
     opening = await activate()
     first = opening["repo_context"]
     # Seeded identically on purpose: the report follows the workspace, not the repository hash.
     other = tmp_path / "other"
     other.mkdir()
     _seed_repo(other)
+    _write_summary(other)
     monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(other))
     engine_config._reset_client_repo_root_cache()
     active = PersonaDescriptor.model_validate(opening["persona"])
@@ -120,7 +128,7 @@ async def test_another_workspace_gets_its_own_report(bundle, workspace, tmp_path
     assert kept["status"] == "NO_CHANGE", "the role is unchanged; only the workspace moved"
     second = kept["repo_context"]
     assert second["workspace"] == str(other.resolve()) != first["workspace"]
-    assert second["repo_hash"] == first["repo_hash"]
+    assert second["hash"] == first["hash"]
     assert "repo_context" not in await activate(current_persona=active)
 
 
@@ -226,6 +234,7 @@ async def test_an_intermediate_or_failed_activation_carries_no_report(workspace,
 
 @pytest.mark.asyncio
 async def test_a_caller_that_ignores_the_field_applies_the_same_bundle(bundle, workspace):
+    _write_summary(workspace)
     reporting = await activate()
     plain = await activate()
     assert "repo_context" in reporting and "repo_context" not in plain
@@ -234,3 +243,32 @@ async def test_a_caller_that_ignores_the_field_applies_the_same_bundle(bundle, w
             == {key: value for key, value in plain.items() if key not in volatile})
     assert reporting["persona"] == {**plain["persona"],
                                     "activation_id": reporting["persona"]["activation_id"]}
+
+
+@pytest.mark.asyncio
+async def test_a_pending_needs_summary_keeps_being_reported_until_the_summary_is_written(
+        bundle, workspace):
+    opening = await activate()
+    assert opening["repo_context"]["status"] == "needs_summary"
+    active = PersonaDescriptor.model_validate(opening["persona"])
+    for _ in range(2):
+        later = await activate(current_persona=active)
+        assert later["status"] == "NO_CHANGE"
+        assert later["repo_context"]["status"] == "needs_summary"
+        assert later["repo_context"]["repo_hash"] == opening["repo_context"]["repo_hash"]
+    assert str(workspace) not in persona._reported_workspaces
+    written = _write_summary(workspace)
+    assert written["status"] == "refreshed"
+    done = await activate(current_persona=active)
+    assert done["repo_context"]["status"] == "up-to-date"
+    assert "repo_context" not in await activate(current_persona=active)
+
+
+@pytest.mark.asyncio
+async def test_a_lookup_that_failed_is_reported_again_once_it_works(bundle, workspace,
+                                                                   monkeypatch):
+    real = persona._describe_workspace
+    monkeypatch.setattr(persona, "_describe_workspace", Mock(side_effect=OSError("disk gone")))
+    assert "repo_context" not in await activate()
+    monkeypatch.setattr(persona, "_describe_workspace", real)
+    assert (await activate())["repo_context"]["status"] == "needs_summary"
