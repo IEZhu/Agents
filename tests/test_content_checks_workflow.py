@@ -2356,12 +2356,13 @@ def test_an_unshimmed_program_is_refused_before_it_is_command_not_found():
 def test_a_step_writing_outside_the_throwaway_tree_is_refused():
     """A redirection to an absolute path left the tree, and was measured doing it.
 
-    The throwaway tree bounds what a step can touch only for the paths it
-    spells relatively. An absolute target is outside it by construction, so the
-    step is refused before it is started -- the same answer as an absolute
-    interpreter path, and for the same reason: running it would do something to
-    this machine that the guard cannot take back. `/dev/null` and the standard
-    streams are the exception, because writing there touches nothing.
+    What the throwaway tree bounds is a literal path that stays inside it and
+    nothing else. An absolute target is outside it by construction, so the step
+    is refused before it is started -- the same answer as a program path PATH
+    cannot intercept, and for the same reason: running it would do something to
+    this machine the guard cannot take back. A target a reader of the spelling
+    cannot place at all is the case below. `/dev/null` and the standard streams
+    are the exception, because writing there touches nothing.
     """
     outside = Path(tempfile.gettempdir()) / "content-guard-escaped-the-tree"
     outside.unlink(missing_ok=True)
@@ -2467,10 +2468,10 @@ def test_a_redirection_target_that_expands_at_runtime_is_refused(tmp_path, monke
 def test_a_program_this_guard_does_not_cover_is_a_failure_not_a_skip():
     """`command not found` is not an unusable runner, and it read as one.
 
-    A program that is neither shimmed nor on the allowlist stops the script
-    under `bash -e` with status 127, which the executor returns as a problem --
-    the answer kept for a runner that cannot measure. Nothing was measured, so
-    the assertion skipped: a maintainer who adds `grep`, `tee`, `jq`,
+    A program that is neither shimmed nor on the allowlist stopped the script
+    under `bash -e` with status 127, which the executor returned as a problem
+    -- the answer kept for a runner that cannot measure. Nothing was measured,
+    so the assertion skipped: a maintainer who adds `grep`, `tee`, `jq`,
     `coverage` or `timeout` to a step, or a redirection to an unset
     `$GITHUB_STEP_SUMMARY`, turns this guard off while the pull request stays
     green. The two answers are separated now. A step this guard will not
@@ -2755,7 +2756,7 @@ def test_the_shim_list_covers_every_program_that_could_start_pytest():
     not: the shim answers, and what it recorded reads back as the pytest run it
     was.
     """
-    names, _relative, _absolute = shim_plan("echo nothing to shim here\n")
+    names, _inside, _outside = shim_plan("echo nothing to shim here\n")
     for program in ("python", "python3", "pytest", "pip", "pip3", "uv", "uvx"):
         assert program in names, f"{program} is not shimmed, so a step starts the real one"
     run = execute_step("uv run pytest tests/test_skill_freshness.py\n"
