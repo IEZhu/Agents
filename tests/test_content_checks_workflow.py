@@ -595,6 +595,51 @@ def runs_as_pytest_argument(commands, test_file, pipefail=False):
     return False
 
 
+def invocations_the_step_survives(script, test_file, pipefail=False):
+    """This script's written runs of the file whose failure cannot reach the step.
+
+    The three positions `runs_as_pytest_argument` skips, collected instead of
+    skipped, because the recorder needs the other half of that question. Not
+    "is there an invocation that counts" but "is there one whose recording
+    cannot be told from the one that counts":
+
+        python -B -m pytest tests/test_skill_freshness.py &
+        exit 0
+        python -B -m pytest tests/test_skill_freshness.py
+
+    satisfied both halves of this guard about two different commands. Reading
+    found the foreground line on the third row; the recorder, which sees only
+    what ran, holds the backgrounded line from the first -- and the two lines
+    are the same line. Measured: the step exits 0, the log holds exactly one
+    command, and nothing joined the one that was read to the one that ran.
+
+    So the credit is refused where this reader finds anything, and the reason
+    says which command it was. The shim cannot answer it instead: measured,
+    everything it could record of the two invocations -- argv, `PPID`, the
+    process group, the environment -- is byte-identical, and the one mark bash
+    does leave on an asynchronous command, stdin redirected from `/dev/null`,
+    is gone here because a step started under pytest's own capture already has
+    `/dev/null` on its stdin.
+
+    It answers per step rather than per recorded line, because telling two
+    recorded lines apart means matching an argv back to the text that started
+    it, and the shell has been over that text in between -- an expanded glob no
+    longer spells the argument the step wrote. That inference is the one the
+    recorder exists to replace. The step that pays for it is the step that
+    writes both, which no correct workflow does: a step with only an invocation
+    the shell survives is not a candidate here at all.
+    """
+    survived = []
+    for command in logical_commands(script):
+        if not (backgrounded(command) or caught(command)
+                or (piped(command) and not pipefail)):
+            continue
+        bare = without_separator(command)
+        if runs_the_file(bare.split(), test_file):
+            survived.append(bare)
+    return survived
+
+
 def steps_passing_the_file(workflow, test_file):
     """Every (job name, job, step) of this parsed workflow that passes the file on.
 
@@ -1727,10 +1772,12 @@ def executed_verdict(test_file, documents):
     Three of them are kept apart because they are three different answers. A
     refusal is a verdict about the step and fails. A disqualification is a
     verdict about the configuration and fails too: a step a run never reaches
-    is one the repository wrote that way, which no runner can mend. Only a
-    reason may be this machine saying it could not measure, and only that
-    skips. The three were one list, which is how a lone `if: ${{ false }}`
-    produced no measurement and no complaint.
+    is one the repository wrote that way, which no runner can mend, and so is
+    one that writes an invocation of the file its own shell survives, where a
+    recorded run cannot be told from that one. Only a reason may be this
+    machine saying it could not measure, and only that skips. The three were
+    one list, which is how a lone `if: ${{ false }}` produced no measurement
+    and no complaint.
     """
     reasons, refusals, disqualified, measured = [], [], [], 0
     for name, workflow in documents.items():
@@ -1741,9 +1788,20 @@ def executed_verdict(test_file, documents):
                     f"{name} ({job_name}): a run may not reach this step -- "
                     + ", ".join(skipped))
                 continue
+            shell = effective_shell(workflow, job, step)[0]
+            survived = invocations_the_step_survives(
+                step["run"], test_file, pipefail=pipefail_in_effect(shell))
+            if survived:
+                disqualified.append(
+                    f"{name} ({job_name}): "
+                    + ", ".join(f"`{command}`" for command in survived)
+                    + f" runs {test_file} where the step survives its failure, "
+                    "so a recorded run here cannot be told from that one and is "
+                    "not credited")
+                continue
             run = recorded_step(
                 step["run"],
-                effective_shell(workflow, job, step)[0],
+                shell,
                 tuple(sorted(step_environment(workflow, job, step).items())),
                 run_default(workflow, job, step, "working-directory")[0],
             )
@@ -3199,6 +3257,73 @@ def test_a_step_a_run_never_reaches_is_not_evidence():
     # The same step without the condition is evidence, or the case above is vacuous.
     reachable = {"jobs": {"content": {"steps": [{"run": CONTROL_COMMAND}]}}}
     assert executed_verdict(SCHEDULED_BY_CALENDAR, {"open.yml": reachable})[0] is True
+
+
+# The ninth form, and the first whose two halves each answered about a different
+# command: the foreground line reading says yes to is on the third row, and the
+# line the recorder holds came from the first. Written out rather than built from
+# CONTROL_COMMAND, because the two invocations being the same text is the case.
+SHADOWED_BY_A_BACKGROUND_RUN = (
+    "python -B -m pytest tests/test_skill_freshness.py &\n"
+    "exit 0\n"
+    "python -B -m pytest tests/test_skill_freshness.py\n"
+)
+
+
+def test_a_recorded_run_the_step_survives_is_not_the_foreground_one():
+    """Both halves said yes, about two commands, and nothing tied them together.
+
+    This needs no execution and says so on every leg: the credit is refused by
+    reading the step, before any shell starts. The case beside this one is what
+    measures that the recorder really does hold the backgrounded line, which is
+    what makes this refusal about something.
+    """
+    assert runs_as_pytest_argument(
+        logical_commands(SHADOWED_BY_A_BACKGROUND_RUN), SCHEDULED_BY_CALENDAR
+    ), "the static half is supposed to be satisfied; that is the premise here"
+    built = {"jobs": {"content": {"steps": [
+        {"run": SHADOWED_BY_A_BACKGROUND_RUN}]}}}
+    evidence, measured, reasons, refusals, disqualified = executed_verdict(
+        SCHEDULED_BY_CALENDAR, {"shadowed.yml": built})
+    assert evidence is False, "a run nothing waits for is not a run of the file"
+    assert (measured, reasons, refusals) == (0, [], [])
+    assert any("survives its failure" in entry for entry in disqualified), (
+        disqualified)
+    with pytest.raises(pytest.fail.Exception, match="really handed"):
+        require_a_recorded_run(
+            SCHEDULED_BY_CALENDAR, measured, reasons, refusals, disqualified)
+    # The committed command writes no such invocation, which is what keeps this
+    # from refusing every step; and `&&`, the separator beside the two refused
+    # ones, leaves the step carrying the failure and is not collected.
+    for innocent in (CONTROL_COMMAND, CONTROL_COMMAND + " && echo done"):
+        assert invocations_the_step_survives(
+            innocent, SCHEDULED_BY_CALENDAR) == []
+
+
+@EXECUTES_STEPS
+def test_the_recorder_cannot_tell_a_backgrounded_run_from_the_foreground_one():
+    """Which is why the refusal above is a reading and not a measurement.
+
+    The script exits before its foreground line, so the one command in the log
+    is the backgrounded one -- and read on its own that line is a full run of
+    the file, because the argv of a backgrounded pytest is the argv of a
+    foreground one. The `wait` in the second script is only there to make the
+    log deterministic: nothing waits for the job in the first, so whether its
+    line arrives before the shell exits is a race, which is a further reason
+    not to decide a verdict on it.
+    """
+    run = execute_step(SHADOWED_BY_A_BACKGROUND_RUN)
+    assert run.problem is None, run.problem
+    assert run.status == 0, "`exit 0` is the point: the foreground line never ran"
+    assert run.commands in (
+        [], ["python -B -m pytest tests/test_skill_freshness.py"]), run.commands
+    waited = execute_step(
+        "python -B -m pytest tests/test_skill_freshness.py &\nwait\n")
+    assert waited.problem is None, waited.problem
+    assert recorded_pytest_runs(waited.commands, SCHEDULED_BY_CALENDAR) == (
+        waited.commands), (
+        "the recorded line of a backgrounded run reads as a run of the file, "
+        "which is the coincidence the reading above refuses to credit")
 
 
 @pytest.mark.parametrize("shell, pipefail", [

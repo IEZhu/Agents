@@ -98,21 +98,16 @@ import yaml
 
 from tests.test_content_checks_workflow import (  # the #632 harness, not a second one
     EXECUTES_STEPS,
-    backgrounded,
-    caught,
     effective_shell,
-    logical_commands,
+    invocations_the_step_survives,
     pipefail_in_effect,
-    piped,
     pytest_arguments,
     recorded_argv,
     recorded_step,
     run_default,
-    runs_the_file,
     skip_reasons,
     step_environment,
     tracked_names,
-    without_separator,
     workflow_paths,
     write_tree,
 )
@@ -604,23 +599,21 @@ def cannot_redden_the_step(script: str, path: str, shell) -> list[str]:
     check in both. It is read from the script's text because the shell's
     plumbing is not in the argv the shim was handed.
 
-    An empty list means the recorder decides alone, and that covers two
-    different cases on purpose: no written command names the path -- which is
-    every one of the eight bypasses #632 recorded, where only executing the
-    step finds the command -- or one of them is in a position whose failure the
-    step does carry. So this withholds the recorder's evidence only where the
-    text itself says the step cannot fail over this file.
+    One such command is enough, even where the script also writes one whose
+    failure the step does carry. This used to answer with an empty list there
+    and leave the recorder deciding alone, which is a coincidence rather than a
+    measurement: a `pytest x.py &` before an `exit 0` and a bare `pytest x.py`
+    after it record the same line, so the recorded run was credited to the
+    command that never ran. The reader is the other module's
+    `invocations_the_step_survives`, where that is stated at length.
+
+    An empty list still means the recorder decides alone, for the one case
+    where it has to: no written command names the path at all, which is every
+    one of the eight bypasses #632 recorded, where only executing the step
+    finds the command.
     """
-    pipefail = pipefail_in_effect(shell)
-    swallowed = []
-    for command in logical_commands(script):
-        if not runs_the_file(without_separator(command).split(), path):
-            continue
-        if not (backgrounded(command) or caught(command)
-                or (piped(command) and not pipefail)):
-            return []
-        swallowed.append(without_separator(command))
-    return swallowed
+    return invocations_the_step_survives(
+        script, path, pipefail=pipefail_in_effect(shell))
 
 
 def invocation(path: str, documents: dict) -> Invocation:
@@ -1057,7 +1050,11 @@ def test_a_run_whose_failure_the_step_survives_is_not_a_host():
     """
     wanted = "tests/test_install_setup_options.py"
     for command in (f"pytest {wanted} | cat", f"pytest {wanted} &",
-                    f"pytest {wanted} || true"):
+                    f"pytest {wanted} || true",
+                    # And the mixed script, where this used to leave the
+                    # recorder deciding alone: the foreground line is never
+                    # reached and the log holds the backgrounded one.
+                    f"pytest {wanted} &\nexit 0\npytest {wanted}"):
         run = invocation(wanted, {"w.yml": step(command)})
         assert run.hosts == [], command
         assert run.measured == 1, (command, run.problems)
