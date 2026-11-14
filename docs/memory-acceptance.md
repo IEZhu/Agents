@@ -148,6 +148,3 @@ privilege fails that step. Local runs may skip those cases without the privilege
 POSIX-only cases report their skips. The remaining durability and replay checks
 still run. The User sync workflow
 separately includes the Personal/Git history tests on all three platforms.
-
-Teams/Hosted contributions follow the `team` integration path in the
-[release procedure](releases.md#procedure).

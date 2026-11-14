@@ -66,9 +66,6 @@ plans and catalogs out of tracked repository files.
   branch; `main` takes release PRs from `dev`
   ([release procedure](docs/releases.md#procedure)). Remove your worktree once its work
   is pushed or merged and it is clean.
-- For Teams/Hosted work, use `origin/team` as the feature branch base and `team`
-  as the PR target; promotion into `dev` is a separate reviewed PR, as described
-  in the [release procedure](docs/releases.md#procedure).
 - Use a `codex/` branch for new work unless the user or the invoked flow specifies
   another name; for example, [issue implementation](flows/issue-implementation.md)
   requires `claude/issue-<number>-<short-slug>`.
