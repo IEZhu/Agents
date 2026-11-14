@@ -1510,7 +1510,7 @@ def test_a_definition_in_a_child_scope_shadows_nothing_outside_it():
         "function Set-Content { }; Set-Content -Path phantom.txt -Value x", "s3"))
     assert top["shell_writes"] == []
     assert [c["command"] for c in top["unclassified_commands"]] == [
-        "function Set-Content { }; Set-Content -Path phantom.txt -Value x"]
+        "Set-Content -Path phantom.txt -Value x"]  # the statement, which is what is listed
 
 
 def test_a_defined_body_keeps_its_forge_reference_and_performs_nothing():
