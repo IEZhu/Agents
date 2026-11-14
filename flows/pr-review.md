@@ -403,6 +403,10 @@ spelling it by hand, from the Agents-Core source checkout:
 .venv/bin/python -c "from src.cooperation import quota; print(quota.quota_key('github.com', 'OWNER', 'coderabbitai[bot]'))"
 ```
 
+Each key is claimed for `write`, which `quota.resource(key)` builds: the
+coordinator refuses any other access for this resource type, because a snapshot
+read excludes no other session while the allowance is still being spent.
+
 Register those keys in the scope passed to `cooperation_register`, then:
 
 1. **Acquire before an explicit request or re-request.** One `acquire` names

@@ -29,7 +29,9 @@ def test_the_key_names_the_account_and_the_reviewer_but_never_the_repository():
 
 @pytest.mark.parametrize("key", ["github.com", "github.com/iezhu", "iezhu:coderabbitai",
                                  "github.com/iezhu:code rabbit", "github.com//:coderabbitai",
-                                 "github.com/iezhu:", "  ", "github.com/../dev:coderabbitai"])
+                                 "github.com/iezhu:", "  ", "github.com/../dev:coderabbitai",
+                                 "https://github.com/iezhu:coderabbitai", "github.com/iezhu/agents:coderabbitai",
+                                 "github.com:1234/iezhu:coderabbitai", "user@github.com/iezhu:coderabbitai"])
 def test_a_key_that_is_not_an_allowance_triple_is_refused(key):
     with pytest.raises(ValueError):
         quota.canonical_quota_key(key)
@@ -131,3 +133,18 @@ def test_a_published_pause_must_carry_the_next_free_time_it_claims(invalid):
 def test_the_claimable_resource_is_a_write_on_the_canonical_key():
     assert quota.resource("GitHub.com/IEZhu:CodeRabbitAI[bot]") == {
         "resource_type": "external_quota", "resource_key": "github.com/iezhu:coderabbitai", "access": "write"}
+
+
+def test_a_platform_spelling_normalizes_while_a_key_carrying_one_is_refused():
+    # Building a key from what the platform reports keeps the flexible host
+    # handling; reading a key back must refuse what it does not recognise,
+    # or two malformed spellings would alias onto the real allowance.
+    assert quota.quota_key("git@github.com:1234", "iezhu", "coderabbitai") == "github.com/iezhu:coderabbitai"
+    assert quota.quota_key("https://github.com/iezhu/agents", "iezhu", "coderabbitai") == "github.com/iezhu:coderabbitai"
+    for aliased in ("github.com:1234/iezhu:coderabbitai", "user@github.com/iezhu:coderabbitai",
+                    "https://github.com/iezhu:coderabbitai"):
+        with pytest.raises(ValueError, match="bare hostname"):
+            quota.canonical_quota_key(aliased)
+    # The [bot] suffix still folds: that is one identity across two surfaces.
+    assert quota.canonical_quota_key("github.com/iezhu:CodeRabbitAI[bot]") == "github.com/iezhu:coderabbitai"
+    assert quota.bare_host(" GitHub.com ") == "github.com"

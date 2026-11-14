@@ -82,13 +82,32 @@ def quota_key(host: object, account: object, reviewer: object) -> str:
     return f"{host_identity(host)}/{account_identity(account)}:{reviewer_identity(reviewer)}"
 
 
+def bare_host(host: object) -> str:
+    """The host of an existing key, which is bare already, so only case folds.
+
+    ``host_identity`` strips a scheme, userinfo and a port from a platform
+    input. A key has none of those by construction, so stripping them while
+    parsing one would alias ``github.com:1234/iezhu:x`` and
+    ``user@github.com/iezhu:x`` onto the real allowance instead of refusing a
+    key that does not follow the documented form.
+    """
+    text = _text(host, "host").casefold()
+    if not _HOST.match(text):
+        raise ValueError("an allowance key's host is a bare hostname, for example github.com")
+    return text
+
+
 def parse_quota_key(key: object) -> tuple[str, str, str]:
-    """Split a key into its canonical host, account and reviewer parts."""
+    """Split a key into its canonical host, account and reviewer parts.
+
+    The ``[bot]`` suffix still folds: it is how one reviewer identity differs
+    between a review and a check run, not a separate spelling of the key.
+    """
     host, slash, rest = _text(key, "resource key").partition("/")
     account, colon, reviewer = rest.partition(":")
     if not slash or not colon:
         raise ValueError("an external allowance key is <host>/<account>:<reviewer>")
-    return host_identity(host), account_identity(account), reviewer_identity(reviewer)
+    return bare_host(host), account_identity(account), reviewer_identity(reviewer)
 
 
 def canonical_quota_key(key: object) -> str:

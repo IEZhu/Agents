@@ -1034,3 +1034,20 @@ def test_an_automatic_review_nobody_requested_is_published_as_consumed_allowance
     participant = [p for p in h.read()["participants"] if p["participant_id"] == observer["participant_id"]][0]
     assert participant["checkpoint"]["external_quota"] == [record]
     assert not h.read()["claims"]
+
+
+def test_an_allowance_registered_as_a_snapshot_read_is_refused(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    reading = {**allowance, "access": "snapshot_read"}
+    # A snapshot read conflicts with nothing, so a scope that declares one for
+    # an allowance would let its session acquire the key a writer is holding.
+    refused = h.service.register(parse_register(
+        {"protocol": PROTOCOL, "checkout_path": str(h.checkout), "task_id": "reader",
+         "attempt_id": "1", "root_task_id": "reader", "scope": [reading]}), h.identity)
+    assert refused["error"] == "scope_denied"
+    holder = h.register("holder", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    reader = h.register("reader", scope=[allowance])
+    assert h.acquire(reader, reading)["error"] == "scope_denied"
+    assert h.acquire(reader, {**allowance, "access": "integrate"})["error"] == "scope_denied"
+    assert [c["participant_id"] for c in h.read()["claims"]] == [holder["participant_id"]]

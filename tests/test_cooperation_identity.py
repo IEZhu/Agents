@@ -123,6 +123,19 @@ def test_external_allowance_keys_are_canonical_and_free_of_repository_identity(c
             normalize_resource({**resource, "resource_key": key}, identity)
 
 
+def test_an_allowance_is_claimable_only_for_write(checkouts):
+    main, _, authority = checkouts
+    identity = resolve_identity(context(main), authority_path=authority)
+    resource = {"resource_type": "external_quota", "access": "write",
+                "resource_key": "github.com/iezhu:nebula-reviewer"}
+    assert normalize_resource(resource, identity).access == "write"
+    # A snapshot read is exempt from every conflict, so accepting one would
+    # hand a second session the allowance the writer is already spending.
+    for access in ("snapshot_read", "integrate"):
+        with pytest.raises(IdentityError, match="claimed for write"):
+            normalize_resource({**resource, "access": access}, identity)
+
+
 def test_case_aliases_collide_without_collapsing_distinct_files(checkouts):
     main, _, authority = checkouts
     (main / "Mixed.txt").write_text("first")
