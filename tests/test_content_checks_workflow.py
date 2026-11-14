@@ -234,6 +234,32 @@ NON_RUNNING_OPTIONS = frozenset({
     "fixtures", "fixturespertest", "markers",
     "help", "h", "version", "V",
 })
+# Options that stop pytest reading its positional values as this reader reads
+# them. `--pyargs` is the one: "Try to interpret all arguments as Python
+# packages", and read in the pinned pytest's own source rather than recalled,
+# `resolve_collection_argument` searches `sys.path` for a module of that name
+# first and keeps the value as a path only where it finds none
+# (`_pytest/main.py`, with `search_pypath`). So what a positional selects under
+# it is `sys.path`'s answer where the step runs, not the argv's.
+#
+# The refusal costs a credit rather than correcting a false one, which is worth
+# stating exactly: measured on pytest 9.1.1, `pytest --pyargs tests/x.py` does
+# run `tests/x.py`, because that spelling is not an importable name and the
+# fallback applies. Review read it the other way round. It is refused all the
+# same, under the rule the operators get: an argument whose meaning is decided
+# somewhere this reader cannot see is not an argument this reader credits -- and
+# the manifests guard already refuses the option from the other side, where it
+# stops a path argument from bounding what the inner pytest reaches.
+POSITIONALS_ARE_NOT_PATHS = frozenset({"pyargs"})
+UNREADABLE_POSITIONALS = (
+    "so what its positional values select is decided by `sys.path` where the "
+    "step runs and not by the argv this reader has"
+)
+# The verdicts `reading_of` gives one argv over one file. A third answer rather
+# than a second boolean, because "this is not a run of the file" and "this
+# reader cannot say what it is a run of" are the two answers #632 insisted on
+# keeping apart, here at the level of one command's arguments.
+RUNS, UNREADABLE = "runs", "unreadable"
 # Shells that run a `run:` script as commands. `shell: cat {0}` is a documented
 # template and prints the script instead, so a step using one is not evidence.
 EXECUTING_SHELLS = frozenset({"bash", "sh", "pwsh", "powershell", "cmd"})
@@ -552,6 +578,45 @@ def deselects_the_file(args, test_file):
     return False
 
 
+def unreadable_positionals(args):
+    """The options in this argv that stop its positional values being paths."""
+    return sorted({normalised_option(arg) for arg in args
+                   if arg.startswith("-")
+                   and normalised_option(arg) in POSITIONALS_ARE_NOT_PATHS})
+
+
+def reading_of(argv, test_file, literal=False):
+    """What this reader can say about this argv over this file.
+
+    Three answers, as `(verdict, options)`. `RUNS` when the argv is a pytest run
+    of the file. `UNREADABLE`, with the options that made it so, when the file
+    is among the positionals and an option says those are not read as paths --
+    which is never credited and never dropped, because an argument this reader
+    cannot read is not an argument it can report on either way. `None`
+    otherwise: not pytest, not this file, or a run of nothing.
+
+    The order the three are decided in is deliberate. A mode that collects and
+    runs nothing comes first, because it answers whatever the positionals mean.
+    An unreadable positional comes next, because everything after it reads the
+    values as paths -- a whole-file `--deselect` included, which compares a node
+    id built from one.
+    """
+    args = None if argv is None else pytest_arguments(argv)
+    if args is None:
+        return None, ()
+    if not any(names_the_file(path, test_file, literal)
+               for path in pytest_paths(args)):
+        return None, ()
+    if suppresses_the_run(args):
+        return None, ()
+    unreadable = unreadable_positionals(args)
+    if unreadable:
+        return UNREADABLE, tuple(unreadable)
+    if deselects_the_file(args, test_file):
+        return None, ()
+    return RUNS, ()
+
+
 def runs_the_file(argv, test_file, literal=False):
     """True when this argv is a pytest run of that file, by its own arguments.
 
@@ -565,14 +630,12 @@ def runs_the_file(argv, test_file, literal=False):
     Where it came from decides one reading, which `literal` carries to
     `names_the_file`: a written token is one the shell has yet to expand, and a
     recorded one is what the process was handed.
+
+    False is the answer for an argv `reading_of` could not read as well, which
+    is why no caller may decide a verdict on this alone: the callers that
+    report pair it with `unreadable_positionals` above.
     """
-    args = None if argv is None else pytest_arguments(argv)
-    if args is None:
-        return False
-    if suppresses_the_run(args) or deselects_the_file(args, test_file):
-        return False
-    return any(names_the_file(path, test_file, literal)
-               for path in pytest_paths(args))
+    return reading_of(argv, test_file, literal)[0] == RUNS
 
 
 # What one script says about one file: the runs this reader credits, and the
@@ -592,7 +655,14 @@ def read_invocations(script, test_file):
     """
     credited, unclassified = [], []
     for fragment in script_fragments(script):
-        if not runs_the_file(fragment.command.split(), test_file):
+        verdict, options = reading_of(fragment.command.split(), test_file)
+        if verdict is None:
+            continue
+        if verdict == UNREADABLE:
+            unclassified.append(
+                f"`{fragment.command}` carries "
+                + ", ".join(f"`--{option}`" for option in options)
+                + f", {UNREADABLE_POSITIONALS}")
             continue
         masked = masks_the_failure(fragment)
         if masked:
@@ -1775,6 +1845,26 @@ def recorded_pytest_runs(commands, test_file):
             if runs_the_file(recorded_argv(command), test_file, literal=True)]
 
 
+def unreadable_recorded_runs(commands, test_file):
+    """The recorded commands that name this file under an option this cannot read.
+
+    The recorded half of the same refusal, which is not the written half over
+    again: a step writing `pytest $OPTS tests/x.py` hands this reader no option
+    at all, and the argv the shim recorded holds whatever `$OPTS` expanded to.
+    So the option has to be refused where the argv is read as well, and named
+    there, or a run this reader cannot read would arrive as a run it credits.
+    """
+    named = []
+    for command in commands:
+        verdict, options = reading_of(
+            recorded_argv(command), test_file, literal=True)
+        if verdict == UNREADABLE:
+            named.append(f"`{command}` carries "
+                         + ", ".join(f"`--{option}`" for option in options)
+                         + f", {UNREADABLE_POSITIONALS}")
+    return named
+
+
 def executed_verdict(test_file, documents):
     """Execute every step that names this file and say what the recorder saw.
 
@@ -1832,6 +1922,11 @@ def executed_verdict(test_file, documents):
                 (refusals if run.refused else reasons).append(where)
             elif recorded_pytest_runs(run.commands, test_file):
                 return True, measured + 1, reasons, refusals, disqualified
+            elif (unreadable := unreadable_recorded_runs(run.commands, test_file)):
+                disqualified.append(
+                    f"{name} ({job_name}): " + ", ".join(unreadable)
+                    + f", so what pytest was handed is not a run of {test_file} "
+                    "this reader can credit")
             else:
                 measured += 1
                 reasons.append(
@@ -2647,6 +2742,69 @@ def test_a_recorded_argument_is_read_as_the_literal_it_is():
     # so what is left is a name no tree holds.
     assert not runs_the_file(["pytest", f"'{SCHEDULED_BY_CALENDAR}'"],
                              SCHEDULED_BY_CALENDAR, literal=True)
+
+
+@pytest.mark.parametrize("option", ["--pyargs", "--pyargs=1"])
+def test_an_option_that_stops_the_positionals_being_paths_is_refused(option):
+    """`--pyargs` makes the positionals `sys.path`'s business, not the argv's.
+
+    Read in the pinned pytest's source: with it `resolve_collection_argument`
+    searches `sys.path` for a module of that name and uses the value as a path
+    only where it finds none (`_pytest/main.py`, `search_pypath`). Review had it
+    that the file therefore does not run, and measured on pytest 9.1.1 it does
+    -- `tests/x.py` is not an importable name, so the fallback applies. The
+    refusal stands anyway, because the answer comes from the interpreter the
+    step runs under rather than from the command this reader has, and the
+    manifests guard already refuses the option from the other side.
+
+    Refused is half of it. The command has to be named, in the written reading
+    and in the recorded one, or a run this reader cannot read would read as no
+    run at all.
+    """
+    argv = ["python", "-m", "pytest", option, SCHEDULED_BY_CALENDAR]
+    for literal in (False, True):
+        assert not runs_the_file(argv, SCHEDULED_BY_CALENDAR, literal=literal)
+        assert reading_of(argv, SCHEDULED_BY_CALENDAR, literal=literal) == (
+            UNREADABLE, ("pyargs",))
+    script = " ".join(argv)
+    assert not runs_as_pytest_argument(script, SCHEDULED_BY_CALENDAR)
+    [written] = refused_invocations(script, SCHEDULED_BY_CALENDAR)
+    assert "`--pyargs`" in written and "sys.path" in written, written
+    [recorded] = unreadable_recorded_runs([script], SCHEDULED_BY_CALENDAR)
+    assert "`--pyargs`" in recorded, recorded
+    # The control, so this is not a reader that refuses every option: the same
+    # command without it is credited, and a step is still asked about it.
+    plain = [token for token in argv if token != option]
+    assert runs_the_file(plain, SCHEDULED_BY_CALENDAR)
+    assert runs_as_pytest_argument(" ".join(plain), SCHEDULED_BY_CALENDAR)
+    assert unreadable_recorded_runs([" ".join(plain)], SCHEDULED_BY_CALENDAR) == []
+
+
+@EXECUTES_STEPS
+def test_a_recorded_option_the_written_text_never_showed_is_refused():
+    """Which is why the recorded argv is read for the option as well.
+
+    A step can write the option somewhere this reader does not see it: here in
+    a variable the shell expands, so the written text holds `$OPTS` and the argv
+    the shim recorded holds `--pyargs`. The written reading credits the step --
+    it has to, there being nothing to refuse in `$OPTS` -- and the recorded
+    reading is what then refuses the run and names it. A step whose recorded
+    argv this guard cannot read is a verdict about the step, so it fails rather
+    than measuring nothing.
+    """
+    script = f'OPTS=--pyargs\npython -B -m pytest $OPTS {SCHEDULED_BY_CALENDAR}\n'
+    assert runs_as_pytest_argument(script, SCHEDULED_BY_CALENDAR), (
+        "the written half cannot see the option; that is the premise here")
+    run = execute_step(script)
+    assert run.problem is None, run.problem
+    assert recorded_pytest_runs(run.commands, SCHEDULED_BY_CALENDAR) == [], (
+        f"a recorded `--pyargs` was credited as a run: {run.commands}")
+    assert unreadable_recorded_runs(run.commands, SCHEDULED_BY_CALENDAR), run.commands
+    built = {"jobs": {"content": {"steps": [{"run": script}]}}}
+    evidence, measured, reasons, refusals, disqualified = executed_verdict(
+        SCHEDULED_BY_CALENDAR, {"expanded.yml": built})
+    assert (evidence, measured, reasons, refusals) == (False, 0, [], [])
+    assert any("not a run of" in entry for entry in disqualified), disqualified
 
 
 @EXECUTES_STEPS
