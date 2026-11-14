@@ -505,9 +505,10 @@ def test_every_file_open_asks_for_binary_mode(tmp_path, helpers, monkeypatch):
 
     directory = getattr(os, "O_DIRECTORY", 0)
     files = [flags for flags in requested if not (directory and flags & directory)]
-    # The read of the destination, the backup and the temporary file: a directory
-    # descriptor needs no translation mode, and Windows opens none.
-    assert len(files) == 3
+    # The read of the destination, the backup, the temporary file and the reopen of
+    # the destination the check before the rename compares: a directory descriptor
+    # needs no translation mode, and Windows opens none.
+    assert len(files) == 4
     assert all(flags & stand_in for flags in files)
     assert target.read_bytes() == b"third\r\nfourth\r\n"
     backup, = tmp_path.glob("CLAUDE.md.backup.*")
@@ -585,6 +586,46 @@ def test_a_destination_that_changed_before_the_rename_is_refused(
     backup, = tmp_path.glob("CLAUDE.md.backup.*")
     assert backup.read_bytes() == b"original"
     assert not list(tmp_path.glob(".CLAUDE.md.*")), "the temporary file is left behind"
+
+
+def test_a_path_stat_disagreeing_about_the_change_time_still_replaces(
+    tmp_path, helpers, monkeypatch,
+):
+    """os.fstat and a path stat are not interchangeable, so the check uses one kind.
+
+    On Windows with Python 3.14 the two report different st_ctime_ns for the same
+    untouched file: the descriptor answers the change time and the path the creation
+    time. A comparison across them refuses every file older than one timestamp tick,
+    which left the instruction installer unable to replace CLAUDE.md at all (#577).
+    A destination that really changed is still refused by the pair of fstat results,
+    which test_a_destination_that_changed_before_the_rename_is_refused covers.
+    """
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    real_node = injector._node
+
+    class CreationTime:
+        """A path stat answering a birth time where the descriptor answers a change time."""
+
+        def __init__(self, info):
+            self._info = info
+            self.st_ctime_ns = info.st_ctime_ns - 10**9
+
+        def __getattr__(self, name):
+            return getattr(self._info, name)
+
+    def platform_divergence(name, parent, parent_fd):
+        info = real_node(name, parent, parent_fd)
+        return CreationTime(info) if name == target.name else info
+
+    monkeypatch.setattr(injector, "_node", platform_divergence)
+
+    assert injector.write_with_backup(target, b"managed")
+
+    assert target.read_bytes() == b"managed"
+    backup, = tmp_path.glob("CLAUDE.md.backup.*")
+    assert backup.read_bytes() == b"original"
 
 
 def test_a_file_created_under_a_new_destination_is_refused(tmp_path, helpers, monkeypatch):

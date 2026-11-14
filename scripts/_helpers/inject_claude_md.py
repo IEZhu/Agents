@@ -103,6 +103,12 @@ def _identity(info: os.stat_result) -> tuple[int, int, int, int]:
     this; and a file rewritten in place keeps its number while its content, which
     the backup holds, is gone. Windows tunneling can preserve a recreated file's
     creation time instead, and there its file id is the part that changes.
+
+    Compare only identities read the same way. os.fstat and a path stat do not
+    report the same st_ctime_ns for one untouched file on Windows with Python 3.14:
+    the descriptor answers the change time and the path the creation time, so a
+    comparison across the two refuses every file older than one timestamp tick
+    (#577).
     """
     return (info.st_dev, info.st_ino, info.st_ctime_ns, info.st_size)
 
@@ -114,12 +120,21 @@ def _unchanged(path: Path, parent_fd: int | None, info: os.stat_result | None) -
     has come to hold. Comparing just before it narrows that window instead of
     closing it: POSIX has no rename that refuses an unexpected destination, and
     renameat2 is Linux-only and absent from os.
+
+    Both halves come from os.fstat, because _identity is not comparable across a
+    descriptor and a path. Opening the name again also refuses a symlink, a FIFO
+    or a node this run can no longer read, none of which holds what it read.
     """
     try:
-        node = _node(path.name, path.parent, parent_fd)
-    except (FileNotFoundError, NotADirectoryError):
+        current = _open_destination(path, parent_fd)
+    except (ValueError, OSError):
+        return False
+    if current is None:
         return info is None
-    return info is not None and _identity(node) == _identity(info)
+    try:
+        return info is not None and _identity(os.fstat(current)) == _identity(info)
+    finally:
+        os.close(current)
 
 
 def _replace(source: str, destination: str, parent: Path, parent_fd: int | None) -> None:
