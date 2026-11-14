@@ -31,21 +31,39 @@ job gated to pull requests, not behind an `environment:`, not `continue-on-error
 on either, and not under a `shell:` that prints the script instead of running it.
 Every one of those passed this guard until an adversarial pass found it.
 
-Two limits are real and stated rather than solved. A command can run the file
+One limit is real and stated rather than solved: a command can run the file
 without naming it -- `pytest tests/` collects the directory, and a file list
 held in a shell variable expands outside this reader -- and both still fail
 here, which is the intended trade: being named is what makes dropping a file
-visible. And a static read cannot tell whether a script's pytest line is
-reached. A step that defines a shell function called pytest, writes its own
-stub on PATH, puts the command in a here-document or after an `exit 0`, or
-backgrounds it with `&`, satisfies every check above and runs nothing; closing
-that would mean executing the script rather than reading it, which only a real
-workflow run can do.
+visible.
+
+Reading is no longer all this module does. Eight recorded forms satisfied every
+check above and ran nothing (#632): a leading `exit 0`, the command in a
+here-document, inside an `if` nobody sets, inside a quoted string whose `;` the
+reader splits on, after a shell function named pytest, through a stub the step
+writes itself, on the unreached side of `||`, and backgrounded with `&`. Seven
+are closed by running the step: its script goes to a file and the file to
+`bash -e`, in a throwaway tree of this repository's path names, with every
+program that could be pytest replaced by a shim that records its argv and exits
+0. So the content checks are never executed by the guard that checks them,
+nothing is installed and nothing reaches the network, while what pytest was
+handed is a recorded fact rather than an inference. The eighth is closed by
+reading after all: `&` hands the command to the background, where its failure
+can no longer redden the step, so a backgrounded command is not evidence.
+
+What stays open is named in #632 and not attempted here: a `runs-on` label no
+runner carries, a `strategy.matrix` that expands to nothing, and a glob given
+to `--ignore-glob`, which is read as the literal it is.
 """
 
+from collections import namedtuple
+from functools import lru_cache
 from pathlib import Path
 import fnmatch
+import os
 import re
+import subprocess
+import tempfile
 
 import pytest
 import yaml
@@ -90,7 +108,9 @@ VALUE_OPTIONS = frozenset({
 # A `#` that begins a token comments out the rest of the line, and each of these
 # starts a new command, so a file name after either one is never pytest's argument.
 INLINE_COMMENT = re.compile(r"(?:(?<=\s)|^)#.*$")
-COMMAND_SEPARATOR = re.compile(r";|&&|\|\||\|")
+# A single `&` is in the list for what it says about the command it follows,
+# which is why the group captures: `logical_commands` keeps that `&`.
+COMMAND_SEPARATOR = re.compile(r"(;|&&|\|\||\||&)")
 # Options that make pytest parse the file and run none of its tests: it is
 # collected, listed or described, and nothing in it executes. Spelled without
 # their dashes, because pytest answers to `--collectonly` and `--setuponly` as
@@ -152,14 +172,20 @@ def logical_commands(script):
     which is what lets a folded YAML scalar and a block scalar compare the same
     way. This models those forms rather than parsing a shell: a `#` or a `;`
     inside quotes is treated as if it were not.
+
+    A `&` separates too, and the command before it keeps it: `pytest x &` runs
+    pytest in the background, and `backgrounded` below is what reads that.
     """
     joined = re.sub(r"\\\s*\n\s*", " ", script)
     out = []
     for line in joined.splitlines():
-        for piece in COMMAND_SEPARATOR.split(INLINE_COMMENT.sub("", line)):
-            command = " ".join(piece.split())
-            if command:
-                out.append(command)
+        pieces = COMMAND_SEPARATOR.split(INLINE_COMMENT.sub("", line))
+        for index in range(0, len(pieces), 2):
+            command = " ".join(pieces[index].split())
+            if not command:
+                continue
+            separator = pieces[index + 1] if index + 1 < len(pieces) else ""
+            out.append(f"{command} &" if separator == "&" else command)
     return out
 
 
@@ -325,14 +351,31 @@ def deselects_the_file(args, test_file):
     return False
 
 
+def backgrounded(command):
+    """True when a trailing `&` handed this command to the background.
+
+    A backgrounded pytest does run, which is why the recorder below sees it.
+    What it no longer does is decide the step's exit status: `bash -e` returns
+    the job's immediate 0 and a failing content check cannot redden the step
+    (#632), so the run proves nothing about the check. A `wait` afterwards
+    would bind the status again and is deliberately not modelled -- writing the
+    command in the foreground says the same thing, and a reader that followed
+    `wait` would have to decide which job it waits for.
+    """
+    return command.split()[-1:] == ["&"]
+
+
 def runs_as_pytest_argument(commands, test_file):
     """True when some command runs pytest over this file as its own argument.
 
     Calling pytest is not running its tests: `--collect-only` and its relatives
     parse the file and execute nothing, and a whole-file `--deselect` names it
     in order to drop it. Neither is evidence, however plainly the path is spelt.
+    Nor is a command the shell backgrounds, whose failure the step survives.
     """
     for command in commands:
+        if backgrounded(command):
+            continue
         args = pytest_invocation(command)
         if args is None:
             continue
@@ -518,28 +561,37 @@ def needed_jobs(jobs, job_name, seen=None):
     return seen
 
 
+def run_default(workflow, job, step, key):
+    """A `defaults.run` key as GitHub resolves it, and where it came from.
+
+    A step's own key wins, then the job's `defaults.run`, then the workflow's.
+    GitHub documents both halves of that order: `defaults.run` "provide[s]
+    default shell and working-directory to all run steps in the job", "a default
+    setting defined in a job will override a default setting that has the same
+    name defined in a workflow", and a step may "override the default shell
+    settings in the runner's operating system and the job's default using the
+    shell keyword". Those two keys are exactly the ones that decide how a step
+    is executed, so the recorder below reads both through here.
+    """
+    for value, where in (
+        (step.get(key), "the step"),
+        (((job.get("defaults") or {}).get("run") or {}).get(key),
+         "the job's `defaults.run`"),
+        (((workflow.get("defaults") or {}).get("run") or {}).get(key),
+         "the workflow's `defaults.run`"),
+    ):
+        if value:
+            return value, where
+    return None, None
+
+
 def effective_shell(workflow, job, step):
     """The shell a step really runs under, and where it came from.
 
-    A step's own `shell` wins, then the job's `defaults.run.shell`, then the
-    workflow's. GitHub documents both halves of that order: `defaults.run`
-    "provide[s] default shell and working-directory to all run steps in the
-    job", "a default setting defined in a job will override a default setting
-    that has the same name defined in a workflow", and a step may "override the
-    default shell settings in the runner's operating system and the job's
-    default using the shell keyword". Reading only the step's key left
-    `defaults: {run: {shell: cat {0}}}` invisible, which prints the script.
+    Reading only the step's key left `defaults: {run: {shell: cat {0}}}`
+    invisible, which prints the script instead of running it.
     """
-    for shell, where in (
-        (step.get("shell"), "the step"),
-        (((job.get("defaults") or {}).get("run") or {}).get("shell"),
-         "the job's `defaults.run`"),
-        (((workflow.get("defaults") or {}).get("run") or {}).get("shell"),
-         "the workflow's `defaults.run`"),
-    ):
-        if shell:
-            return shell, where
-    return None, None
+    return run_default(workflow, job, step, "shell")
 
 
 def skip_reasons(workflow, job_name, step):
@@ -600,6 +652,242 @@ def is_unconditional(job, step):
     return not skip_reasons({"jobs": {"only": job}}, "only", step)
 
 
+# Executing the step, because reading it cannot say whether pytest ran. Seven of
+# the eight forms recorded in #632 need the script run rather than read, and
+# deciding them statically would mean modelling bash control flow, quoting,
+# here-documents, function definitions and PATH resolution -- wrong at the
+# edges, and a new way to fail a correct workflow, which this file already did
+# twice. So the step is executed the way Actions executes one, with every
+# program that could be pytest replaced by a shim that records its argv.
+
+# GitHub's own templates, from the `shell` table in its workflow-syntax
+# documentation: a non-Windows step with no `shell` key runs `bash -e {0}`,
+# `shell: bash` runs `bash --noprofile --norc -eo pipefail {0}`, and `shell: sh`
+# runs `sh -e {0}`. The committed steps carry no `shell`, so the first is the one
+# that decides this, and `-eo pipefail` is two words to the shell either way.
+SHELL_COMMANDS = {
+    None: ("bash", "-e"),
+    "bash": ("bash", "--noprofile", "--norc", "-eo", "pipefail"),
+    "sh": ("sh", "-e"),
+}
+# Shimmed whether the script names them or not: `uv` and `uvx` because
+# `pytest_invocation` steps over them, pip because installing pytest is the
+# other thing these workflows do with the word, and the bare interpreter
+# spellings because a script may reach one through another program.
+ALWAYS_SHIMMED = ("python", "python3", "pytest", "pip", "pip3", "uv", "uvx")
+PIP_EXECUTABLE = re.compile(r"^(?:\S*/)?pip[\d.]*$")
+SHIM_LOG_VARIABLE = "CONTENT_CHECK_RECORDED_ARGV"
+ARGV_SHIM = (
+    "#!/bin/sh\n"
+    "# Appends the argv it was called with to a log and exits 0 without doing\n"
+    "# the work, so the script around it reaches its end while pytest, pip and\n"
+    "# the network take no part in it. `${0##*/}` is the name it was invoked\n"
+    "# under, which is what decides how the recorded line is read back.\n"
+    "{ printf '%s' \"${0##*/}\"\n"
+    "  for argument in \"$@\"; do printf ' %s' \"$argument\"; done\n"
+    "  printf '\\n'\n"
+    "} >> \"$" + SHIM_LOG_VARIABLE + "\"\n"
+    "exit 0\n"
+)
+# `status` is the shell's exit code, or None when the step was never started;
+# `commands` what the shims recorded, in order; `output` the script's own
+# output; and `problem` why this reader could not answer, which is a different
+# verdict from a step that ran no pytest and is never evidence of either.
+StepRun = namedtuple("StepRun", "status commands output problem")
+
+
+@lru_cache(maxsize=1)
+def tracked_names():
+    """Every path git tracks here: the tree a step's script would be run against.
+
+    Tracked rather than walked, because `data/`, a dangling `.venv` symlink and
+    other worktrees also live in this directory and none of them is part of
+    what a runner checks out. The names are the whole point -- the copy below
+    holds empty files -- so a glob expands as it would on a runner, `cd docs`
+    succeeds, and a path that does not exist still does not. git failing here
+    raises rather than returning a smaller tree, because a smaller tree would
+    quietly change what the recorder sees.
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    )
+    return tuple(name for name in listing.stdout.split("\0") if name)
+
+
+def write_tree(directory):
+    """The repository's tracked path names as empty files, under this directory."""
+    for name in tracked_names():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+
+def write_shim(path):
+    """Put the recording shim at this path and make it executable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(ARGV_SHIM)
+    path.chmod(0o755)
+
+
+def shim_plan(script):
+    """Which program names, relative paths and absolute paths a shim must cover.
+
+    Read by the same expressions as the static reader, so the recorder covers
+    exactly what that reader would call pytest, plus pip. A bare name is
+    answered by a shim directory at the front of PATH. A relative path such as
+    `.venv/bin/pytest` is written at that path inside the copied tree, because
+    PATH does not decide a path. An absolute path cannot be intercepted at all:
+    it is returned so the caller refuses to execute the step, since running it
+    would start the real program -- the real pytest over the real content
+    checks, from inside the guard that checks them.
+    """
+    names, relative, absolute = set(ALWAYS_SHIMMED), set(), set()
+    for command in logical_commands(script):
+        for token in command.split():
+            bare = unquoted(token)
+            if not (PYTEST_EXECUTABLE.match(bare) or PYTHON_EXECUTABLE.match(bare)
+                    or PIP_EXECUTABLE.match(bare)):
+                continue
+            if bare.startswith("/"):
+                absolute.add(bare)
+            elif "/" in bare:
+                relative.add(bare)
+            else:
+                names.add(bare)
+    return sorted(names), sorted(relative), sorted(absolute)
+
+
+def shell_argv(shell, script_file):
+    """The argv GitHub would start for this `shell` value, or why this cannot.
+
+    A value is either a name GitHub expands with its own template or a command
+    line containing `{0}`, which it uses as written. Only `bash` and `sh` are
+    started here: `pwsh`, `powershell` and `cmd` are real shells this machine
+    may not have, and `cat {0}` is a shell at all only in the sense that
+    `skip_reasons` already refuses. Saying so is the honest answer, because a
+    step whose script was never executed must not be read as a step that ran
+    no pytest.
+    """
+    words = (shell or "").split()
+    name = words[0] if words else None
+    if name is not None and name not in SHELL_COMMANDS:
+        return None, (
+            f"`shell: {shell}` is not a shell this guard can start, so the step "
+            "was not executed"
+        )
+    if "{0}" in (shell or ""):
+        return [word.replace("{0}", script_file) for word in words], None
+    return [*SHELL_COMMANDS[name], script_file], None
+
+
+def step_environment(workflow, job, step):
+    """The `env` a step runs with: the workflow's, the job's and its own, merged.
+
+    Merged rather than overridden, which is how GitHub's three `env` maps
+    combine, with the innermost winning a shared name. It matters for one of
+    the recorded forms: a command inside `if [ "${RUN_CONTENT_CHECKS:-0}" = "1" ]`
+    runs nothing while nothing sets the variable, and a workflow that really
+    does set it runs the content checks and has to keep passing. A `${{ }}`
+    expression is passed through as the text it is, because nothing here
+    evaluates one.
+    """
+    merged = {}
+    for holder in (workflow, job, step):
+        env = holder.get("env")
+        if isinstance(env, dict):
+            merged.update({k: v for k, v in env.items() if isinstance(v, str)})
+    return merged
+
+
+def execute_step(script, *, shell=None, env=None, working_directory=None, timeout=120):
+    """Run one step's script the way Actions runs one, and report what it started.
+
+    The script goes to a file and the file to the shell, which is how Actions
+    runs a `run:` block and why `exit 0` on its first line ends the step. It
+    runs in a throwaway copy of this repository's path names, so a glob expands
+    and `cd docs` succeeds while nothing the script writes reaches the real
+    tree, and with HOME inside that copy. Every program that could be pytest is
+    replaced by a shim that appends its argv to a log and exits 0, so no check
+    is collected, nothing is installed and nothing reaches the network: a
+    `pip install` records instead of resolving, an action that would install a
+    toolchain is a `uses:` step this never executes, and a step's own pytest
+    line records instead of running. PATH, HOME and the log variable are set
+    after the workflow's `env`, so a workflow cannot redirect the recorder.
+
+    A program the shims do not cover and the machine does not have stops the
+    script under `bash -e`; that non-zero status is returned as a `problem`
+    with the last line of output, rather than as an empty log, because "could
+    not run this" and "ran no pytest" are different answers.
+    """
+    names, relative, absolute = shim_plan(script)
+    if absolute:
+        return StepRun(None, [], "", (
+            "the script runs " + ", ".join(f"`{path}`" for path in absolute)
+            + ", which PATH cannot intercept, so the step was not executed"
+        ))
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch = Path(scratch)
+        tree = scratch / "tree"
+        write_tree(tree)
+        shims = scratch / "shims"
+        shims.mkdir()
+        for name in names:
+            write_shim(shims / name)
+        for path in relative:
+            write_shim(tree / path)
+        log = scratch / "recorded-argv"
+        log.touch()
+        script_file = scratch / "step.sh"
+        script_file.write_text(script)
+        argv, problem = shell_argv(shell, str(script_file))
+        if problem:
+            return StepRun(None, [], "", problem)
+        directory = tree if working_directory is None else tree / working_directory
+        if not directory.is_dir():
+            return StepRun(None, [], "", (
+                f"`working-directory: {working_directory}` is not a directory of "
+                "this repository, so the step was not executed"
+            ))
+        environment = dict(env or {})
+        environment.update({
+            "PATH": f"{shims}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
+            "HOME": str(tree),
+            SHIM_LOG_VARIABLE: str(log),
+        })
+        try:
+            finished = subprocess.run(
+                argv, cwd=directory, env=environment,
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return StepRun(None, [], "", f"the script did not finish in {timeout}s")
+        except OSError as error:
+            return StepRun(None, [], "", f"`{argv[0]}` could not be started: {error}")
+        commands = log.read_text().splitlines()
+        output = (finished.stdout + finished.stderr).strip()
+        if finished.returncode == 0:
+            return StepRun(0, commands, output, None)
+        last = output.splitlines()[-1] if output else "no output"
+        return StepRun(finished.returncode, commands, output, (
+            f"the script exited {finished.returncode} under the shims, so what it "
+            f"would have run is unknown: {last}"
+        ))
+
+
+def recorded_pytest_runs(commands, test_file):
+    """The recorded commands that really handed this file to pytest.
+
+    The static reader again, over the argv the shims saw instead of over the
+    script's text. The same refusals apply for the same reasons: a recorded
+    `--collect-only` collected the file and ran none of it, and a recorded
+    whole-file `--deselect` dropped it. A recorded command carries no `&`,
+    because the shell consumed it before starting anything.
+    """
+    return [command for command in commands
+            if runs_as_pytest_argument([command], test_file)]
+
+
 def test_the_test_files_exist():
     """A name in CONTENT_CHECKS that no longer exists would make its case vacuous."""
     for name in CONTENT_CHECKS:
@@ -613,6 +901,42 @@ def test_a_workflow_passes_the_file_to_pytest(test_file):
     assert hosts, (
         f"no workflow passes {test_file} to pytest; a paths filter is not enough, "
         "the file has to be an argument of a pytest command"
+    )
+
+
+@pytest.mark.parametrize("test_file", CONTENT_CHECKS)
+def test_running_the_step_really_hands_the_file_to_pytest(test_file):
+    """And the step is run, because eight recorded forms read as if they ran it.
+
+    The assertion above reads the script; this one executes it with a recording
+    shim in place of every program that could be pytest, and asks what pytest
+    was actually handed. A step whose script this guard cannot execute is
+    reported as that, not as a step that ran nothing -- the two answers must not
+    be allowed to look alike.
+    """
+    reasons = []
+    for path in WORKFLOWS:
+        workflow = load_workflow(path)
+        for job_name, job, step in pytest_steps(path, test_file):
+            run = execute_step(
+                step["run"],
+                shell=effective_shell(workflow, job, step)[0],
+                env=step_environment(workflow, job, step),
+                working_directory=run_default(workflow, job, step, "working-directory")[0],
+            )
+            if run.problem:
+                reasons.append(f"{path.name} ({job_name}): {run.problem}")
+            elif recorded_pytest_runs(run.commands, test_file):
+                return
+            else:
+                reasons.append(
+                    f"{path.name} ({job_name}): the script started "
+                    f"{len(run.commands)} recorded command(s) and none of them ran "
+                    f"{test_file}: {run.commands}"
+                )
+    pytest.fail(
+        f"no step that names {test_file} really handed it to pytest when run. "
+        + ("; ".join(reasons) if reasons else "No workflow names it at all.")
     )
 
 
@@ -804,6 +1128,11 @@ def test_a_selector_or_someone_else_s_exclusion_still_counts(command):
     ("pytest tests/a.py && pytest tests/b.py",
      ["pytest tests/a.py", "pytest tests/b.py"]),
     ("pytest tests/a.py | tee log # tests/b.py", ["pytest tests/a.py", "tee log"]),
+    # A `&` separates like the rest, and the command before it keeps it.
+    ("pytest tests/a.py &", ["pytest tests/a.py &"]),
+    ("pytest tests/a.py & echo b", ["pytest tests/a.py &", "echo b"]),
+    ("pytest tests/a.py &\npytest tests/b.py",
+     ["pytest tests/a.py &", "pytest tests/b.py"]),
 ])
 def test_the_parser_reads_a_script_the_way_a_shell_would(script, expected):
     """A comment is not a command, and a continuation is not two of them."""
@@ -1136,3 +1465,172 @@ def test_the_parser_reads_the_steps_of_the_workflow_it_is_given():
     assert commands, f"{hosts[0].name} parsed to no run commands"
     assert any(pytest_invocation(cmd) is not None for cmd in commands)
     assert pytest_steps(hosts[0], CONTENT_CHECKS[0]), "the step finder lost the step"
+
+
+# The eight forms recorded in #632. Each satisfies every reader above while the
+# content checks never execute, so each was verified by applying it to the
+# committed workflow, running this guard, and then running the step's script
+# the way Actions runs one with argv-recording shims in place of python and
+# pytest. `closed_by` says which half of this module refuses it: `running` for
+# the seven whose pytest line is never reached, and `reading` for the one that
+# does reach it and still is not evidence.
+CONTROL_COMMAND = (
+    "python -B -m pytest"
+    " tests/test_skill_freshness.py"
+    " tests/test_skill_invariants.py"
+    " tests/test_source_check_classification.py"
+    " -q -p no:cacheprovider"
+)
+RECORDED_BYPASSES = (
+    ("a leading `exit 0`", "exit 0\n" + CONTROL_COMMAND + "\n", "running"),
+    ("a here-document, where the command is data",
+     "cat <<'PLAN'\n" + CONTROL_COMMAND + "\nPLAN\n", "running"),
+    ("an `if` nobody sets",
+     'if [ "${RUN_CONTENT_CHECKS:-0}" = "1" ]; then\n  '
+     + CONTROL_COMMAND + "\nfi\n", "running"),
+    ("a quoted string whose `;` the reader splits on",
+     'echo "nothing to do; ' + CONTROL_COMMAND + '"\n', "running"),
+    ("a shell function named pytest",
+     "pytest() { echo skipped; }\n"
+     "pytest tests/test_skill_freshness.py tests/test_skill_invariants.py"
+     " tests/test_source_check_classification.py -q\n", "running"),
+    ("a stub the step writes itself",
+     "mkdir -p .tools\n"
+     "printf '#!/bin/sh\\necho stubbed\\n' > .tools/pytest\n"
+     "chmod +x .tools/pytest\n"
+     ".tools/pytest tests/test_skill_freshness.py tests/test_skill_invariants.py"
+     " tests/test_source_check_classification.py -q\n", "running"),
+    ("the unreached side of `||`", "cd docs || " + CONTROL_COMMAND + "\n", "running"),
+    ("a trailing `&`", CONTROL_COMMAND + " &\n", "reading"),
+)
+
+
+@pytest.mark.parametrize("name, script, closed_by", RECORDED_BYPASSES)
+def test_a_recorded_bypass_hands_nothing_to_pytest(name, script, closed_by):
+    """None of the eight is evidence, and which half refuses it is part of the case.
+
+    The seven marked `running` are asserted to satisfy the static reader first.
+    That is not a formality: it is what keeps the recorder honest about its own
+    cases, and a case that some later reading rule catches by itself has to be
+    moved to `reading` rather than left looking like proof that the recorder
+    works. Then the script is executed and its log holds no pytest over the
+    file. The eighth runs pytest and is refused by reading, because the step no
+    longer waits for it.
+    """
+    read_as_evidence = runs_as_pytest_argument(
+        logical_commands(script), SCHEDULED_BY_CALENDAR
+    )
+    if closed_by == "reading":
+        assert not read_as_evidence, name
+        return
+    assert read_as_evidence, (
+        f"{name} no longer needs the recorder: reading the script already refuses "
+        "it, so this case belongs to `reading`"
+    )
+    run = execute_step(script)
+    assert run.problem is None, run.problem
+    assert recorded_pytest_runs(run.commands, SCHEDULED_BY_CALENDAR) == [], (
+        f"{name} really did run pytest over {SCHEDULED_BY_CALENDAR}: {run.commands}"
+    )
+
+
+def test_the_recorder_sees_the_command_a_real_step_runs():
+    """Every bypass above ends in an empty log, so an empty log has to mean something.
+
+    The control is the committed step's own command. Executed under the shims it
+    records exactly once, and the recorded line reads as a pytest run over each
+    of the three content checks -- with nothing installed, nothing collected and
+    no network touched to get there. A recorder that recorded nothing would make
+    all seven cases above vacuous, which is the mistake this pins.
+    """
+    run = execute_step(CONTROL_COMMAND + "\n")
+    assert run.problem is None, run.problem
+    assert run.status == 0
+    assert run.commands == [CONTROL_COMMAND], run.output
+    for test_file in CONTENT_CHECKS:
+        assert recorded_pytest_runs(run.commands, test_file) == [CONTROL_COMMAND]
+
+
+def test_the_tree_the_script_runs_in_is_this_repository_s_own_names():
+    """A glob has to expand in it, and a directory the script enters has to exist.
+
+    Both decide a case above. A committed workflow writes the glob spelling, so
+    an empty tree would stop the recorder seeing a form that really runs the
+    file; and `cd docs || <pytest>` skips its right side only because `cd docs`
+    succeeds, which in an empty tree it would not. The files are empty, so
+    nothing a script reads there is the repository's real content.
+    """
+    expanded = execute_step("python -B -m pytest tests/test_skill_*.py -q\n")
+    assert expanded.problem is None, expanded.problem
+    [recorded] = expanded.commands
+    assert "*" not in recorded, f"the glob was not expanded: {recorded}"
+    assert recorded_pytest_runs([recorded], SCHEDULED_BY_CALENDAR) == [recorded]
+    entered = execute_step("cd docs\n" + CONTROL_COMMAND + "\n")
+    assert entered.problem is None, entered.problem
+    assert entered.commands == [CONTROL_COMMAND], "`cd docs` did not reach a directory"
+
+
+def test_the_step_runs_with_the_env_its_workflow_gives_it():
+    """`if [ "${RUN_CONTENT_CHECKS:-0}" = "1" ]` is a bypass only while nothing sets it.
+
+    A workflow that really does set the variable runs the content checks and has
+    to keep passing, so the recorder runs the step under the three `env` maps
+    merged the way GitHub merges them, innermost first.
+    """
+    assert step_environment(
+        {"env": {"RUN_CONTENT_CHECKS": "0", "KEPT": "workflow"}},
+        {"env": {"RUN_CONTENT_CHECKS": "1"}},
+        {"run": "", "env": {"EXPRESSION": "${{ github.sha }}"}},
+    ) == {
+        "RUN_CONTENT_CHECKS": "1",
+        "KEPT": "workflow",
+        "EXPRESSION": "${{ github.sha }}",
+    }
+    gated = 'if [ "${RUN_CONTENT_CHECKS:-0}" = "1" ]; then\n  ' + CONTROL_COMMAND + "\nfi\n"
+    assert execute_step(gated).commands == []
+    assert execute_step(gated, env={"RUN_CONTENT_CHECKS": "1"}).commands == [CONTROL_COMMAND]
+
+
+@pytest.mark.parametrize("script, shell, words", [
+    (CONTROL_COMMAND, "pwsh", "not a shell this guard can start"),
+    (CONTROL_COMMAND, "cat {0}", "not a shell this guard can start"),
+    ("/usr/bin/python3 -m pytest tests/test_skill_freshness.py", None,
+     "which PATH cannot intercept"),
+])
+def test_a_step_this_guard_cannot_execute_is_reported_not_read_as_an_empty_log(
+    script, shell, words
+):
+    """"Could not run this" and "ran no pytest" are different answers.
+
+    A shell this machine may not have, and an absolute interpreter path PATH
+    cannot intercept, both end with no recorded command -- which is exactly
+    what a bypass looks like. Returning a problem instead keeps the assertion
+    above from reporting a step it never executed as a step that ran nothing,
+    and keeps the recorder from starting the real pytest over the real content
+    checks from inside the guard that checks them.
+    """
+    run = execute_step(script + "\n", shell=shell)
+    assert run.commands == []
+    assert run.problem and words in run.problem, run.problem
+
+
+@pytest.mark.parametrize("script, evidence", [
+    ("python -m pytest tests/test_skill_freshness.py -q", True),
+    ("python -m pytest tests/test_skill_freshness.py -q &", False),
+    ("python -m pytest tests/test_skill_freshness.py -q & echo done", False),
+    ("python -m pytest tests/test_skill_freshness.py -q && echo done", True),
+    ("python -m pytest tests/test_skill_freshness.py -q | tee log", True),
+    # Refused although a `wait` would bind the status again: see `backgrounded`.
+    ("python -m pytest tests/test_skill_freshness.py -q &\nwait", False),
+])
+def test_a_backgrounded_command_is_not_evidence(script, evidence):
+    """The one of the eight that reading closes, and `&&` is not `&`.
+
+    A backgrounded pytest does run, so the recorder sees it; what the step no
+    longer does is wait for it, so `bash -e` returns 0 whatever the content
+    checks say. `&&`, `|` and the other separators have to keep counting, which
+    is the half of this worth getting wrong-way-round.
+    """
+    assert runs_as_pytest_argument(
+        logical_commands(script), SCHEDULED_BY_CALENDAR
+    ) is evidence
