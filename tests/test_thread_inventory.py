@@ -1400,6 +1400,28 @@ def test_powershell_writes_cmdlet_targets_and_redirections():
     assert plain["shell_writes"] == []  # a duplicated stream, $null and quoted text write no file
 
 
+def test_a_cmdlet_name_this_command_defines_writes_no_file():
+    """A function defined in the command shadows the cmdlet it is named after.
+
+    `function Set-Content { }` makes the call that follows run an empty body, which creates
+    nothing, and the call was already listed as unclassified because this reading never saw the
+    body's statements. Its path was recorded as a write first, so the report named a file nobody
+    created. A redirection in the same statement writes whatever the command is, so its target
+    stays.
+    """
+    inv = thread_inventory.inventory(powershell(
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x\n"
+        "function Out-File\n{\n}\ngit log | Out-File -FilePath phantom.log", "sh1"))
+    assert inv["shell_writes"] == []
+    assert [c["command"] for c in inv["unclassified_commands"]] == [
+        "Set-Content -Path phantom.txt -Value x", "Out-File -FilePath phantom.log"]
+    redirected = thread_inventory.inventory(powershell(
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x > out.txt", "sh2"))
+    assert [w["files"] for w in redirected["shell_writes"]] == [["C:/work/repo/out.txt"]]
+    undefined = thread_inventory.inventory(powershell("Set-Content -Path real.txt -Value x", "sh3"))
+    assert [w["files"] for w in undefined["shell_writes"]] == [["C:/work/repo/real.txt"]]
+
+
 def test_a_cmdlet_path_array_names_every_file_it_writes():
     """The `-Path` and `-LiteralPath` of `Set-Content` and `Add-Content` are declared `string[]`,
     and every element of such an array is written. Reading the whole value as one word reported a

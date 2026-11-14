@@ -63,6 +63,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Collection
 from pathlib import Path
 
 MAX_TEXT = 500
@@ -1132,7 +1133,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
-        targets = _powershell_writes(segment) if powershell else _written_files(segment, tokens)
+        targets = _powershell_writes(segment, defined) if powershell else _written_files(segment, tokens)
         kept = []
         for path in dict.fromkeys(_resolve(target, run_dir) or target for target in targets):
             if not SCRATCHPAD_PATH.search(path):
@@ -1580,11 +1581,16 @@ def _powershell_tokens(segment: str, commas: bool = False) -> list[str]:
     return tokens
 
 
-def _powershell_writes(segment: str) -> list[str]:
+def _powershell_writes(segment: str, defined: Collection[str] = ()) -> list[str]:
     """Files one PowerShell statement writes: the targets of its unquoted `>` and `>>`
     redirections and the paths of a `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only
     redirects one stream into another, and `$null` is the bit bucket rather than a file. Any other
     variable keeps its unexpanded literal, as a Bash redirection does, so the write is not lost.
+
+    A name in ``defined`` is not the cmdlet it is spelled like: the command defined a function of
+    that name, so the call runs a body whose statements this reading never saw and creates nothing
+    of its own. No file is named for it, and `_shell` lists the call as unclassified. A
+    redirection writes whatever the command is, so the first loop does not consult ``defined``.
 
     The statement is tokenised here rather than taken from the caller, because a cmdlet's path
     argument may be an array and only words that keep an unquoted comma can be split into one."""
@@ -1613,8 +1619,9 @@ def _powershell_writes(segment: str) -> list[str]:
     # the cmdlet calls are read from words that keep an unquoted comma, which separates the
     # elements of an array: `Set-Content -Path a.txt,b.txt` writes both of the files it names
     for command in _ps_statements(_powershell_tokens(segment, commas=True)):
-        if command[:1] and command[0].lower() in PS_WRITE_CMDLETS:
-            for target in _ps_targets(command[1:], command[0].lower() in PS_SCALAR_PATH):
+        name = command[0].lower() if command[:1] else ""
+        if name in PS_WRITE_CMDLETS and name not in defined:
+            for target in _ps_targets(command[1:], name in PS_SCALAR_PATH):
                 if target and target.lower() not in PS_NULL:
                     files.append(target)
     return files
