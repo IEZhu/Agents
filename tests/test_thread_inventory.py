@@ -941,3 +941,37 @@ def test_a_missing_or_unreadable_memory_directory_is_a_note_not_a_failure(tmp_pa
     _, transcript = _session_with_memory(tmp_path / "other")
     (transcript.parent / "memory").rmdir()
     assert thread_inventory.collect([transcript])["memory_scan_notes"][0]["status"] == "missing"
+
+
+def queued(prompt, ts, **attachment):
+    return {"type": "attachment", "timestamp": ts, "sessionId": SESSION, "cwd": "/work/repo",
+            "attachment": {"type": "queued_command", "prompt": prompt, **attachment}}
+
+
+def test_origin_less_first_record_after_system_reminders_is_a_prompt():
+    reminder = "<system-reminder>You were started from another session.</system-reminder>"
+    inv = thread_inventory.inventory([
+        user(f"{reminder}\n\n{reminder}\n\nClose https://github.com/Owner/Repo/issues/580", "t1"),
+        user(f"{reminder}\n\n", "t2"),  # nothing but reminders
+        user(f"{reminder}\n\n<local-command-stdout>x</local-command-stdout>", "t3"),  # a harness record
+        user("<system-reminder>unclosed block", "t4"),
+        user("This session is being continued...", "t5", isCompactSummary=True),
+    ])
+    assert inv["prompts"] == [{"ts": "t1"}]
+    assert ("issues", 580) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
+
+
+def test_queued_command_attachments_count_only_for_humans():
+    inv = thread_inventory.inventory([
+        human("start", "t1"),
+        queued("also see https://github.com/Owner/Repo/pull/7", "t2", commandMode="prompt",
+               origin={"kind": "human"}, humanTurn=True),
+        queued("typed before origin existed", "t3", commandMode="prompt"),
+        queued("<task-notification><task-id>a1</task-id></task-notification>", "t4",
+               commandMode="task-notification", origin={"kind": "task-notification"}),
+        queued("<task-notification>no origin</task-notification>", "t5", commandMode="task-notification"),
+        queued("from a peer", "t6", commandMode="prompt", origin={"kind": "peer"}),
+        {"type": "attachment", "timestamp": "t7", "attachment": {"type": "edited_text_file"}},
+    ])
+    assert inv["prompts"] == [{"ts": "t1"}, {"ts": "t2", "queued": True}, {"ts": "t3", "queued": True}]
+    assert ("pull", 7) in [(r["kind"], r["number"]) for r in inv["github_refs"]]

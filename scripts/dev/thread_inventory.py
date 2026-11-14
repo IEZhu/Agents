@@ -92,6 +92,7 @@ KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
 # Tags the client writes into user entries; a prompt can start with `<` too, as <pasted_content> does.
 QUOTED_TILDE = re.compile(r"(?<![^\s=])(?:(['\"])|\\)~")  # a quoted or escaped ~ starting a word
+LEADING_REMINDERS = re.compile(r"\s*(?:<system-reminder>.*?</system-reminder>\s*)+", re.DOTALL)
 CLIENT_TAG = re.compile(r"<(?:command-|local-command-|bash-|task-notification|system-reminder|artifact-content-)")
 ARRAY_ASSIGNMENT = re.compile(r"(?:^|\s)[A-Za-z_]\w*\+?=$")  # NAME=( starts array elements, which are data
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
@@ -1231,6 +1232,27 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
         _user(entry, message, ts, cwd, sink, actor)
     elif kind == "assistant":
         _assistant(entry, message, ts, cwd, sink, actor)
+    elif kind == "attachment":
+        _queued(entry, ts, sink, actor)
+
+
+def _queued(entry: dict, ts, sink: dict, actor: str) -> None:
+    """A message sent while a turn runs is an attachment, not a user entry.
+
+    A human one is a prompt, marked `queued`; a task notification stays out of the prompts."""
+    attachment = entry.get("attachment")
+    if actor != "main" or not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+        return
+    origin = attachment.get("origin")
+    kind = origin.get("kind") if isinstance(origin, dict) else None
+    if kind is not None:
+        is_prompt = kind == "human"
+    else:  # without `origin`, the command mode tells a typed prompt from a notification
+        is_prompt = attachment.get("commandMode") == "prompt"
+    prompt = _prompt_text(attachment.get("prompt")).strip()
+    if is_prompt and prompt and not CLIENT_TAG.match(prompt):
+        sink["prompts"].append({"ts": ts, "queued": True})
+        _scan_refs(prompt, sink["refs"], ts)
 
 
 def _assistant(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
@@ -1303,6 +1325,10 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
             isinstance(block, dict) and block.get("type") not in ("text", "tool_result") for block in content)
         is_prompt = (isinstance(content, str) or attached) and not CLIENT_TAG.match(stripped)
     prompt = _prompt_text(content).strip()
+    if not origin_kind and isinstance(content, str) and LEADING_REMINDERS.match(content):
+        # a session another session started: the task follows the app's system-reminder blocks
+        prompt = LEADING_REMINDERS.sub("", content, count=1).strip()
+        is_prompt = bool(prompt) and not CLIENT_TAG.match(prompt)
     if is_prompt and prompt:
         sink["prompts"].append({"ts": ts})
         _scan_refs(prompt, sink["refs"], ts)
