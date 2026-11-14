@@ -12,11 +12,17 @@ pytest's command line to tell an invocation from a mention -- and three review
 rounds each found another gap in the emulation, the fix for one round becoming
 the subject of the next (#555). Neither parser is here any more.
 
-A `paths:` entry now has to name the file verbatim. No glob is interpreted, so
-no glob can be interpreted wrongly; a file covered only by a glob fails with the
-remedy in the message, which is to name it beside the glob -- what a reader of
-the workflow wants anyway. A `run` command is executed instead of parsed, by the
-harness `tests/test_content_checks_workflow.py` built for #632: the script goes
+A `paths:` entry now has to name the file verbatim, and an exclusion after that
+entry cancels it, because GitHub reads the list in order and takes the last
+pattern that matches. No glob is interpreted, so no glob can be interpreted
+wrongly; a file covered only by a glob, or named before an exclusion, fails
+with the remedy in the message, which is to name it after the line that would
+cancel it -- what a reader of the workflow wants anyway. A `run` command is
+executed instead of parsed, and what the shell does with it is read where the
+recorder cannot see it: a command the step's own shell cannot fail on is no
+evidence, and a relative argument is replayed from the directory the step ran
+in. The executing part is the harness `tests/test_content_checks_workflow.py`
+built for #632: the script goes
 to `bash -e` in a throwaway tree of this repository's tracked path names, with
 every program that could be pytest replaced by a shim that records its argv and
 exits 0. What that shim recorded then goes to the real pytest in a tree of the
@@ -46,16 +52,26 @@ the other answer and fails, because it is a verdict about the step: a
 maintainer who adds an ordinary program to a step used to turn this guard into
 a silent skip on a green pull request.
 
-Handing a recorded argv to a real program is a trust boundary of its own, and
-at first it was an open one: the argv went to `python -m pytest` with no `env`
-and no bound on what a path argument could name, so a workflow's own text
-decided what the inner pytest deleted (`--basetemp` is removed recursively
-before it is recreated), where it wrote (`--junitxml`), what configuration it
-read (`-c`, `--rootdir`, `-o`) and what it imported (`-p`), while the session's
-own `PYTEST_ADDOPTS` could decide the verdict. The inner run gets a built
-environment now, every path argument has to resolve inside the stub tree, and
-an argv carrying one of those options is a measurement this guard does not
-make.
+Handing a recorded argv to a real program needs bounds of its own, and at first
+it had none: the argv went to `python -m pytest` with no `env` and no bound on
+what a path argument could name, so a workflow's own text decided what the
+inner pytest deleted (`--basetemp` is removed recursively before it is
+recreated), where it wrote (`--junitxml`), what configuration it read (`-c`,
+`--rootdir`, `-o`) and what it imported (`-p`), while the session's own
+`PYTEST_ADDOPTS` could decide the verdict. The inner run gets a built
+environment now, with pytest's plugin autoloading off so that an installed
+plugin cannot decide a verdict either; every path argument has to resolve
+inside the stub tree, and an argv carrying one of those options is a
+measurement this guard does not make.
+
+None of that is a security boundary, and the recording harness this module
+borrows is not one either. What the shims, the pruned `PATH` and these option
+refusals do is keep a confused workflow from doing real work and leave what it
+started readable; `PATH` governs a bare command name, and the shapes that walk
+past it are listed in one place, in the docstring of
+`tests/test_content_checks_workflow.py`. That is why the half of this module
+that executes anything runs on CI, where the step's own code already runs, and
+off CI only for whoever sets `CONTENT_GUARD_EXECUTE`.
 
 Where the stubs stop is stated too: they share the path and nothing else,
 holding one test called `test_executed` and no marks, so an argv that selects

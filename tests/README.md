@@ -379,20 +379,30 @@ Run one heavy test or embedding process at a time; start with focused checks.
 workflows. Some of their assertions execute a workflow's `run:` script, which
 is the only way to tell a step that really runs a check from one that mentions
 it, and executing a step means running that script with a shell on this
-machine. What bounds it: a throwaway copy of the repository's tracked path
-names with `HOME` inside it, a `PATH` holding recording shims for every
-spelling of pytest, pip and the interpreter plus `cat`, `chmod`, `ls`,
-`mkdir` and nothing else, and a refusal to start a step that would run another
-program, write a shim outside that copy, or redirect anywhere but a literal
-path inside it. The argv a shim records then goes to the installed pytest in a
-second throwaway tree, with a built environment, no path argument outside that
-tree and no option that would let the run write or import beyond it. Nothing is
-installed and nothing reaches the network.
+machine. What the step gets instead of the machine: a throwaway copy of the
+repository's tracked path names with `HOME` inside it, a `PATH` holding
+recording shims for every spelling of pytest, pip and the interpreter plus
+`cat`, `chmod`, `ls`, `mkdir` and nothing else, and a refusal to start a step
+that would run another program, dispatch through a builtin such as `eval`,
+define a shell function, `cd` out of that copy, write a shim outside it or
+redirect anywhere but a literal path inside it. The argv a shim records then
+goes to the installed pytest in a second throwaway tree, with a built
+environment, plugin autoloading off, no path argument outside that tree and no
+option that would let the run write or import beyond it. Nothing is installed
+and nothing reaches the network.
 
-It is still a workflow's own script running here, so that half runs on CI and
-is opt-in anywhere else. `CONTENT_GUARD_EXECUTE=1` runs it on this machine
-whatever the platform, and `CONTENT_GUARD_EXECUTE=0` turns it off on a CI leg,
-which is what to reach for when a runner is contended:
+That is a noise filter and not a security boundary. `PATH` decides a bare
+command name, so an allowlisted program's own arguments, an absolute path to
+one, a command substitution inside an argument, a `shell:` template,
+`working_directory` and the workflow's own `env` all reach past it; the list is
+kept in one place, in the module docstring of
+[test_content_checks_workflow.py](test_content_checks_workflow.py). So the
+executing half runs where the step's own code already runs -- on CI, where both
+workflows are `pull_request`, a fork gets no secrets and the ephemeral runner
+already runs pytest from the pull request -- and off CI only when someone asks
+for it. `CONTENT_GUARD_EXECUTE=1` runs it on this machine whatever the
+platform, and `CONTENT_GUARD_EXECUTE=0` turns it off on a CI leg, which is what
+to reach for when a runner is contended:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false CONTENT_GUARD_EXECUTE=1 .venv/bin/python -m pytest \

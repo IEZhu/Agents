@@ -41,39 +41,60 @@ Reading is no longer all this module does. Eight recorded forms satisfied every
 check above and ran nothing (#632): a leading `exit 0`, the command in a
 here-document, inside an `if` nobody sets, inside a quoted string whose `;` the
 reader splits on, after a shell function named pytest, through a stub the step
-writes itself, on the unreached side of `||`, and backgrounded with `&`. Seven
+writes itself, on the unreached side of `||`, and backgrounded with `&`. Six
 are closed by running the step: its script goes to a file and the file to
 `bash -e`, in a throwaway tree of this repository's path names, with every
 program that could be pytest replaced by a shim that records its argv and exits
 0. So the content checks are never executed by the guard that checks them,
 nothing is installed and nothing reaches the network, while what pytest was
-handed is a recorded fact rather than an inference. The eighth is closed by
+handed is a recorded fact rather than an inference. The seventh is closed by
 reading after all: `&` hands the command to the background, where its failure
 can no longer redden the step, so a backgrounded command is not evidence -- and
 a single `|` is refused for the same reason under the shell the committed steps
-get, where the left side of a pipe loses its exit status.
+get, where the left side of a pipe loses its exit status. The eighth, a shell
+function under the name pytest, is refused before anything starts: the shell
+resolves a function before PATH, so the shim written for that name would never
+have answered and an empty log would have meant nothing.
 
-Executing a step is a trust boundary, and what the boundary is is what the
-code refuses: pytest here runs a workflow's own shell on whoever's machine runs
-this suite, reachable from a pull-request diff a maintainer checks out. The
-sentence that stood here claimed more than the code held, and a pre-mortem
-measured three ways out of it, each one leaving the step a clean recorded run:
-an absolute program that was not an interpreter, which PATH never saw; a `..`
-spelling of a shim path, written 0755 outside the tree before the step started;
-and a redirection through `~`, which the reader of the spelling could not place.
-So every refusal is read before anything starts, by one reader that the
-executor and the assertion over the committed steps share: a command word has
-to be a shim or one of the four programs on the
-allowlist, a shim path has to stay inside the tree, and a redirection target
-has to be a literal path inside it -- which refuses `~`, `$` and a backtick,
-because the shell expands those when the step runs and not when this reads.
-What bounds the step that does start is a throwaway tree with HOME inside it
-and a PATH holding the shims and that allowlist and nothing else. A step this
-guard refuses is a verdict about the step and fails; a runner that could not
-answer skips. What is still not bounded is what a shimmed program could be made
-to do with the tree it is given, what a program on the allowlist can do, or
-memory and time beyond the timeout -- and because this is what the half does to
-a machine, it is opt-in off CI.
+What the shims and the pruned PATH are for is a confused step, not an
+adversarial one. They keep a step that reaches for a real program from doing
+real work -- nothing is installed, nothing reaches the network, the writes land
+in a copy -- and they make what the step started readable, which is the whole
+question this module puts to it. They are not a security boundary, and no
+sentence here should be read as one: PATH governs a bare command name, and a
+shell has more ways to reach a program than this reader enumerates. Three ways
+out of it were measured working at the head of this branch and are refused now
+by one reader the executor and the assertion over the committed steps share --
+an absolute program that was not an interpreter, a `..` spelling of a shim
+path, written 0755 outside the tree before the step started, and a redirection
+through `~` -- and that reader also refuses a dispatching builtin, a function
+definition, a `cd` out of the tree and a redirection the shell needs no
+whitespace for. A step it refuses is a verdict about the step and fails; a
+runner that could not answer skips.
+
+These shapes walk past the shims and are not refused, listed here so that a
+reader of this module does not have to find them again:
+
+* an absolute path to a program, which PATH never decides, when the program is
+  one of the four on the allowlist;
+* what a program on the allowlist can be made to do with its own arguments;
+* a command substitution inside an argument, where the program is not at a
+  command position this reader reads;
+* a `shell:` value containing `{0}`, which GitHub uses as written and this
+  passes through;
+* `working_directory`, which the executor joins to the tree, so an absolute or
+  climbing value moves the step out of it;
+* the workflow's own `env`, which reaches the shell this starts, startup hooks
+  such as `BASH_ENV` included;
+* what a shimmed program could be made to do with the tree it is given, and
+  memory or time beyond the timeout.
+
+Because that is the real extent of it, the half that executes runs where the
+step's own code already runs: on CI, where both of these workflows are
+`pull_request` rather than `pull_request_target`, a fork gets no secrets, the
+runner is ephemeral and that same runner already runs pytest from the pull
+request. Off CI it runs for whoever asks for it with `CONTENT_GUARD_EXECUTE`,
+because the machine that needs protecting is a maintainer's.
 
 The recorder's own log is the other thing a step could reach: its path used to
 travel in the step's environment, so a step could write the line the guard then
@@ -83,10 +104,10 @@ script has to be readable to be executed, so what this stops is a forged line,
 not a step that goes looking.
 
 The executing half runs on one CI leg and is opt-in anywhere else
-(`confined_to_the_executing_leg`). The steps are platform-neutral and the
+(`confined_to_the_executing_leg`, and `test_the_executing_leg_really_executed_on_this_runner`
+for the reading that leg rests on). The steps are platform-neutral and the
 recorder's answer does not depend on the host, so three legs paid three times
-for one fact; the other two read. Off CI it runs only for whoever asks for it,
-because running it is running a workflow's shell on your own machine.
+for one fact; the other two read.
 
 What stays open is named in #632 and not attempted here: a `runs-on` label no
 runner carries, a `strategy.matrix` that expands to nothing, and a glob given
@@ -827,18 +848,19 @@ SHELL_COMMANDS = {
 # spellings because a script may reach one through another program.
 ALWAYS_SHIMMED = ("python", "python3", "pytest", "pip", "pip3", "uv", "uvx")
 # Executing a step runs a workflow's own shell on whatever machine this suite
-# runs on, which is a trust boundary and was an open one: cwd and HOME were
-# redirected and the programs that could be pytest were shimmed, while every
-# other program on the machine stayed reachable -- measured, `git` and `curl`
-# resolved to the real binaries, and a redirection to an absolute path left the
-# throwaway tree. So PATH now holds the shim directory and these, and nothing
-# else. Each is here because a step or a case in this module really runs it, and
-# none of them reaches the network or installs anything. A command word outside
-# both lists is refused before the step starts, which is a verdict about the
-# step rather than a runner that could not answer; one this reader does not see
-# as a command word is still `command not found` under `bash -e`, which stays
-# the `problem` this module already models -- never a real execution, and never
-# an empty log.
+# runs on. cwd and HOME were redirected and the programs that could be pytest
+# were shimmed, while every other program on the machine stayed reachable --
+# measured, `git` and `curl` resolved to the real binaries, and a redirection to
+# an absolute path left the throwaway tree. So PATH holds the shim directory and
+# these, and nothing else. Each is here because a step or a case in this module
+# really runs it, and none of them reaches the network or installs anything. A
+# command word outside both lists is refused before the step starts, which is a
+# verdict about the step rather than a runner that could not answer; one this
+# reader does not see as a command word is still `command not found` under
+# `bash -e`, which stays the `problem` this module already models -- never a
+# real execution, and never an empty log. What PATH does not decide at all is in
+# the module docstring's list: it governs a bare name, so an allowlisted
+# program's own arguments and an absolute path to one are outside it.
 ALLOWED_PROGRAMS = ("cat", "chmod", "ls", "mkdir")
 # Shell words that start no program: builtins and the keywords `logical_commands`
 # leaves standing on their own. An unlisted one is reported rather than allowed,
@@ -1510,10 +1532,12 @@ def execute_step(script, *, shell=None, env=None, working_directory=None, timeou
     no variable at all, because the guard against a workflow redirecting the log
     was never the guard against a workflow writing it.
 
-    What the script may do at all is decided before any of that, by
+    Which scripts this will start at all is decided before any of that, by
     `why_this_guard_refuses`, and a script it names a reason for is not
-    started: the refusals are the boundary, and three of them were measured
-    missing. A program this guard does not cover and the machine does not have
+    started. What those refusals are not is a boundary around the shell: they
+    filter out the step this harness cannot read an answer from, and the module
+    docstring lists the shapes that walk past them. A program this guard does
+    not cover and the machine does not have
     still stops the script under `bash -e` when the reader did not see it as a
     command word; that non-zero status is returned as a `problem` with the last
     line of output, rather than as an empty log, because "could not run this"
@@ -2591,7 +2615,7 @@ def test_a_recorded_line_no_shim_wrote_is_refused(tmp_path):
 
 @EXECUTES_STEPS
 def test_an_unshimmed_program_is_refused_before_it_is_command_not_found():
-    """The trust boundary: executing a step means running a diff as shell here.
+    """A program the shims do not cover is an answer, not a status 127.
 
     A maintainer who runs this suite over a pull request runs that branch's
     workflow scripts on their own machine. cwd and HOME are redirected and the
@@ -2606,8 +2630,8 @@ def test_an_unshimmed_program_is_refused_before_it_is_command_not_found():
     the shapes the module docstring lists as walking past the shims. That one
     is still a `problem`: `bash -e` stops, nothing was recorded, and the answer
     is that this runner could not measure rather than that the step is one the
-    guard refuses. `eval` used to be the example and is a refusal now, which is
-    the case below.
+    guard refuses. `eval` used to be the example here and is a refusal now,
+    which the assertion between the two covers.
     """
     run = execute_step("git --version\n" + CONTROL_COMMAND + "\n")
     assert run.commands == [], (
@@ -2951,6 +2975,40 @@ def test_the_executing_leg_really_executed_on_this_runner():
         "set here any more and the half of these modules that executes "
         "workflow steps has stopped running in CI"
     )
+
+
+def test_the_shapes_that_walk_past_the_shims_are_named_in_one_place():
+    """A reader must not have to rediscover them, and two rounds of review did.
+
+    Three review rounds found fifteen ways past the shims and two bots found
+    the same ones independently, because the texts said what the confinement
+    stops and nowhere said what it does not. The ones that stay open are a list
+    in this module's docstring now, and the places that describe the harness
+    point at it instead of repeating it: `tests/test_project_manifests.py`,
+    which borrows the harness, and `tests/README.md`, which is where this
+    repository says what a selection does to the machine it runs on.
+
+    The phrases below are this case's own checklist against that list. A shape
+    dropped from the docstring fails here, which is the only way a list in prose
+    can be held to anything.
+    """
+    for shape in (
+        "an absolute path to a program",
+        "its own arguments",
+        "a command substitution inside an argument",
+        "a `shell:` value containing `{0}`",
+        "`working_directory`",
+        "the workflow's own `env`",
+    ):
+        assert shape in (__doc__ or ""), (
+            f"the list of shapes that walk past the shims no longer names "
+            f"{shape!r}, so a reader has to find it again")
+    here = Path(__file__).name
+    for pointing in ("tests/test_project_manifests.py", "tests/README.md"):
+        text = (ROOT / pointing).read_text(encoding="utf-8")
+        assert here in text, (
+            f"{pointing} describes this harness without pointing at the list in "
+            f"{here}, so the list is no longer in one place")
 
 
 def test_the_switch_that_runs_the_host_touching_leg_is_documented():
