@@ -975,3 +975,102 @@ def test_queued_command_attachments_count_only_for_humans():
     ])
     assert inv["prompts"] == [{"ts": "t1"}, {"ts": "t2", "queued": True}, {"ts": "t3", "queued": True}]
     assert ("pull", 7) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
+
+
+WIN_CWD = "C:\\work\\repo"
+
+
+def powershell(command, tool_id, ts="2026-10-02T09:00:00Z", cwd=WIN_CWD, **extra):
+    """A call of the `PowerShell` tool that a Windows client offers beside `Bash`."""
+    entries = assistant([tool("PowerShell", {"command": command, **extra}, tool_id)], ts, f"m_{tool_id}")
+    return [{**entry, "cwd": cwd} for entry in entries]
+
+
+def test_powershell_tool_commands_reach_the_same_fields():
+    inv = thread_inventory.inventory([
+        *powershell("git add .; git commit -m 'slice A5'\ngit push origin HEAD", "p1"),
+        *powershell("gh pr create --title t --body b", "p2", ts="2026-10-02T09:01:00Z"),
+        *powershell("Set-Content -Path notes.md -Value 'done'", "p3", ts="2026-10-02T09:02:00Z"),
+        *powershell("git log --oneline > logs\\out.txt", "p4", ts="2026-10-02T09:03:00Z"),
+    ])
+    assert [m["command"] for m in inv["git_mutations"]] == [
+        "git add .", "git commit -m 'slice A5'", "git push origin HEAD", "gh pr create --title t --body b"]
+    assert [(w["command"], w["files"]) for w in inv["shell_writes"]] == [
+        ("Set-Content -Path notes.md -Value 'done'", ["C:/work/repo/notes.md"]),
+        ("git log --oneline > logs\\out.txt", ["C:/work/repo/logs/out.txt"])]
+    assert inv["unclassified_commands"] == []
+    # one spelling of the Windows working directory, and the directory the redirection wrote in
+    assert "C:/work/repo/logs" in inv["directories"] and WIN_CWD not in inv["directories"]
+
+
+def test_powershell_statements_separate_on_semicolons_newlines_pipes_and_braces():
+    inv = thread_inventory.inventory(powershell(
+        "git tag v1; git commit -m a\nforeach ($f in $files) { git add $f }\n"
+        "git diff | Out-File -FilePath d.txt", "s1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git tag v1", "git commit -m a", "git add $f"]
+    assert [w["files"] for w in inv["shell_writes"]] == [["C:/work/repo/d.txt"]]
+    quoted = thread_inventory.inventory(powershell("git commit -m 'first; second | third'", "s2"))
+    assert [m["command"] for m in quoted["git_mutations"]] == ["git commit -m 'first; second | third'"]
+
+
+def test_powershell_here_strings_are_bodies_not_commands():
+    inv = thread_inventory.inventory(powershell(
+        "git commit -F - @'\ngit push origin main\nSet-Content C:\\evil.txt x\n'@", "h1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git commit -F - @'…'@"]
+    assert inv["shell_writes"] == []  # the body is a commit message, not a cmdlet call
+    expandable = thread_inventory.inventory(powershell('$body = @"\ngit push\n"@\ngit commit -m $body', "h2"))
+    assert [m["command"] for m in expandable["git_mutations"]] == ["git commit -m $body"]
+    refs = thread_inventory.inventory(powershell(
+        "gh pr comment https://github.com/Owner/Repo/pull/7 --body @'\n"
+        "see https://github.com/Owner/Repo/issues/9\n'@", "h3"))
+    assert [(r["kind"], r["number"]) for r in refs["github_refs"]] == [("pull", 7)]
+
+
+def test_powershell_writes_cmdlet_targets_and_redirections():
+    inv = thread_inventory.inventory(powershell(
+        "Set-Content -Path a.txt -Value 'x' -Encoding utf8\nAdd-Content b.txt 'more'\n"
+        "git log | Out-File -FilePath C:\\logs\\log.txt\nWrite-Output x > c.txt\nWrite-Output y >> c.txt", "w1"))
+    assert [(w["command"], w["files"]) for w in inv["shell_writes"]] == [
+        ("Set-Content -Path a.txt -Value 'x' -Encoding utf8", ["C:/work/repo/a.txt"]),
+        ("Add-Content b.txt 'more'", ["C:/work/repo/b.txt"]),
+        ("Out-File -FilePath C:\\logs\\log.txt", ["C:/logs/log.txt"]),
+        ("Write-Output x > c.txt", ["C:/work/repo/c.txt"]),
+        ("Write-Output y >> c.txt", ["C:/work/repo/c.txt"])]
+    plain = thread_inventory.inventory(powershell(
+        "git log 2>&1; git log *>&1; git log > $null; Write-Output 'a > b.txt'; Get-Content a.txt", "w2"))
+    assert plain["shell_writes"] == []  # a duplicated stream, $null and quoted text write no file
+
+
+def test_powershell_backslash_is_a_path_separator_and_a_backtick_escapes():
+    captured = thread_inventory.inventory(powershell(
+        "$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' commit -m \"fix: it's done\"", "q1"))
+    assert [m["command"] for m in captured["git_mutations"]] == [
+        "$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' commit -m \"fix: it's done\""]
+    literal = thread_inventory.inventory(powershell("Set-Content -LiteralPath C:\\repo\\a\\b.txt -Value x", "q2"))
+    assert [w["files"] for w in literal["shell_writes"]] == [["C:/repo/a/b.txt"]]
+    continued = thread_inventory.inventory(powershell("git commit `\n  -m 'wrapped'", "q3"))
+    assert [m["command"] for m in continued["git_mutations"]] == ["git commit -m 'wrapped'"]
+    commented = thread_inventory.inventory(powershell("# git push\n<# git tag v2 #>git fetch --dry-run", "q4"))
+    assert commented["git_mutations"] == [] and commented["unclassified_commands"] == []
+
+
+def test_powershell_commands_that_cannot_be_classified_are_listed_not_dropped():
+    unknown = thread_inventory.inventory(powershell("git frobnicate --hard; gh wobble 3", "u1"))
+    assert [c["command"] for c in unknown["unclassified_commands"]] == ["git frobnicate --hard", "gh wobble 3"]
+    assert unknown["git_mutations"] == []
+    chained = thread_inventory.inventory(powershell(
+        "git status && git commit -m x\ngh pr view 7 || gh pr create", "u2"))
+    assert [c["command"] for c in chained["unclassified_commands"]] == [
+        "git status && git commit -m x", "gh pr view 7 || gh pr create"]
+    assert chained["git_mutations"] == []  # 5.1 runs neither operator, so neither line ran
+    other = thread_inventory.inventory(powershell("Remove-Item -Recurse -Force .\\build", "u3"))
+    assert (other["git_mutations"], other["unclassified_commands"], other["shell_writes"]) == ([], [], [])
+
+
+def test_powershell_background_start_is_a_task():
+    inv = thread_inventory.inventory([
+        *powershell("git push origin HEAD", "bg1", run_in_background=True),
+        result("bg1", "Command running in background with ID: bg9. Output is being written to: x",
+               "2026-10-02T09:00:05Z"),
+    ])
+    assert [(t["tool"], t["id"]) for t in inv["background_tasks"]] == [("PowerShell", "bg9")]

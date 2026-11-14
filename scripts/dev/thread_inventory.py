@@ -31,6 +31,13 @@ through to the command they run, and the arguments of `eval` and `trap` are comm
 Files the shell itself writes, through output redirections and `tee`, are listed in
 `shell_writes`; what other programs write, such as cp, mv or sed -i, is not.
 
+Commands of the Windows `PowerShell` tool go through the same classification with
+PowerShell syntax: statements separate on `;`, a newline, a pipe and the braces of a
+block, Windows PowerShell 5.1 has neither `&&` nor `||`, the escape character is a
+backtick so a backslash stays a path separator, a `@'…'@` or `@"…"@` here-string is a
+body, and `Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files. An output
+capture such as `$sha = git rev-parse HEAD` is still a git command.
+
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
 are shortened, common credential shapes are masked in every printed string, paths
@@ -42,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import re
 import shlex
 import subprocess
@@ -96,14 +104,36 @@ LEADING_REMINDERS = re.compile(r"\s*(?:<system-reminder>.*?</system-reminder>\s*
 CLIENT_TAG = re.compile(r"<(?:command-|local-command-|bash-|task-notification|system-reminder|artifact-content-)")
 ARRAY_ASSIGNMENT = re.compile(r"(?:^|\s)[A-Za-z_]\w*\+?=$")  # NAME=( starts array elements, which are data
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
+# Windows PowerShell 5.1, which the Claude Code `PowerShell` tool runs, is not a POSIX shell: it
+# has neither `&&` nor `||`, its escape character is a backtick, so a backslash stays a path
+# separator, and a `@'…'@` or `@"…"@` here-string is a body rather than a command.
+PS_SPECIAL = re.compile(r"[`'\"#;\n|{}()$@<]")
+PS_DOUBLE_END = re.compile(r"`|\"|\$\(")  # what ends or interrupts a "..." string
+PS_HERE_STRING = re.compile(r"@(['\"])[ \t]*\r?\n")
+PS_ASSIGNMENT = re.compile(r"^\$[\w:.\[\]{}]+\s*[-+*/%]?=\s*")  # `$x = git log` still runs git
+PS_CALL = {"&", "."}  # the call operator and dot sourcing, as in `& git push`
+PS_KEYWORDS = {"if", "elseif", "else", "while", "do", "foreach", "for", "switch", "try", "catch",
+               "finally", "begin", "process", "end", "param", "return", "function", "filter"}
+PS_CHDIR = {"cd", "chdir", "sl", "set-location"}
+PS_WRITE_CMDLETS = {"set-content", "add-content", "out-file"}
+PS_PATH_PARAMETERS = {"-path", "-literalpath", "-filepath"}
+# Parameters of those cmdlets that take a value, so their value is not read as the path. The
+# switches are not enumerated: another parameter with a value can still shift the positional pick.
+PS_VALUE_PARAMETERS = {"-value", "-encoding", "-width", "-delimiter", "-stream", "-filter",
+                       "-include", "-exclude", "-inputobject"}
+PS_EXECUTABLE = re.compile(r"\.(?:exe|cmd|bat|com|ps1)$", re.IGNORECASE)
+WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])")  # a drive, as in C:\dir, or a UNC share
+SHELL_TOOLS = {"Bash": "bash", "PowerShell": "powershell"}  # the client tools whose input is a command
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
 STATUS = re.compile(r"<status>(\w+)</status>")
 # Background work is read only from the results of the tools that start or stop it: the same
 # words in a file, a log or another command's output start or stop nothing.
+BACKGROUND_START = re.compile(r"\s*Command (?:running in background with ID: |did not complete within .*?"
+                              r"moved to the background \(ID: )(\w+)")
 STARTED = {
-    "Bash": re.compile(r"\s*Command (?:running in background with ID: |did not complete within .*?"
-                       r"moved to the background \(ID: )(\w+)"),
+    "Bash": BACKGROUND_START,
+    "PowerShell": BACKGROUND_START,  # the same message, as far as this helper can tell from a transcript
     "Monitor": re.compile(r"\s*Monitor started \(task (\w+)"),
     "Workflow": re.compile(r"\s*Workflow launched in background\. Task ID: (\w+)"),
     "Agent": re.compile(r"\s*Async agent launched.*?agentId: (\w+)", re.S),
@@ -861,15 +891,28 @@ def gh_write(tokens: list[str], segment: str) -> bool:
 
 
 def _resolve(path: str, cwd: str | None) -> str | None:
-    """An absolute path, or None when it depends on an unknown directory or a shell variable."""
+    """An absolute path, or None when it depends on an unknown directory or a shell variable.
+
+    A Windows path, whose drive or share no POSIX rule recognises, keeps its drive and is written
+    with forward slashes, so one spelling reaches `directories` whichever client wrote it.
+    """
     path = os.path.expanduser(path)
-    if "$" in path or "`" in path:
+    if "$" in path or "`" in path:  # an unexpanded variable, in either syntax
         return None
-    if not path.startswith("/"):
+    windows = bool(WINDOWS_PATH.match(path)) or (bool(cwd) and bool(WINDOWS_PATH.match(cwd)))
+    if not path.startswith("/") and not WINDOWS_PATH.match(path):
         if not cwd:
             return None
-        path = os.path.join(cwd, path)
-    return os.path.normpath(path)
+        path = posixpath.join(cwd.replace("\\", "/"), path.replace("\\", "/")) if windows \
+            else os.path.join(cwd, path)
+    return posixpath.normpath(path.replace("\\", "/")) if windows else os.path.normpath(path)
+
+
+def _parent_directory(path: str) -> str | None:
+    """The directory of an absolute path, or None for a relative one, with either separator."""
+    if WINDOWS_PATH.match(path):
+        return posixpath.dirname(path.replace("\\", "/"))
+    return os.path.dirname(path) if path.startswith("/") else None
 
 
 def _earlier(ts, than) -> bool:
@@ -962,10 +1005,15 @@ def _clone_dir(source: str) -> str | None:
     return re.sub(r"\.(?:git|bundle)$", "", name) or None
 
 
-def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
-    """Record writes, directories, references and scratchpad paths of one shell command."""
+def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str = "bash") -> None:
+    """Record writes, directories, references and scratchpad paths of one shell command.
+
+    ``shell`` selects the syntax: "bash" for the Bash tool, "powershell" for the Windows tool,
+    whose statements, quoting and file-writing cmdlets differ. The classification is the same.
+    """
+    powershell = shell == "powershell"
     current, saved = cwd, []
-    pending = _segments(command)[::-1]
+    pending = (_powershell_segments(command) if powershell else _segments(command))[::-1]
     while pending:
         segment = pending.pop()
         if segment is SCOPE_IN:
@@ -979,30 +1027,33 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             continue
         _scan_refs(segment, sink["refs"], ts)
         dirs: list[str] = []
-        tokens = _command_tokens(segment, dirs)
+        tokens = _powershell_tokens(segment) if powershell else _command_tokens(segment, dirs)
         run_dir = current
         for directory in dirs:  # `env -C DIR git ...` runs git in DIR
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
-        written = [_resolve(target, run_dir) or target for target in _written_files(segment, tokens)]
+        targets = _powershell_writes(segment, tokens) if powershell else _written_files(segment, tokens)
+        written = [_resolve(target, run_dir) or target for target in targets]
         written = [path for path in dict.fromkeys(written) if "/scratchpad" not in path]  # listed there already
         for path in written:
-            if path.startswith("/"):
-                sink["directories"].setdefault(os.path.dirname(path), ts)
+            parent = _parent_directory(path)
+            if parent:
+                sink["directories"].setdefault(parent, ts)
         if written:
             sink["shell_writes"].append({"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)),
                                          "by": actor, "files": written})
         if not tokens:
             continue
-        program = tokens[0]
-        source, script = _shell_input(tokens) if program in SHELLS else (None, None)
+        program = tokens[0].lower() if powershell else tokens[0]  # PowerShell names are case-insensitive
+        chdir = program in PS_CHDIR if powershell else program == "cd"
+        source, script = _shell_input(tokens) if not powershell and program in SHELLS else (None, None)
         if source == "script" and script:
             # `bash -c '<script>'` runs them in a child shell, in the directory of a wrapper such as env -C
             pending.extend(_scoped([(CHDIR, run_dir), *_segments(script)])[::-1])
-        elif program == "eval" and len(tokens) > 1:
+        elif not powershell and program == "eval" and len(tokens) > 1:
             pending.extend(_segments(" ".join(tokens[1:]))[::-1])
-        elif program == "trap":
+        elif not powershell and program == "trap":
             args = tokens[1:]
             if args[:1] == ["--"]:
                 args = args[1:]
@@ -1010,7 +1061,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
                 args = []  # -p prints, -l lists and - resets: no handler
             if len(args) > 1:
                 pending.extend(_segments(args[0])[::-1])  # the command run on exit or a signal
-        elif program == "cd":
+        elif chdir:
             names = _positional(tokens[1:], set())
             target = names[0] if names else "-" if "-" in tokens[1:] else "~"  # `cd` alone goes home
             current = None if target == "-" else _resolve(target, current)  # `cd -`: an earlier directory
@@ -1023,6 +1074,10 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             else:
                 kind = gh_kind(tokens, segment)
                 _gh_ref(tokens, ts, sink)
+            if powershell and ("&&" in tokens or "||" in tokens):
+                # Windows PowerShell 5.1 has no such operator, so the line as written runs nothing
+                # and its own syntax cannot say which commands were meant: it is listed, not read.
+                kind = "unknown"
             shown = _first_line(KEYWORD_PREFIX.sub("", segment))
             if kind == "write":
                 sink["git_mutations"].append({"ts": ts, "command": shown, "by": actor})
@@ -1097,6 +1152,267 @@ def _word(text: str, index: int) -> tuple[str, int]:
             word.append(char)
         index += 1
     return "".join(word), index
+
+
+def _powershell_segments(command: str, depth: int = 0) -> list[str]:
+    """Statements of a PowerShell command line, split at `;`, a newline, a pipe and block braces.
+
+    Windows PowerShell 5.1 has neither `&&` nor `||`, so neither of them splits a statement. A
+    `@'…'@` or `@"…"@` here-string is a body, not a command, and `(…)`, `$(…)` and `@(…)` hold
+    statements of their own, which run in a scope of their own. Nesting past MAX_DEPTH is not read.
+    """
+    return _powershell_parse(command, 0, depth)[0] if depth < MAX_DEPTH else []
+
+
+def _powershell_parse(command: str, index: int, depth: int, nested: bool = False) -> tuple[list[str], int]:
+    """Statements from ``index`` to the end, or with ``nested`` to the `)` that closes the group,
+    and the index after them."""
+    segments, current, quote, length = [], [], None, len(command)
+
+    def flush() -> None:
+        statement = "".join(current).strip()
+        if statement:
+            segments.append(statement)
+        current.clear()
+
+    def group(paren: int, placeholder: str) -> int:
+        """The statements of `(…)`, `$(…)` or `@(…)`, whose `(` is at ``paren``."""
+        current.append(placeholder)
+        if depth + 1 >= MAX_DEPTH:  # nesting past the limit is not read
+            return _skip_group(command, paren) or length
+        inner, end = _powershell_parse(command, paren + 1, depth + 1, True)
+        segments.extend(_scoped(inner))
+        return end
+
+    while index < length:
+        if quote == "'":  # a literal string, in which '' is one quote
+            end = command.find("'", index)
+            if end < 0:
+                current.append(command[index:])
+                break
+            double = command.startswith("''", end)
+            current.append(command[index:end + (2 if double else 1)])
+            index, quote = end + (2 if double else 1), quote if double else None
+            continue
+        if quote == '"':
+            match = PS_DOUBLE_END.search(command, index)
+            if not match:
+                current.append(command[index:])
+                break
+            current.append(command[index:match.start()])
+            index, found = match.start(), match.group()
+            if found == "`":  # the escape character, which also escapes a quote
+                current.append(command[index:index + 2])
+                index += 2
+            elif found == "$(":  # a subexpression inside "..." runs
+                index = group(index + 1, "$(…)")
+            else:
+                current.append('"')
+                quote, index = None, index + 1
+            continue
+        match = PS_SPECIAL.search(command, index)
+        if not match:
+            current.append(command[index:])
+            break
+        current.append(command[index:match.start()])
+        index, char = match.start(), match.group()
+        word_start = not "".join(current[-1:])[-1:].strip()
+        if char == "`":
+            if command.startswith(("\n", "\r\n"), index + 1):
+                index += 3 if command.startswith("\r", index + 1) else 2  # a line continuation
+            else:
+                current.append(command[index:index + 2])
+                index += 2
+        elif char in "'\"":
+            quote = char
+            current.append(char)
+            index += 1
+        elif char == "#" and word_start:  # a comment runs to the end of the line
+            end = command.find("\n", index)
+            index = length if end < 0 else end
+        elif char == "<" and command.startswith("<#", index):
+            end = command.find("#>", index + 2)
+            index = length if end < 0 else end + 2  # a block comment
+        elif char in "#<":
+            current.append(char)  # inside a word, as in a#b, and a `<` that redirects nothing in 5.1
+            index += 1
+        elif char == "@" and (here := PS_HERE_STRING.match(command, index)):
+            current.append(f"@{here.group(1)}…{here.group(1)}@")  # a here-string body is data
+            index = _powershell_here_string(command, here.end(), here.group(1))
+        elif char in "$@" and command.startswith(("$(", "@("), index):
+            index = group(index + 1, char + "(…)")
+        elif char == "$" and command.startswith("${", index):
+            end = command.find("}", index + 2)
+            current.append("${…}")  # a braced variable name, not a block
+            index = length if end < 0 else end + 1
+        elif char in "$@":
+            current.append(char)
+            index += 1
+        elif char == "(":
+            index = group(index, "(…)")
+        elif char == ")":
+            flush()
+            index += 1
+            if nested:
+                return segments, index
+        elif char in "{}":
+            flush()  # the statements of a block, a hash table or a script block stand on their own
+            index += 1
+        elif char == "|" and command.startswith("||", index):
+            current.append("||")  # an empty pipe element, which 5.1 runs no more than it runs `&&`
+            index += 2
+        else:  # ; a newline and a pipe end a statement
+            flush()
+            index += 1
+    flush()
+    return segments, index
+
+
+def _powershell_here_string(command: str, index: int, quote: str) -> int:
+    """The index after the `'@` or `"@` that closes a here-string, which must start a line."""
+    delimiter = quote + "@"
+    while index < len(command):
+        end = command.find("\n", index)
+        end = len(command) if end < 0 else end
+        if command[index:end].startswith(delimiter):
+            return index + len(delimiter)
+        index = end + 1
+    return len(command)
+
+
+def _ps_words(text: str) -> list[str]:
+    """Words of one PowerShell statement, without their quotes. A backslash is a path separator,
+    not an escape; the escape character is a backtick, and `>` and `>>` are words of their own."""
+    words, word, quote, index, started = [], [], None, 0, False
+
+    def end_word() -> None:
+        nonlocal started
+        if started:
+            words.append("".join(word))
+            word.clear()
+        started = False
+
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote == "'" and text.startswith("''", index):
+                word.append("'")
+                index += 1
+            elif char == quote:
+                quote = None
+            elif quote == '"' and char == "`" and index + 1 < len(text):
+                index += 1
+                word.append(text[index])
+            else:
+                word.append(char)
+        elif char in "'\"":
+            quote, started = char, True
+        elif char == "`" and index + 1 < len(text):
+            index += 1
+            word.append(text[index])
+            started = True
+        elif char in " \t\r\n":
+            end_word()
+        elif char == ">":
+            end_word()
+            operator = ">>" if text.startswith(">>", index) else ">"
+            words.append(operator)
+            index += len(operator)
+            continue
+        else:
+            word.append(char)
+            started = True
+        index += 1
+    end_word()
+    return words
+
+
+def _ps_word(text: str, index: int) -> tuple[str, int]:
+    """The PowerShell word after the blanks at ``index``, without its quotes, and the index after
+    it. An operator or a closing brace ends it."""
+    while index < len(text) and text[index] in " \t":
+        index += 1
+    start, quote = index, None
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char == "`":
+                index += 1
+        elif char in "'\"":
+            quote = char
+        elif char == "`":
+            index += 1
+        elif char in " \t\r\n;|>)}":
+            break
+        index += 1
+    words = _ps_words(text[start:index])
+    return (words[0] if words else ""), index
+
+
+def _powershell_tokens(segment: str) -> list[str]:
+    """Tokens of one PowerShell statement from its command on, which is reduced to its name.
+
+    An output capture, the call operator and a leading keyword come off the front, so
+    `$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' rev-parse HEAD` is still a git command.
+    """
+    tokens = _ps_words(PS_ASSIGNMENT.sub("", segment.strip()))
+    while tokens and (tokens[0] in PS_CALL or tokens[0].lower() in PS_KEYWORDS):
+        tokens = tokens[1:]
+    if tokens:
+        tokens[0] = PS_EXECUTABLE.sub("", re.split(r"[\\/]", tokens[0])[-1])
+    return tokens
+
+
+def _powershell_writes(segment: str, tokens: list[str]) -> list[str]:
+    """Files one PowerShell statement writes: the targets of its unquoted `>` and `>>`
+    redirections and the path of a `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only
+    redirects one stream into another, and an unexpanded variable such as `$null` is no file."""
+    files, index, quote = [], 0, None
+    while index < len(segment):
+        char = segment[index]
+        if quote:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char == "`":
+                index += 1
+        elif char in "'\"":
+            quote = char
+        elif char == "`":
+            index += 1
+        elif char == ">":
+            index += 1 + segment.startswith(">", index + 1)
+            if segment.startswith("&", index):
+                index += 1
+                continue  # 2>&1 and *>&1 duplicate a stream
+            target, index = _ps_word(segment, index)
+            if target and not target.startswith("$"):
+                files.append(target)
+            continue
+        index += 1
+    if tokens[:1] and tokens[0].lower() in PS_WRITE_CMDLETS:
+        target = _ps_target(tokens[1:])
+        if target and not target.startswith("$"):
+            files.append(target)
+    return files
+
+
+def _ps_target(args: list[str]) -> str | None:
+    """The file a `Set-Content`, `Add-Content` or `Out-File` call writes: the value of `-Path`,
+    `-LiteralPath` or `-FilePath`, or else its first positional argument."""
+    positional, skip = None, False
+    for index, arg in enumerate(args):
+        name = arg.lower()
+        if skip:
+            skip = False
+        elif name in PS_PATH_PARAMETERS:
+            return args[index + 1] if index + 1 < len(args) else None
+        elif name.startswith("-"):
+            skip = name in PS_VALUE_PARAMETERS
+        elif positional is None:
+            positional = arg
+    return positional
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
@@ -1204,7 +1520,7 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
     if actor == "main" and entry.get("sessionId") and entry["sessionId"] not in sink["sessions"]:
         sink["sessions"].append(entry["sessionId"])
     if cwd:
-        sink["directories"].setdefault(cwd, ts)
+        sink["directories"].setdefault(_resolve(cwd, None) or cwd, ts)  # one spelling for a Windows drive
     if kind == "bridge-session" and entry.get("bridgeSessionId") and entry["bridgeSessionId"] not in sink["bridges"]:
         sink["bridges"].append(entry["bridgeSessionId"])
     elif kind == "ai-title" and entry.get("aiTitle"):
@@ -1348,9 +1664,9 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
                     sink["memory"][path] = {"ts": ts, "by": actor}
             if "/scratchpad" in path:
                 sink["scratch"].setdefault(path, ts)
-    elif name == "Bash":
+    elif name in SHELL_TOOLS:  # Bash, and the PowerShell tool of a Windows client
         command = data.get("command")
-        _shell(command if isinstance(command, str) else "", cwd, ts, sink, actor)
+        _shell(command if isinstance(command, str) else "", cwd, ts, sink, actor, SHELL_TOOLS[name])
     elif name in SCHEDULE_TOOLS:
         sink["scheduled"].append({"ts": ts, "tool": name, "by": actor,
                                   "summary": _short(data.get("reason") or data.get("prompt") or "", 160)})
@@ -1367,7 +1683,7 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
             sink["unclassified"][name] += 1
         if name.startswith("mcp__"):
             _structured_ref(name, data, ts, sink)
-    if name not in WRITE_TOOLS and name != "Bash":  # file contents are not references; _shell scans commands
+    if name not in WRITE_TOOLS and name not in SHELL_TOOLS:  # file contents are not references; _shell scans them
         _scan_refs("\n".join(_strings(data)), sink["refs"], ts)
 
 
