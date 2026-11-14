@@ -101,7 +101,15 @@ reader of this module does not have to find them again:
 * the workflow's own `env`, which reaches the shell this starts, startup hooks
   such as `BASH_ENV` included;
 * what a shimmed program could be made to do with the tree it is given, and
-  memory or time beyond the timeout.
+  memory or time beyond the timeout;
+* the recorder's log and counter, which the line count does not authenticate.
+  It is arithmetic: each shim writes one line and counts one invocation, so a
+  log with more lines than invocations is reported -- and a step that could
+  replace both files in step would not be. What stands in front of them is the
+  redirection reader, which refuses a target it cannot place as a literal path
+  inside the tree, and the log sits outside the tree with its path in no
+  variable; review asked for an authenticated record instead and the answer is
+  that this guards an honestly mis-wired step and not an adversarial one.
 
 Because that is the real extent of it, the half that executes runs where the
 step's own code already runs: on CI, where both of these workflows are
@@ -3045,6 +3053,15 @@ def test_a_recorded_line_no_shim_wrote_is_refused(tmp_path):
     a line no shim wrote, and the whole run is reported as a measurement rather
     than read as evidence. That half is asked of `recorded` directly, on the
     two files a run leaves behind, because no step can reach them any more.
+
+    What the arithmetic does not do is authenticate the log, which review asked
+    for: a step that replaced the one line *and* left the counter at one
+    invocation would be accepted, and the last assertion here measures exactly
+    that rather than claiming otherwise. Both spellings of such a step are
+    refused before anything starts, the appending one and the truncating one,
+    and for the same reason -- the target is not a literal path this reader can
+    place inside the tree. The module docstring lists the pair among the shapes
+    that stay open, because the count is arithmetic and not secrecy.
     """
     script = (
         'shim="$(command -v pytest)"\n'
@@ -3057,9 +3074,10 @@ def test_a_recorded_line_no_shim_wrote_is_refused(tmp_path):
         "printf 'pytest tests/test_skill_freshness.py\\n' >> \"$log\"\n"
         "pytest tests/test_skill_freshness.py\n"
     )
-    run = execute_step(script)
-    assert run.commands == [], run.commands
-    assert run.refused and "$log" in run.problem, run.problem
+    for spelling in (script, script.replace('>> "$log"', '> "$log"')):
+        run = execute_step(spelling)
+        assert run.commands == [], run.commands
+        assert run.refused and "$log" in run.problem, run.problem
     log, calls = tmp_path / "recorded-argv", tmp_path / "invocations"
     log.write_text("pytest tests/test_skill_freshness.py\n")
     calls.write_text(".")
@@ -3067,6 +3085,13 @@ def test_a_recorded_line_no_shim_wrote_is_refused(tmp_path):
     log.write_text("pytest forged.py\npytest tests/test_skill_freshness.py\n")
     lines, forged = recorded(log, calls)
     assert lines == [] and forged and "no shim wrote" in forged, (lines, forged)
+    # And the limit of the arithmetic, measured rather than asserted away: one
+    # line against one invocation is accepted however the line got there, so
+    # the count reports a line nobody counted and authenticates nothing.
+    log.write_text("pytest forged.py\n")
+    assert recorded(log, calls) == (["pytest forged.py"], None), (
+        "the count is arithmetic; what stops a replaced line is the "
+        "redirection reader, which is the open shape the docstring lists")
 
 
 @EXECUTES_STEPS
@@ -3455,6 +3480,7 @@ def test_the_shapes_that_walk_past_the_shims_are_named_in_one_place():
         "a `shell:` value containing `{0}`",
         "`working-directory`",
         "the workflow's own `env`",
+        "the recorder's log and counter",
     ):
         assert shape in (__doc__ or ""), (
             f"the list of shapes that walk past the shims no longer names "
