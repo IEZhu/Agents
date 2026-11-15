@@ -3,9 +3,9 @@
 `plugins/agents-core` is the Claude plugin submitted to Anthropic's plugin directory (#362).
 The owner's last recorded portal evidence (2026-11-15) showed the release version refused, not a
 published listing: the directory takes a local MCP server, and a file outside its allowed types,
-only from a Verified organization, and this one is not. That reading is the first to name what the
-directory checked, `26.11.14.1328` at `19e7e28`, and the first to report its scan as passed, so
-policy alone stops the version.
+only from a Verified organization, and this one is not. That reading is the first of this refusal
+to name the version and commit it applies to, `26.11.14.1328` at `19e7e28`, and it reports that
+version's scan as passed, so policy alone stops it.
 See the [submission ledger](distribution.md#submitted-destinations) for dates, evidence and follow-up links. The
 Connectors Directory takes only remote `https://` MCP servers and no longer takes MCPB
 extensions, so a local server like Agents-Core can be listed only inside a plugin.
@@ -136,12 +136,14 @@ expected and observed:
   plugin folder, written from `${CLAUDE_PLUGIN_ROOT}`.
 - **Refused again on 2026-11-15**, the check of `26.11.14.1328` at `19e7e28`, read in the portal the
   same day: *Directory policy refused this version*, on the two findings below and nothing else. It
-  is the first evidence that names the version and the commit checked, and the first to separate the
-  two gates: the page's activity reads *New version detected*, then *Scan passed, but this version
-  doesn't meet directory policy*, then *Blocked from going live by directory policy*. The scan that
-  stopped `26.10.28.1144` therefore reads the whole plugin now. The page also states that a new
-  version meeting the rules can go live, that new commits are picked up about every six hours on a
-  scheduled check, and that no version of this plugin goes live without an Anthropic reviewer.
+  is the first evidence of this refusal that names the version and the commit it applies to, and the
+  first to separate the two gates: the page's activity reads *New version detected*, then *Scan
+  passed, but this version doesn't meet directory policy*, then *Blocked from going live by
+  directory policy*. This version's scan passed, so `LOCAL_CODE_NOT_CHECKED` is not among the
+  reasons it is refused, and the check of `26.10.28.1144` keeps its own result. The page also
+  states that a new version meeting the rules can go live, that new commits are picked up about
+  every six hours on a scheduled check, and that no version of this plugin goes live without an
+  Anthropic reviewer.
 - **Blocked since 2026-11-11**, read in the portal on 2026-11-14: *Directory policy failed* with two
   findings, *Local MCP servers accepted only from Verified organizations* and *Files outside the
   allowed types accepted only from Verified organizations*. They reach `.mcp.json`, which declares
