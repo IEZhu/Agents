@@ -424,7 +424,7 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 - Conventional commits: `type(scope): subject`, imperative, body wrapped at 72, one change per commit. New work uses a `codex/<slug>` branch unless the user or flow names another; issue implementation requires `claude/issue-<number>-<short-slug>`.
 - Every committed document is in English, AI instructions included.
 - The protocol text has one source, the 20 section files in `src/engine/protocol/`, which `src/engine/protocol_text.py` composes into every surface: `scripts/templates/routing-protocol-core.md` (the managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization instructions, the `SUCCESS` instruction, the client pointers and `memory-routing.md`. Never hand-edit a generated surface: change the section, then `python3 -m src.engine.protocol_text --write` (`--check` reports stale ones). This memory block has its own markers; keep repository notes outside both marker pairs.
-- The worker result's separator rule has one source too, `SEPARATORS` in `src/engine/subagent_text.py`, regenerated into `docs/subagent-contract.md` by `python -m src.engine.subagent_contract_text --write`.
+- The worker result's separator rule has one source too, `SEPARATORS` in `src/engine/subagent_text.py`, regenerated into `docs/subagent-contract.md` by `.venv/bin/python -m src.engine.subagent_contract_text --write`.
 - A handler returning a JSON string is wrapped by FastMCP as `{"result": <text>}` and counted twice-escaped; one annotated with a response model exposes structured content instead. `src/result_size.py:16-17` sets `INLINE_LIMIT = 50_000` and `RESULT_SIZE_CEILING = 500_000`, so result size is a design constraint either way.
 
 ### Key Workflows
