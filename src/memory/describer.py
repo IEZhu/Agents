@@ -721,11 +721,21 @@ class RepoDescriber:
         parts = text.split("\n\n", 1)
         return parts[1] if len(parts) > 1 else text
 
-    def up_to_date_response(self, decision: DescribeDecision) -> dict:
+    def up_to_date_response(self, decision: DescribeDecision, *,
+                            preview_chars: Optional[int] = None) -> dict:
+        """The stored description of an up-to-date repository.
+
+        ``preview_chars`` caps the embedded preview for a caller that did not ask for one,
+        such as the repository context of an activation (#459); describe_repo itself, which
+        a caller invokes deliberately, returns the stored head whole.
+        """
         cached = decision.cached_summary or ""
         raw = self._strip_wrapper_header(cached)
         preview = "\n".join(raw.splitlines()[:6])
         word_count = len(raw.split())
+        if preview_chars is not None and len(preview) > preview_chars:
+            marker = " […]"
+            preview = preview[:max(0, preview_chars - len(marker))].rstrip() + marker
         return {
             "status": "up-to-date",
             "path": self.claude_md_path,

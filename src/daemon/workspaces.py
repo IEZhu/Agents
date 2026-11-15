@@ -33,6 +33,42 @@ class WorkspaceError(ValueError):
     pass
 
 
+class WorkspaceMismatch(WorkspaceError):
+    """A call named a workspace the registered root does not cover (#576).
+
+    The grant still decides the root: an argument never widens it. A tool that answers
+    *about* a repository raises this instead of answering for the registered one, so the
+    caller learns that its argument was not followed and how to reach the other project.
+    """
+
+    def __init__(self, registered, requested):
+        self.registered, self.requested = str(registered), str(requested)
+        super().__init__(
+            f"workspace_mismatch: this session is registered for the workspace {self.registered}, "
+            f"and {self.requested} is outside it. A workspace argument never widens that grant, so "
+            f"nothing was answered for {self.requested}.")
+
+    def details(self):
+        """The fields a tool adds beside the message: both roots and what the user can do.
+
+        A refusal that enforces a grant must not hand back the command that widens it. The
+        remedy therefore names ``workspace register``, which only records a root
+        (`control.py`), and not ``migrate``, whose ``--clients`` defaults to
+        ``codex,claude,cursor`` and whose ``ClientMigration.apply`` rewrites those three
+        configuration files: an unattended run acting on text in a tool result would
+        reconfigure three AI clients and be granted, next session, the repository this very
+        refusal denied. It is addressed to the user for the same reason, and the requested
+        path is not interpolated into a command line either — it is a caller-supplied string,
+        and ``requested_workspace`` beside it already reports it as data.
+        """
+        return {"code": "workspace_mismatch", "registered_workspace": self.registered,
+                "requested_workspace": self.requested, "remedy": (
+                    "Nothing a session can call widens this grant. The user registers the "
+                    "requested workspace with `python -m src.daemon workspace register` and "
+                    "reconnects MCP, or starts a session in that repository. Until then read "
+                    "that repository's own CLAUDE.md or AGENTS.md instead.")}
+
+
 class WorkspaceRegistry:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -155,8 +191,25 @@ class ClientContext:
     # records it with the turn and nothing is written there (#292).
     claimed: str | None = None
     # Explicit physical grants retained before history normalizes linked worktrees.
-    # Only cooperation uses these; workspace_target continues to enforce root.
+    # Cooperation resolves a checkout in them, and `_workspace_argument` accepts one as
+    # covering a named workspace; `workspace_target` continues to enforce root alone.
     cooperation_roots: tuple[Path, ...] = ()
+    # The `workspace` a call named that no authorized root of this session covers (#576).
+    # Recorded, never followed: tools that answer about a repository refuse, history tools
+    # note it. A linked worktree of the registered repository is covered by its grant.
+    mismatch: str | None = None
+    # The authorized root a report of this call follows: an owner-registered physical
+    # checkout, such as the worktree a session runs in and history normalizes to its main
+    # checkout, or the memory root where the call named it and `_single_grant` would otherwise
+    # answer about a grant instead (CR1 F1). Only a repository *report* follows it, so that the
+    # description and hash belong to the tree the call named and not to another branch's
+    # (#576 pre-mortem P-C2); every write and target still resolves inside `root`.
+    covering_root: Path | None = None
+    # The `workspace` a call named that is an authorized root under another spelling: the
+    # same real directory, which `Path.resolve()` does not normalize the case of. Noted like
+    # an ignored argument, never refused, so one respelling cannot cost a session its
+    # repository tools (#576 pre-mortem P-C5).
+    respelled: str | None = None
 
     def workspace_root(self):
         if self.error or self.root is None:
@@ -169,6 +222,43 @@ class ClientContext:
             if not (self.root / relative).resolve().is_relative_to(self.root):
                 raise WorkspaceError("workspace_invalid: memory path escapes workspace")
         return self.root
+
+    def require_workspace_match(self):
+        """Refuse to answer about a repository the call named but the grant does not cover (#576)."""
+        if self.mismatch is not None:
+            raise WorkspaceMismatch(self.workspace_root(), self.mismatch)
+
+    def workspace_note(self):
+        """For a call whose named workspace was not followed, what was used instead (#576).
+
+        The history tools keep answering for the registered root; this sentence is how they say
+        so. A respelling of an authorized root is noted the same way and refused nowhere, so
+        every tool keeps answering for the one directory both spellings name. None when the
+        argument matched, or no workspace was named.
+        """
+        named = self.mismatch if self.mismatch is not None else self.respelled
+        if named is None:
+            return None
+        return (f"The workspace argument {named} was ignored: this session is registered for "
+                f"{self.workspace_root()}, and that is the workspace used.")
+
+    def report_root(self):
+        """The checkout a repository report describes: the root that covers what was named.
+
+        `workspace_root` is the memory root, which is the main checkout for a worktree session
+        because history normalizes a linked worktree to it. A description of that root would
+        be another branch's, so a report follows the authorized physical checkout the call
+        named instead (#576 pre-mortem P-C2). Targets, writes and history are unchanged.
+
+        Only a call that named no workspace falls back on `_single_grant`, which stands in for
+        the absence of a choice. A call that named the memory root made that choice, and
+        `_workspace_argument` records it where this fallback would otherwise override it with a
+        grant the call did not name (CR1 F1).
+        """
+        root = self.workspace_root()
+        if self.covering_root is not None:
+            return self.covering_root
+        return _single_grant(root, self.cooperation_roots) or root
 
     def target(self, requested=None):
         self.require_root()
@@ -267,7 +357,134 @@ async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fall
             context = replace(context, error=f"{context.error} {NO_ROOTS_HINT}")
     if (context.error is not None or context.root is None) and workspace is not None:
         context = replace(context, claimed=workspace)  # what the call names says more than the start directory
+    if fields := _workspace_argument(context, workspace):
+        context = replace(context, **fields)
     return context
+
+
+def _workspace_argument(context, workspace):
+    """How a named `workspace` stands to this session's authorized roots, as fields (#576).
+
+    An authorized root is the registered memory root or one of the owner-registered physical
+    checkouts beside it. Both are needed because history normalizes a linked worktree to its
+    main checkout (`config._main_checkout`): the memory root of a worktree session is the main
+    checkout, while the directory the session actually runs in is kept as a grant, which this
+    same request already reads the project's instruction files from. A worktree session naming
+    its own working directory, as the parameter asks it to, therefore names one repository and
+    not another one; only a path outside every authorized root is a `mismatch`.
+
+    The authorized root a report then follows is reported as `covering_root` (`_named_root`),
+    the most specific of the roots that cover the named path (`_most_specific`),
+    and a path that names an authorized root under another spelling as `respelled`, which is
+    noted and never refused. An empty mapping leaves the context as it is.
+
+    Only HTTP keeps a registered root against the argument; a stdio workspace is checked
+    against the client's own MCP roots above and answered as named, so it never mismatches.
+    """
+    if context.transport != "http" or workspace is None or context.error is not None or context.root is None:
+        return {}
+    authorized = (context.root, *context.cooperation_roots)
+    if covering := [root for root in authorized if _covers(root, workspace)]:
+        return _named_root(context, _most_specific(covering))
+    if respelled := [root for root in authorized if _same_directory(root, workspace)]:
+        return {"respelled": workspace, **_named_root(context, _most_specific(respelled))}
+    return {"mismatch": workspace}
+
+
+def _most_specific(roots):
+    """The deepest of the authorized roots that cover one named path (CR2 F1).
+
+    A linked worktree is commonly registered inside its own main checkout -- this very
+    repository keeps them under `.worktrees/` -- so the memory root covers such a grant
+    just as the grant itself does. Taking the first match then answered about the main
+    checkout for a call that named the worktree, which is the report this parameter exists
+    to correct; `report_root` would have followed the single grant correctly had nothing
+    been recorded at all.
+
+    Every root reaching here covers the same path, so each is that path or an ancestor of
+    it: they form one chain and the deepest is the one the call named. A call that names
+    the memory root is covered by the memory root alone, so that explicit choice (CR1 F1)
+    is unchanged.
+    """
+    return max(roots, key=lambda root: len(root.parts))
+
+
+def _named_root(context, root):
+    """What records *root* as the root a report of this call follows, as fields (CR1 F1).
+
+    A grant is always recorded: a report of it describes a different tree from the memory
+    root. The memory root is recorded where `report_root` would otherwise fall back on the
+    session's single grant, which stands in for a call that named no workspace at all — the
+    case this call is not. With no single grant to override it the field would carry no
+    information, and the context is left as it is, so an HTTP request whose argument names its
+    own registered root is answered with the very context it carried.
+    """
+    if root != context.root or _single_grant(root, context.cooperation_roots) is not None:
+        return {"covering_root": root}
+    return {}
+
+
+def _single_grant(root, grants):
+    """The one owner-registered checkout beside *root*, or None when there is no single one.
+
+    A registration carries a single physical grant beside its memory root when that grant is
+    the directory the registration was made from; several grants name no one checkout.
+    """
+    beside = [grant for grant in grants if grant != root]
+    return beside[0] if len(beside) == 1 else None
+
+
+def _covers(root, requested):
+    """True when *requested* names *root* itself or a directory inside it.
+
+    *root* is compared unresolved on purpose: every root reaching this point is already
+    strictly resolved — `WorkspaceRegistry.resolve` accepts a record only when the stored
+    string equals its own `resolve(strict=True)`, and `_existing_checkouts` holds a grant to
+    the same equality — so resolving it again could only differ if that invariant broke.
+    """
+    try:
+        target = Path(requested).expanduser()
+        if not target.is_absolute():
+            target = root / target
+        return target.resolve().is_relative_to(root)
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def _same_directory(root, requested):
+    """True when *requested* is *root*, or a directory in it, under another spelling (#576).
+
+    `_covers` decides by exact containment of resolved paths, and `Path.resolve()` does not
+    normalize case, so on a case-insensitive filesystem one real directory named under
+    another spelling is not covered — and the whole session then loses `describe_repo`,
+    `write_repo_summary`, `run_flow` and a `scope=repo` listing over two paths the user reads
+    as identical. This decides note-instead-of-refusal for that case only, and nothing else
+    compares case-insensitively.
+
+    Both sides are resolved first, and the casefolded match is then confirmed against the
+    filesystem with `samefile`, because a case-sensitive filesystem can hold two different
+    directories whose names differ only in case: there the identity check fails and the
+    refusal stands.
+
+    What `samefile` confirms is the ancestor slice, not the whole requested path, so a
+    directory inside the root that does not exist yet is accepted through the root it sits
+    in. That is deliberate: such a path still names a place inside the registered
+    repository, and refusing it would take the session's repository-scoped tools away over
+    a directory it is about to create. A path whose ancestor slice is not the root is
+    refused whether it exists or not, which is the case this function is here to keep.
+    """
+    try:
+        target = Path(requested).expanduser()
+        if not target.is_absolute():
+            return False
+        target = target.resolve()
+        prefix, named = str(root).casefold(), str(target).casefold()
+        if named != prefix and not named.startswith(prefix + os.sep):
+            return False
+        ancestor = Path(*target.parts[:len(root.parts)])
+        return ancestor.samefile(root)
+    except (OSError, ValueError, RuntimeError):
+        return False
 
 
 async def _workspace_context(session, workspace=None):

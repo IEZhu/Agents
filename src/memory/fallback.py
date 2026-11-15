@@ -17,9 +17,13 @@ MAX_CLAIM = 4096
 # the directory's own path, so a copy elsewhere, or the same name in a repository, is no journal.
 MARKER = ".agents-core-fallback"
 
+# `workspace register` records a root and nothing else; `migrate`, whose `--clients` defaults to
+# codex,claude,cursor, rewrites those three configuration files, so it is not what a note in a
+# tool result offers (`WorkspaceMismatch.details` says why at more length). The registration is
+# addressed to the user for the same reason.
 REMEDY = ("To keep history in the project, start the session inside it (a directory with .git or "
-          "CLAUDE.md) or register it once with `python -m src.daemon migrate --workspace "
-          "/absolute/project`, then reconnect MCP; over stdio, set AGENTS_CLIENT_REPO_ROOT.")
+          "CLAUDE.md). The user registers it once with `python -m src.daemon workspace register "
+          "/absolute/project` and reconnects MCP; over stdio, set AGENTS_CLIENT_REPO_ROOT.")
 
 
 @dataclass(frozen=True)

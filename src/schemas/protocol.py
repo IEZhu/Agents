@@ -66,6 +66,12 @@ class PersonaResponse(BaseModel):
     message: Optional[str] = None
     # Outdated managed routing sections in the client's instruction files, on a first activation.
     warnings: Optional[List[str]] = None
+    # The describe_repo result for this workspace, on this caller's first activation in it
+    # (#459). Absent on a later activation of the same caller in the same unchanged workspace,
+    # and absent for a caller whose workspace this handler cannot see. One process serves
+    # several sessions, so another session of it is told as well. Reading it is optional: it
+    # carries no instruction block and nothing about the activation depends on it.
+    repo_context: Optional[Dict[str, Any]] = None
 
     def to_json(self) -> str:
         # Null replacement explicitly identifies initial activation.
