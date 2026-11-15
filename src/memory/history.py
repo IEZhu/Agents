@@ -39,7 +39,6 @@ import re
 import shutil
 import stat
 import threading
-import tempfile
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
@@ -192,6 +191,48 @@ def _normalized_windows_path(value):
     return ntpath.normcase(ntpath.normpath(value))
 
 
+def _windows_directory_path(path):
+    """The real path of a directory, read from a handle that refuses a reparse point.
+
+    ``os.path.realpath`` resolves the name a second time, so a junction put in
+    place after the caller checked the name would be resolved to its target and
+    every later comparison would match the substituted directory instead.
+    ``FILE_FLAG_OPEN_REPARSE_POINT`` is the Windows counterpart of ``O_NOFOLLOW``:
+    a junction or symlink opens as itself and is refused here, so the path
+    returned always belongs to a directory that was not substituted.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    # No access requested, every share mode, OPEN_EXISTING, and
+    # BACKUP_SEMANTICS | OPEN_REPARSE_POINT so a directory opens and a link does
+    # not resolve.
+    handle = create(path, 0, 0x7, None, 3, 0x02000000 | 0x00200000, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        attributes = kernel.GetFileAttributesW(path)
+        if attributes != 0xFFFFFFFF and attributes & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+            raise PermissionError("journal artifact must be a regular directory")
+        final_path = kernel.GetFinalPathNameByHandleW
+        final_path.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+        final_path.restype = wintypes.DWORD
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = final_path(handle, buffer, len(buffer), 0)
+        if not length or length >= len(buffer):
+            raise OSError("cannot validate journal directory handle")
+        # Raw, like GetFinalPathNameByHandleW gives it: the caller joins the
+        # relative part and normalizes the whole once, as before.
+        return buffer.value
+    finally:
+        kernel.CloseHandle(handle)
+
+
 @contextlib.contextmanager
 def _open_regular(path, mode="r", *, root=None, **kwargs):
     """Open a journal artifact without following a substituted file or directory.
@@ -209,7 +250,7 @@ def _open_regular(path, mode="r", *, root=None, **kwargs):
         raise PermissionError("journal file is outside its authorized root")
     root_info = os.lstat(root)
     _regular_kind(root_info, directory=True)
-    expected_path = os.path.normcase(os.path.normpath(os.path.join(os.path.realpath(root), relative)))
+    expected_path = None
     directory_fd = None
     anchored = hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
     try:
@@ -223,7 +264,12 @@ def _open_regular(path, mode="r", *, root=None, **kwargs):
                 os.close(directory_fd)
                 directory_fd = next_fd
         else:
-            expected_path = _normalized_windows_path(expected_path)
+            # The expected root comes from a handle that refuses a reparse
+            # point, not from resolving the name again: a junction put over the
+            # root between the lstat above and this call is refused here
+            # instead of becoming the path the final-path check below accepts.
+            expected_path = _normalized_windows_path(
+                os.path.join(_windows_directory_path(root), relative))
             directory = root
             for component in relative.split(os.sep)[:-1]:
                 directory = os.path.join(directory, component)
@@ -438,26 +484,106 @@ def without_entry(content: str, entry_id: str, timestamp: str) -> str:
     raise EntryChanged("the entry is no longer there as shown")
 
 
-def _replace(path: str, text: str) -> None:
+_ANCHORED_DIR = (hasattr(os, "O_DIRECTORY") and os.open in os.supports_dir_fd
+                 and os.rename in os.supports_dir_fd)
+
+
+@contextlib.contextmanager
+def _anchored_dir(path, info=None):
+    """A descriptor for ``path`` that the steps below use instead of its name.
+
+    The trust a pathname carries has to be earned again at every call, because
+    the kernel resolves the name afresh each time. A descriptor holds the
+    directory object itself, so a name swapped afterwards cannot redirect a
+    create or a move made through it. Windows accepts no directory descriptor
+    anywhere (``os.supports_dir_fd`` is empty there), so it yields ``None`` and
+    the caller re-identifies the directory by name instead.
+
+    ``O_NOFOLLOW`` is deliberately not used: a trusted root may legitimately be
+    reached through a link, which is what ``_open_regular`` means by trusting a
+    selected root's ancestors, and refusing one here would stop a working
+    installation rather than an attack. Which directory the descriptor holds is
+    established instead by ``info``, the caller's own check of it: a name
+    substituted between that check and this open has another identity and is
+    refused. A caller that passes no ``info`` gains the anchoring without
+    adding a link policy it did not have before.
+    """
+    if not _ANCHORED_DIR:
+        yield None
+        return
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISDIR(opened.st_mode):
+            raise PermissionError("journal artifact must be a regular directory")
+        if info is not None and not os.path.samestat(info, opened):
+            raise PermissionError("journal archive directory changed while rotating")
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _temp_beside(directory, name, dir_fd):
+    """``(descriptor, name)`` of a fresh temporary file for a replacement of ``name``."""
+    prefix, suffix = "." + name + ".", ".tmp"
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    for _attempt in range(100):
+        candidate = prefix + os.urandom(8).hex() + suffix
+        try:
+            if dir_fd is None:
+                return os.open(os.path.join(directory, candidate), flags, 0o600), candidate
+            return os.open(candidate, flags, 0o600, dir_fd=dir_fd), candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError("no free temporary name in the journal directory")
+
+
+def _move_onto(directory, temporary, name, dir_fd):
+    """Put ``temporary`` at ``name`` in one step, through ``dir_fd`` where there is one.
+
+    ``os.replace`` takes no directory descriptor on any platform, but
+    ``os.rename`` does and overwrites atomically on POSIX, which is exactly what
+    a replacement needs.
+    """
+    if dir_fd is None:
+        os.replace(os.path.join(directory, temporary), os.path.join(directory, name))
+    else:
+        os.rename(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
+def _discard_temp(directory, temporary, dir_fd):
+    with contextlib.suppress(OSError):
+        if dir_fd is None:
+            os.unlink(os.path.join(directory, temporary))
+        else:
+            os.unlink(temporary, dir_fd=dir_fd)
+
+
+def _replace(path: str, text: str, *, info=None) -> None:
     """Write ``text`` beside ``path`` and replace it in one step, synced first, keeping its mode.
 
     ``surrogateescape`` writes back exactly the bytes a read with it decoded, invalid ones included.
+    The temporary file and the move both go through one descriptor for the
+    directory, so neither reaches it by a name that may have been substituted
+    since the caller checked it.
     """
-    fd, temp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".tmp",
-                                dir=os.path.dirname(path) or ".")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        with contextlib.suppress(OSError):
-            os.chmod(temp, stat.S_IMODE(os.stat(path).st_mode))
-        os.replace(temp, path)
-        _sync_directory(os.path.dirname(path) or ".")
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(temp)
-        raise
+    directory, name = os.path.dirname(path) or ".", os.path.basename(path)
+    with _anchored_dir(directory, info) as dir_fd:
+        fd, temp = _temp_beside(directory, name, dir_fd)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+                with contextlib.suppress(OSError):
+                    previous = (os.stat(name, dir_fd=dir_fd) if dir_fd is not None
+                                else os.stat(path))
+                    os.fchmod(stream.fileno(), stat.S_IMODE(previous.st_mode))
+            _move_onto(directory, temp, name, dir_fd)
+            _sync_directory(directory)
+        except BaseException:
+            _discard_temp(directory, temp, dir_fd)
+            raise
 
 
 def _sync_file(path: str, *, root=None) -> None:
@@ -511,7 +637,14 @@ def delete_entry(history_path: str, month: Optional[str], entry_id: str, timesta
                     # Keep only the acceptance receipt, not the deleted content.
                     # A delayed retry must not resurrect a deliberately removed entry.
                     updated += "\n<!-- agents-write-receipt " + json.dumps(receipt, sort_keys=True) + " -->\n"
-        _replace(path, updated)
+        directory_info = None
+        if month is not None:
+            # The guarded read above refuses a linked archive directory; the
+            # replacement anchors to that same directory instead of resolving
+            # its name again, and a swap between the two is refused.
+            directory_info = os.lstat(archive_dir)
+            _regular_kind(directory_info, directory=True)
+        _replace(path, updated, info=directory_info)
     _deleted(history_path, entry_id, timestamp)
 
 
@@ -1049,44 +1182,43 @@ class HistoryWriter:
         # Build the merged archive beside the real one and replace it in one
         # step: a crash or error at any point leaves the archive as it was, and
         # the pending file is only emptied after the replace.
-        fd, temp = tempfile.mkstemp(prefix="." + os.path.basename(archive_path) + ".", suffix=".tmp",
-                                    dir=self.archive_dir)
-        try:
-            stream = os.fdopen(fd, "wb")
-            fd = None  # stream owns the descriptor, including on a later write failure.
-            with stream as dst:
-                if existed:
-                    with _open_regular(archive_path, "rb", root=archive_root) as old:
-                        shutil.copyfileobj(old, dst)
-                    dst.write(b"\n\n<!-- merged on rotation -->\n\n")
-                dst.write(payload.encode("utf-8", errors="surrogateescape"))
-                dst.flush()
-                os.fsync(dst.fileno())
-            # The temporary file above and this replace both reach the archive
-            # directory by name, and os.replace takes no directory descriptor on
-            # every platform (it is absent from os.supports_dir_fd on macOS), so
-            # the directory is re-identified right before the move: a swap after
-            # the check above is refused instead of sending the archive to the
-            # link's target. The window left is this comparison to the move.
-            current_dir = os.lstat(self.archive_dir)
-            swapped = _is_link(current_dir) or not stat.S_ISDIR(current_dir.st_mode)
-            if archive_dir_info.st_ino and current_dir.st_ino:
-                # A file system that numbers no entry cannot tell two apart.
-                swapped = swapped or ((current_dir.st_dev, current_dir.st_ino)
-                                      != (archive_dir_info.st_dev, archive_dir_info.st_ino))
-            if swapped:
-                raise PermissionError("journal archive directory changed while rotating")
-            os.replace(temp, archive_path)
-            _sync_directory(self.archive_dir)
-        except Exception:
-            if fd is not None:
-                with contextlib.suppress(OSError):
-                    os.close(fd)
+        archive_name = os.path.basename(archive_path)
+        with _anchored_dir(self.archive_dir, archive_dir_info) as dir_fd:
+            fd, temp = _temp_beside(self.archive_dir, archive_name, dir_fd)
             try:
-                os.unlink(temp)
-            except OSError:
-                pass
-            raise
+                stream = os.fdopen(fd, "wb")
+                fd = None  # stream owns the descriptor, including on a later write failure.
+                with stream as dst:
+                    if existed:
+                        with _open_regular(archive_path, "rb", root=archive_root) as old:
+                            shutil.copyfileobj(old, dst)
+                        dst.write(b"\n\n<!-- merged on rotation -->\n\n")
+                    dst.write(payload.encode("utf-8", errors="surrogateescape"))
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                if dir_fd is None:
+                    # Windows takes no directory descriptor, so the move still
+                    # reaches the archive directory by name: re-identify it
+                    # immediately before, and refuse a swap rather than send the
+                    # archive to the link's target. The window left is this
+                    # comparison to the move. Elsewhere the descriptor above
+                    # holds the directory itself and there is no window.
+                    current_dir = os.lstat(self.archive_dir)
+                    swapped = _is_link(current_dir) or not stat.S_ISDIR(current_dir.st_mode)
+                    if archive_dir_info.st_ino and current_dir.st_ino:
+                        # A file system that numbers no entry cannot tell two apart.
+                        swapped = swapped or ((current_dir.st_dev, current_dir.st_ino)
+                                              != (archive_dir_info.st_dev, archive_dir_info.st_ino))
+                    if swapped:
+                        raise PermissionError("journal archive directory changed while rotating")
+                _move_onto(self.archive_dir, temp, archive_name, dir_fd)
+                _sync_directory(self.archive_dir)
+            except Exception:
+                if fd is not None:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                _discard_temp(self.archive_dir, temp, dir_fd)
+                raise
         self._discard_pending(pending)
         return archive_path
 
@@ -1224,7 +1356,8 @@ class HistoryReader:
         ``history/*.md``), so an entry that rotation archived is still found, and with the user
         library sync set up for this repository through the synced segments too. Files are read
         newest month first, and the search stops at this checkout's own copy, which wins over a
-        segment's. An archive that cannot be read is skipped with a warning.
+        segment's. A segment that cannot be read is skipped; an archive of this checkout that
+        cannot be read raises, so a refused read is never reported as "no such entry".
         """
         chosen: Dict[str, HistoryEntry] = {}
         for _path, _digest, entries in self._live_files():
@@ -1239,11 +1372,12 @@ class HistoryReader:
                     break
                 if side == 1:
                     continue
-            try:
-                parsed = self._older_file(machine, path, machines.deleted)
-            except OSError:
-                logger.warning("could not read history archive %s", path, exc_info=True)
-                continue
+            # _older_file already skips an unreadable synced segment and
+            # returns None, so the only error that reaches here belongs to this
+            # checkout's own archive. Swallowing it would answer a lookup with
+            # an empty success, or with a segment's older copy, exactly when a
+            # guarded read refused a substituted archive. It is raised instead.
+            parsed = self._older_file(machine, path, machines.deleted)
             if parsed is not None:
                 _merge_into(chosen, machine, [e for e in parsed[1] if e.id == entry_id])
         return chosen.get(entry_id)

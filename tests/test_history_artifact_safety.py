@@ -202,16 +202,20 @@ def test_a_dangling_archive_link_is_not_replaced_by_a_merge(journals):
 
 
 def test_the_replace_is_refused_when_the_archive_directory_identity_changed(journals, monkeypatch):
-    """The temporary file and the replace reach the directory by name.
+    """Where there is no directory descriptor, the move reaches the directory by name.
 
-    `os.replace` takes no directory descriptor on every platform, so the merge
-    reads the directory identity again immediately before the move and refuses a
-    change. This drives that comparison directly rather than swapping the
-    directory on disk: a real swap is caught by whichever guard sees it first,
-    and which one that is depends on how many times the platform's open path
-    reads the directory. The real-swap case for reads is the neighbouring
+    Windows accepts no `dir_fd` anywhere, so there the merge reads the directory
+    identity again immediately before the move and refuses a change. Forcing
+    `_ANCHORED_DIR` off runs that branch on any platform, as the neighbouring
+    no-O_NOFOLLOW tests do. The comparison is driven directly rather than by
+    swapping the directory on disk, because a real swap is caught by whichever
+    guard sees it first and that depends on how often the platform's open path
+    reads the directory. The anchored branch is
+    test_an_archive_directory_substituted_before_the_move_does_not_redirect_it,
+    and the real-swap case for reads is
     test_archive_directory_swap_cannot_redirect_the_open.
     """
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
     path, target = journals
     pending = path.with_name(path.name + ".rotating")
     payload = target.read_text(encoding="utf-8")
@@ -260,6 +264,123 @@ def test_the_replace_is_refused_when_the_archive_directory_identity_changed(jour
     assert (directory / f"{month}.md").read_text(encoding="utf-8") == "kept"
 
 
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory move")
+def test_an_archive_directory_substituted_before_the_move_does_not_redirect_it(journals, monkeypatch):
+    """The move goes through the directory's descriptor, so its name no longer decides.
+
+    Three review findings on this module were one mechanism: a directory
+    validated by name is resolved again by every later call, and the trust the
+    check earned does not survive to the use. Here the name is replaced with a
+    link to another directory after the merge opened and checked the real one,
+    in the moment before the move. The merged archive still lands in the
+    directory that was checked, and the link's target stays empty.
+    """
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    payload = target.read_text(encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    month = max(match[0] for match in history._HEADER_RE.findall(payload))[:7]
+    directory = path.parent / "history"
+    directory.mkdir()
+    (directory / f"{month}.md").write_text("kept", encoding="utf-8")
+    decoy = path.parent / "decoy"
+    decoy.mkdir()
+    real_move = history._move_onto
+
+    def swap_then_move(archive_dir, temporary, name, dir_fd):
+        assert dir_fd is not None, "the merge must hold a descriptor for the directory"
+        directory.rename(path.parent / "checked")
+        link_or_skip(path.parent / "history", decoy, directory=True)
+        return real_move(archive_dir, temporary, name, dir_fd)
+
+    monkeypatch.setattr(history, "_move_onto", swap_then_move)
+    history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert list(decoy.iterdir()) == []
+    merged = (path.parent / "checked" / f"{month}.md").read_text(encoding="utf-8")
+    assert merged.startswith("kept") and "PRIVATE_MARKER" in merged
+
+
+def test_a_refused_local_archive_is_not_reported_as_a_missing_entry(journals):
+    """An entry lookup answered "not found" where a guarded read had refused the archive.
+
+    `_older_file` already skips an unreadable synced segment and keeps a local
+    archive's error, so the only error that can reach `find` belongs to this
+    checkout. Catching it there turned the refusal into an empty success, which
+    is the one answer a fail-closed read must never produce.
+    """
+    path, target = journals
+    directory = path.parent / "history"
+    directory.mkdir()
+    archive = directory / "2026-01.md"
+    archive.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    entry_id = history.HistoryReader(str(path)).journal_entries()[0].id
+    assert history.HistoryReader(str(path)).find(entry_id) is not None
+    archive.unlink()
+    link_or_skip(archive, target)
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path)).find(entry_id)
+
+
+def test_the_no_nofollow_fallback_takes_its_root_from_a_handle(journals, monkeypatch):
+    """Off Windows this can only assert the structure, which is the point of it.
+
+    The expected root used to come from `os.path.realpath`, which resolves the
+    name a second time: a junction put over the root after the lstat above was
+    resolved to its target and the final-path comparison then accepted the
+    substituted directory. Only a Windows handle can refuse that, so the
+    behaviour itself is checked by the Windows jobs; what is checked here is
+    that the fallback asks the handle helper at all, and no longer resolves the
+    name. Reverting the fix makes this fail because `realpath` never raises.
+    """
+    path, _ = journals
+    path.write_text("local")
+    reached = []
+
+    def from_handle(value):
+        reached.append(value)
+        raise PermissionError("journal artifact must be a regular directory")
+
+    monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    monkeypatch.setattr(history, "_windows_directory_path", from_handle)
+    with pytest.raises(PermissionError, match="regular directory"):
+        history.parsed_file(str(path))
+    assert reached == [str(path.parent)]
+
+
+def test_a_delete_refuses_an_archive_directory_swapped_after_the_read(journals, monkeypatch):
+    """`delete_entry` read the archive under guard and then replaced it by name.
+
+    `mkstemp` and the move both resolved `history/` again, so a swap between the
+    guarded read and the replacement sent the rewritten archive into the
+    substituted directory. The directory is now checked and the replacement
+    anchored to it, so the swap is refused.
+    """
+    path, target = journals
+    directory = path.parent / "history"
+    directory.mkdir()
+    archive = directory / "2026-01.md"
+    archive.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    entry = history.HistoryReader(str(path)).journal_entries()[0]
+    decoy = path.parent / "decoy"
+    decoy.mkdir()
+    real_lstat = history.os.lstat
+    swapped = []
+
+    def swapping(entry_path, *args, **kwargs):
+        # One shot, and without touching the file system to decide: probing it
+        # here would call lstat again through this very function.
+        if not swapped and os.fspath(entry_path) == str(directory):
+            swapped.append(1)
+            directory.rename(path.parent / "checked")
+            link_or_skip(path.parent / "history", decoy, directory=True)
+        return real_lstat(entry_path, *args, **kwargs)
+
+    monkeypatch.setattr(history.os, "lstat", swapping)
+    with pytest.raises(PermissionError):
+        history.delete_entry(str(path), "2026-01", entry.id, entry.timestamp)
+    assert swapped and list(decoy.iterdir()) == []
+
+
 def test_failed_unlink_does_not_truncate_a_retargeted_pending(journals, monkeypatch):
     path, target = journals
     pending = path.with_name(path.name + ".rotating")
@@ -293,6 +414,9 @@ def test_no_nofollow_fallback_checks_tag_zero_file_identity_and_path(journals, m
         return shaped(real_fstat(fd), changed_identity=mismatch == "identity")
 
     monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    # The fallback reads the root from a directory handle; off Windows there is
+    # none, so it resolves the name exactly as the branch used to.
+    monkeypatch.setattr(history, "_windows_directory_path", os.path.realpath)
     monkeypatch.setattr(history.os, "lstat", lstat)
     monkeypatch.setattr(history.os, "fstat", fstat)
     monkeypatch.setattr(history, "_windows_final_path", lambda _: str(target))
@@ -344,6 +468,9 @@ def test_windows_non_link_reparse_artifacts_remain_readable(journals, monkeypatc
         return shaped(info, 0) if stat.S_ISREG(info.st_mode) else info
 
     monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    # The fallback reads the root from a directory handle; off Windows there is
+    # none, so it resolves the name exactly as the branch used to.
+    monkeypatch.setattr(history, "_windows_directory_path", os.path.realpath)
     monkeypatch.setattr(history.os, "lstat", lstat)
     monkeypatch.setattr(history.os, "fstat", fstat)
     monkeypatch.setattr(history, "_windows_final_path", lambda _: history._normalized_windows_path(str(path)))
@@ -373,6 +500,9 @@ def test_windows_name_surrogate_reparse_artifacts_remain_refused(journals, monke
         return info
 
     monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    # The fallback reads the root from a directory handle; off Windows there is
+    # none, so it resolves the name exactly as the branch used to.
+    monkeypatch.setattr(history, "_windows_directory_path", os.path.realpath)
     monkeypatch.setattr(history.os, "lstat", lstat)
     monkeypatch.setattr(history, "_windows_final_path", lambda _: pytest.fail("link opened before refusal"))
     with pytest.raises(PermissionError):

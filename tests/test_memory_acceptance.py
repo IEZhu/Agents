@@ -125,17 +125,23 @@ def test_deleted_entry_is_not_resurrected_by_delayed_retry(tmp_path, newline):
         write(path, tags=["changed"])
 
 
-@pytest.mark.parametrize("failure", ["replace", "fsync"])
+@pytest.mark.parametrize("failure", ["move", "fsync"])
 def test_failure_before_commit_keeps_previous_journal(tmp_path, monkeypatch, failure):
     path = tmp_path / "history.md"
     HistoryWriter(str(path)).append_entry("old", "action", "outcome")
     before = path.read_bytes()
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise OSError("disk unavailable")
 
     with monkeypatch.context() as patch:
-        patch.setattr(history.os, failure, fail)
+        # `_move_onto` is the commit on every platform: it renames through the
+        # directory descriptor where there is one and replaces by name where
+        # there is not, so `os.replace` is no longer reached off Windows.
+        if failure == "move":
+            patch.setattr(history, "_move_onto", fail)
+        else:
+            patch.setattr(history.os, "fsync", fail)
         with pytest.raises(OSError):
             write(path)
     assert path.read_bytes() == before
@@ -275,7 +281,7 @@ import json, os, sys
 from src.memory import history
 path, crash = sys.argv[1:]
 if crash == "before":
-    history.os.replace = lambda *_: os._exit(91)
+    history._move_onto = lambda *_, **__: os._exit(91)
 elif crash == "after":
     history._appended = lambda *_: os._exit(92)
 result = history.HistoryWriter(path).append_entry("intent", "action", "outcome", idempotency_key="write-1")
