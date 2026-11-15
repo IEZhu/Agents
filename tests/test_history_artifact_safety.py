@@ -381,6 +381,24 @@ def test_a_delete_refuses_an_archive_directory_swapped_after_the_read(journals, 
     assert swapped and list(decoy.iterdir()) == []
 
 
+def test_a_second_write_survives_a_platform_without_fchmod(journals, monkeypatch):
+    """Windows has no `os.fchmod`, and `AttributeError` is not an `OSError`.
+
+    The mode of the file being replaced is copied inside a suppressed block, so
+    a missing call there looks harmless and is not: the first write to a journal
+    raises `FileNotFoundError` before reaching it, and only the second write
+    reaches the chmod and fails. One append therefore passes and the next one
+    loses its entry, which is how this arrived from the Windows job rather than
+    from any local run.
+    """
+    path, _ = journals
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    monkeypatch.delattr(history.os, "fchmod", raising=False)
+    history.HistoryWriter(str(path)).append_entry("first", "action", "outcome")
+    history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    assert [e.intent for e in history.HistoryReader(str(path)).journal_entries()] == ["first", "second"]
+
+
 def test_failed_unlink_does_not_truncate_a_retargeted_pending(journals, monkeypatch):
     path, target = journals
     pending = path.with_name(path.name + ".rotating")

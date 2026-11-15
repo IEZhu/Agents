@@ -576,9 +576,14 @@ def _replace(path: str, text: str, *, info=None) -> None:
                 stream.flush()
                 os.fsync(stream.fileno())
                 with contextlib.suppress(OSError):
-                    previous = (os.stat(name, dir_fd=dir_fd) if dir_fd is not None
-                                else os.stat(path))
-                    os.fchmod(stream.fileno(), stat.S_IMODE(previous.st_mode))
+                    # os.fchmod is POSIX only, and AttributeError is not an
+                    # OSError, so reaching for it on Windows would not be
+                    # suppressed: it would fail the second write to a journal,
+                    # the first one having raised FileNotFoundError here first.
+                    if dir_fd is not None:
+                        os.fchmod(stream.fileno(), stat.S_IMODE(os.stat(name, dir_fd=dir_fd).st_mode))
+                    else:
+                        os.chmod(os.path.join(directory, temp), stat.S_IMODE(os.stat(path).st_mode))
             _move_onto(directory, temp, name, dir_fd)
             _sync_directory(directory)
         except BaseException:
