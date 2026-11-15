@@ -49,8 +49,10 @@ are closed by running the step: its script goes to a file and the file to
 `bash -e`, in a throwaway tree of this repository's path names, with every
 program that could be pytest replaced by a shim that records its argv and exits
 0. So the content checks are never executed by the guard that checks them,
-nothing is installed and nothing reaches the network, while what pytest was
-handed is a recorded fact rather than an inference.
+the harness installs nothing of its own and intends no network access, while
+what pytest was handed is a recorded fact rather than an inference. Intends,
+not prevents: the paragraph on the shims below says which shapes reach past
+them.
 
 Two are closed by reading after all, by one conservative rule rather than by a
 list of positions that kept growing. A command is credited only where it is
@@ -1757,7 +1759,8 @@ def execute_step(script, *, shell=None, env=None, working_directory=None, timeou
     and `cd docs` succeeds while nothing the script writes reaches the real
     tree, and with HOME inside that copy. Every program that could be pytest is
     replaced by a shim that appends its argv to a log and exits 0, so no check
-    is collected, nothing is installed and nothing reaches the network: a
+    is collected and the harness installs nothing of its own and asks for no
+    network: a
     `pip install` records instead of resolving, an action that would install a
     toolchain is a `uses:` step this never executes, and a step's own pytest
     line records instead of running. PATH and HOME are set after the workflow's
@@ -3723,10 +3726,9 @@ def test_the_shim_list_covers_every_program_that_could_start_pytest():
     so those three are covered twice over; `uv` and `uvx` come from the list
     alone, and `pytest_invocation` steps over both as prefixes. uv is on PATH on
     a developer machine, and `uv run pytest tests/x.py` under the real uv
-    resolves an environment over the network from inside the guard that exists
-    to prove nothing reaches the network. The recorded log is the proof it does
-    not: the shim answers, and what it recorded reads back as the pytest run it
-    was.
+    resolves an environment over the network from inside the guard that asks
+    for none. The recorded log is what answers instead: the shim replies, and
+    what it recorded reads back as the pytest run it was.
     """
     names, _inside, _outside = shim_plan("echo nothing to shim here\n")
     for program in ("python", "python3", "pytest", "pip", "pip3", "uv", "uvx"):
