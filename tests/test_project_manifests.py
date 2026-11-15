@@ -678,6 +678,25 @@ def executed_files(arguments, stubs, directory=None) -> Executed:
     return Executed(frozenset(executed), None)
 
 
+def could_select_the_file(path: str, test_file: str, literal: bool = False) -> bool:
+    """`selects_the_file`, and a token whose value only the step's own shell has.
+
+    The same answer `mentions_the_file` gives on the other side of the reading.
+    A `$` token is kept there rather than resolved, so it has to be kept here
+    too, or `pytest "$TARGET" || true` is refused by neither half: the selector
+    does not match, nothing is refused, and the recorder then sees the expanded
+    path and confirms the file ran (CodeRabbit on PR 662). What the shell hands
+    pytest is not known here, so what it could select is not known either.
+
+    A recorded argument is the opposite case and keeps the ordinary reading: the
+    shell has already had that token, so a `$` left in it is a character of the
+    path and not an expansion this reader is guessing at.
+    """
+    if not literal and "$" in path:
+        return True
+    return selects_the_file(path, test_file, literal)
+
+
 def not_credited_here(script: str, path: str) -> list[str]:
     """This script's pytest runs of `path` that the shared rule will not credit.
 
@@ -713,12 +732,13 @@ def not_credited_here(script: str, path: str) -> list[str]:
 
     Which arguments count as being about the path is this guard's own answer
     and not the other module's: what it replays is handed to a real pytest,
-    which collects a directory. `selects_the_file` is that reading, and without
-    it `pytest tests || true` was refused by neither guard -- the filename
-    matcher did not see the directory, so this returned nothing, and the
-    recorder then confirmed the file ran.
+    which collects a directory, and to a shell, which resolves a `$`.
+    `could_select_the_file` is that reading, and without it `pytest tests ||
+    true` and `pytest "$TARGET" || true` were refused by neither guard -- the
+    filename matcher saw neither the directory nor the token, so this returned
+    nothing, and the recorder then confirmed the file ran.
     """
-    return refused_invocations(script, path, selects=selects_the_file)
+    return refused_invocations(script, path, selects=could_select_the_file)
 
 
 def invocation(path: str, documents: dict) -> Invocation:
@@ -1658,6 +1678,41 @@ def test_a_positional_only_the_shell_knows_is_kept_and_measured():
     assert "No step names it at all" not in str(outcome.value), (
         "a candidate this reader cannot resolve was dropped instead of "
         f"reported: {outcome.value}")
+
+
+@EXECUTES_STEPS
+def test_a_masked_run_whose_target_only_the_shell_knows_is_refused():
+    """The other side of keeping the candidate, refused by neither reader.
+
+    `mentions_the_file` keeps `pytest "$TARGET" || true` so the recorder can
+    measure it, and the failure-context reader then matched `$TARGET` against
+    the path, found nothing and returned no refusal at all. The shim recorded
+    the expanded path, the replay collected the file, and the step was credited
+    with a run whose failure `|| true` throws away (CodeRabbit on PR 662).
+
+    Both halves now read the token the same way: a value the step's own shell
+    supplies could select anything this guard would replay, so the command
+    reaches the refusal set exactly as the directory selector does.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    masked = 'pytest "$TARGET" || true'
+    assert not_credited_here(masked, wanted) == [
+        '`pytest "$TARGET"` is one side of a `||` list, so whether it starts '
+        "and whose failure the step reports are the shell's"]
+    hidden = {"jobs": {"tests": {"steps": [
+        {"run": masked, "env": {"TARGET": wanted}}]}}}
+    run = invocation(wanted, {"w.yml": hidden})
+    assert run.hosts == [], (run.hosts, run.problems)
+    assert run.problems and "no evidence" in run.problems[0], run.problems
+    # And the plain command is still a host, or this would have taken the false
+    # negative's fix back out with it.
+    plain = {"jobs": {"tests": {"steps": [
+        {"run": 'pytest "$TARGET"', "env": {"TARGET": wanted}}]}}}
+    assert invocation(wanted, {"w.yml": plain}).hosts == ["w.yml"]
+    # A recorded argument is read as it is written: the shell has had it, so a
+    # `$` in it is part of the path and selects nothing.
+    assert not could_select_the_file("$TARGET", wanted, True)
+    assert could_select_the_file("$TARGET", wanted)
 
 
 @EXECUTES_STEPS
