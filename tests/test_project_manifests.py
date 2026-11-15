@@ -485,6 +485,32 @@ def pytest_configuring_names(environment) -> list[str]:
     return sorted(name for name in environment if name.startswith("PYTEST_"))
 
 
+PYTEST_ASSIGNMENT = re.compile(r"^(PYTEST_[A-Za-z0-9_]*)=")
+
+
+def pytest_configuring_assignments(script: str) -> list[str]:
+    """The `PYTEST_*` names this script sets itself, which the `env:` mapping has not.
+
+    The same refusal as `pytest_configuring_names`, by the other route pytest
+    reads the setting from. `PYTEST_ADDOPTS=--collect-only pytest x.py`, its
+    `env PYTEST_ADDOPTS=--collect-only pytest x.py` spelling and an `export`
+    before the run all record a bare argv, because `pytest_arguments` steps
+    over those prefixes on purpose; the replay then launches pytest without the
+    setting and credits a step whose real run only collected (Copilot on PR
+    662). Refusing one route and not the other is not a refusal.
+
+    Read from the script's text, because that is where the assignment is
+    written and no mapping holds it. Measured: no committed workflow writes
+    one, on this branch or on `origin/dev`.
+    """
+    found = set()
+    for token in SHELL_SEPARATORS.split(script):
+        match = PYTEST_ASSIGNMENT.match(token.strip("'\""))
+        if match:
+            found.add(match.group(1))
+    return sorted(found)
+
+
 def unbounded_options(arguments) -> list[str]:
     """The options in this argv that let a run reach outside the tree it is given.
 
@@ -796,7 +822,9 @@ def invocation(path: str, documents: dict) -> Invocation:
                     "anything checks it; write the run as a command of its "
                     "own, where the step fails with it")
                 continue
-            if configured := pytest_configuring_names(environment):
+            configured = sorted(set(pytest_configuring_names(environment))
+                                | set(pytest_configuring_assignments(step["run"])))
+            if configured:
                 # A verdict about the step, not a runner that could not answer:
                 # the replay builds its own environment and cannot be given the
                 # step's, so a name pytest reads there changes the real run and
@@ -1715,6 +1743,30 @@ def test_a_target_with_attached_redirection_is_still_a_candidate():
     # module's cost is held down.
     assert not mentions_the_file("make lint && make test", wanted)
     assert not mentions_the_file("pytest tests/test_flows.py | tee out.txt", wanted)
+
+
+@EXECUTES_STEPS
+def test_a_command_local_pytest_assignment_is_refused_like_the_env_block():
+    """The other route pytest reads a setting from, left open by the first half.
+
+    The `env:` mapping was refused and the assignment the command writes itself
+    was not, although `pytest_arguments` steps over that prefix on purpose: the
+    argv recorded for `PYTEST_ADDOPTS=--collect-only pytest x.py` is bare, the
+    replay launches pytest without the setting, and a step that only collected
+    was credited with a run (Copilot on PR 662).
+    """
+    wanted = "tests/test_install_setup_options.py"
+    for script in (f"PYTEST_ADDOPTS=--collect-only pytest {wanted}",
+                   f"env PYTEST_ADDOPTS=--collect-only pytest {wanted}",
+                   f"export PYTEST_ADDOPTS=--collect-only\npytest {wanted}"):
+        assert pytest_configuring_assignments(script) == ["PYTEST_ADDOPTS"], script
+        run = invocation(wanted, {"w.yml": step(script)})
+        assert run.hosts == [], (script, run.hosts)
+        assert run.refusals and "PYTEST_ADDOPTS" in run.refusals[0], run.refusals
+    # A run that sets nothing is untouched, and neither reader invents a name.
+    assert pytest_configuring_assignments(f"pytest {wanted}") == []
+    assert pytest_configuring_assignments("PYTHONPATH=. pytest x.py") == []
+    assert invocation(wanted, {"w.yml": step(f"pytest {wanted}")}).hosts == ["w.yml"]
 
 
 @EXECUTES_STEPS
