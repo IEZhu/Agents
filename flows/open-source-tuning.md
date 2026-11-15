@@ -17,7 +17,7 @@ hands probe cases to [A/B eval](ab-eval.md) for measurement.
 A change may also start from the other end: a defect this installation's own work
 produced, recorded in a post-mortem of a run that shipped a wrong or incomplete
 answer. The trigger differs, the method does not. Such a run supplies the
-curriculum and the first probe cases; the sources below still carry every
+curriculum and the first probe case; the sources below still carry every
 load-bearing specific the component states.
 
 The result is a branch with the tuned component, a probe case set, a source record
