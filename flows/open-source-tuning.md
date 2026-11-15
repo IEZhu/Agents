@@ -117,6 +117,12 @@ statements in the component that the sources contradict.
    answer as the anti-behavior, the defensible one as the expected behavior. Read
    the run's own files and its deliverable, not a summary of them, because the loss
    usually happened between the two. One real failure outranks any invented probe.
+   The case is saved in this repository and travels in a pull request, so keep the
+   behavior that makes the answer wrong and leave out what the run handled: no
+   customer or patient data, no names, no document contents, no private paths. When
+   the run's files or its deliverable are no longer reachable, name the missing
+   artifacts as the blocker in the report and write no probe from the post-mortem's
+   summary, which is the copy that lost the modality in the first place.
 
 ## 3. Collect sources
 
