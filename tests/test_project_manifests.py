@@ -121,7 +121,13 @@ NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
 # translation of GitHub's glob syntax -- this module interprets none -- only the
 # question of whether there is any syntax in the entry to interpret, which is
 # what decides between reading an exclusion and reporting that it is unread.
-GLOB = re.compile(r"[*?\[\]]")
+# The set is GitHub's own and read from its filter pattern cheat sheet rather
+# than recalled: `+` is there, "Matches one or more of the preceding character",
+# and the sheet says the special characters hold "in path, branch, tag, and
+# workflow name filters" -- so `!scripts/install_x.py+` cancels
+# `scripts/install_x.py` at GitHub while this read it as a literal that cannot
+# match and kept the credit (CodeRabbit on PR 662).
+GLOB = re.compile(r"[*?+\[\]]")
 # The files this module asks about. Every inner pytest run writes a recording
 # test into all of them at once, so one run answers for all and the answers are
 # cached by the argv alone.
@@ -981,6 +987,39 @@ def test_an_exclusion_after_the_entry_cancels_it():
         "push": {"paths": [wanted, f"!{wanted}"]},
         "pull_request": {"paths": [wanted]}}}}
     assert triggered_by(wanted, documents) == ["w.yml"]
+
+
+def test_every_operator_github_gives_a_meaning_is_syntax_this_reader_leaves_unread():
+    """An exclusion's `+` was read as a literal, so a cancelled entry kept its credit.
+
+    The operators belong to GitHub and the set is read from its filter pattern
+    cheat sheet rather than recalled: `+` "Matches one or more of the preceding
+    character", and the sheet says the special characters hold "in path, branch,
+    tag, and workflow name filters". So `!scripts/install_x.py+` matches
+    `scripts/install_x.py` there and cancels the entry above it, while this
+    module recognised only `*?[]`, read the exclusion as a literal spelling that
+    cannot match this path, and reported trigger coverage for a workflow that
+    starts no run (CodeRabbit on PR 662).
+
+    Unread rather than cancelled, because whether that pattern matches is still
+    GitHub's answer to give -- the same third answer every other exclusion
+    holding uninterpreted syntax gets, with the same remedy.
+    """
+    wanted = "scripts/install_x.py"
+    entries = [wanted, f"!{wanted}+"]
+    documents = {"w.yml": {"on": {"push": {"paths": entries}}}}
+    assert starts_a_run(entries, wanted) is None, entries
+    assert triggered_by(wanted, documents) == [], entries
+    assert unmeasured_triggers(wanted, documents) == ["w.yml"], entries
+    with pytest.raises(pytest.fail.Exception, match="does not read"):
+        require_a_trigger(wanted, documents)
+    # The remedy, and what says the operator is read rather than the list
+    # refused: the file named after the exclusion is cover again.
+    restored = [*entries, wanted]
+    documents = {"w.yml": {"on": {"push": {"paths": restored}}}}
+    assert starts_a_run(restored, wanted) is True, restored
+    assert triggered_by(wanted, documents) == ["w.yml"], restored
+    assert unmeasured_triggers(wanted, documents) == [], restored
 
 
 @EXECUTES_STEPS
