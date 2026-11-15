@@ -462,9 +462,24 @@ def stub_tree() -> tuple:
 
 
 def selects_a_subset(arguments) -> list[str]:
-    """The selecting options in this argv, in the order pytest would read them."""
-    return sorted({argument.partition("=")[0] for argument in arguments
-                   if argument.partition("=")[0] in SELECTING_OPTIONS})
+    """The selecting options in this argv, in the order pytest would read them.
+
+    Both of pytest's spellings for each, the separate word and the glued one.
+    `-kinstall` is what pytest reads as `-k install`, so comparing whole tokens
+    let it past while `-k install` was refused, and the argv then ran against
+    the stub, where a generated case passes whatever the real selection would
+    have dropped (Copilot on PR 662). `unbounded_options` below reads `-c` and
+    `-o` in both spellings for the same reason; one option is one refusal
+    however it is written.
+    """
+    found = set()
+    for argument in arguments:
+        named = argument.partition("=")[0]
+        if named in SELECTING_OPTIONS:
+            found.add(named)
+        elif not argument.startswith("--") and argument[:2] in SELECTING_OPTIONS:
+            found.add(argument[:2])
+    return sorted(found)
 
 
 def pytest_configuring_names(environment) -> list[str]:
@@ -1767,6 +1782,24 @@ def test_a_command_local_pytest_assignment_is_refused_like_the_env_block():
     assert pytest_configuring_assignments(f"pytest {wanted}") == []
     assert pytest_configuring_assignments("PYTHONPATH=. pytest x.py") == []
     assert invocation(wanted, {"w.yml": step(f"pytest {wanted}")}).hosts == ["w.yml"]
+
+
+def test_a_selecting_option_glued_to_its_value_is_read_like_the_separate_word():
+    """The other half of the glued-spelling refusal, left open by the first.
+
+    `-c` and `-o` were read in both spellings and `-k` and `-m` in one, so
+    `pytest -kinstall tests/test_install_setup_options.py` recorded an argv
+    this reader called a whole run; the replay then collected the stub, where
+    the generated case passes whatever the real `-k` would have dropped
+    (Copilot on PR 662).
+    """
+    for spelling in (["-k", "install"], ["-kinstall"], ["-k=install"],
+                     ["-m", "slow"], ["-mslow"]):
+        assert selects_a_subset(spelling) == [spelling[0][:2]], spelling
+    # A long option that starts with the same letters is not one of them, and
+    # neither is an ordinary argument.
+    for innocent in ("--keep-going", "--markers", "tests/test_flows.py", "-q"):
+        assert selects_a_subset([innocent]) == [], innocent
 
 
 @EXECUTES_STEPS
