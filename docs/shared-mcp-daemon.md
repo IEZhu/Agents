@@ -1623,7 +1623,7 @@ of another package; it installs the target's requirements. httpx comes with mcp 
 anthropic, for example, so `local-inference` is carried and every automatically
 built environment also gets `httpx>=0.28.1,<0.29`. Plain requirements of one
 distribution from several places become one line with all their specifiers, such
-as `pytest>=7.0.0,>=8.0` when `evals` or `signing-tests` is carried; lines with
+as `pytest>=7.0.0,<10,>=8.0` when `evals` or `signing-tests` is carried; lines with
 extras, markers or URLs stay as written. venv and pip run in the
 new environment's directory without `PYTHONHOME`, `PYTHONPATH`, `PYTHONSTARTUP`,
 `PYTHONUSERBASE`, `PIP_USER`, `PIP_TARGET` or `PIP_PREFIX`. A complete environment
