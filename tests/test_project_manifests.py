@@ -456,6 +456,24 @@ def selects_a_subset(arguments) -> list[str]:
                    if argument.partition("=")[0] in SELECTING_OPTIONS})
 
 
+def pytest_configuring_names(environment) -> list[str]:
+    """The names in this step's environment that pytest itself reads.
+
+    Read by prefix rather than by a list, because the question is whether the
+    replay can stand in for the real run and any of them answers no. `inner_
+    environment` is built rather than inherited, deliberately and for the same
+    reasons the step executor builds its own, so a value the real pytest would
+    have read is one this guard cannot reproduce: `PYTEST_ADDOPTS` alone can
+    turn a run into a collection, and the recorded argv looks the same either
+    way.
+
+    No committed workflow sets one -- zero on this branch and on `origin/dev`,
+    against 18 `env:` blocks in those same files -- so this refuses nothing
+    that exists today.
+    """
+    return sorted(name for name in environment if name.startswith("PYTEST_"))
+
+
 def unbounded_options(arguments) -> list[str]:
     """The options in this argv that let a run reach outside the tree it is given.
 
@@ -746,6 +764,20 @@ def invocation(path: str, documents: dict) -> Invocation:
                     + f", so a run of {path} there is no evidence that "
                     "anything checks it; write the run as a command of its "
                     "own, where the step fails with it")
+                continue
+            if configured := pytest_configuring_names(environment):
+                # A verdict about the step, not a runner that could not answer:
+                # the replay builds its own environment and cannot be given the
+                # step's, so a name pytest reads there changes the real run and
+                # not the measured one. `PYTEST_ADDOPTS: --collect-only` records
+                # the bare target argv and would be credited as a run of the
+                # file that the workflow never performed (Copilot on PR 662).
+                refusals.append(
+                    f"{name} ({job_name}): the step sets "
+                    + ", ".join(f"`{named}`" for named in configured)
+                    + ", which pytest reads and this guard's replay cannot be "
+                    "given, so what the real run did is not what would be "
+                    "measured here")
                 continue
             run = recorded_step(
                 step["run"],
@@ -1523,6 +1555,34 @@ def test_a_step_that_names_another_file_is_never_executed():
         assert mentions_the_file(command, wanted), command
     assert not mentions_the_file("pytest tests/test_flows.py", wanted)
     assert not mentions_the_file("pytest tests/test_install_x.py", wanted)
+
+
+@EXECUTES_STEPS
+def test_a_step_whose_env_configures_pytest_is_refused_not_credited():
+    """The replay cannot be handed the environment the real run read (PR 662).
+
+    `inner_environment` is built, not inherited, so a step setting
+    `PYTEST_ADDOPTS: --collect-only` records the bare target argv and the
+    replay then executes what the workflow only collected. Crediting that is a
+    false credit of exactly the kind this module exists to catch, so the step
+    is refused with the name that caused it.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    document = {"jobs": {"tests": {"steps": [
+        {"run": f"pytest {wanted}", "env": {"PYTEST_ADDOPTS": "--collect-only"}}]}}}
+    run = invocation(wanted, {"w.yml": document})
+    assert run.hosts == [], run.hosts
+    assert run.refusals and "PYTEST_ADDOPTS" in run.refusals[0], run.refusals
+    with pytest.raises(pytest.fail.Exception, match="will not execute"):
+        require_a_host(wanted, run)
+    # The reader itself answers by prefix, and says nothing about a name pytest
+    # does not read.
+    assert pytest_configuring_names({"PYTEST_PLUGINS": "x", "HOME": "/tmp"}) == [
+        "PYTEST_PLUGINS"]
+    assert pytest_configuring_names({"PYTHONPATH": "src", "CI": "true"}) == []
+    # Without such a name the same step is credited as before.
+    plain = {"jobs": {"tests": {"steps": [{"run": f"pytest {wanted}"}]}}}
+    assert invocation(wanted, {"w.yml": plain}).hosts == ["w.yml"]
 
 
 def test_a_short_option_glued_to_its_value_is_refused_like_the_separate_word():
