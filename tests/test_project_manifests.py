@@ -128,6 +128,13 @@ NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
 # `scripts/install_x.py` at GitHub while this read it as a literal that cannot
 # match and kept the credit (CodeRabbit on PR 662).
 GLOB = re.compile(r"[*?+\[\]]")
+# The two parameter expansions whose value this reader has, because
+# `step_environment` is what hands it to the shell. Anything else a `$` can
+# begin is a value only the running shell knows, and `resolved` says so.
+EXPANSION = re.compile(r"\$(\w+)|\$\{(\w+)\}")
+# Stands where a name resolved to nothing this reader can see. A byte no
+# workflow text holds, so it cannot be spelt into a token to look resolved.
+UNREADABLE = "\0"
 # The files this module asks about. Every inner pytest run writes a recording
 # test into all of them at once, so one run answers for all and the answers are
 # cached by the argv alone.
@@ -370,7 +377,39 @@ def pytest_candidates(document) -> list[tuple]:
     return found
 
 
-def mentions_the_file(script: str, path: str) -> bool:
+def assigned_names(script: str) -> set[str]:
+    """Every name this script could assign, read loosely on purpose.
+
+    Loosely, because what the answer is used for is to stop trusting an `env`
+    value that the script may overwrite before the command runs, and the
+    generous direction is the safe one: a name wrongly read as assigned keeps a
+    candidate, while one wrongly read as untouched would resolve a token to a
+    value the command never saw. `--basetemp=x` contributes `basetemp` and
+    costs nothing.
+    """
+    return set(re.findall(r"(\w+)=", script))
+
+
+def resolved(token: str, environment: dict) -> str | None:
+    """This token with the step's own `env` put in, or `None` where it cannot be.
+
+    The two plain forms are substituted, `$NAME` and `${NAME}`, because the
+    value is the one `step_environment` hands the shell and nothing else decides
+    it. Every other shape is a value only the running shell has: a parameter
+    expansion with a modifier (`${NAME:-...}`), a name no `env` sets, a `${{ }}`
+    expression this module passes through as text, a command substitution.
+    Those answer `None`, which keeps the candidate rather than reading a token
+    this module cannot spell as a token that cannot name the file.
+    """
+    if "$" not in token:
+        return token
+    substituted = EXPANSION.sub(
+        lambda match: environment.get(match.group(1) or match.group(2), UNREADABLE),
+        token)
+    return None if "$" in substituted or UNREADABLE in substituted else substituted
+
+
+def mentions_the_file(script: str, path: str, environment: dict | None = None) -> bool:
     """True when some token of this script could reach this path.
 
     What it decides is which steps are worth executing, and nothing else: a
@@ -382,14 +421,34 @@ def mentions_the_file(script: str, path: str) -> bool:
     recorder is for. A candidate wrongly dropped would be a bypass; a candidate
     wrongly kept is only a second of someone's time.
 
+    A token whose value comes from a variable is the shape that made the
+    generosity a claim rather than a fact. `pytest "$TARGET"` with `TARGET` in
+    the step's `env` hands pytest the file, and `step_environment` already
+    passes that value to the shell, so the shim records the real target -- but
+    no literal token here equalled the path, the step was never executed, and
+    the guard reported that no workflow runs the file (Copilot on PR 662). A
+    false negative is the one answer this module must not give, so the value is
+    put in where this reader has it and the candidate is kept where it does not:
+    the step is executed and what the recorder saw decides, or, on the leg that
+    executes nothing, the candidate is reported unmeasured. Never dropped.
+
     Without this the candidate set was every step whose script mentions pytest
     anywhere under `.github/workflows` -- 26 steps and 22 inner pytest runs to
     answer about one path, growing with every pytest step the repository adds.
+    Putting the `env` in rather than keeping every token with a `$` is what
+    holds that cost: measured on the committed workflows, no candidate step is
+    added for any of the five files this module asks about.
     """
     name = Path(path).name
+    values = {} if environment is None else {
+        key: value for key, value in environment.items()
+        if key not in assigned_names(script)}
     for token in script.replace(";", " ").split():
         token = token.strip("'\"")
-        cleaned = token[2:] if token.startswith("./") else token
+        spelling = resolved(token, values)
+        if spelling is None:
+            return True               # a value only the step's own shell has
+        cleaned = spelling[2:] if spelling.startswith("./") else spelling
         if cleaned in (path, name, ".", "./"):
             return True
         if any(character in cleaned for character in "*?[") and (
@@ -688,7 +747,11 @@ def invocation(path: str, documents: dict) -> Invocation:
         for job_name, job, step in pytest_candidates(document):
             # The narrowing: a step that names no spelling of this path is not
             # executed, which is where this module's cost used to come from.
-            if not mentions_the_file(step["run"], path):
+            # The step's own `env` is part of the reading, because a positional
+            # it supplies is a spelling of the path, and a token this reader
+            # cannot resolve keeps the step instead of dropping it.
+            environment = step_environment(document, job, step)
+            if not mentions_the_file(step["run"], path, environment):
                 continue
             skipped = skip_reasons(document, job_name, step)
             if skipped:
@@ -713,7 +776,7 @@ def invocation(path: str, documents: dict) -> Invocation:
             run = recorded_step(
                 step["run"],
                 shell,
-                tuple(sorted(step_environment(document, job, step).items())),
+                tuple(sorted(environment.items())),
                 directory,
             )
             if run.problem:
@@ -1486,6 +1549,66 @@ def test_a_step_that_names_another_file_is_never_executed():
         assert mentions_the_file(command, wanted), command
     assert not mentions_the_file("pytest tests/test_flows.py", wanted)
     assert not mentions_the_file("pytest tests/test_install_x.py", wanted)
+
+
+@EXECUTES_STEPS
+def test_a_positional_the_step_s_own_env_supplies_is_measured_and_not_dropped():
+    """The narrowing's false negative: a correctly wired workflow reported as none.
+
+    `pytest "$TARGET"` with `TARGET` in the step's `env` hands pytest the file,
+    and `step_environment` already passes that value to the shell, so the shim
+    records the real target and the executing leg can measure it. The literal
+    token check saw no token equal to the path, the step was never executed,
+    and the guard failed a working workflow by reporting that no workflow runs
+    the file (Copilot on PR 662). A false credit and a false negative cost the
+    same here, and this was the second one.
+
+    So the `env` is read: a value this reader has is put in, and the ordinary
+    reading then applies to the spelling the shell will use.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    document = {"jobs": {"tests": {"steps": [
+        {"run": 'pytest "$TARGET"', "env": {"TARGET": wanted}}]}}}
+    run = invocation(wanted, {"w.yml": document})
+    assert run.hosts == ["w.yml"], (run.hosts, run.problems, run.refusals)
+    # Both plain spellings, and the three `env` maps GitHub merges: a value on
+    # the workflow is the one the step runs with just as its own is.
+    for spelling in ('pytest "$TARGET"', "pytest ${TARGET}"):
+        workflow = {"env": {"TARGET": wanted},
+                    "jobs": {"tests": {"steps": [{"run": spelling}]}}}
+        assert invocation(wanted, {"w.yml": workflow}).hosts == ["w.yml"], spelling
+    # Putting the value in is a reading, not a blanket keep: a value that names
+    # another file drops the candidate exactly as that spelling written out
+    # would, which is what holds this module's cost.
+    assert mentions_the_file('pytest "$TARGET"', wanted, {"TARGET": wanted})
+    assert not mentions_the_file(
+        'pytest "$TARGET"', wanted, {"TARGET": "tests/test_flows.py"})
+    # A value this reader does not have keeps the candidate instead, whatever a
+    # `$` begins: a modifier, a `${{ }}` expression this module passes through
+    # as text, a command substitution, a name no `env` sets.
+    for unreadable in ('pytest "$TARGET"', 'pytest "${TARGET:-/etc}"',
+                       'pytest "${{ matrix.target }}"', 'pytest "$(cat plan.txt)"'):
+        assert mentions_the_file(unreadable, wanted, {}), unreadable
+    # Kept means executed, and then the recorder answers rather than this
+    # reader. Measured, the four above answer in two ways and neither is a
+    # workflow dropped: an unset positional expands to an empty argument, which
+    # really does collect the tree the step stands in, so it is a run of the
+    # file; and a value that lands outside the tree this guard hands pytest is
+    # the third answer, reported with its reason.
+    assert invocation(wanted, {"w.yml": step('pytest "$TARGET"')}).hosts == ["w.yml"]
+    outside = invocation(wanted, {"w.yml": step('pytest "${TARGET:-/etc}"')})
+    assert outside.hosts == [], outside.hosts
+    assert outside.problems and "not a path inside the tree" in outside.problems[0], (
+        outside.problems)
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as outcome:
+        require_a_host(wanted, outside)
+    assert "No step names it at all" not in str(outcome.value), (
+        "a candidate whose positional this reader cannot resolve was dropped "
+        f"instead of reported: {outcome.value}")
+    # The `env` a script overwrites is not the value the command sees, so the
+    # name goes back to being one this reader does not have.
+    overwritten = 'TARGET=tests/test_flows.py\npytest "$TARGET"'
+    assert mentions_the_file(overwritten, wanted, {"TARGET": wanted}), overwritten
 
 
 @EXECUTES_STEPS
