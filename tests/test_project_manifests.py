@@ -1681,6 +1681,30 @@ def test_a_positional_only_the_shell_knows_is_kept_and_measured():
 
 
 @EXECUTES_STEPS
+def test_an_unquoted_target_that_expands_to_two_files_is_measured():
+    """Why the candidate is kept rather than resolved, in the case that decided it.
+
+    Reading `$TARGET` as one path was the first answer to the false negative
+    above, and an unquoted value holding two paths is not one path: the value
+    `tests/test_flows.py tests/test_install_setup_options.py` equals neither
+    file and selects neither, so the step would have been dropped and the file
+    reported as run by nothing (CodeRabbit on PR 662). Keeping the candidate
+    asks the value nothing, and the recorder then reads the argv the shell
+    really built -- two arguments, one of them the file.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    both = f"tests/test_flows.py {wanted}"
+    document = {"jobs": {"tests": {"steps": [
+        {"run": "pytest $TARGET", "env": {"TARGET": both}}]}}}
+    run = invocation(wanted, {"w.yml": document})
+    assert run.hosts == ["w.yml"], (run.hosts, run.problems, run.refusals)
+    # The value as one path is what the withdrawn reading compared, and it is
+    # neither of the two files it holds.
+    assert not selects_the_file(both, wanted)
+    assert not selects_the_file(both, "tests/test_flows.py")
+
+
+@EXECUTES_STEPS
 def test_a_masked_run_whose_target_only_the_shell_knows_is_refused():
     """The other side of keeping the candidate, refused by neither reader.
 
