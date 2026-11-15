@@ -539,7 +539,11 @@ def pytest_configuring_names(environment) -> list[str]:
     return sorted(name for name in environment if name.startswith("PYTEST_"))
 
 
-PYTEST_ASSIGNMENT = re.compile(r"^(PYTEST_[A-Za-z0-9_]*)=")
+# Both assignment operators a shell has for a variable, not one of them:
+# measured under bash, `PYTEST_ADDOPTS+=--collect-only` and its `export` form
+# set the variable exactly as `=` does, and requiring the `=` to follow the
+# name let the appending spelling past the refusal (CodeRabbit on PR 662).
+PYTEST_ASSIGNMENT = re.compile(r"^(PYTEST_[A-Za-z0-9_]*)\+?=")
 
 
 def pytest_configuring_assignments(script: str) -> list[str]:
@@ -1802,6 +1806,32 @@ def test_a_target_with_attached_redirection_is_still_a_candidate():
     # module's cost is held down.
     assert not mentions_the_file("make lint && make test", wanted)
     assert not mentions_the_file("pytest tests/test_flows.py | tee out.txt", wanted)
+
+
+@EXECUTES_STEPS
+def test_an_appending_pytest_assignment_is_refused_like_a_plain_one():
+    """The other assignment operator, which the first pattern let past.
+
+    `export PYTEST_ADDOPTS+=--collect-only` sets the variable under bash just
+    as `=` does -- measured -- while the pattern required the `=` to follow the
+    name, so the appending spelling passed the configuration check and the
+    replay credited a step whose real run only collected (CodeRabbit on PR
+    662). A shell has these two operators for a variable and no third, so this
+    is the whole class and not one more spelling.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    for appending in (f"PYTEST_ADDOPTS+=--collect-only pytest {wanted}",
+                      f"export PYTEST_ADDOPTS+=--collect-only\npytest {wanted}",
+                      f"env PYTEST_ADDOPTS+=--collect-only pytest {wanted}"):
+        assert pytest_configuring_assignments(appending) == ["PYTEST_ADDOPTS"], (
+            appending)
+        run = invocation(wanted, {"w.yml": step(appending)})
+        assert run.hosts == [], (appending, run.hosts)
+        assert run.refusals and "PYTEST_ADDOPTS" in run.refusals[0], run.refusals
+    # A name that only looks like one, and a `+` without the assignment, are
+    # not assignments.
+    assert pytest_configuring_assignments("PYTEST_ADDOPTS") == []
+    assert pytest_configuring_assignments("PYTHONPATH+=. pytest x.py") == []
 
 
 @EXECUTES_STEPS
