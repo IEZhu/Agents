@@ -9,10 +9,18 @@ import time
 import uuid
 
 from .identity import CooperationIdentity, IdentityError, normalize_resource
-from .models import PROTOCOL, EventEnvelope, ApplyResponse
+from .models import MAX_ITEMS, PROTOCOL, EventEnvelope, ApplyResponse
 from .policy import resources_conflict, find_cycle, cyclic_components, ordered_ready, effective_priorities
+from .quota import ACCESS as EXTERNAL_QUOTA_ACCESS, RESOURCE_TYPE as EXTERNAL_QUOTA
 from .store import AdministrationLock, CooperationError, Store, bodies, canonical
 from src.daemon.state import private_dir
+
+#: Soft-stale liveness threshold; a participant quiet for longer is suspected.
+HEARTBEAT_DEADLINE_SECONDS = 120
+#: A client reads an allowance response's own time, whose clock is not this
+#: coordinator's. Skew is tolerated; a date beyond it is refused, because a
+#: future observation would hold the reviewer until that date for everyone.
+OBSERVATION_SKEW_SECONDS = 300
 
 
 def digest(value):
@@ -25,6 +33,60 @@ def _dict(value):
 
 def _task(participant):
     return participant["task_id"] + "/" + participant["attempt_id"]
+
+
+def _lapsed_allowance(holder, claim, now):
+    """Whether a quarantined external-allowance claim no longer excludes others.
+
+    Silence never transfers ownership of a file, because the dead holder's edits
+    are still in the checkout. An external allowance holds nothing locally: a
+    session that died mid-round leaves only its claim behind, so one crash would
+    otherwise freeze that reviewer for every other session. A quarantine with a
+    live heartbeat still excludes: that holder may have just spent the budget.
+    """
+    return (claim["resource"]["resource_type"] == EXTERNAL_QUOTA and claim["quarantined"]
+            and _lapsed_holder(holder, now))
+
+
+def _published_next_free(holder, resource_key):
+    """The latest next free time the holder published for this allowance.
+
+    Read from the participant, not from its checkpoint: the next work unit
+    clears the checkpoint while the reviewer is still paused.
+    """
+    published = [observation["next_free_at"] for observation in holder.get("external_quota", ())
+                 if observation["resource_key"] == resource_key and observation["kind"] == "paused"
+                 and observation["next_free_at"] is not None]
+    return max(published) if published else None
+
+
+def _lapsed_holder(holder, now):
+    """Whether this holder has gone quiet past the heartbeat deadline."""
+    return now - holder["last_seen"] > HEARTBEAT_DEADLINE_SECONDS
+
+
+def _stale_assignment(holder, resource, agreement, now):
+    """Whether an agreement's allowance assignment still excludes other sessions.
+
+    The same rule as for its claim, in the places that read an agreement's
+    assignments: a file assignment keeps blocking, because the dead holder's
+    edits are still in the checkout.
+
+    An allowance stops excluding while its owner's heartbeat has lapsed, and
+    also once that owner has moved on to a new generation. Recovery advances
+    the generation and deliberately leaves prior agreements behind, so without
+    the second rule a recovered holder and the session that took the allowance
+    while it was away would block each other for good: the holder cannot
+    acquire through its suspended agreement, and the other session is refused
+    by that agreement's assignment as soon as a heartbeat refreshes it.
+    """
+    if resource["resource_type"] != EXTERNAL_QUOTA or holder is None:
+        return False
+    if _lapsed_holder(holder, now):
+        return True
+    bound = next((binding["generation"] for binding in agreement["task_bindings"]
+                  if binding["participant_id"] == resource["owner"]), None)
+    return bound is not None and bound != holder["generation"]
 
 
 def _error(error):
@@ -209,7 +271,7 @@ class CooperationService:
 
     def _reconcile(self, db, repo, now):
         for participant in bodies(db, "participants", repo):
-            if participant["status"] == "active" and now - participant["last_seen"] > 120:
+            if participant["status"] == "active" and now - participant["last_seen"] > HEARTBEAT_DEADLINE_SECONDS:
                 self._suspect(db, participant, "heartbeat_overdue")
                 self._reconciliation_event(db, participant, "heartbeat_overdue", now)
         for agreement in bodies(db, "agreements", repo):
@@ -256,7 +318,7 @@ class CooperationService:
                                    scope=resources, generation=1, service_epoch=self.epoch, status="active",
                                    created_at=now, last_seen=now, ready_since=None, eligible_wait_seconds=0,
                                    ready_sequence=self._revision(db, repo) + 1, base_priority=1, priority_source="default",
-                                   intent=[], checkpoint=None, running=False)
+                                   intent=[], checkpoint=None, running=False, external_quota=[])
                 db.execute("INSERT INTO participants VALUES (?,?,?,?)", (identifier, repo, hashlib.sha256(capability.encode()).hexdigest(), canonical(participant)))
                 try:
                     db.execute("INSERT INTO attempts VALUES (?,?,?,?,?)", (repo, data["task_id"], data["attempt_id"], identifier, data.get("contract_revision")))
@@ -477,7 +539,7 @@ class CooperationService:
                 if kind == "acquire":
                     resources = self._normalize(action["resources"], CooperationIdentity(**subject["identity"]))
                     self._scope(resources, subject)
-                    self._claim_conflicts(db, repo, subject, resources)
+                    self._claim_conflicts(db, repo, subject, resources, now)
                 if data["expected_revision"] != revision:
                     raise CooperationError("stale_revision", revision=revision)
                 revision += 1
@@ -513,10 +575,26 @@ class CooperationService:
         except CooperationError as error:
             return _error(error)
 
-    def _claim_conflicts(self, db, repo, participant, resources):
+    def _claim_conflicts(self, db, repo, participant, resources, now):
+        holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
         for claim in bodies(db, "claims", repo):
-            if claim["participant_id"] != participant["participant_id"] and any(resources_conflict(resource, claim["resource"]) for resource in resources):
-                raise CooperationError("claim_conflict", "Resource held, including quarantined claims", claim_ids=[claim["claim_id"]], owner=claim["participant_id"])
+            if claim["participant_id"] == participant["participant_id"]:
+                continue
+            if not any(resources_conflict(resource, claim["resource"]) for resource in resources):
+                continue
+            holder = holders[claim["participant_id"]]
+            if _lapsed_allowance(holder, claim, now):
+                continue
+            details = {"claim_ids": [claim["claim_id"]], "owner": claim["participant_id"]}
+            if claim["resource"]["resource_type"] != EXTERNAL_QUOTA:
+                raise CooperationError("claim_conflict", "Resource held, including quarantined claims", **details)
+            details["resource_key"] = claim["resource"]["resource_key"]
+            published = _published_next_free(holder, claim["resource"]["resource_key"])
+            if published is not None:
+                details["next_free_at"] = published
+            raise CooperationError("claim_conflict",
+                                   "External allowance held by another session; wait for its published next free time",
+                                   **details)
 
     def _declare_intent(self, db, subject, actor, action, now, revision):
         repo = subject["repository_id"]
@@ -663,21 +741,33 @@ class CooperationService:
         db.execute("INSERT INTO acknowledgements VALUES (?,?,?,?,?) ON CONFLICT DO UPDATE SET body=excluded.body", (repo, agreement["agreement_id"], agreement["proposal_revision"], subject["participant_id"], canonical(acknowledgement)))
         acknowledged = {row[0] for row in db.execute("SELECT participant_id FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=?", (repo, agreement["agreement_id"], agreement["proposal_revision"]))}
         if acknowledged == set(agreement["required_participants"]):
+            holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
             for resource in agreement["terms"]["resources"]:
                 owner = self._participant(db, repo, resource["owner"])
                 if agreement["pattern"] == "handoff":
                     # A committed handoff does not transfer anything yet. The old
                     # owner retains the claim until its release-ready transfer.
                     for claim in bodies(db, "claims", repo):
-                        if resources_conflict(resource, claim["resource"]) and claim["participant_id"] not in agreement["required_participants"]:
-                            raise CooperationError("claim_conflict")
+                        if claim["participant_id"] in agreement["required_participants"]:
+                            continue
+                        if not resources_conflict(resource, claim["resource"]):
+                            continue
+                        # The same exception as the acquire and agreement paths:
+                        # a lapsed holder's allowance claim excludes nobody, or
+                        # one crash would shut handoff coordination for it too.
+                        if _lapsed_allowance(holders[claim["participant_id"]], claim, now):
+                            continue
+                        raise CooperationError("claim_conflict")
                 else:
-                    self._claim_conflicts(db, repo, owner, [resource])
+                    self._claim_conflicts(db, repo, owner, [resource], now)
             for other in bodies(db, "agreements", repo):
                 if other["agreement_id"] == agreement["agreement_id"] or other["state"] not in ("committed", "active", "checkpointed", "suspended"):
                     continue
                 for resource in agreement["terms"]["resources"]:
-                    if any(resource["owner"] != prior["owner"] and resources_conflict(resource, prior) for prior in other["terms"]["resources"]):
+                    competing = [prior for prior in other["terms"]["resources"]
+                                 if resource["owner"] != prior["owner"] and resources_conflict(resource, prior)
+                                 and not _stale_assignment(holders.get(prior["owner"]), prior, other, now)]
+                    if competing:
                         raise CooperationError("claim_conflict", "Competing committed agreement")
             agreement["state"] = "committed"
             db.execute("DELETE FROM dependencies WHERE repository_id=? AND agreement_id=?", (repo, agreement["agreement_id"]))
@@ -722,12 +812,23 @@ class CooperationService:
             if any(not self._within(resource, owned) for resource in resources):
                 raise CooperationError("scope_denied")
             self._validate_terms(db, subject, agreement)
+        holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
         for other in bodies(db, "agreements", repo):
             if other["state"] in ("committed", "active", "checkpointed", "suspended"):
                 for owned in other["terms"]["resources"]:
-                    if owned["owner"] != subject["participant_id"] and any(resources_conflict(resource, owned) for resource in resources):
-                        raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
-        self._claim_conflicts(db, repo, subject, resources)
+                    if owned["owner"] == subject["participant_id"]:
+                        continue
+                    if not any(resources_conflict(resource, owned) for resource in resources):
+                        continue
+                    # An allowance assigned to a session that went silent, or
+                    # that has since recovered into a new generation, excludes
+                    # nobody, exactly as its claim stops excluding in
+                    # _claim_conflicts: otherwise one crash under an agreement
+                    # would freeze that reviewer for every other session.
+                    if _stale_assignment(holders.get(owned["owner"]), owned, other, now):
+                        continue
+                    raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
+        self._claim_conflicts(db, repo, subject, resources, now)
         claims = []
         for resource in resources:
             claim = {"claim_id": str(uuid.uuid4()), "repository_id": repo, "participant_id": subject["participant_id"],
@@ -766,6 +867,47 @@ class CooperationService:
                             self._suspect(db, consumer, "accepted_artifact_changed")
             db.execute("INSERT INTO artifacts VALUES (?,?,?,?) ON CONFLICT(repository_id,id) DO UPDATE SET body=excluded.body", (artifact["artifact_id"], repo, subject["participant_id"], canonical(artifact)))
         subject["checkpoint"] = {**action, "revision": revision, "created_at": now}
+        if action["external_quota"]:
+            self._scope([{"resource_type": EXTERNAL_QUOTA, "resource_key": observation["resource_key"],
+                          "access": EXTERNAL_QUOTA_ACCESS} for observation in action["external_quota"]], subject)
+            if any(observation["observed_at"] > now + OBSERVATION_SKEW_SECONDS
+                   for observation in action["external_quota"]):
+                raise CooperationError("invalid_request",
+                                       "An allowance observation cannot be dated past this coordinator's clock")
+            # One observation of each kind per allowance, decided by the time
+            # of the evidence rather than of the publication: a session may
+            # report an older response after a newer one. A pause and a record
+            # of allowance already spent say different things, so both are kept.
+            published: dict[tuple[str, str], dict] = {}
+            for observation in (*subject.get("external_quota", ()), *action["external_quota"]):
+                identity = (observation["resource_key"], observation["kind"])
+                prior = published.get(identity)
+                if prior is None or observation["observed_at"] >= prior["observed_at"]:
+                    published[identity] = observation
+            # A pause still in the future is what other sessions wait on, so
+            # the bound drops expired pauses and spent-allowance records first
+            # and never a live pause: losing one would let the next holder
+            # request a review inside it.
+            def order(item):
+                return item[1]["observed_at"], item[0]
+
+            live_keys = {identity for identity, observation in published.items()
+                         if observation["kind"] == "paused" and observation["next_free_at"] > now}
+            if len(live_keys) > MAX_ITEMS:
+                # Unreachable while a participant's scope is bounded by this
+                # same MAX_ITEMS, because publishing is scope bound: at most
+                # one live pause per registered allowance. Pauses cannot
+                # accumulate past it either, since scope is written once, when
+                # register creates the participant, and a wider assignment
+                # needs a new attempt. It stays as a loud failure in case the
+                # two bounds ever diverge, because the alternative is dropping
+                # a pause that other sessions are waiting on.
+                raise CooperationError("invalid_request",
+                                       "More live allowance pauses than one participant can publish")
+            live = sorted((item for item in published.items() if item[0] in live_keys), key=order)
+            rest = sorted((item for item in published.items() if item[0] not in live_keys), key=order)
+            kept = live + rest[max(0, len(live) + len(rest) - MAX_ITEMS):]
+            subject["external_quota"] = [observation for _, observation in sorted(kept, key=order)]
         if action["agreement_id"]:
             agreement = self._agreement(db, repo, action["agreement_id"])
             if subject["participant_id"] not in agreement["required_participants"]:

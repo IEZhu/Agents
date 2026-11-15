@@ -113,3 +113,31 @@ def test_explicit_badge_update_precedes_navigation_check(tmp_path, monkeypatch):
     before = path.stat().st_mtime_ns
     assert check_docs.main(["README.md"]) == 0
     assert path.stat().st_mtime_ns == before
+
+
+def test_the_inventory_field_gate_reports_a_field_the_flow_stops_naming(tmp_path):
+    """The field list is read from the helper's source, which this check never imports."""
+    from scripts import check_docs
+
+    (tmp_path / "scripts/dev").mkdir(parents=True)
+    (tmp_path / "flows").mkdir()
+    (tmp_path / "scripts/dev/thread_inventory.py").write_text(
+        'raise RuntimeError("never import")\nOUTPUT_FIELDS = ("kept", "dropped")\n', encoding="utf-8")
+    flow = tmp_path / "flows/thread-close.md"
+    flow.write_text("Read `kept` and `dropped` for the audit.\n", encoding="utf-8")
+    assert check_docs.inventory_fields(tmp_path) == ("kept", "dropped")
+    assert check_docs.check_inventory_fields(tmp_path) == []
+    flow.write_text("Read `kept` for the audit.\n", encoding="utf-8")
+    assert check_docs.check_inventory_fields(tmp_path) == [
+        "flows/thread-close.md: inventory field not named: dropped"]
+    (tmp_path / "scripts/dev/thread_inventory.py").write_text("FIELDS = ()\n", encoding="utf-8")
+    assert check_docs.check_inventory_fields(tmp_path) == [
+        "scripts/dev/thread_inventory.py: no OUTPUT_FIELDS to check flows/thread-close.md against"]
+    assert check_docs.check_inventory_fields(tmp_path / "empty") == []  # neither file: nothing to compare
+
+
+def test_the_thread_close_flow_names_every_field_the_inventory_emits():
+    from scripts import check_docs
+
+    assert check_docs.inventory_fields(check_docs.ROOT), "the helper must declare its output fields"
+    assert check_docs.check_inventory_fields(check_docs.ROOT) == []

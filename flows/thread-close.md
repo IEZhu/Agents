@@ -76,6 +76,7 @@ thread only from the transcript and the live state, and its report must say so.
       workflow agents and marks their items with `by`.
     - Its `prompts` list contains timestamps only, without user message text or
       previews; use the sanitized primary-evidence procedure above when text is needed.
+      A prompt the user sent while a turn was running carries `"queued": true`.
   - **Finding the helper from another repository.** Derive `AGENTS_CORE_ROOT` as
     the [pr-review helpers](pr-review.md#optional-github-helpers-from-the-agents-core-installation)
     describe:
@@ -203,7 +204,17 @@ Rules:
 1. Read the current time with `date -u`. Fix the mode and identify the thread.
 2. In Claude Code, run the inventory helper. Keep its `notes`: other active
    sessions in the same project mean you must confirm which session is being
-   closed.
+   closed. The run states its own contract in `output_fields`: a field named
+   there that these instructions do not describe means you are reading a copy of
+   this flow older than the helper, so read that field before trusting the
+   audit's coverage. The run also says what it read and who wrote it:
+   `transcripts` lists the files read, `subagent_transcripts` counts those
+   belonging to subagents and workflow agents and `subagents_with_writes` names
+   the ones that changed anything, `sessions` and `bridge_sessions` give the
+   session ids, `title` the chat's last title, `first` and `last` the span,
+   `models`, `responses` and `tokens` the provenance that Verification levels
+   says is recorded and never scored, and `directories` every directory the
+   thread's calls worked in, from which `git_roots` below is derived.
 3. Work out which repositories to check: the helper's `git_roots` plus any named
    in the conversation. For each one, collect:
    - `git status --short`, the current branch, `git stash list` and
@@ -250,12 +261,41 @@ subagent or user), and what the thread claimed about it. Cover:
   - Decisions with their reasons, and options rejected and why.
   - Preferences the user stated.
   - Lessons from mistakes; open questions.
-- **Memory** written during the thread: files and what changed (`memory_writes`).
+- **Memory** written during the thread: files and what changed. `memory_writes`
+  lists only the writes an edit tool made, which the helper observed.
+  `memory_files_detected` lists memory files whose modification time falls inside
+  the session, up to one second past its last entry, and either within five minutes
+  of one of its entries or inside the run of one of its `background_tasks`, such as
+  a file a script wrote while the session waited; it is a lower bound found by
+  modification time, not an observed tool call, and can include another session's
+  file. Read `memory_scan_notes` for every memory directory: a `scanned` note gives
+  the files the directory holds beside the files listed, the session's span, that
+  window, `background_runs` for the runs it counted and `excluded_by_window` for the
+  files inside the span that neither the window nor a run accepted. So a session
+  open for days is not read as a report on the whole directory, while a large
+  `excluded_by_window` says the directory changed while this session was idle or
+  away, and `missing`, `unreadable` and `no session span` each mean nothing was
+  listed from it. A background task with no `ended` record counts as having run
+  until the last entry, so its run can be longer than the work it did.
 - **External systems** the thread wrote to: trackers, chat, published pages,
   remote triggers. Use `external_writes`. Also inspect `unclassified_tools`:
-  these are MCP calls whose names did not say whether they write. Likewise,
-  `unclassified_commands` lists git and gh commands the helper could not
-  classify as reads or writes.
+  these are MCP calls whose names did not say whether they write. Tools of the
+  host's own `mcp__ccd_` servers that the helper knows act on the client, not on
+  an external system, are counted apart in `client_local_calls`. The prefix alone
+  decides nothing, because that surface belongs to the client's vendor and changes
+  between releases: a tool of those servers the helper does not know stays
+  visible, as a write in `external_writes` with its time, actor and target when
+  its name carries a write verb, and in `unclassified_tools` otherwise. Arming a
+  pull request's merge, arming the monitor that pushes commits and answers review
+  comments, destroying a session, messaging another session and starting another
+  or a remote one reach `external_writes` that way. A host tool you do not
+  recognize in either field is the helper reporting that the surface moved:
+  decide what it does before accepting the audit.
+  Likewise, `unclassified_commands` lists the commands the helper read but could
+  not settle: a git or gh command it classified as neither a read nor a write, a
+  call of a name the same command defined, whose body it never saw, and a write
+  whose destination its reading cannot resolve. Such a command is in no other
+  field, so treat each one as a change that may have happened.
 - **Scheduled work**: wake-ups and cron jobs, from `scheduled`.
 - **Session-local items**, which vanish with the session:
   - scratchpad and temporary files (`scratchpad_paths`);
@@ -331,11 +371,14 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 3. **What was called.** List every call of an installed tool with its turn, time,
    tool and status, and for Agents-Core calls the persona descriptor. The helper
    lists no call of every tool: `logging_calls` counts the `log_interaction`
-   calls and `unclassified_tools` counts other unclassified tools by name, while
-   `external_writes` and `scheduled` list only write-classified and scheduling
-   calls, with time, tool and actor but no status; take the other calls and the
-   statuses from a short script over the transcript and do not reprint it. Count
-   final answers apart from progress messages, and note each context compaction.
+   calls, `client_local_calls` counts by name the calls of the host's own servers
+   that the helper knows act on the client, and `unclassified_tools` counts other
+   unclassified tools by name, a host tool it does not know among them, while
+   `external_writes` and `scheduled` list only
+   write-classified and scheduling calls, with time, tool and actor but no
+   status; take the other calls and the statuses from a short script over the
+   transcript and do not reprint it. Count final answers apart from progress
+   messages, and note each context compaction.
 4. **Where it applied.** Match the thread against every row: the catalogue and the
    rules from item 2. Every finding names its trigger: the turn, command or tool
    call where the tool applied. "It might have helped" without a trigger is not a
@@ -452,7 +495,7 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 | `artifacts` | `artifact_publish`, `artifact_manifest_create`, `artifact_manifest_get`, `artifact_read`, `artifact_manifest_verify`, `artifact_manifest_release` | several workers need the same large input, or input exceeds a worker's `max_context_chars` | large data pasted into worker prompts; a pinned artifact read incompletely; artifact-backed output accepted unverified; a manifest left active after its last consumer |
 | `cooperation` | `cooperation_register`, `cooperation_send`, `cooperation_receive`, `cooperation_ack`, `cooperation_read`, `cooperation_apply`, `cooperation_wait`, `cooperation_request_status`, `cooperation_request_update` | another session or worker on the same checkout, such as sessions in the helper's `notes`; a peer's request or agreement awaiting a reply | intersecting edits with no registration or agreement; a delivery left unacknowledged; a request's processing state never reported |
 | `local-inference` | `local_inference_status`, `local_context_create`, `local_context_grant`, `local_context_revoke`, `local_context_release`, `local_generate`, `local_generation_result`, `local_generation_cancel` | bulk routine completions: classification, extraction, short summaries | done by the main model while local inference was enabled and the task fit its limits; a context or grant left open after its last completion |
-| `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed |
+| `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed, including one the activation's `repo_context` kept reporting; a summary written for a root other than the one the report described |
 | `user-rules` | `list_user_rules`, `get_user_rule`, `subscribe_user_rule`, `refresh_user_rule`, `rollback_user_rule`, `set_user_rule_enabled`, `delete_user_rule` | a subscribed rule applied, one with a refresh error, or the user asks to add, change, pause or remove a rule | a failing or outdated rule went unmentioned; a rule changed by editing files instead of through the tools |
 | `mcp-proxy` | Runtime `<alias>__<tool>` tools exposed by Agents-Core, and client alias compatibility tools | an authorized upstream operation is requested, or the audit inventories exposed tools, client registrations or process ownership | an available dynamic tool is omitted from the inventory; an upstream operation bypasses a required shared proxy or breaks the upstream's usage rules |
 | `proxy-read` | `get_data_range`, `get_settings`, `get_stats`, `get_status`, `get_today_stats`, `code_search`, `code_execute_readonly` | the user requests timer state, settings, statistics or service information within an enabled upstream's scope; follow its own usage rules | an applicable authorized read was missed; a read needlessly used write-capable execution; if an unavailable upstream was bypassed, keep this row `unavailable` and record the alternate-server startup as misuse under the tool that started it; access claimed without checking the live connection and the upstream app's state; Blincho detailed activity spans, call history or names, event IDs, journal answers or camera frames exposed instead of public settings, status or aggregate statistics; credentials or tokens exposed in output |

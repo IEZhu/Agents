@@ -31,6 +31,19 @@ through to the command they run, and the arguments of `eval` and `trap` are comm
 Files the shell itself writes, through output redirections and `tee`, are listed in
 `shell_writes`; what other programs write, such as cp, mv or sed -i, is not.
 
+Commands of the Windows `PowerShell` tool go through the same classification with
+PowerShell syntax: statements separate on `;`, a newline, a pipe and the braces of a
+block, Windows PowerShell 5.1 has neither `&&` nor `||`, the escape character is a
+backtick so a backslash stays a path separator, a here-string is a body, and
+`Set-Content`, `Add-Content`, `Out-File`, `>` and `>>` write files, the first two of
+them one per element of a path array and `Out-File` the one destination its
+parameter declares. A `@'…'@` body is
+literal throughout; in a `@"…"@` one the text is data as well, but its `$(…)`
+subexpressions run and are read, as those of a `"…"` string are. An output capture such
+as `$sha = git rev-parse HEAD` is still a git command. Braces that only define a body,
+as `function f { … }` and `$b = { … }` do, perform none of it, so its statements are not
+counted; a later call of such a name is unclassified rather than a silent pass.
+
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
 are shortened, common credential shapes are masked in every printed string, paths
@@ -40,22 +53,30 @@ An entry of an unexpected shape is counted in `skipped_entries` and never stops 
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import os
+import posixpath
 import re
 import shlex
 import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Collection
 from pathlib import Path
 
 MAX_TEXT = 500
 MAX_COMMAND = 200
 MAX_DEPTH = 20  # nested substitutions and subshells parsed recursively
 ARITHMETIC_SCAN = 4096  # how far `((` looks for its `))` before it is read as subshells
-GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
+HTTP_URL = re.compile(r"https?://\S+\Z")
+GITHUB_URL = re.compile(r"https?://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
+GITLAB_MR_URL = re.compile(r"https?://([\w.-]+(?::\d+)?)/((?:[\w.-]+/)+[\w.-]+)/-/merge_requests/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
+URL_HOST = re.compile(r"https?://([^/?#]+)")  # the host a link names, which is part of a reference
+# A pull request on a forge that is neither github.com nor GitLab: only its own link names the host.
+FORGE_PULL_REQUEST = "forge_pull_request"
 SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
 QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(r'["\\`]|\$\(')}
 HEREDOC = re.compile(r"<<(-?)[ \t]*((?:'[^'\n]*'|\"[^\"\n]*\"|\\.|[^\s;&|<>()'\"\\])+)")
@@ -83,6 +104,8 @@ WRAPPERS = {
 # does not move the commands after them.
 SCOPE_IN, SCOPE_OUT = object(), object()
 CHDIR = object()  # (CHDIR, path) sets the directory the next commands of a scope run in
+DEFINE = object()  # (DEFINE, name) names a PowerShell body that was defined here and did not run
+MENTION = object()  # (MENTION, text) is a statement that was defined, not run: read for references only
 # Wrapper options that run no command: `command -v git` looks it up, `sudo -l` lists rights.
 NO_EXEC = {"command": {"-v", "-V"}, "sudo": {"-l", "--list", "-v", "--validate", "-k", "-K", "--reset-timestamp",
                                              "--remove-timestamp", "-V", "--version", "-h", "--help"}}
@@ -91,23 +114,68 @@ KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
 # Tags the client writes into user entries; a prompt can start with `<` too, as <pasted_content> does.
 QUOTED_TILDE = re.compile(r"(?<![^\s=])(?:(['\"])|\\)~")  # a quoted or escaped ~ starting a word
+LEADING_REMINDERS = re.compile(r"\s*(?:<system-reminder>.*?</system-reminder>\s*)+", re.DOTALL)
 CLIENT_TAG = re.compile(r"<(?:command-|local-command-|bash-|task-notification|system-reminder|artifact-content-)")
 ARRAY_ASSIGNMENT = re.compile(r"(?:^|\s)[A-Za-z_]\w*\+?=$")  # NAME=( starts array elements, which are data
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
+# Windows PowerShell 5.1, which the Claude Code `PowerShell` tool runs, is not a POSIX shell: it
+# has neither `&&` nor `||`, its escape character is a backtick, so a backslash stays a path
+# separator, and a `@'…'@` or `@"…"@` here-string is a body rather than a command.
+PS_SPECIAL = re.compile(r"[`'\"#;\n|{}()$@<]")
+PS_DOUBLE_END = re.compile(r"`|\"|\$\(")  # what ends or interrupts a "..." string
+PS_HERE_STRING = re.compile(r"@(['\"])[ \t]*\r?\n")
+PS_BODY_RUNS = re.compile(r"`|\$\(")  # in a `@"…"@` body: the escape character, and a subexpression
+PS_ASSIGNMENT = re.compile(r"^\$[\w:.\[\]{}]+\s*[-+*/%]?=\s*")  # `$x = git log` still runs git
+# What stands before the `{` of a body that is only defined there: a named definition, or an
+# assignment, which stores a script block for a later call. `if`, `foreach`, `while`, `try`,
+# `switch`, an invoked block (`& { … }`, `. { … }`, `Invoke-Command { … }`) and a hash table
+# literal match neither, so their braces keep holding statements that run where they stand.
+PS_DEFINITION = re.compile(r"^(?:function|filter|workflow)\s+([^\s({]+)", re.IGNORECASE)
+PS_ASSIGNED = re.compile(r"^(.*?)\s*[-+*/%]?=$", re.DOTALL)
+PS_CALL = {"&", "."}  # the call operator and dot sourcing, as in `& git push`
+PS_CHAIN = {"&&", "||"}  # operators PowerShell 7 chains commands with and 5.1 does not have
+PS_KEYWORDS = {"if", "elseif", "else", "while", "do", "foreach", "for", "switch", "try", "catch",
+               "finally", "begin", "process", "end", "param", "return", "function", "filter"}
+PS_CHDIR = {"cd", "chdir", "sl", "set-location"}
+PS_WRITE_CMDLETS = {"set-content", "add-content", "out-file"}
+PS_PATH_PARAMETERS = {"-path", "-literalpath", "-filepath"}
+# Of those cmdlets, the one whose destination is a single file: `Set-Content` and `Add-Content`
+# declare `-Path` and `-LiteralPath` as `string[]`, so each element they name is written, while
+# `Out-File` declares its destination as one `string`, which cannot hold an array. A comma there
+# builds an array all the same, and a `string` parameter takes an array as its elements joined by
+# `$OFS`, a single space by default: one file of that name, never one file per element.
+PS_SCALAR_PATH = {"out-file"}
+# Parameters of those cmdlets that take a value, so their value is not read as the path. The
+# switches are not enumerated: another parameter with a value can still shift the positional pick.
+PS_VALUE_PARAMETERS = {"-value", "-encoding", "-width", "-delimiter", "-stream", "-filter",
+                       "-include", "-exclude", "-inputobject"}
+# PowerShell's bit bucket, as `/dev/null` is a POSIX shell's. Its brace form `${null}` is not here:
+# `_ps_word` elides a brace expression to `${…}`, which no longer says which variable was written.
+PS_NULL = {"$null"}
+PS_EXECUTABLE = re.compile(r"\.(?:exe|cmd|bat|com|ps1)$", re.IGNORECASE)
+WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])")  # a drive, as in C:\dir, or a UNC share
+SHELL_TOOLS = {"Bash": "bash", "PowerShell": "powershell"}  # the client tools whose input is a command
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
 STATUS = re.compile(r"<status>(\w+)</status>")
 # Background work is read only from the results of the tools that start or stop it: the same
 # words in a file, a log or another command's output start or stop nothing.
+BACKGROUND_START = re.compile(r"\s*Command (?:running in background with ID: |did not complete within .*?"
+                              r"moved to the background \(ID: )(\w+)")
 STARTED = {
-    "Bash": re.compile(r"\s*Command (?:running in background with ID: |did not complete within .*?"
-                       r"moved to the background \(ID: )(\w+)"),
+    "Bash": BACKGROUND_START,
+    "PowerShell": BACKGROUND_START,  # the same message, as far as this helper can tell from a transcript
     "Monitor": re.compile(r"\s*Monitor started \(task (\w+)"),
     "Workflow": re.compile(r"\s*Workflow launched in background\. Task ID: (\w+)"),
     "Agent": re.compile(r"\s*Async agent launched.*?agentId: (\w+)", re.S),
 }
 STOPPED = re.compile(r"Successfully stopped task: (\w+)")  # in TaskStop results
-MEMORY_PATH = re.compile(r"/projects/[^/]+/memory/")
+# Either separator: a Windows client records `C:\Users\u\.claude\projects\p\memory\x.md`.
+MEMORY_PATH = re.compile(r"[/\\]projects[/\\][^/\\]+[/\\]memory[/\\]")
+SCRATCHPAD_PATH = re.compile(r"[/\\]scratchpad")  # either separator, as `MEMORY_PATH` has
+# How near an entry of the transcript a memory file's modification time must fall to count as this
+# session's: a session open for days spans its whole memory directory, whoever wrote what is in it.
+MEMORY_ACTIVITY_WINDOW = 300
 # Phrases with which a model takes back its own earlier statement. They are candidates
 # for the audit, not conclusions: the flow reads each one in context.
 CORRECTION = re.compile(
@@ -131,6 +199,38 @@ WRITE_VERBS = {
 READ_VERBS = {
     "browse", "check", "count", "describe", "explore", "fetch", "filter", "find", "get", "guide", "history", "list",
     "load", "lookup", "query", "read", "retrieve", "search", "select", "show", "status", "view"}
+# Servers the host application itself provides (task list, chat title, chapters, panes). The
+# prefix alone does not say a call stays inside the application: the host's tool surface is the
+# vendor's and changes between releases, so only the names below are counted apart. A tool of
+# such a server that is not listed is classified by the ordinary rules, which make it a write or
+# leave it unclassified, so a new or renamed one is reported instead of disappearing into the
+# local counter. `mcp__ccd_pr__set_monitor`, which arms the application to push commits and
+# answer review comments on a pull request, and `mcp__ccd_session__start_session`, which starts
+# another session, are measured examples: both act outside the application and neither is here.
+CLIENT_LOCAL_SERVER = re.compile(r"^mcp__ccd_")
+CLIENT_LOCAL_TOOLS = {
+    # the turn's own task list and next-step box; `advance` is a retired name old transcripts hold
+    "mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up", "mcp__ccd_turn__advance",
+    # the session's own record in the application: its title, chapters, cards, usage and history
+    "mcp__ccd_session__mark_chapter", "mcp__ccd_session__dismiss_task",
+    "mcp__ccd_session__list_start_targets", "mcp__ccd_session_mgmt__set_session_title",
+    "mcp__ccd_session_mgmt__get_session", "mcp__ccd_session_mgmt__list_events",
+    "mcp__ccd_session_mgmt__list_sessions", "mcp__ccd_session_mgmt__search_session_transcripts",
+    "mcp__ccd_session_mgmt__get_usage",
+    # the application's own panes and sidebar
+    "mcp__ccd_view__show_pane", "mcp__ccd_sidebar__mark_completed",
+    # the directory this session works in; `propose_branch` is retired too
+    "mcp__ccd_directory__change_directory", "mcp__ccd_directory__request_directory",
+    "mcp__ccd_directory__propose_branch",
+    # the application's own pull-request monitor, which reads and binds but writes nothing there
+    "mcp__ccd_pr__get_status", "mcp__ccd_pr__bind_pr",
+    # this session's connectors: the connector's own calls are recorded when they happen
+    "mcp__ccd_connectors__session_connectors_status",
+    "mcp__ccd_connectors__set_session_connector_enabled",
+    # the user's own file manager, which is shown a path and nothing more
+    "mcp__ccd_host__reveal_path"}
+# Tools whose name starts with a write verb but which only return text or a verdict.
+READ_ONLY_TOOLS = {"run_flow", "validate_subagent_result"}
 TARGET_KEYS = ("trigger_id", "id", "task_id", "list_id", "doc_id", "url", "owner", "repo", "pullNumber",
                "issue_number", "number", "path", "file_path", "name", "title", "collection", "channel")
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
@@ -634,7 +734,8 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
 def _name_words(name: str) -> list[str]:
     tail = name.rsplit("__", 1)[-1]
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", tail).lower()
-    spaced = re.sub(r"pull[_\-\s]?requests?", "pullrequest", spaced)  # a noun, not the verb "request"
+    # a noun, not the verbs "pull", "merge" and "request"
+    spaced = re.sub(r"(pull|merge)[_\-\s]?requests?", r"\1request", spaced)
     return [word for word in re.split(r"[_\-\s]+", spaced) if word]
 
 
@@ -648,7 +749,7 @@ def _target(data) -> str:
 
 
 def classify_tool(name: str, data) -> str:
-    """write, read, logging or unclassified, for tools other than files and shell."""
+    """write, read, logging, client_local or unclassified, for tools other than files and shell."""
     data = data if isinstance(data, dict) else {}
     action = data.get("action")
     if name.endswith("log_interaction"):
@@ -661,7 +762,18 @@ def classify_tool(name: str, data) -> str:
         return "read" if not action or action in ARTIFACT_READ_ACTIONS else "write"
     if not name.startswith("mcp__"):
         return "read"
+    if CLIENT_LOCAL_SERVER.match(name):
+        if name in CLIENT_LOCAL_TOOLS:
+            return "client_local"
+        # An unknown tool of a host server is never counted apart: a write verb makes it a write,
+        # with its time, actor and target, and anything else is printed as unclassified.
+        return "write" if any(word in WRITE_VERBS for word in _name_words(name)) else "unclassified"
     words = _name_words(name)
+    pairs = {"".join(pair) for pair in zip(words, words[1:])}  # read_only reads as read + only
+    if name.rsplit("__", 1)[-1].lower() in READ_ONLY_TOOLS or "readonly" in words or "readonly" in pairs:
+        return "read"
+    # Word order does not decide a verdict: `get_or_create_page` writes. A read verb leading a
+    # name whose object does not write, as in `get_merge_request_notes`, still reads just below.
     if any(word in WRITE_VERBS for word in words):
         return "write"
     if any(word in READ_VERBS for word in words):
@@ -846,15 +958,28 @@ def gh_write(tokens: list[str], segment: str) -> bool:
 
 
 def _resolve(path: str, cwd: str | None) -> str | None:
-    """An absolute path, or None when it depends on an unknown directory or a shell variable."""
+    """An absolute path, or None when it depends on an unknown directory or a shell variable.
+
+    A Windows path, whose drive or share no POSIX rule recognises, keeps its drive and is written
+    with forward slashes, so one spelling reaches `directories` whichever client wrote it.
+    """
     path = os.path.expanduser(path)
-    if "$" in path or "`" in path:
+    if "$" in path or "`" in path:  # an unexpanded variable, in either syntax
         return None
-    if not path.startswith("/"):
+    windows = bool(WINDOWS_PATH.match(path)) or (bool(cwd) and bool(WINDOWS_PATH.match(cwd)))
+    if not path.startswith("/") and not WINDOWS_PATH.match(path):
         if not cwd:
             return None
-        path = os.path.join(cwd, path)
-    return os.path.normpath(path)
+        path = posixpath.join(cwd.replace("\\", "/"), path.replace("\\", "/")) if windows \
+            else os.path.join(cwd, path)
+    return posixpath.normpath(path.replace("\\", "/")) if windows else os.path.normpath(path)
+
+
+def _parent_directory(path: str) -> str | None:
+    """The directory of an absolute path, or None for a relative one, with either separator."""
+    if WINDOWS_PATH.match(path):
+        return posixpath.dirname(path.replace("\\", "/"))
+    return os.path.dirname(path) if path.startswith("/") else None
 
 
 def _earlier(ts, than) -> bool:
@@ -862,19 +987,67 @@ def _earlier(ts, than) -> bool:
     return bool(ts) and (not than or ts < than)
 
 
-def _add_ref(refs: dict, repository, kind: str, number: int, ts) -> None:
-    key = (repository, kind, number)
+def _forge_host(url: str | None) -> str | None:
+    """The host of a reference's URL, lower-cased and without the scheme's default port, or None when
+    the reference has no URL. Two forges number their own pull requests and merge requests, so the host
+    tells one `group/project!7` from another and is part of the reference's identity."""
+    match = URL_HOST.match(url) if url else None
+    if not match:
+        return None
+    host = match.group(1).lower()
+    default = ":443" if url.lower().startswith("https:") else ":80"
+    return host[:-len(default)] if host.endswith(default) else host
+
+
+def _add_ref(refs: dict, repository, kind: str, number: int, ts, url: str | None = None) -> None:
+    """Record a reference. A repository value that starts with `$` is an unexpanded shell variable and is
+    dropped. A reference given with a URL keeps it, because its record or text is the only authority on the
+    host: a GitLab merge request and a pull request on another forge are never rewritten to github.com.
+    Without one, a pull request or issue gets a github.com URL only when the repository is `owner/repo`; a
+    longer path is a nested GitLab group whose host is unknown, so that reference is left out rather than
+    invented, and a merge request or another forge's pull request is not recorded at all.
+
+    The host of that URL is part of the identity, beside the repository, the kind and the number: the same
+    number on two forges is two references, and merging them would drop one of the two URLs. A github.com
+    pull request or issue is never split by this, because its URL is given or built on that one host."""
+    if isinstance(repository, str) and any(part.startswith("$") for part in repository.split("/")):
+        repository = None
+    url = url or None
+    if url is None:
+        if kind in ("merge_request", FORGE_PULL_REQUEST):
+            return
+        if repository and kind != "ref":
+            if repository.count("/") != 1:
+                return
+            url = f"https://github.com/{repository}/{kind}/{number}"
+    key = (repository, kind, number, _forge_host(url))
     ref = refs.get(key)
     if ref is None:
-        url = f"https://github.com/{repository}/{kind}/{number}" if repository and kind != "ref" else None
         refs[key] = {"repository": repository, "kind": kind, "number": number, "url": url, "first_seen": ts}
     elif _earlier(ts, ref["first_seen"]):
         ref["first_seen"] = ts  # subagent transcripts are read after the main one
 
 
+def _add_url_ref(refs: dict, url: str, ts) -> bool:
+    """Record the reference a link names: a github.com pull request or issue, or a merge request on any
+    other host. Returns whether the link was one of those."""
+    match = GITHUB_URL.search(url)
+    if match:
+        _add_ref(refs, match.group(1), match.group(2), int(match.group(3)), ts)
+        return True
+    match = GITLAB_MR_URL.search(url)
+    if match and match.group(1).lower() != "github.com":
+        _add_ref(refs, match.group(2), "merge_request", int(match.group(3)), ts, url=match.group(0))
+        return True
+    return False
+
+
 def _scan_refs(text: str, refs: dict, ts) -> None:
     for match in GITHUB_URL.finditer(text):
         _add_ref(refs, match.group(1), match.group(2), int(match.group(3)), ts)
+    for match in GITLAB_MR_URL.finditer(text):
+        if match.group(1).lower() != "github.com":
+            _add_ref(refs, match.group(2), "merge_request", int(match.group(3)), ts, url=match.group(0))
     for match in SHORT_REF.finditer(text):
         _add_ref(refs, match.group(1), "ref", int(match.group(2)), ts)
 
@@ -916,10 +1089,15 @@ def _clone_dir(source: str) -> str | None:
     return re.sub(r"\.(?:git|bundle)$", "", name) or None
 
 
-def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
-    """Record writes, directories, references and scratchpad paths of one shell command."""
-    current, saved = cwd, []
-    pending = _segments(command)[::-1]
+def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str, shell: str = "bash") -> None:
+    """Record writes, directories, references and scratchpad paths of one shell command.
+
+    ``shell`` selects the syntax: "bash" for the Bash tool, "powershell" for the Windows tool,
+    whose statements, quoting and file-writing cmdlets differ. The classification is the same.
+    """
+    powershell = shell == "powershell"
+    current, saved, defined = cwd, [], set()  # names whose body the segmenter did not read as statements
+    pending = (_powershell_segments(command) if powershell else _segments(command))[::-1]
     while pending:
         segment = pending.pop()
         if segment is SCOPE_IN:
@@ -931,32 +1109,66 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
         if isinstance(segment, tuple) and segment[0] is CHDIR:
             current = segment[1]
             continue
+        if isinstance(segment, tuple) and segment[0] is DEFINE:
+            defined.add(segment[1])
+            continue
+        if isinstance(segment, tuple) and segment[0] is MENTION:
+            # Defined, not run: its references are the thread's subject, its commands are not its
+            # actions. So the reference scans run and the classification does not.
+            text = segment[1]
+            _scan_refs(text, sink["refs"], ts)
+            mentioned = _powershell_tokens(text) if powershell else _command_tokens(text, [])
+            # The program name is folded exactly as the dispatch above folds it, and for the same
+            # reason: PowerShell resolves `GH` to the same executable. Subcommands stay as written,
+            # because `gh` parses its own case sensitively.
+            program = mentioned[0].lower() if mentioned and powershell else (mentioned[:1] or [""])[0]
+            if program == "gh":
+                _gh_ref(mentioned, ts, sink)
+            continue
         _scan_refs(segment, sink["refs"], ts)
         dirs: list[str] = []
-        tokens = _command_tokens(segment, dirs)
+        tokens = _powershell_tokens(segment) if powershell else _command_tokens(segment, dirs)
         run_dir = current
         for directory in dirs:  # `env -C DIR git ...` runs git in DIR
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
-        written = [_resolve(target, run_dir) or target for target in _written_files(segment, tokens)]
-        written = [path for path in dict.fromkeys(written) if "/scratchpad" not in path]  # listed there already
+        if powershell:
+            targets, unresolved = _powershell_writes(segment, defined)
+        else:
+            targets, unresolved = _written_files(segment, tokens), False
+        kept = []
+        for path in dict.fromkeys(_resolve(target, run_dir) or target for target in targets):
+            if not SCRATCHPAD_PATH.search(path):
+                kept.append(path)
+            else:
+                # A session-local write belongs to `scratchpad_paths` rather than `shell_writes`, and
+                # it is recorded here from the parsed target: the token scan below reads the command
+                # as blanks-separated words, so a quoted path with a space reaches it cut at that
+                # space. Dropping the target would lose the write with no trace of it anywhere.
+                sink["scratch"].setdefault(path, ts)
+        written = kept
         for path in written:
-            if path.startswith("/"):
-                sink["directories"].setdefault(os.path.dirname(path), ts)
+            parent = _parent_directory(path)
+            if parent:
+                sink["directories"].setdefault(parent, ts)
+        shown = _first_line(KEYWORD_PREFIX.sub("", segment))
         if written:
-            sink["shell_writes"].append({"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)),
-                                         "by": actor, "files": written})
-        if not tokens:
+            sink["shell_writes"].append({"ts": ts, "command": shown, "by": actor, "files": written})
+        if not tokens and not unresolved:
             continue
-        program = tokens[0]
-        source, script = _shell_input(tokens) if program in SHELLS else (None, None)
+        # A destination the write scan could not resolve leaves the statement listed whatever its
+        # program is: what the call wrote is not established, so it is neither a write nor a pass.
+        unclassified = unresolved
+        program = (tokens[0].lower() if powershell else tokens[0]) if tokens else ""  # PowerShell folds case
+        chdir = program in PS_CHDIR if powershell else program == "cd"
+        source, script = _shell_input(tokens) if not powershell and program in SHELLS else (None, None)
         if source == "script" and script:
             # `bash -c '<script>'` runs them in a child shell, in the directory of a wrapper such as env -C
             pending.extend(_scoped([(CHDIR, run_dir), *_segments(script)])[::-1])
-        elif program == "eval" and len(tokens) > 1:
+        elif not powershell and program == "eval" and len(tokens) > 1:
             pending.extend(_segments(" ".join(tokens[1:]))[::-1])
-        elif program == "trap":
+        elif not powershell and program == "trap":
             args = tokens[1:]
             if args[:1] == ["--"]:
                 args = args[1:]
@@ -964,12 +1176,16 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
                 args = []  # -p prints, -l lists and - resets: no handler
             if len(args) > 1:
                 pending.extend(_segments(args[0])[::-1])  # the command run on exit or a signal
-        elif program == "cd":
+        elif chdir:
             names = _positional(tokens[1:], set())
             target = names[0] if names else "-" if "-" in tokens[1:] else "~"  # `cd` alone goes home
             current = None if target == "-" else _resolve(target, current)  # `cd -`: an earlier directory
             if current:
                 sink["directories"].setdefault(current, ts)
+        elif program in defined:
+            # A body defined in this command, whose statements the segmenter did not read: what
+            # the call ran is not established here, so it is listed instead of passing silently.
+            unclassified = True
         elif program in ("git", "gh"):
             if program == "git":
                 _git_paths(tokens, run_dir, ts, sink)
@@ -977,14 +1193,42 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             else:
                 kind = gh_kind(tokens, segment)
                 _gh_ref(tokens, ts, sink)
-            shown = _first_line(KEYWORD_PREFIX.sub("", segment))
+            if powershell and ("&&" in tokens or "||" in tokens):
+                # Windows PowerShell 5.1 has no such operator, so the line as written runs nothing
+                # and its own syntax cannot say which commands were meant: it is listed, not read.
+                kind = "unknown"
             if kind == "write":
                 sink["git_mutations"].append({"ts": ts, "command": shown, "by": actor})
-            elif kind == "unknown":
-                sink["unclassified_commands"].append({"ts": ts, "command": shown, "by": actor})
+            unclassified = unclassified or kind == "unknown"
+        if unclassified:
+            sink["unclassified_commands"].append({"ts": ts, "command": shown, "by": actor})
     for token in TOKEN_SPLIT.split(command):  # heredoc bodies too: a script there may write the file
-        if token.startswith("/") and "/scratchpad" in token:
-            sink["scratch"].setdefault(token.rstrip(".,:"), ts)
+        path = token.rstrip(".,:")
+        if SCRATCHPAD_PATH.search(path) and (path.startswith("/") or WINDOWS_PATH.match(path)):
+            # Inferred, not parsed: this scan reads blanks-separated words, so it keeps its own
+            # bucket and `_scratchpad_paths` drops a fragment of a parsed target from it alone.
+            sink["scratch_tokens"].setdefault(_resolve(path, None) or path, ts)
+
+
+def _scratchpad_paths(parsed: dict, inferred: dict) -> list[str]:
+    """The session-local paths this thread touched: every parsed target, and the inferred ones
+    that are not fragments of a parsed target.
+
+    Two sources fill this field. A write's target is parsed from the command, and a path merely
+    mentioned anywhere in it is picked up by a scan over blanks-separated words. That scan cuts a
+    quoted path at its space, so `'.../my notes.md'` reaches it as `.../my`, and a cut is a path
+    no write created: the very thing this inventory must not report.
+
+    So an inferred path is dropped when a parsed target continues it after a single space, which
+    is the shape only a blanks split produces, and a parsed target is never dropped. Judging the
+    two together would lose a real write: `echo x > '<s>/notes'` and `echo y > '<s>/notes old.md'`
+    are both parsed targets, and the first is a space-prefixed sibling of the second.
+    """
+    targets = sorted(parsed)
+    fragments = [path for path in sorted(inferred)
+                 if path not in parsed
+                 and not any(target.startswith(path + " ") for target in targets)]
+    return sorted({*targets, *fragments})
 
 
 def _written_files(segment: str, tokens: list[str]) -> list[str]:
@@ -1053,6 +1297,435 @@ def _word(text: str, index: int) -> tuple[str, int]:
     return "".join(word), index
 
 
+def _powershell_segments(command: str, depth: int = 0) -> list[str]:
+    """Statements of a PowerShell command line, split at `;`, a newline, a pipe and block braces.
+
+    Windows PowerShell 5.1 has neither `&&` nor `||`, so neither of them splits a statement. A
+    here-string body is not a command, except for the `$(…)` subexpressions of a `@"…"@` one, which
+    the shell runs as it runs those of a `"…"` string, and `(…)`, `$(…)` and `@(…)` hold
+    statements of their own, which run in a scope of their own. Nesting past MAX_DEPTH is not read.
+
+    The braces that only define a body perform none of it, so its statements are not returned;
+    `_ps_defined` tells the two kinds of brace apart and names the body, and nothing closing such
+    a brace leaves its statements in place rather than dropping them without a trace.
+    """
+    return _powershell_parse(command, 0, depth)[0] if depth < MAX_DEPTH else []
+
+
+def _powershell_parse(command: str, index: int, depth: int, nested: bool = False) -> tuple[list[str], int]:
+    """Statements from ``index`` to the end, or with ``nested`` to the `)` that closes the group,
+    and the index after them."""
+    segments, current, quote, length = [], [], None, len(command)
+    braces, defining, mark = 0, None, 0  # brace nesting, the level a defined body opened at, its first segment
+
+    def flush() -> None:
+        statement = "".join(current).strip()
+        if statement:
+            segments.append(statement)
+        current.clear()
+
+    def group(paren: int, placeholder: str) -> int:
+        """The statements of `(…)`, `$(…)` or `@(…)`, whose `(` is at ``paren``."""
+        current.append(placeholder)
+        if depth + 1 >= MAX_DEPTH:  # nesting past the limit is not read
+            return _skip_group(command, paren) or length
+        inner, end = _powershell_parse(command, paren + 1, depth + 1, True)
+        segments.extend(_scoped(inner))
+        return end
+
+    while index < length:
+        if quote == "'":  # a literal string, in which '' is one quote
+            end = command.find("'", index)
+            if end < 0:
+                current.append(command[index:])
+                break
+            double = command.startswith("''", end)
+            current.append(command[index:end + (2 if double else 1)])
+            index, quote = end + (2 if double else 1), quote if double else None
+            continue
+        if quote == '"':
+            match = PS_DOUBLE_END.search(command, index)
+            if not match:
+                current.append(command[index:])
+                break
+            current.append(command[index:match.start()])
+            index, found = match.start(), match.group()
+            if found == "`":  # the escape character, which also escapes a quote
+                current.append(command[index:index + 2])
+                index += 2
+            elif found == "$(":  # a subexpression inside "..." runs
+                index = group(index + 1, "$(…)")
+            else:
+                current.append('"')
+                quote, index = None, index + 1
+            continue
+        match = PS_SPECIAL.search(command, index)
+        if not match:
+            current.append(command[index:])
+            break
+        current.append(command[index:match.start()])
+        index, char = match.start(), match.group()
+        word_start = not "".join(current[-1:])[-1:].strip()
+        if char == "`":
+            if command.startswith(("\n", "\r\n"), index + 1):
+                index += 3 if command.startswith("\r", index + 1) else 2  # a line continuation
+            else:
+                current.append(command[index:index + 2])
+                index += 2
+        elif char in "'\"":
+            quote = char
+            current.append(char)
+            index += 1
+        elif char == "#" and word_start:  # a comment runs to the end of the line
+            end = command.find("\n", index)
+            index = length if end < 0 else end
+        elif char == "<" and command.startswith("<#", index):
+            end = command.find("#>", index + 2)
+            index = length if end < 0 else end + 2  # a block comment
+        elif char in "#<":
+            current.append(char)  # inside a word, as in a#b, and a `<` that redirects nothing in 5.1
+            index += 1
+        elif char == "@" and (here := PS_HERE_STRING.match(command, index)):
+            current.append(f"@{here.group(1)}…{here.group(1)}@")  # the body's own text is data
+            body, index = here.end(), _powershell_here_string(command, here.end(), here.group(1))
+            while here.group(1) == '"' and (runs := PS_BODY_RUNS.search(command, body, index)):
+                # A `$(…)` in a `@"…"@` body runs, as one in a `"…"` string does, so the commands
+                # there are read instead of being dropped as text. A backtick escapes it, and a
+                # `@'…'@` body is literal throughout, which leaves this loop unentered.
+                if runs.group() == "`":
+                    body = runs.end() + 1
+                    continue
+                body = group(runs.start() + 1, "$(…)")
+                if body > index:
+                    break  # nothing closes the subexpression inside the body
+        elif char in "$@" and command.startswith(("$(", "@("), index):
+            index = group(index + 1, char + "(…)")
+        elif char == "$" and command.startswith("${", index):
+            end = command.find("}", index + 2)
+            current.append("${…}")  # a braced variable name, not a block
+            index = length if end < 0 else end + 1
+        elif char in "$@":
+            current.append(char)
+            index += 1
+        elif char == "(":
+            index = group(index, "(…)")
+        elif char == ")":
+            flush()
+            index += 1
+            if nested:
+                return segments, index
+        elif char == "{":
+            head = "".join(current).strip()
+            flush()  # the statements of a block, a hash table or a script block stand on their own
+            braces += 1
+            if not head and defining is None and segments and isinstance(segments[-1], str):
+                # A newline between a definition's header and its brace is PowerShell formatting,
+                # and the flush there left the header in the previous segment. It is taken back as
+                # the header, because `function Publish` and `$block =` cannot stand as statements
+                # of their own: reading an empty header instead made the body of a function nobody
+                # called a run of statements. `_ps_defined` returns None for anything else, so an
+                # `if (…)` or `foreach (…)` written that way keeps the statements that do run.
+                head = segments[-1]
+            names = _ps_defined(head) if defining is None else None
+            if names is not None:
+                # Only defined here, so nothing in the body runs where it stands: its statements
+                # are taken back at the closing brace. The name stays, so that a later call of it
+                # is reported rather than passed over.
+                defining = braces
+                if braces == 1:
+                    # Only a definition at the command's own level shadows anything a later
+                    # statement names: `& { function Set-Content { } }` defines it in the child
+                    # scope the block runs in, and the call after the block still reaches the
+                    # cmdlet. Its statements are taken back either way, which is about what ran
+                    # and not about what the name means afterwards.
+                    segments.extend((DEFINE, name) for name in names)
+                mark = len(segments)
+            index += 1
+        elif char == "}":
+            flush()
+            if defining == braces:
+                # A definition performs none of them, so they stop being statements. They are kept
+                # as mentions, because a forge reference says what the thread was about rather than
+                # what succeeded: the same reason an unsupported chain keeps its reference while its
+                # verdict is withheld. Nothing else is read from them.
+                taken = [item for item in segments[mark:] if isinstance(item, str)]
+                del segments[mark:]
+                segments.extend((MENTION, text) for text in taken)
+                defining = None
+            braces = max(braces - 1, 0)
+            index += 1
+        elif char == "|" and command.startswith("||", index):
+            current.append("||")  # an empty pipe element, which 5.1 runs no more than it runs `&&`
+            index += 2
+        else:  # ; a newline and a pipe end a statement
+            flush()
+            index += 1
+    flush()
+    return segments, index
+
+
+def _ps_defined(head: str) -> list[str] | None:
+    """The lower-cased names a brace block after ``head`` defines, or None when the block runs
+    where it stands.
+
+    `function f { … }`, `filter f { … }` and `workflow f { … }` define a body, and an assignment
+    such as `$b = { … }` stores one for a later call: in neither case does a command in it run at
+    the definition, so counting its statements names a mutation nobody performed. The braces of
+    `if`, `foreach`, `while`, `try` and `switch`, of an invoked block and of a hash table literal
+    are not definitions, so this returns None for them and their statements stand.
+
+    A name is returned so that a later call of it can be listed rather than pass silently: a
+    scope qualifier is kept and dropped as well, since `global:f` is called either way. The empty
+    list is a definition whose name this reading cannot take, which still performs nothing.
+    """
+    define = PS_DEFINITION.match(head)
+    if define:
+        name = define.group(1).lower()
+        return [name, name.rsplit(":", 1)[-1]] if ":" in name else [name]
+    assigned = PS_ASSIGNED.match(head)
+    if not assigned:
+        return None
+    words = _ps_words(assigned.group(1))
+    return [words[0].lower()] if words else []
+
+
+def _powershell_here_string(command: str, index: int, quote: str) -> int:
+    """The index after the `'@` or `"@` that closes a here-string, which must start a line."""
+    delimiter = quote + "@"
+    while index < len(command):
+        end = command.find("\n", index)
+        end = len(command) if end < 0 else end
+        if command[index:end].startswith(delimiter):
+            return index + len(delimiter)
+        index = end + 1
+    return len(command)
+
+
+def _ps_words(text: str, commas: bool = False) -> list[str]:
+    """Words of one PowerShell statement, without their quotes. A backslash is a path separator,
+    not an escape; the escape character is a backtick, and `>` and `>>` are words of their own.
+
+    With ``commas``, an unquoted comma is a word of its own as well, which is what separates the
+    elements of an array: a comma inside a quoted word is part of that word, as a file name's is."""
+    words, word, quote, index, started = [], [], None, 0, False
+
+    def end_word() -> None:
+        nonlocal started
+        if started:
+            words.append("".join(word))
+            word.clear()
+        started = False
+
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote == "'" and text.startswith("''", index):
+                word.append("'")
+                index += 1
+            elif char == quote:
+                quote = None
+            elif quote == '"' and char == "`" and index + 1 < len(text):
+                index += 1
+                word.append(text[index])
+            else:
+                word.append(char)
+        elif char in "'\"":
+            quote, started = char, True
+        elif char == "`" and index + 1 < len(text):
+            index += 1
+            word.append(text[index])
+            started = True
+        elif char in " \t\r\n":
+            end_word()
+        elif char == ">":
+            end_word()
+            operator = ">>" if text.startswith(">>", index) else ">"
+            words.append(operator)
+            index += len(operator)
+            continue
+        elif commas and char == ",":
+            end_word()
+            words.append(",")
+        else:
+            word.append(char)
+            started = True
+        index += 1
+    end_word()
+    return words
+
+
+def _ps_word(text: str, index: int) -> tuple[str, int]:
+    """The PowerShell word after the blanks at ``index``, without its quotes, and the index after
+    it. An operator or a closing brace ends it."""
+    while index < len(text) and text[index] in " \t":
+        index += 1
+    start, quote = index, None
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char == "`":
+                index += 1
+        elif char in "'\"":
+            quote = char
+        elif char == "`":
+            index += 1
+        elif char in " \t\r\n;|>)}":
+            break
+        index += 1
+    words = _ps_words(text[start:index])
+    return (words[0] if words else ""), index
+
+
+def _powershell_tokens(segment: str, commas: bool = False) -> list[str]:
+    """Tokens of one PowerShell statement from its command on, which is reduced to its name.
+
+    An output capture, the call operator and a leading keyword come off the front, so
+    `$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' rev-parse HEAD` is still a git command.
+    """
+    tokens = _ps_words(PS_ASSIGNMENT.sub("", segment.strip()), commas)
+    while tokens and (tokens[0] in PS_CALL or tokens[0].lower() in PS_KEYWORDS):
+        tokens = tokens[1:]
+    if tokens:
+        tokens[0] = PS_EXECUTABLE.sub("", re.split(r"[\\/]", tokens[0])[-1])
+    return tokens
+
+
+def _powershell_writes(segment: str, defined: Collection[str] = ()) -> tuple[list[str], bool]:
+    """Files one PowerShell statement writes, and whether a call in it names a destination this
+    reading cannot resolve into the files it wrote.
+
+    The files are the targets of its unquoted `>` and `>>` redirections and the paths of a
+    `Set-Content`, `Add-Content` or `Out-File` call. `2>&1` only redirects one stream into
+    another, and `$null` is the bit bucket rather than a file. Any other variable keeps its
+    unexpanded literal, as a Bash redirection does, so the write is not lost.
+
+    A name in ``defined`` is not the cmdlet it is spelled like: the command defined a function of
+    that name, so the call runs a body whose statements this reading never saw and creates nothing
+    of its own. No file is named for it, and `_shell` lists the call as unclassified. A
+    redirection writes whatever the command is, so the first loop does not consult ``defined``.
+
+    The statement is tokenised here rather than taken from the caller, because a cmdlet's path
+    argument may be an array and only words that keep an unquoted comma can be split into one."""
+    files, unresolved, index, quote = [], False, 0, None
+    while index < len(segment):
+        char = segment[index]
+        if quote:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char == "`":
+                index += 1
+        elif char in "'\"":
+            quote = char
+        elif char == "`":
+            index += 1
+        elif char == ">":
+            index += 1 + segment.startswith(">", index + 1)
+            if segment.startswith("&", index):
+                index += 1
+                continue  # 2>&1 and *>&1 duplicate a stream
+            target, index = _ps_word(segment, index)
+            if target and target.lower() not in PS_NULL:
+                files.append(target)
+            continue
+        index += 1
+    # the cmdlet calls are read from words that keep an unquoted comma, which separates the
+    # elements of an array: `Set-Content -Path a.txt,b.txt` writes both of the files it names
+    for command in _ps_statements(_powershell_tokens(segment, commas=True)):
+        name = command[0].lower() if command[:1] else ""
+        # A review asked for `Module\Set-Content` to escape the shadowing, since a qualified call
+        # reaches the cmdlet whatever a function of the bare name does. It cannot be done here:
+        # `_powershell_tokens` has already dropped the qualifier, so this reading cannot tell the
+        # two spellings apart, and crediting a write on the guess would report a file that may
+        # never have been written. Such a call is listed in `unclassified_commands` instead, which
+        # is the answer for a statement this reader cannot settle.
+        if name in PS_WRITE_CMDLETS and name not in defined:
+            targets = _ps_targets(command[1:], name in PS_SCALAR_PATH)
+            if targets is None:
+                unresolved = True
+                continue
+            for target in targets:
+                if target and target.lower() not in PS_NULL:
+                    files.append(target)
+    return files, unresolved
+
+
+def _ps_statements(tokens: list[str]) -> list[list[str]]:
+    """The commands of one tokenised PowerShell statement, split at `&&` and `||`.
+
+    Windows PowerShell 5.1 has neither operator, so the segmenter keeps such a line as a single
+    statement; PowerShell 7 runs both. Which dialect the host's tool runs is not established, so
+    every command of a chain is read for the file it writes: under 5.1 the line runs nothing and
+    the extra target is a path the thread named, and under 7 it is a write that would be lost.
+    The git classification of a chain stays `unknown`, which `_shell` decides.
+    """
+    commands, current = [], []
+    for token in tokens:
+        if token in PS_CHAIN:
+            commands.append(current)
+            current = []
+        else:
+            current.append(token)
+    commands.append(current)
+    for index, command in enumerate(commands):
+        while command and (command[0] in PS_CALL or command[0].lower() in PS_KEYWORDS):
+            command = command[1:]
+        commands[index] = command
+    return commands
+
+
+def _ps_array(args: list[str], index: int) -> tuple[list[str], int]:
+    """The elements of the array that starts at ``index``, and the index after it. `_ps_words` keeps
+    an unquoted comma as a word of its own, so `a.txt,b.txt` is two elements while a comma inside a
+    quoted name stays part of that one name. A comma may have blanks around it."""
+    values = []
+    while index < len(args):
+        if args[index] == ",":
+            index += 1
+            continue
+        values.append(args[index])
+        index += 1
+        if not (index < len(args) and args[index] == ","):
+            break
+    return values, index
+
+
+def _ps_targets(args: list[str], scalar: bool = False) -> list[str] | None:
+    """The files a `Set-Content`, `Add-Content` or `Out-File` call writes: the value of `-Path`,
+    `-LiteralPath` or `-FilePath`, or else its first positional argument. None when the call
+    names more destinations than its parameter declares, which is no list of files at all.
+
+    A `string[]` destination names one file per element, and every one of them is written. With
+    ``scalar`` the destination is a single `string`, which `PS_SCALAR_PATH` holds the cmdlets of,
+    and an array given to one is not a reading this helper can take: the elements can arrive
+    joined by `$OFS` into a single name, and cmdlet parameter binding can refuse a collection
+    where a scalar `string` is declared, which fails the command and writes nothing. Reporting
+    either the joined name or one file per element names a write nobody performed, so the call is
+    unresolved and `_shell` lists it instead.
+    """
+    positional, index = [], 0
+    while index < len(args):
+        name = args[index].lower()
+        if name in PS_PATH_PARAMETERS:
+            return _ps_destination(_ps_array(args, index + 1)[0], scalar)
+        if name.startswith("-"):
+            index += 1
+            if name in PS_VALUE_PARAMETERS:
+                _, index = _ps_array(args, index)  # the value is this parameter's, not a path
+        elif positional:
+            index += 1
+        else:
+            positional, index = _ps_array(args, index)
+    return _ps_destination(positional, scalar)
+
+
+def _ps_destination(values: list[str], scalar: bool) -> list[str] | None:
+    """The files an array of destination elements writes: all of them, or None for a parameter
+    that declares one `string` and was given more than one element."""
+    return None if scalar and len(values) > 1 else values
+
+
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
     """The pull request or issue that a `gh pr|issue <verb>` command or a `gh api` endpoint names."""
     if len(tokens) > 2 and tokens[1] == "api":
@@ -1106,9 +1779,11 @@ def load_entries(paths: list[Path]) -> tuple[list, int]:
 
 def _file(sink: dict, path: str, ts, actor: str) -> None:
     """Every writer of a path, with the time of its first write there. The file's directory
-    joins the directories, so a repository edited outside the working directory is found."""
-    if path.startswith("/"):
-        sink["directories"].setdefault(os.path.dirname(path), ts)
+    joins the directories, so a repository edited outside the working directory is found; a
+    Windows path has one too, which is why the directory comes from `_parent_directory`."""
+    parent = _parent_directory(path)
+    if parent:
+        sink["directories"].setdefault(parent, ts)
     writers = sink["files"].setdefault(path, {})
     if actor not in writers or _earlier(ts, writers[actor]):
         writers[actor] = ts
@@ -1127,8 +1802,9 @@ def _in_time_order(items: list[dict]) -> list[dict]:
 
 def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
-            "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
+            "logging": 0, "client_local": Counter(), "scratch": {}, "scratch_tokens": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
+            "activity": [],  # the times of the transcript's entries, which bound the memory scan
             "unclassified_commands": [], "skipped": 0, "shell_writes": [],
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
@@ -1152,13 +1828,15 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
     kind, ts, cwd = entry.get("type"), entry.get("timestamp"), entry.get("cwd")
     ts = ts if isinstance(ts, str) else None  # times are compared and sorted as text
     cwd = cwd if isinstance(cwd, str) else None
+    if ts:
+        sink["activity"].append(ts)  # when the session was working, which bounds the memory scan
     if ts and actor == "main":  # transcript parts may be given in any order
         sink["first"] = ts if _earlier(ts, sink["first"]) else sink["first"]
         sink["last"] = ts if not sink["last"] or ts > sink["last"] else sink["last"]
     if actor == "main" and entry.get("sessionId") and entry["sessionId"] not in sink["sessions"]:
         sink["sessions"].append(entry["sessionId"])
     if cwd:
-        sink["directories"].setdefault(cwd, ts)
+        sink["directories"].setdefault(_resolve(cwd, None) or cwd, ts)  # one spelling for a Windows drive
     if kind == "bridge-session" and entry.get("bridgeSessionId") and entry["bridgeSessionId"] not in sink["bridges"]:
         sink["bridges"].append(entry["bridgeSessionId"])
     elif kind == "ai-title" and entry.get("aiTitle"):
@@ -1168,7 +1846,15 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
         if number is None:
             sink["skipped"] += 1  # not a PR number, such as true or 1.9
         else:
-            _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", number, ts)
+            url = entry.get("prUrl")
+            url = url if isinstance(url, str) and HTTP_URL.match(url) else None
+            if url is None:
+                # no usable link: a plain owner/repo is taken as github.com, a nested path is left out
+                _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", number, ts)
+            elif not _add_url_ref(sink["refs"], url, ts):
+                # neither github.com nor a merge request: the record's own link names the host
+                _add_ref(sink["refs"], repository if isinstance(repository, str) else None,
+                         FORGE_PULL_REQUEST, number, ts, url=url)
     elif kind == "file-history-delta" and entry.get("trackingPath"):
         parent = (entry.get("backup") or {}).get("realParentDir")
         path = entry["trackingPath"]
@@ -1183,6 +1869,28 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
         _user(entry, message, ts, cwd, sink, actor)
     elif kind == "assistant":
         _assistant(entry, message, ts, cwd, sink, actor)
+    elif kind == "attachment":
+        _queued(entry, ts, sink, actor)
+
+
+def _queued(entry: dict, ts, sink: dict, actor: str) -> None:
+    """A message sent while a turn runs is an attachment, not a user entry.
+
+    A human one is a prompt, marked `queued`; a task notification stays out of the prompts.
+
+    Only a record whose `origin` names a human sender is counted: the application queues its own
+    events, such as a CI monitor's, with `commandMode` `prompt` as well, so the mode says nothing
+    about the sender."""
+    attachment = entry.get("attachment")
+    if actor != "main" or not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+        return
+    origin = attachment.get("origin")
+    if (origin.get("kind") if isinstance(origin, dict) else None) != "human":
+        return
+    prompt = _prompt_text(attachment.get("prompt")).strip()
+    if prompt and not CLIENT_TAG.match(prompt):
+        sink["prompts"].append({"ts": ts, "queued": True})
+        _scan_refs(prompt, sink["refs"], ts)
 
 
 def _assistant(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
@@ -1255,6 +1963,10 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
             isinstance(block, dict) and block.get("type") not in ("text", "tool_result") for block in content)
         is_prompt = (isinstance(content, str) or attached) and not CLIENT_TAG.match(stripped)
     prompt = _prompt_text(content).strip()
+    if not origin_kind and isinstance(content, str) and LEADING_REMINDERS.match(content):
+        # a session another session started: the task follows the app's system-reminder blocks
+        prompt = LEADING_REMINDERS.sub("", content, count=1).strip()
+        is_prompt = bool(prompt) and not CLIENT_TAG.match(prompt)
     if is_prompt and prompt:
         sink["prompts"].append({"ts": ts})
         _scan_refs(prompt, sink["refs"], ts)
@@ -1268,15 +1980,16 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
     if name in WRITE_TOOLS:
         path = data.get("file_path") or data.get("notebook_path")
         if isinstance(path, str) and path:
+            path = _resolve(path, cwd) or path  # one spelling, as a path written through the shell has
             _file(sink, path, ts, actor)
-            if MEMORY_PATH.search(path):
+            if MEMORY_PATH.search(path):  # either separator
                 if path not in sink["memory"] or _earlier(ts, sink["memory"][path]["ts"]):
                     sink["memory"][path] = {"ts": ts, "by": actor}
-            if "/scratchpad" in path:
+            if SCRATCHPAD_PATH.search(path):
                 sink["scratch"].setdefault(path, ts)
-    elif name == "Bash":
+    elif name in SHELL_TOOLS:  # Bash, and the PowerShell tool of a Windows client
         command = data.get("command")
-        _shell(command if isinstance(command, str) else "", cwd, ts, sink, actor)
+        _shell(command if isinstance(command, str) else "", cwd, ts, sink, actor, SHELL_TOOLS[name])
     elif name in SCHEDULE_TOOLS:
         sink["scheduled"].append({"ts": ts, "tool": name, "by": actor,
                                   "summary": _short(data.get("reason") or data.get("prompt") or "", 160)})
@@ -1287,11 +2000,13 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
                                      "summary": " ".join(filter(None, [data.get("action"), _target(data)]))})
         elif kind == "logging":
             sink["logging"] += 1
+        elif kind == "client_local":
+            sink["client_local"][name] += 1
         elif kind == "unclassified":
             sink["unclassified"][name] += 1
         if name.startswith("mcp__"):
             _structured_ref(name, data, ts, sink)
-    if name not in WRITE_TOOLS and name != "Bash":  # file contents are not references; _shell scans commands
+    if name not in WRITE_TOOLS and name not in SHELL_TOOLS:  # file contents are not references; _shell scans them
         _scan_refs("\n".join(_strings(data)), sink["refs"], ts)
 
 
@@ -1329,7 +2044,8 @@ def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
 
 def summarize(sink: dict) -> dict:
     background = [{**task, "ended": sink["ended"].get(task["id"])} for task in _in_time_order(sink["started"])]
-    refs = sorted(sink["refs"].values(), key=lambda ref: (ref["repository"] or "", ref["kind"], ref["number"]))
+    refs = sorted(sink["refs"].values(),  # the URL orders two forges' references of the same number
+                  key=lambda ref: (ref["repository"] or "", ref["kind"], ref["number"], ref["url"] or ""))
     return {
         "sessions": sink["sessions"],
         "bridge_sessions": sink["bridges"],
@@ -1352,11 +2068,90 @@ def summarize(sink: dict) -> dict:
         "scheduled": _in_time_order(sink["scheduled"]),
         "unclassified_tools": dict(sink["unclassified"]),
         "logging_calls": sink["logging"],
+        "client_local_calls": dict(sink["client_local"]),
         "background_tasks": background,
-        "scratchpad_paths": sorted(sink["scratch"]),
+        "scratchpad_paths": _scratchpad_paths(sink["scratch"], sink["scratch_tokens"]),
         "corrections": _in_time_order(sink["corrections"]),
         "skipped_entries": sink["skipped"],
     }
+
+
+def detect_memory_files(directories: list[Path], first: str | None, last: str | None, known: set[str],
+                        activity: list[str], background: list[dict] | tuple = ()) -> dict:
+    """Memory files changed in the session's span while it was working, whoever wrote them.
+
+    A script that opens and writes a file itself is neither an edit-tool call nor a redirection, so
+    ``memory_writes`` cannot see it. This is a lower bound found by modification time, not an observed
+    tool call: a file changed by another session while this one worked is listed too, and a file written
+    in the span and changed again later is missed. ``activity`` holds the times of the transcript's own
+    entries, and a file counts when its modification time falls within ``MEMORY_ACTIVITY_WINDOW``
+    seconds of one of them: the span alone accepts nearly every file of the directory on a session that
+    stayed open for days. ``background`` holds the session's background tasks, and the run of each one,
+    from its start to its recorded end or else to the last entry, counts as the session's own time too:
+    the pauses the window leaves blind are where a background script writes, which is this field's
+    reason for existing. Every directory scanned adds a note with the files it holds, the files listed,
+    the files the window excluded, the span, that window and the number of runs, so the list is read
+    against them; one that is missing or cannot be read adds a note instead of a failure.
+    """
+    from datetime import datetime, timezone
+
+    def epoch(stamp):
+        try:
+            return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+        except (AttributeError, ValueError):
+            return None
+
+    start, end = epoch(first), epoch(last)
+    moments = sorted(moment for moment in map(epoch, activity) if moment is not None)
+
+    runs = []
+    for task in background:
+        began = epoch(task.get("ts"))
+        stopped = epoch((task.get("ended") or {}).get("ts"))
+        finished = end if stopped is None else stopped
+        if began is not None and finished is not None and finished >= began:
+            runs.append((began, finished))
+
+    def worked_near(mtime: float) -> bool:
+        """Whether an entry of the transcript stands within the window of a modification time."""
+        index = bisect.bisect_left(moments, mtime)
+        return any(abs(mtime - moments[other]) <= MEMORY_ACTIVITY_WINDOW
+                   for other in (index - 1, index) if 0 <= other < len(moments))
+
+    def ran_during(mtime: float) -> bool:
+        """Whether a background task of the session was running at a modification time."""
+        return any(began <= mtime <= finished for began, finished in runs)
+
+    found, notes = [], []
+    seen = {path.replace("\\", "/") for path in known}
+    for directory in dict.fromkeys(directories):
+        if not directory.is_dir():
+            notes.append({"directory": str(directory), "status": "missing"})
+            continue
+        try:
+            files = [p for p in directory.rglob("*") if p.is_file()]
+            stamped = [(p, p.stat().st_mtime) for p in files]
+        except OSError as error:  # missing, not a directory, or no permission
+            notes.append({"directory": str(directory), "status": "unreadable",
+                          "reason": type(error).__name__})
+            continue
+        if start is None or end is None:
+            notes.append({"directory": str(directory), "status": "no session span"})
+            continue
+        listed, excluded = 0, 0
+        for path, mtime in sorted(stamped):
+            if not start <= mtime <= end + 1 or str(path).replace("\\", "/") in seen:
+                continue
+            if not (worked_near(mtime) or ran_during(mtime)):
+                excluded += 1  # inside the span, in none of the session's own working time
+                continue
+            stamp = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            found.append({"path": str(path), "mtime": stamp, "detected_by": "modification time"})
+            listed += 1
+        notes.append({"directory": str(directory), "status": "scanned", "files": len(stamped), "listed": listed,
+                      "span": {"first": first, "last": last}, "window_seconds": MEMORY_ACTIVITY_WINDOW,
+                      "background_runs": len(runs), "excluded_by_window": excluded})
+    return {"memory_files_detected": found, "memory_scan_notes": notes}
 
 
 def inventory(entries: list[dict]) -> dict:
@@ -1419,8 +2214,27 @@ def latest_in_project(directory: str) -> tuple[Path | None, list[str]]:
     return candidates[0], recent
 
 
+# Every field `collect` returns, in the order it returns them, and the contract the reader is
+# audited against: the output repeats this list as `output_fields`, and the documentation gate
+# checks that `flows/thread-close.md` names each one, so instructions that predate a field cannot
+# drop it silently. A command-line run adds `notes` beside them. Keep this list and the flow's
+# sentences in step with any field added to `summarize`, `detect_memory_files` or `collect`.
+OUTPUT_FIELDS = (
+    "sessions", "bridge_sessions", "title", "first", "last", "models", "responses", "tokens",
+    "prompts", "user_commands", "directories", "files_written", "memory_writes", "git_mutations",
+    "unclassified_commands", "shell_writes", "github_refs", "external_writes", "scheduled",
+    "unclassified_tools", "logging_calls", "client_local_calls", "background_tasks",
+    "scratchpad_paths", "corrections", "skipped_entries", "subagents_with_writes",
+    "subagent_transcripts", "transcripts", "unreadable_lines", "git_roots",
+    "memory_files_detected", "memory_scan_notes", "output_fields")
+
+
 def collect(paths: list[Path]) -> dict:
     """Inventory of the transcripts and of their subagents' transcripts."""
+    # A path observed in a tool call is absolute, so a transcript path given relative to the
+    # working directory is made absolute once, here: the memory directory is derived from it and
+    # compared with those paths, and a relative spelling matches none of them.
+    paths = [Path(os.path.abspath(path)) for path in paths]
     entries, bad = load_entries(paths)
     sink = scan(entries)
     subagents = []
@@ -1442,6 +2256,12 @@ def collect(paths: list[Path]) -> dict:
     result["transcripts"] = [str(path) for path in paths]
     result["unreadable_lines"] = bad
     result["git_roots"] = git_roots(result["directories"])
+    # The memory directory sits beside the transcripts: <config>/projects/<project>/memory.
+    memory_dirs = [path.parent / "memory" for path in paths]
+    result.update(detect_memory_files(memory_dirs, result["first"], result["last"],
+                                      {item["path"] for item in result["memory_writes"]},
+                                      sink["activity"], result["background_tasks"]))
+    result["output_fields"] = list(OUTPUT_FIELDS)
     return _masked(result)
 
 

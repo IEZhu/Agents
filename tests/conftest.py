@@ -22,6 +22,7 @@ an env var would be inherited by the staged-update ``src.reindex`` subprocess
 import atexit
 import os
 import shutil
+import sys
 import tempfile
 import time
 
@@ -328,3 +329,30 @@ def no_real_instruction_files(monkeypatch):
     check = client_instructions.drift_warnings
     monkeypatch.setattr(client_instructions, "drift_warnings",
                         lambda context=None: [] if context is None else check(context))
+
+
+@pytest.fixture(autouse=True)
+def dense_custom_models():
+    """One test's custom-model registration never reaches the next test's catalog.
+
+    ``TextEmbedding._custom_models`` is a class attribute, so every registration is
+    process-global. ``src.engine.embedder._get_model()`` calls ``register_custom``
+    before it tries to load the model, so any test that reaches the embedder leaves
+    the configured model in the catalog even when the offline load then fails. A
+    later test that asserts the catalog's exact size saw one model too many, which
+    is why ``test_catalog_preserves_all_dense_model_variants`` failed in a full run
+    and passed in every smaller selection.
+
+    Looking the module up in ``sys.modules`` leaves it unimported for the tests that
+    never touch it, so this costs nothing outside the embedding tests.
+    """
+    def registry():
+        module = sys.modules.get("src.engine.onnx_embedding")
+        return None if module is None else module.TextEmbedding._custom_models
+
+    before = registry()
+    snapshot = None if before is None else list(before)
+    yield
+    current = registry()
+    if current is not None:
+        current[:] = snapshot if snapshot is not None else []

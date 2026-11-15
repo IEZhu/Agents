@@ -153,3 +153,29 @@ jobs:
           Get-Content $out, $err -ErrorAction SilentlyContinue
           Remove-LocalUser -Name peercheck
           if ($process.ExitCode -ne 0) { throw "peer check failed for a standard user: $($process.ExitCode)" }
+
+  instruction-installers-newest-python:
+    # The 3.11 pin of the job above cannot see what the destination checks of the
+    # instruction installers do on a newer interpreter: os.fstat and a path stat
+    # report different st_ctime_ns for one untouched file on Windows with Python
+    # 3.14, which refused every replacement of CLAUDE.md (#577). The selection is
+    # the subset of the job above that writes instruction files, so a failure here
+    # names the interpreter rather than an unrelated platform difference.
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Preserve source line endings for byte-exact migration checks
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Install test dependencies
+        run: python -m pip install pytest python-dotenv
+      - name: Write instruction files through the installers on the newest interpreter
+        run: >-
+          python -m pytest tests/test_install_instructions.py
+          tests/test_protocol_migration.py tests/test_installer_instructions.py
+          tests/test_codex_instructions.py tests/test_backup_file.py -v

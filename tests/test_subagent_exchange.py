@@ -12,7 +12,7 @@ from src.engine import subagent_exchange
 from src.engine.subagent import prepare_subagent
 from src.engine.subagent_text import CONTRACT_PREFIX_CHARS, PAYLOAD_KEYS
 from src.engine.subagent_validation import contract_fingerprint, validate_result
-from src.schemas.subagent import MAX_ERRORS, PreparedPackage
+from src.schemas.subagent import MAX_ERRORS, PreparedPackage, ValidationResponse
 from tests.test_subagent import codes, prepared, request, worker_tree  # noqa: F401
 
 PAYLOADS = {
@@ -163,7 +163,134 @@ def test_the_combined_diagnostics_stay_within_the_error_cap(worker_tree):
     text = text_result(package).replace("[^e1]: src/app.py:12 — logger.info prints the header", broken)
     response = validate_result(package.contract.model_dump(mode="json"), text)
     assert not response.valid and len(response.errors) == MAX_ERRORS, response.errors
+    assert response.truncated is not None and response.truncated.produced == 30
     assert len(response.result_sha256) == 64
+
+
+def over_cap_result(package, lines=25, status="bogus"):
+    """The shape measured in #589: more malformed evidence lines than the cap, a status the
+    envelope does not allow and a summary over its 4,000 characters."""
+    broken = "\n".join(f"[^e{index}]: src/app.py:{index} line {index}" for index in range(lines))
+    text = text_result(package, status=status).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header\n"
+        "[^e2]: pytest tests/test_app.py -q — 12 passed", broken)
+    return text.replace("Checked the log path.", "x" * 4100)
+
+
+def test_the_response_says_how_many_diagnostics_the_cap_dropped(worker_tree):
+    """Nothing distinguished 'these are all the problems' from 'these are the first twenty' (#589)."""
+    package = prepared(result_type="implementation")
+    contract = package.contract.model_dump(mode="json")
+    response = validate_result(contract, over_cap_result(package))
+    assert len(response.errors) == MAX_ERRORS, response.errors
+    assert response.truncated is not None and response.truncated.produced == 27
+
+    just_under = validate_result(contract, over_cap_result(package, lines=1))
+    assert len(just_under.errors) == 3 and just_under.truncated is None, just_under.errors
+    one = text_result(package).replace("[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 logger")
+    reported = validate_result(contract, one).model_dump(mode="json")
+    assert len(reported["errors"]) == 1 and "truncated" not in reported, reported
+    assert "truncated" not in validate_result(contract, text_result(package)).model_dump(mode="json")
+
+
+def test_an_identity_and_a_status_diagnostic_survive_the_cap(worker_tree):
+    """The two diagnostics that decide the parent's next action used to be the ones dropped (#589)."""
+    package = prepared(result_type="implementation")
+    text = over_cap_result(package).replace(f"attempt: {package.attempt_id}", "attempt: attempt-9")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors[:2]] == [
+        ("$.result.attempt_id", "identity_mismatch"),
+        ("$.result.status", "literal_error")], response.errors
+    assert {error.code for error in response.errors[2:]} == {"separator_required"}
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 28
+
+
+def test_schema_errors_alone_over_the_cap_are_counted(worker_tree):
+    """The schema collector is the one the #589 case ran through: 25 schema errors, no text error.
+
+    With the cap back on that collector the response holds 20 of them and no marker, which is
+    the symptom the issue reports.
+    """
+    package = prepared()
+    ids = "\n".join(f"[^e{index} bad]: src/app.py:{index} — Identifier with a space"
+                     for index in range(25))
+    text = text_result(package).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header", ids)
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid
+    assert {error.code for error in response.errors} == {"string_pattern_mismatch"}, response.errors
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 25
+
+
+def test_json_evidence_rejects_over_the_cap_are_counted(worker_tree):
+    """The reject collector of the JSON route counts too; nothing else reaches it."""
+    from tests.test_subagent import report
+
+    package = prepared(result_type="research")
+    value = report(package)
+    value["result"]["conclusions"] = [{"claim": f"Claim {index}", "evidence_ids": [f"missing{index}"]}
+                                      for index in range(25)]
+    response = validate_result(package.contract.model_dump(mode="json"), value)
+    assert not response.valid
+    assert {error.code for error in response.errors} == {"unknown_evidence_id"}, response.errors
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 25
+
+
+def test_the_marker_claims_no_more_than_the_stage_that_produced_the_errors(worker_tree):
+    """Validation returns at the first failing stage, so no marker cannot mean 'nothing else'.
+
+    One result, two problems in different stages: a broken separator in the first finding and an
+    unknown evidence reference in the second. Round one answers `separator_required` alone and
+    carries no marker, because the evidence stage never ran; round two, with only the separator
+    repaired, answers `unknown_evidence_id`. A parent that read the absent marker as "errors
+    holds every problem the validation found" spends a worker round learning otherwise, which is
+    what the shipped description used to promise (#589).
+    """
+    package = prepared(result_type="review")
+    contract = package.contract.model_dump(mode="json")
+    both = text_result(package, payload=("## findings\n"
+                                         "- high src/app.py:12 The token is logged.[^e1]\n"
+                                         "  fix: Drop it from the message.\n"
+                                         "- low src/app.py:40 — The guard is fine.[^e9]\n"
+                                         "  fix: Keep the guard."))
+    first = validate_result(contract, both)
+    assert [(error.path, error.code) for error in first.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], first.errors
+    assert first.truncated is None, "nothing was capped: the stage produced one diagnostic"
+
+    second = validate_result(contract, both.replace("src/app.py:12 The token", "src/app.py:12 — The token"))
+    assert [(error.path, error.code) for error in second.errors] == [
+        ("$.result.result.findings[1].evidence_ids", "unknown_evidence_id")], second.errors
+
+    shipped = ValidationResponse.model_json_schema()["$defs"]["Truncation"]["description"]
+    assert "every problem that stage found" in shipped, shipped
+    assert "is everything the validation found" not in shipped, shipped
+    assert "a later stage may still report its own" in shipped, shipped
+
+
+@pytest.mark.asyncio
+async def test_produced_counts_diagnostics_and_not_distinct_problems(worker_tree):
+    """One habit repeated down a list is one problem and many diagnostics.
+
+    A hundred findings that each omit the same five fields produce 500 diagnostics, not 100 and
+    not 5. A parent reading `produced` as the problems the response does not list reads a result
+    that needs one correction as unsalvageable, so both shipped texts say what the number counts.
+    """
+    from tests.test_subagent import report
+
+    package = prepared(result_type="review")
+    value = report(package)
+    value["result"]["findings"] = [{} for _ in range(100)]
+    response = validate_result(package.contract.model_dump(mode="json"), value)
+    assert codes(response) == {"missing"}, response.errors
+    assert len(response.errors) == MAX_ERRORS and response.truncated.produced == 500
+
+    assert "not distinct problems" in ValidationResponse.model_json_schema()["$defs"]["Truncation"]["description"]
+    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    described = " ".join(tools["validate_subagent_result"].description.split())
+    assert "diagnostics that stage produced, not distinct problems" in described, described
+    assert "counting what the cap dropped" not in described, described
+    assert "Reports the first stage that failed" in described, described
 
 
 def test_a_finding_may_cite_the_same_evidence_twice(worker_tree):
@@ -456,6 +583,59 @@ def test_a_structural_limit_arrives_with_the_format_errors(worker_tree):
     assert codes(response) >= {"array_too_large", "separator_required"}, response.errors
 
 
+def test_the_array_diagnostic_names_the_list_path_and_its_length(worker_tree):
+    """The list is named in the message, and the diagnostic's own path stays the envelope.
+
+    Where the list path goes decides whether the prefix is applied twice. `bounded_object`
+    reports the offending list in the message and leaves `ContractError.path` at `$`, so
+    `diagnostics(error, "$.result")` names `$.result` once. A review read this change as having
+    rooted `path` at the list itself and asked for the prefixing to be undone; rooting it there
+    is what would produce `$.result.result.changes`, which is why the path is asserted here too.
+    """
+    package = prepared(result_type="implementation")
+    bullets = "\n".join(f"- src/app{index}.py — Change {index}" for index in range(101))
+    response = validate_result(package.contract.model_dump(mode="json"),
+                               text_result(package, payload=f"## changes\n{bullets}"))
+    oversized = [error for error in response.errors if error.code == "array_too_large"]
+    assert len(oversized) == 1, response.errors
+    assert "$.result.changes has 101" in oversized[0].message, response.errors
+    assert oversized[0].path == "$.result", "the diagnostic's path is the envelope, named once"
+
+
+def test_a_rendered_package_states_the_first_lines_and_the_list_limit_once(worker_tree):
+    """The #526 wording folded into the sentences and template lines that were already there.
+
+    The threat holds only where the reply text is read as the result: a hand-back drops its own
+    narration (#581), so the sentence says which path it is about and no longer tells a worker
+    that may write nothing to write a record first. The list cap is stated once, next to the
+    50-item one, instead of being contradicted by a later absolute sentence.
+    """
+    from src.engine.subagent_text import render_result_format
+
+    contract = prepared(result_type="research").contract.model_dump(mode="json")
+    rendered = render_result_format(contract)
+    assert f"task: {contract['task_id']}" in rendered and f"attempt: {contract['attempt_id']}" in rendered
+    assert "lines 1 and 2 exactly as shown" in rendered and "nothing above line 1" in rendered
+    assert "a character above it discards a result read from the reply text" in rendered
+    assert "write any record" not in rendered
+    assert rendered.count("100 of any other list") == 1 and "No list may hold" not in rendered
+    assert "excluded work" in rendered
+    # A check reports the outcome now: a run that was red before the change belongs in
+    # evidence, because `failed` here is counted and escalates an otherwise completed result.
+    assert "evidence, not a failed check" in rendered
+    assert "failed before your change is evidence" not in rendered
+    # The mandatory floor every package pays: 2627 as rendered here, against 2390 before the
+    # wording was added and 2976 when it was appended as four sentences instead of folded.
+    assert len(rendered) <= 2700, len(rendered)
+
+
+def test_a_rendered_package_says_an_empty_section_is_left_out(worker_tree):
+    from src.engine.subagent_text import render_result_format
+
+    rendered = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
+    assert "never filling it with 'none', 'n/a' or 'omitted'" in rendered
+
+
 def test_consecutive_stray_lines_report_one_problem(worker_tree):
     package = prepared(result_type="review")
     text = text_result(package).replace("## checks\n", "## checks\nfirst stray\nsecond stray\nthird stray\n")
@@ -639,6 +819,20 @@ async def test_default_delivery_is_a_file_receipt(worker_tree):
 
 
 @pytest.mark.asyncio
+async def test_a_receipt_names_what_the_context_budget_dropped(worker_tree):
+    """The receipt carries no selection list, so a dropped component was invisible to the parent."""
+    receipt = await call("get_subagent_context", request())
+    assert "omitted" not in receipt
+    tight = request(max_context_chars=prepared(max_skills=0).context_chars + 35)
+    trimmed = await call("get_subagent_context", tight)
+    inline = await call("get_subagent_context", {**tight, "delivery": "inline"})
+    dropped = [f"{decision['kind']}/{decision['id']}" for decision in inline["selection"]
+               if not decision["selected"] and decision["reason"] == "context_budget"]
+    assert dropped and trimmed["omitted"] == dropped
+    assert len(json.dumps(trimmed)) < 2000
+
+
+@pytest.mark.asyncio
 async def test_validation_by_revision_and_reference(worker_tree, tmp_path):
     receipt = await call("get_subagent_context", request(result_type="research"))
     package = PreparedPackage.model_validate(await call("get_subagent_context",
@@ -685,6 +879,74 @@ def test_reference_reads_claude_codex_and_handback_transcripts(worker_tree, tmp_
     ]) + "\n", encoding="utf-8")
     assert subagent_exchange.read_result(str(codex)) == text
     assert validate_result(package.contract.model_dump(mode="json"), subagent_exchange.read_result(str(codex))).valid
+
+
+def test_a_handback_is_the_result_without_the_narration_of_its_own_message(worker_tree, tmp_path):
+    """#581: a preamble next to the hand-back is narration, and a result read with it is malformed."""
+    package = prepared()
+    text = text_result(package)
+    contract = package.contract.model_dump(mode="json")
+    one_record = tmp_path / "agent-one.jsonl"
+    one_record.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "content": [
+        {"type": "text", "text": "Composing the envelope"},
+        {"type": "tool_use", "name": "SubagentHandback", "input": {"message": text}}]}}) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(one_record)) == text
+    per_block = tmp_path / "agent-blocks.jsonl"  # Claude Code writes one line per content block
+    per_block.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "Reading the package."}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [
+            {"type": "text", "text": "All acceptance checks pass. Here is my result."}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": text}}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [{"type": "text", "text": "Handed it back."}]}},
+    ]) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(per_block)) == text
+    assert validate_result(contract, subagent_exchange.read_result(str(per_block))).valid
+
+
+def test_a_blank_handback_leaves_the_result_in_the_text_blocks(worker_tree, tmp_path):
+    """#581 regression: an empty or blank hand-back carries no result, so the text stays the result."""
+    package = prepared()
+    text = text_result(package)
+    contract = package.contract.model_dump(mode="json")
+    for name, blank in (("empty", ""), ("blank", "   \n ")):
+        one_record = tmp_path / f"agent-{name}.jsonl"
+        one_record.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "text", "text": text},
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": blank}}]}}) + "\n",
+            encoding="utf-8")
+        assert subagent_exchange.read_result(str(one_record)) == text
+        per_block = tmp_path / f"agent-{name}-blocks.jsonl"  # one line per content block
+        per_block.write_text("\n".join(json.dumps(record) for record in [
+            {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": text}]}},
+            {"type": "assistant", "message": {"id": "m1", "content": [
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": blank}}]}},
+        ]) + "\n", encoding="utf-8")
+        assert subagent_exchange.read_result(str(per_block)) == text
+        assert validate_result(contract, subagent_exchange.read_result(str(per_block))).valid
+
+
+def test_a_message_without_a_handback_still_joins_its_text_blocks(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-text.jsonl"
+    transcript.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "task: x"}]}},
+        {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "## summary"},
+                                                                  {"type": "text", "text": "Checked it."}]}},
+    ]) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(transcript)) == "task: x\n## summary\nChecked it."
+
+
+def test_several_handbacks_of_one_message_keep_their_order_and_drop_the_narration(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-twice.jsonl"
+    transcript.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "text", "text": "Composing the envelope"},
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "task: first"}},
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "task: second"}}]}},
+        {"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "task: third"}}]}},
+    ]) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(transcript)) == "task: first\ntask: second\ntask: third"
 
 
 @pytest.mark.parametrize("name,code", [
@@ -827,3 +1089,14 @@ def test_old_exchange_files_are_pruned(worker_tree):
     os.utime(old, (past, past))
     receipt = subagent_exchange.store(package)
     assert not old.exists() and Path(receipt.context_path).exists()
+
+
+def test_empty_reference_diagnostic_names_the_subagents_transcript_directory(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-running.jsonl"
+    transcript.write_text(json.dumps({"type": "user", "message": {"content": "start"}}) + "\n", encoding="utf-8")
+    with pytest.raises(subagent_exchange.ContractError) as error:
+        subagent_exchange.read_result(str(transcript))
+    assert "projects/<project>/<session>/subagents/" in str(error.value)
+    assert "agent-<id>.jsonl" in str(error.value)
+    # The path a parent copies must be one read_result accepts: it expands no ~ (P-B3).
+    assert "~" not in str(error.value) and "CLAUDE_CONFIG_DIR" in str(error.value)

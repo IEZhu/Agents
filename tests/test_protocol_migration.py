@@ -78,7 +78,7 @@ def test_append_preserves_user_instructions_without_final_newline(tmp_path, help
 
 
 @pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md", "memory-routing-v4.md",
-                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md", "memory-routing-v10.md", "memory-routing-v11.md", "memory-routing-v12.md", "memory-routing-v13.md", "memory-routing-v14.md", "memory-routing-v15.md", "memory-routing-v16.md", "memory-routing-v17.md", "memory-routing-v18.md", "memory-routing-v19.md", "memory-routing-v20.md", "memory-routing-v21.md", "memory-routing-v22.md", "memory-routing-v23.md", "memory-routing-v24.md"])
+                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md", "memory-routing-v10.md", "memory-routing-v11.md", "memory-routing-v12.md", "memory-routing-v13.md", "memory-routing-v14.md", "memory-routing-v15.md", "memory-routing-v16.md", "memory-routing-v17.md", "memory-routing-v18.md", "memory-routing-v19.md", "memory-routing-v20.md", "memory-routing-v21.md", "memory-routing-v22.md", "memory-routing-v23.md", "memory-routing-v24.md", "memory-routing-v25.md"])
 def test_known_memory_and_index_migrate_with_backups(tmp_path, helpers, legacy):
     """Check known reminder/index migration, original-byte backups, and repeat-run no-ops."""
     _, memory = helpers
@@ -505,9 +505,10 @@ def test_every_file_open_asks_for_binary_mode(tmp_path, helpers, monkeypatch):
 
     directory = getattr(os, "O_DIRECTORY", 0)
     files = [flags for flags in requested if not (directory and flags & directory)]
-    # The read of the destination, the backup and the temporary file: a directory
-    # descriptor needs no translation mode, and Windows opens none.
-    assert len(files) == 3
+    # The read of the destination, the backup, the temporary file and the reopen of
+    # the destination the check before the rename compares: a directory descriptor
+    # needs no translation mode, and Windows opens none.
+    assert len(files) == 4
     assert all(flags & stand_in for flags in files)
     assert target.read_bytes() == b"third\r\nfourth\r\n"
     backup, = tmp_path.glob("CLAUDE.md.backup.*")
@@ -582,6 +583,104 @@ def test_a_destination_that_changed_before_the_rename_is_refused(
         injector.write_with_backup(target, b"managed")
 
     assert target.read_bytes() == intruder, "the bytes that took the destination were replaced"
+    backup, = tmp_path.glob("CLAUDE.md.backup.*")
+    assert backup.read_bytes() == b"original"
+    assert not list(tmp_path.glob(".CLAUDE.md.*")), "the temporary file is left behind"
+
+
+def test_a_path_stat_disagreeing_about_the_change_time_still_replaces(
+    tmp_path, helpers, monkeypatch,
+):
+    """os.fstat and a path stat are not interchangeable, so the check uses one kind.
+
+    On Windows with Python 3.14 the two report different st_ctime_ns for the same
+    untouched file: the descriptor answers the change time and the path the creation
+    time. A comparison across them refuses every file older than one timestamp tick,
+    which left the instruction installer unable to replace CLAUDE.md at all (#577).
+    A destination that really changed is still refused by the pair of fstat results,
+    which test_a_destination_that_changed_before_the_rename_is_refused covers.
+    """
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    real_node = injector._node
+
+    class CreationTime:
+        """A path stat answering a birth time where the descriptor answers a change time."""
+
+        def __init__(self, info):
+            self._info = info
+            self.st_ctime_ns = info.st_ctime_ns - 10**9
+
+        def __getattr__(self, name):
+            return getattr(self._info, name)
+
+    def platform_divergence(name, parent, parent_fd):
+        info = real_node(name, parent, parent_fd)
+        return CreationTime(info) if name == target.name else info
+
+    monkeypatch.setattr(injector, "_node", platform_divergence)
+
+    assert injector.write_with_backup(target, b"managed")
+
+    assert target.read_bytes() == b"managed"
+    backup, = tmp_path.glob("CLAUDE.md.backup.*")
+    assert backup.read_bytes() == b"original"
+
+
+def test_a_symlink_to_the_file_this_write_read_is_refused_before_the_rename(
+    tmp_path, helpers, monkeypatch,
+):
+    """Identity alone cannot separate a link from the file it points at.
+
+    Windows has no O_NOFOLLOW, so the reopen before the rename follows a symlink
+    that took the name, and a link to the file this write already read answers
+    with that file's identity. Renaming a file on Windows keeps the write time
+    that its fstat reports as the change time, so a moved original matches the
+    recorded identity exactly, which is what this test hands the reopen. Without
+    the device and inode of the name itself the rename would replace the link,
+    and refusing a symlinked destination is this helper's own promise.
+    """
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    moved = tmp_path / "moved.md"
+    recorded = []
+    real_fstat = injector.os.fstat
+    original_write = injector._write
+
+    class KeptChangeTime:
+        """A descriptor stat of a renamed file, as Windows reports it."""
+
+        def __init__(self, info, change_time):
+            self._info = info
+            self.st_ctime_ns = change_time
+
+        def __getattr__(self, name):
+            return getattr(self._info, name)
+
+    def windows_fstat(descriptor):
+        info = real_fstat(descriptor)
+        if not recorded:
+            recorded.append(info.st_ctime_ns)
+            return info
+        return KeptChangeTime(info, recorded[0])
+
+    def swap_then_write(path, parent_fd, content, info):
+        # After the backup, before the rename: the original keeps its inode.
+        path.rename(moved)
+        path.symlink_to(moved)
+        return original_write(path, parent_fd, content, info)
+
+    monkeypatch.setattr(injector.os, "O_NOFOLLOW", 0, raising=False)
+    monkeypatch.setattr(injector.os, "fstat", windows_fstat)
+    monkeypatch.setattr(injector, "_write", swap_then_write)
+
+    with pytest.raises(ValueError, match="changed while this write prepared"):
+        injector.write_with_backup(target, b"managed")
+
+    assert os.path.islink(target), "the symlink took the write instead of being refused"
+    assert moved.read_bytes() == b"original"
     backup, = tmp_path.glob("CLAUDE.md.backup.*")
     assert backup.read_bytes() == b"original"
     assert not list(tmp_path.glob(".CLAUDE.md.*")), "the temporary file is left behind"

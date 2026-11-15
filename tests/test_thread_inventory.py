@@ -255,6 +255,103 @@ def test_mcp_tool_classification(name, expected):
     assert thread_inventory.classify_tool(name, {}) == expected
 
 
+@pytest.mark.parametrize("name, expected", [
+    ("mcp__ccd_turn__update_plan", "client_local"),
+    ("mcp__ccd_session__mark_chapter", "client_local"),
+    ("mcp__ccd_session_mgmt__set_session_title", "client_local"),
+    ("mcp__ccd_turn__wrap_up", "client_local"),
+    ("mcp__Agents-Core__run_flow", "read"),
+    ("mcp__Agents-Core__validate_subagent_result", "read"),
+    ("mcp__gitlab__get_merge_request_notes", "read"),
+    ("mcp__gitlab__list_merge_requests", "read"),
+    ("mcp__db__readonly_execute", "read"),
+    ("mcp__db__execute_read_only_query", "read"),
+    ("mcp__gitlab__list_merge_request_changed_files", "read"),
+    ("mcp__gitlab__create_merge_request_note", "write"),
+])
+def test_read_verbs_and_client_local_tools_are_not_external_writes(name, expected):
+    assert thread_inventory.classify_tool(name, {}) == expected
+
+
+def test_client_local_calls_are_reported_apart_from_external_writes():
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "c1"),
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "c2"),
+        tool("mcp__ccd_turn__wrap_up", {"recap": "x"}, "c3"),
+        tool("mcp__gitlab__create_merge_request_note", {"id": 1}, "c4"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert [w["tool"] for w in inv["external_writes"]] == ["mcp__gitlab__create_merge_request_note"]
+    assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 2, "mcp__ccd_turn__wrap_up": 1}
+    assert inv["unclassified_tools"] == {}
+
+
+@pytest.mark.parametrize("name", [
+    "mcp__ccd_pr__set_auto_merge",        # arms the merge of a pull request on the forge
+    "mcp__ccd_session_mgmt__delete_session",  # destroys a session
+    "mcp__ccd_session_mgmt__send_message",    # reaches another session
+    "mcp__ccd_session__move_to_cloud",        # starts a remote session
+    "mcp__ccd_pr__set_monitor",           # arms the app to push commits and answer review comments
+    "mcp__ccd_session__start_session",    # starts another session, in the cloud or another repository
+])
+def test_host_server_tools_acting_outside_the_app_are_writes(name):
+    assert thread_inventory.classify_tool(name, {}) == "write"
+
+
+@pytest.mark.parametrize("name", [
+    "mcp__ccd_pr__frobnicate",             # a name no list knows: unclassified, so it is printed
+    "mcp__ccd_newserver__widget_handling",
+    "mcp__ccd_turn__advance_twice",
+    "mcp__ccd_session__delete_everything",  # a write verb makes it a write, which is louder still
+])
+def test_an_unknown_host_server_tool_is_never_counted_as_client_local(name):
+    """The vendor's tool surface churns, so the prefix cannot prove a tool acts inside the app:
+    only the names known to be app-local are counted apart, and an unknown one stays visible."""
+    assert thread_inventory.classify_tool(name, {}) != "client_local"
+
+
+def test_an_unknown_host_server_tool_never_reaches_client_local_calls():
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__ccd_pr__frobnicate", {"url": "https://github.com/Owner/Repo/pull/9"}, "k1"),
+        tool("mcp__ccd_pr__set_monitor", {"url": "https://github.com/Owner/Repo/pull/9"}, "k2"),
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "k3"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 1}
+    assert inv["unclassified_tools"] == {"mcp__ccd_pr__frobnicate": 1}
+    assert [w["tool"] for w in inv["external_writes"]] == ["mcp__ccd_pr__set_monitor"]
+
+
+def test_every_known_local_host_tool_belongs_to_a_host_server_and_is_counted_apart():
+    assert thread_inventory.CLIENT_LOCAL_TOOLS, "the known-local list is the only way into the counter"
+    for name in thread_inventory.CLIENT_LOCAL_TOOLS:
+        assert thread_inventory.CLIENT_LOCAL_SERVER.match(name), name
+        assert thread_inventory.classify_tool(name, {}) == "client_local", name
+
+
+def test_an_exempt_host_tool_keeps_its_time_actor_and_target():
+    """What client_local_calls cannot carry: a counter has no time, actor or target."""
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__ccd_pr__set_auto_merge", {"url": "https://github.com/Owner/Repo/pull/9"}, "a1"),
+        tool("mcp__ccd_turn__update_plan", {"items": []}, "a2"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert [w["tool"] for w in inv["external_writes"]] == ["mcp__ccd_pr__set_auto_merge"]
+    write = inv["external_writes"][0]
+    assert write["ts"] == "2026-10-02T09:00:00Z" and write["by"] == "main"
+    assert "url=https://github.com/Owner/Repo/pull/9" in write["summary"]
+    assert inv["client_local_calls"] == {"mcp__ccd_turn__update_plan": 1}
+
+
+@pytest.mark.parametrize("name", [
+    "mcp__x__get_or_create_page",
+    "mcp__x__find_and_replace",
+    "mcp__x__list_add_task",
+    "mcp__x__query_update_rows",
+    "mcp__x__read_and_write_file",
+    "mcp__x__show_and_delete",
+])
+def test_a_write_verb_keeps_its_verdict_after_a_leading_read_verb(name):
+    assert thread_inventory.classify_tool(name, {}) == "write"
+
+
 def test_artifact_tools_and_unclassified_tools_are_reported():
     inv = thread_inventory.inventory(assistant([
         tool("Artifact", {"file_path": "/tmp/page.html"}, "x1"),
@@ -491,6 +588,15 @@ def test_files_written_elsewhere_add_their_directory(tmp_path):
     out = thread_inventory.collect([main])
     assert {str(repo), "/elsewhere"} <= set(out["directories"])
     assert len(out["git_roots"]) == 1 and out["git_roots"][0].endswith("/other")
+
+
+def test_the_helper_states_the_fields_it_emits(tmp_path):
+    """The reader may hold older instructions, so the output names its own fields."""
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text(json.dumps(human("go", "2026-10-02T09:00:00Z")) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([transcript])
+    assert out["output_fields"] == list(thread_inventory.OUTPUT_FIELDS)
+    assert sorted(out) == sorted(thread_inventory.OUTPUT_FIELDS)  # every field, and no other
 
 
 def test_cli_missing_transcript_and_latest_notes(tmp_path, monkeypatch, capsys):
@@ -808,3 +914,763 @@ def test_subagent_items_keep_their_place_in_time(tmp_path):
     assert [m["command"] for m in out["git_mutations"]] == ["git commit -m early", "git push origin x"]
     assert out["github_refs"][0]["first_seen"] == "2026-10-02T09:01:00Z"
     assert out["files_written"] == [{"path": "/w/a.py", "ts": "2026-10-02T09:02:00Z", "by": ["agent-c", "main"]}]
+
+
+GITLAB_MR = "https://git.example.org/grp/sub/proj/-/merge_requests/106"
+
+
+def test_gitlab_merge_request_keeps_its_own_kind_and_real_url():
+    entries = [{"type": "pr-link", "prNumber": 106, "prRepository": "grp/sub/proj", "prUrl": GITLAB_MR,
+                "timestamp": "2026-11-05T14:20:01Z"}]
+    refs = thread_inventory.inventory(entries)["github_refs"]
+    assert refs == [{"repository": "grp/sub/proj", "kind": "merge_request", "number": 106, "url": GITLAB_MR,
+                     "first_seen": "2026-11-05T14:20:01Z"}]
+
+
+def test_a_forge_link_on_plain_http_keeps_its_kind():
+    """`HTTP_URL` accepts both schemes, so a link that reaches this classifier may be either, and
+    the scheme is not what tells the kinds apart. A self-hosted GitLab served over plain http is
+    still a merge request, and github.com over http is still a pull request. Matching `https://`
+    alone dropped the first to `forge_pull_request`, which is the promise the kind carries."""
+    gitlab = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 106, "prRepository": "grp/sub/proj",
+         "prUrl": "http://git.example.org/grp/sub/proj/-/merge_requests/106",
+         "timestamp": "2026-11-05T14:20:01Z"}])["github_refs"]
+    assert [(r["kind"], r["url"]) for r in gitlab] == [
+        ("merge_request", "http://git.example.org/grp/sub/proj/-/merge_requests/106")]
+    github = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 7, "prRepository": "Owner/Repo",
+         "prUrl": "http://github.com/Owner/Repo/pull/7",
+         "timestamp": "2026-11-05T14:20:01Z"}])["github_refs"]
+    assert [(r["kind"], r["url"]) for r in github] == [("pull", "https://github.com/Owner/Repo/pull/7")]
+
+
+def test_github_pull_request_keeps_its_github_url():
+    entries = [{"type": "pr-link", "prNumber": 7, "prRepository": "Owner/Repo",
+                "prUrl": "https://github.com/Owner/Repo/pull/7", "timestamp": "2026-11-05T14:20:01Z"}]
+    refs = thread_inventory.inventory(entries)["github_refs"]
+    assert [(r["repository"], r["kind"], r["url"]) for r in refs] == [
+        ("Owner/Repo", "pull", "https://github.com/Owner/Repo/pull/7")]
+
+
+def test_ref_with_an_undeterminable_host_is_left_out_not_invented():
+    entries = [{"type": "pr-link", "prNumber": 75, "prRepository": "grp/sub/subsub/proj",
+                "timestamp": "2026-11-04T10:00:00Z"}]
+    assert thread_inventory.inventory(entries)["github_refs"] == []
+
+
+GHE_PULL = "https://ghe.example.com/Owner/Repo/pull/9"
+BITBUCKET_PULL = "https://bitbucket.example.org/team/sub/proj/pull-requests/75"
+
+
+def test_a_pull_request_on_another_forge_keeps_the_url_of_its_record():
+    """Neither github.com nor a `/-/merge_requests/` link: the record's own URL names the host."""
+    enterprise = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 9, "prRepository": "Owner/Repo", "prUrl": GHE_PULL,
+         "timestamp": "2026-11-05T14:20:01Z"}])
+    assert [(r["repository"], r["kind"], r["number"], r["url"]) for r in enterprise["github_refs"]] == [
+        ("Owner/Repo", "forge_pull_request", 9, GHE_PULL)]  # not an invented github.com URL
+    bitbucket = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 75, "prRepository": "team/sub/proj", "prUrl": BITBUCKET_PULL,
+         "timestamp": "2026-11-05T14:20:01Z"}])
+    assert [(r["repository"], r["kind"], r["number"], r["url"]) for r in bitbucket["github_refs"]] == [
+        ("team/sub/proj", "forge_pull_request", 75, BITBUCKET_PULL)]  # a nested path is kept, not dropped
+
+
+def test_a_pr_link_whose_url_is_not_a_link_falls_back_to_the_repository_rule():
+    inv = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 3, "prRepository": "Owner/Repo", "prUrl": "(none)",
+         "timestamp": "2026-11-05T14:20:01Z"}])
+    assert [(r["kind"], r["url"]) for r in inv["github_refs"]] == [
+        ("pull", "https://github.com/Owner/Repo/pull/3")]
+
+
+def test_two_forges_keep_their_own_reference_of_the_same_number():
+    """The host belongs to the identity: `(repository, kind, number)` alone merged a self-hosted
+    merge request into gitlab.com's and kept only the URL seen first, so the second link left the
+    report without a trace. The same number on two hosts is two references, each with its own URL."""
+    mirrored = thread_inventory.inventory([human(
+        "see https://gitlab.com/grp/proj/-/merge_requests/7 and "
+        "https://gitlab.example.org/grp/proj/-/merge_requests/7", "t1")])
+    assert [r["url"] for r in mirrored["github_refs"]] == [
+        "https://gitlab.com/grp/proj/-/merge_requests/7",
+        "https://gitlab.example.org/grp/proj/-/merge_requests/7"]
+    forges = thread_inventory.inventory([
+        {"type": "pr-link", "prNumber": 9, "prRepository": "Owner/Repo", "prUrl": GHE_PULL,
+         "timestamp": "2026-11-05T14:20:01Z"},
+        {"type": "pr-link", "prNumber": 9, "prRepository": "Owner/Repo",
+         "prUrl": "https://ghe.other.example.com/Owner/Repo/pull/9", "timestamp": "2026-11-05T14:20:02Z"}])
+    assert [(r["number"], r["url"]) for r in forges["github_refs"]] == [
+        (9, GHE_PULL), (9, "https://ghe.other.example.com/Owner/Repo/pull/9")]
+
+
+def test_one_host_in_two_spellings_stays_one_reference():
+    """The host is normalized before it identifies a reference, so neither the scheme, the letter
+    case nor the scheme's own default port splits one merge request into several entries."""
+    inv = thread_inventory.inventory([human(
+        "https://git.example.org/grp/sub/proj/-/merge_requests/106 "
+        "http://GIT.example.org/grp/sub/proj/-/merge_requests/106 "
+        "https://git.example.org:443/grp/sub/proj/-/merge_requests/106", "t1")])
+    assert [(r["kind"], r["number"], r["url"]) for r in inv["github_refs"]] == [
+        ("merge_request", 106, GITLAB_MR)]  # the first sighting's URL, as before
+    pull = thread_inventory.inventory([
+        human("https://github.com/Owner/Repo/pull/7", "t1"),
+        *bash("gh pr view 7 --repo Owner/Repo", "b1", ts="2026-10-02T09:00:01Z")])
+    assert [(r["kind"], r["url"]) for r in pull["github_refs"]] == [
+        ("pull", "https://github.com/Owner/Repo/pull/7")]  # a built URL and a read one are one host
+
+
+def test_gitlab_merge_request_link_in_text_is_not_a_github_pull_request():
+    inv = thread_inventory.inventory([human(f"see {GITLAB_MR} please", "t1")])
+    assert [(r["kind"], r["url"]) for r in inv["github_refs"]] == [("merge_request", GITLAB_MR)]
+
+
+@pytest.mark.parametrize("command", [
+    'gh pr view 5 --repo "$R"', "gh pr view 5 -R $R", 'gh api repos/$OWNER/$R/pulls/5',
+])
+def test_repository_starting_with_a_dollar_sign_is_not_recorded(command):
+    refs = thread_inventory.inventory(bash(command, "r"))["github_refs"]
+    assert refs and all(r["repository"] is None and r["url"] is None for r in refs)
+
+
+WIN_MEMORY = "C:\\Users\\u\\.claude\\projects\\p\\memory\\"
+
+
+@pytest.mark.parametrize("tool_name, data", [
+    ("Write", {"file_path": WIN_MEMORY + "fact.md", "content": "x"}),
+    ("Edit", {"file_path": WIN_MEMORY + "fact.md", "old_string": "a", "new_string": "b"}),
+])
+def test_memory_writes_accept_windows_backslash_paths(tool_name, data):
+    inv = thread_inventory.inventory(assistant([tool(tool_name, data, "w1")], "2026-10-02T09:00:00Z", "m1"))
+    # one spelling: the path is resolved as a shell write's path is, so a report holds it once
+    assert [m["path"] for m in inv["memory_writes"]] == [WIN_MEMORY.replace("\\", "/") + "fact.md"]
+    assert "C:/Users/u/.claude/projects/p/memory" in inv["directories"]
+
+
+def _session_with_memory(tmp_path, command_ts="2026-10-02T09:00:00Z"):
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    entries = [human("go", "2026-10-02T09:00:00Z"),
+               *bash("python3 - <<'PY'\nopen('m','w').write('x')\nPY", "b1", ts="2026-10-02T09:05:00Z")]
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
+    return project, transcript
+
+
+def _mtime(stamp):
+    from datetime import datetime
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+
+
+def test_memory_files_written_by_a_script_are_detected_by_modification_time(tmp_path):
+    project, transcript = _session_with_memory(tmp_path)
+    inside, before, after = (project / "memory" / n for n in ("inside.md", "before.md", "after.md"))
+    for path, stamp in ((inside, "2026-10-02T09:03:00Z"), (before, "2026-10-01T09:00:00Z"),
+                        (after, "2026-10-03T09:00:00Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp), _mtime(stamp)))
+    result = thread_inventory.collect([transcript])
+    assert result["memory_writes"] == []  # nothing was observed as a tool call
+    assert [(m["path"], m["detected_by"]) for m in result["memory_files_detected"]] == [
+        (str(inside), "modification time")]
+    assert result["memory_scan_notes"] == [
+        {"directory": str(project / "memory"), "status": "scanned", "files": 3, "listed": 1,
+         "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T09:05:00Z"},
+         "window_seconds": 300, "background_runs": 0, "excluded_by_window": 0}]
+
+
+def test_a_memory_file_seen_as_a_tool_call_is_not_listed_again_as_detected(tmp_path):
+    project, transcript = _session_with_memory(tmp_path)
+    known = project / "memory" / "known.md"
+    known.write_text("x")
+    os.utime(known, (_mtime("2026-10-02T09:03:00Z"),) * 2)
+    result = thread_inventory.detect_memory_files([project / "memory"], "2026-10-02T09:00:00Z",
+                                                  "2026-10-02T09:05:00Z", {str(known)},
+                                                  ["2026-10-02T09:03:00Z"])
+    assert result["memory_files_detected"] == []
+
+
+def test_a_memory_file_written_by_an_edit_tool_is_not_detected_again_through_collect(tmp_path):
+    """The exclusion through `collect`, which is what passes the observed writes to the scan."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    known, script = (project / "memory" / name for name in ("known.md", "script.md"))
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        human("go", "2026-10-02T09:00:00Z"),
+        *assistant([tool("Write", {"file_path": str(known), "content": "x"}, "w1")],
+                   "2026-10-02T09:01:00Z", "m1"),
+        human("thanks", "2026-10-02T09:02:00Z"),
+    ]) + "\n", encoding="utf-8")
+    for path, stamp in ((known, "2026-10-02T09:01:00Z"), (script, "2026-10-02T09:01:30Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    result = thread_inventory.collect([transcript])
+    assert [m["path"] for m in result["memory_writes"]] == [str(known)]
+    assert [m["path"] for m in result["memory_files_detected"]] == [str(script)]
+    assert result["memory_scan_notes"][0]["listed"] == 1
+
+
+def test_a_memory_file_far_from_every_entry_is_not_attributed_to_the_session(tmp_path):
+    """A session open for days spans a whole directory: only its own activity bounds the scan."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        human("go", "2026-10-02T09:00:00Z"),
+        *bash("python3 -c pass", "b1", ts="2026-10-02T09:01:00Z"),
+        human("still here", "2026-10-02T17:00:00Z"),  # an eight-hour pause the scan must not claim
+    ]) + "\n", encoding="utf-8")
+    near, far = (project / "memory" / name for name in ("near.md", "far.md"))
+    for path, stamp in ((near, "2026-10-02T09:05:00Z"), (far, "2026-10-02T13:00:00Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    result = thread_inventory.collect([transcript])
+    assert [m["path"] for m in result["memory_files_detected"]] == [str(near)]  # 240s after an entry
+    assert result["memory_scan_notes"] == [
+        {"directory": str(project / "memory"), "status": "scanned", "files": 2, "listed": 1,
+         "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T17:00:00Z"},
+         "window_seconds": 300, "background_runs": 0, "excluded_by_window": 1}]
+
+
+def test_a_missing_or_unreadable_memory_directory_is_a_note_not_a_failure(tmp_path):
+    missing = thread_inventory.detect_memory_files([tmp_path / "nope"], "2026-10-02T09:00:00Z",
+                                                   "2026-10-02T09:05:00Z", set(),
+                                                   ["2026-10-02T09:00:00Z"])
+    assert missing == {"memory_files_detected": [],
+                       "memory_scan_notes": [{"directory": str(tmp_path / "nope"), "status": "missing"}]}
+    plain_file = tmp_path / "file"
+    plain_file.write_text("x")
+    not_a_dir = thread_inventory.detect_memory_files([plain_file], "2026-10-02T09:00:00Z",
+                                                     "2026-10-02T09:05:00Z", set(),
+                                                     ["2026-10-02T09:00:00Z"])
+    assert not_a_dir["memory_files_detected"] == [] and not_a_dir["memory_scan_notes"][0]["status"] == "missing"
+    _, transcript = _session_with_memory(tmp_path / "other")
+    (transcript.parent / "memory").rmdir()
+    assert thread_inventory.collect([transcript])["memory_scan_notes"][0]["status"] == "missing"
+
+
+def test_a_memory_file_written_while_a_background_task_ran_is_detected(tmp_path):
+    """The window alone leaves a session's long pauses blind, and that is where a background
+    script writes: a run the helper already tracks counts as the session's own time."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    transcript = project / f"{SESSION}.jsonl"
+    started = [
+        human("go", "2026-10-02T09:00:00Z"),
+        *bash("python3 scripts/write_memory.py", "b1", ts="2026-10-02T09:01:00Z", run_in_background=True),
+        result("b1", "Command running in background with ID: bg9. Output is being written to: x",
+               "2026-10-02T09:01:05Z"),
+    ]
+    ended = user("<task-notification> <task-id>bg9</task-id> <status>completed</status></task-notification>",
+                 "2026-10-02T13:00:00Z", origin={"kind": "task-notification"})
+    last = human("done", "2026-10-02T17:00:00Z")
+    transcript.write_text("\n".join(json.dumps(e) for e in [*started, ended, last]) + "\n", encoding="utf-8")
+    during, blind = (project / "memory" / name for name in ("during.md", "blind.md"))
+    for path, stamp in ((during, "2026-10-02T11:00:00Z"), (blind, "2026-10-02T15:00:00Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    result_ = thread_inventory.collect([transcript])
+    # 11:00 is two hours from every entry, and inside the run of bg9; 15:00 is in neither.
+    assert [m["path"] for m in result_["memory_files_detected"]] == [str(during)]
+    assert result_["memory_scan_notes"] == [
+        {"directory": str(project / "memory"), "status": "scanned", "files": 2, "listed": 1,
+         "span": {"first": "2026-10-02T09:00:00Z", "last": "2026-10-02T17:00:00Z"},
+         "window_seconds": 300, "background_runs": 1, "excluded_by_window": 1}]
+    # A task with no recorded end ran, as far as the transcript says, until the last entry.
+    transcript.write_text("\n".join(json.dumps(e) for e in [*started, last]) + "\n", encoding="utf-8")
+    running = thread_inventory.collect([transcript])
+    assert [m["path"] for m in running["memory_files_detected"]] == [str(blind), str(during)]
+    assert running["memory_scan_notes"][0]["excluded_by_window"] == 0
+
+
+def test_a_relative_transcript_path_scans_the_same_memory_directory(tmp_path, monkeypatch):
+    """The observed writes are absolute, so a relative transcript path must be made absolute
+    before the exclusion compares them, or an observed write is re-reported as a found file."""
+    project = tmp_path / ".claude" / "projects" / "p"
+    (project / "memory").mkdir(parents=True)
+    known, script = (project / "memory" / name for name in ("known.md", "script.md"))
+    transcript = project / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        human("go", "2026-10-02T09:00:00Z"),
+        *assistant([tool("Write", {"file_path": str(known), "content": "x"}, "w1")],
+                   "2026-10-02T09:01:00Z", "m1"),
+        human("thanks", "2026-10-02T09:02:00Z"),
+    ]) + "\n", encoding="utf-8")
+    for path, stamp in ((known, "2026-10-02T09:01:00Z"), (script, "2026-10-02T09:01:30Z")):
+        path.write_text("x")
+        os.utime(path, (_mtime(stamp),) * 2)
+    absolute = thread_inventory.collect([transcript])
+    monkeypatch.chdir(project)
+    relative = thread_inventory.collect([Path(transcript.name)])
+    assert [m["path"] for m in absolute["memory_files_detected"]] == [str(script)]
+    assert [m["path"] for m in relative["memory_files_detected"]] == [str(script)]
+    assert relative["memory_scan_notes"] == absolute["memory_scan_notes"]
+    assert relative["transcripts"] == absolute["transcripts"] == [str(transcript)]
+
+
+def queued(prompt, ts, **attachment):
+    return {"type": "attachment", "timestamp": ts, "sessionId": SESSION, "cwd": "/work/repo",
+            "attachment": {"type": "queued_command", "prompt": prompt, **attachment}}
+
+
+def test_origin_less_first_record_after_system_reminders_is_a_prompt():
+    reminder = "<system-reminder>You were started from another session.</system-reminder>"
+    inv = thread_inventory.inventory([
+        user(f"{reminder}\n\n{reminder}\n\nClose https://github.com/Owner/Repo/issues/580", "t1"),
+        user(f"{reminder}\n\n", "t2"),  # nothing but reminders
+        user(f"{reminder}\n\n<local-command-stdout>x</local-command-stdout>", "t3"),  # a harness record
+        user("<system-reminder>unclosed block", "t4"),
+        user("This session is being continued...", "t5", isCompactSummary=True),
+    ])
+    assert inv["prompts"] == [{"ts": "t1"}]
+    assert ("issues", 580) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
+
+
+def test_queued_command_attachments_count_only_when_origin_says_human():
+    """Without `origin` the command mode says nothing: the app queues its own events as prompts."""
+    inv = thread_inventory.inventory([
+        human("start", "t1"),
+        queued("also see https://github.com/Owner/Repo/pull/7", "t2", commandMode="prompt",
+               origin={"kind": "human"}, humanTurn=True),
+        queued('<ci-monitor-event>"Auto-fix pull requests" is watching '
+               "https://github.com/Owner/Repo/pull/8</ci-monitor-event>",
+               "t3", commandMode="prompt"),  # the app's own injection
+        queued("no origin and no tag", "t4", commandMode="prompt"),
+        queued("<task-notification><task-id>a1</task-id></task-notification>", "t5",
+               commandMode="task-notification", origin={"kind": "task-notification"}),
+        queued("<task-notification>no origin</task-notification>", "t6", commandMode="task-notification"),
+        queued("from a peer", "t7", commandMode="prompt", origin={"kind": "peer"}),
+        {"type": "attachment", "timestamp": "t8", "attachment": {"type": "edited_text_file"}},
+    ])
+    assert inv["prompts"] == [{"ts": "t1"}, {"ts": "t2", "queued": True}]
+    assert ("pull", 7) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
+    assert 8 not in [r["number"] for r in inv["github_refs"]]  # an app event is not the user's text
+
+
+WIN_CWD = "C:\\work\\repo"
+WIN_SCRATCH = "C:\\Users\\u\\AppData\\Local\\Temp\\claude-501\\-proj\\scratchpad"
+WIN_SCRATCH_POSIX = WIN_SCRATCH.replace("\\", "/")
+
+
+def powershell(command, tool_id, ts="2026-10-02T09:00:00Z", cwd=WIN_CWD, **extra):
+    """A call of the `PowerShell` tool that a Windows client offers beside `Bash`."""
+    entries = assistant([tool("PowerShell", {"command": command, **extra}, tool_id)], ts, f"m_{tool_id}")
+    return [{**entry, "cwd": cwd} for entry in entries]
+
+
+def test_powershell_tool_commands_reach_the_same_fields():
+    inv = thread_inventory.inventory([
+        *powershell("git add .; git commit -m 'slice A5'\ngit push origin HEAD", "p1"),
+        *powershell("gh pr create --title t --body b", "p2", ts="2026-10-02T09:01:00Z"),
+        *powershell("Set-Content -Path notes.md -Value 'done'", "p3", ts="2026-10-02T09:02:00Z"),
+        *powershell("git log --oneline > logs\\out.txt", "p4", ts="2026-10-02T09:03:00Z"),
+    ])
+    assert [m["command"] for m in inv["git_mutations"]] == [
+        "git add .", "git commit -m 'slice A5'", "git push origin HEAD", "gh pr create --title t --body b"]
+    assert [(w["command"], w["files"]) for w in inv["shell_writes"]] == [
+        ("Set-Content -Path notes.md -Value 'done'", ["C:/work/repo/notes.md"]),
+        ("git log --oneline > logs\\out.txt", ["C:/work/repo/logs/out.txt"])]
+    assert inv["unclassified_commands"] == []
+    # one spelling of the Windows working directory, and the directory the redirection wrote in
+    assert "C:/work/repo/logs" in inv["directories"] and WIN_CWD not in inv["directories"]
+
+
+def test_powershell_statements_separate_on_semicolons_newlines_pipes_and_braces():
+    inv = thread_inventory.inventory(powershell(
+        "git tag v1; git commit -m a\nforeach ($f in $files) { git add $f }\n"
+        "git diff | Out-File -FilePath d.txt", "s1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git tag v1", "git commit -m a", "git add $f"]
+    assert [w["files"] for w in inv["shell_writes"]] == [["C:/work/repo/d.txt"]]
+    quoted = thread_inventory.inventory(powershell("git commit -m 'first; second | third'", "s2"))
+    assert [m["command"] for m in quoted["git_mutations"]] == ["git commit -m 'first; second | third'"]
+
+
+def test_a_powershell_definition_performs_nothing_and_an_invoked_block_still_does():
+    """A `{ … }` that only defines a body runs none of it.
+
+    Flushing every block into executed statements put `git push origin main` in `git_mutations`
+    for `function Publish { git push origin main }`, a mutation the definition does not perform
+    and the one report this inventory must never produce; a script block assigned for a later
+    call was read the same way. The braces that do run keep their statements: an invoked block
+    (`& { … }`, `. { … }`, `Invoke-Command { … }`) and the bodies of `if`, `foreach`, `while` and
+    `try`. A body whose statements were not read is listed when it is called, because what that
+    call ran is not established here, so it is unclassified rather than a silent pass.
+    """
+    defined = thread_inventory.inventory(powershell(
+        "function Publish { git push origin main }\nfilter Keep { git tag v1 }\n"
+        "$block = { Set-Content -Path a.txt -Value x }", "d1"))
+    assert defined["git_mutations"] == [] and defined["shell_writes"] == []
+    assert defined["unclassified_commands"] == []  # nothing called any of them
+    invoked = thread_inventory.inventory(powershell(
+        "& { git push origin main }\n. { git tag v1 }\nInvoke-Command { git add . }", "d2"))
+    assert [m["command"] for m in invoked["git_mutations"]] == [
+        "git push origin main", "git tag v1", "git add ."]
+    blocks = thread_inventory.inventory(powershell(
+        "if ($a) { git add . }\nforeach ($f in $files) { git rm $f }\nwhile ($x) { git commit -m a }\n"
+        "try { git push origin main } catch { git reset --hard }", "d3"))
+    assert [m["command"] for m in blocks["git_mutations"]] == [
+        "git add .", "git rm $f", "git commit -m a", "git push origin main", "git reset --hard"]
+    called = thread_inventory.inventory(powershell(
+        "function Publish { git push origin main }; Publish\n$block = { git tag v1 }; & $block", "d4"))
+    assert called["git_mutations"] == []
+    assert [c["command"] for c in called["unclassified_commands"]] == ["Publish", "& $block"]
+
+
+def test_an_unclosed_powershell_definition_keeps_the_statements_of_its_body():
+    """Nothing closes the brace, so the body's end is the end of the command: a transcript cut
+    there is likelier than a script that cannot parse, and dropping the statements would leave
+    the write with no trace in the report at all. They stand, as those of an unclosed `$(…)` do."""
+    inv = thread_inventory.inventory(powershell("function Publish { git push origin main", "u1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git push origin main"]
+
+
+def test_a_definition_whose_brace_opens_the_next_line_still_performs_nothing():
+    """A newline between a definition's header and its `{` is PowerShell formatting.
+
+    The newline ends a statement, so the flush there left `function Publish` behind as a segment
+    of its own and the brace that followed read an empty header: the body became statements that
+    ran, and `git push origin main` was reported for a function nobody called. A header is taken
+    back from that segment instead, and only a header, because `function Publish` and `$block =`
+    cannot stand as statements while `if (…)` and `foreach (…)` can: the bodies of those run
+    where they stand and keep their statements, whichever line their brace opens.
+    """
+    defined = thread_inventory.inventory(powershell(
+        "function Publish\n{\ngit push origin main\n}\nfilter Keep\n{\ngit tag v1\n}\n"
+        "$block =\n{\nSet-Content -Path a.txt -Value x\n}", "nl1"))
+    assert defined["git_mutations"] == [] and defined["shell_writes"] == []
+    assert defined["unclassified_commands"] == []  # nothing called any of them
+    called = thread_inventory.inventory(powershell(
+        "function Publish\n{\ngit push origin main\n}\nPublish", "nl2"))
+    assert called["git_mutations"] == []
+    assert [c["command"] for c in called["unclassified_commands"]] == ["Publish"]
+    blocks = thread_inventory.inventory(powershell(
+        "if ($a)\n{\ngit add .\n}\nforeach ($f in $files)\n{\ngit rm $f\n}\n"
+        "try\n{\ngit push origin main\n}\ncatch\n{\ngit reset --hard\n}", "nl3"))
+    assert [m["command"] for m in blocks["git_mutations"]] == [
+        "git add .", "git rm $f", "git push origin main", "git reset --hard"]
+
+
+def test_powershell_here_strings_are_bodies_not_commands():
+    inv = thread_inventory.inventory(powershell(
+        "git commit -F - @'\ngit push origin main\nSet-Content C:\\evil.txt x\n'@", "h1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git commit -F - @'…'@"]
+    assert inv["shell_writes"] == []  # the body is a commit message, not a cmdlet call
+    expandable = thread_inventory.inventory(powershell('$body = @"\ngit push\n"@\ngit commit -m $body', "h2"))
+    assert [m["command"] for m in expandable["git_mutations"]] == ["git commit -m $body"]
+    refs = thread_inventory.inventory(powershell(
+        "gh pr comment https://github.com/Owner/Repo/pull/7 --body @'\n"
+        "see https://github.com/Owner/Repo/issues/9\n'@", "h3"))
+    assert [(r["kind"], r["number"]) for r in refs["github_refs"]] == [("pull", 7)]
+
+
+def test_a_subexpression_of_an_expandable_here_string_runs():
+    """PowerShell expands `$(…)` in a `@"…"@` body, as it does in a `"…"` string, so a mutation
+    written there is one the thread ran. Treating the whole body as text dropped it with nothing
+    left in the report; the body's own text stays data, and a `@'…'@` body is literal throughout."""
+    inv = thread_inventory.inventory(powershell(
+        '$body = @"\nhead: $(git push origin HEAD)\nsee https://github.com/Owner/Repo/pull/7\n"@', "hs1"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git push origin HEAD"]
+    assert inv["github_refs"] == []  # the text around the subexpression is still a body
+    literal = thread_inventory.inventory(powershell(
+        "$body = @'\nhead: $(git push origin HEAD)\n'@", "hs2"))
+    assert literal["git_mutations"] == []  # a single-quoted body expands nothing
+    escaped = thread_inventory.inventory(powershell('$body = @"\nhead: `$(git push origin HEAD)\n"@', "hs3"))
+    assert escaped["git_mutations"] == []  # a backtick escapes the subexpression
+    writes = thread_inventory.inventory(powershell(
+        '$body = @"\n$(Set-Content -Path out.txt -Value x)\n"@\nSet-Content -Path after.txt -Value y', "hs4"))
+    assert [w["files"] for w in writes["shell_writes"]] == [["C:/work/repo/out.txt"], ["C:/work/repo/after.txt"]]
+    unclosed = thread_inventory.inventory(powershell('$body = @"\nhead: $(git push origin HEAD\n"@', "hs5"))
+    assert [c["command"] for c in unclosed["unclassified_commands"]] == []
+    assert [m["command"] for m in unclosed["git_mutations"]] == ["git push origin HEAD"]
+
+
+def test_powershell_writes_cmdlet_targets_and_redirections():
+    inv = thread_inventory.inventory(powershell(
+        "Set-Content -Path a.txt -Value 'x' -Encoding utf8\nAdd-Content b.txt 'more'\n"
+        "git log | Out-File -FilePath C:\\logs\\log.txt\nWrite-Output x > c.txt\nWrite-Output y >> c.txt", "w1"))
+    assert [(w["command"], w["files"]) for w in inv["shell_writes"]] == [
+        ("Set-Content -Path a.txt -Value 'x' -Encoding utf8", ["C:/work/repo/a.txt"]),
+        ("Add-Content b.txt 'more'", ["C:/work/repo/b.txt"]),
+        ("Out-File -FilePath C:\\logs\\log.txt", ["C:/logs/log.txt"]),
+        ("Write-Output x > c.txt", ["C:/work/repo/c.txt"]),
+        ("Write-Output y >> c.txt", ["C:/work/repo/c.txt"])]
+    plain = thread_inventory.inventory(powershell(
+        "git log 2>&1; git log *>&1; git log > $null; Write-Output 'a > b.txt'; Get-Content a.txt", "w2"))
+    assert plain["shell_writes"] == []  # a duplicated stream, $null and quoted text write no file
+
+
+def test_a_cmdlet_name_this_command_defines_writes_no_file():
+    """A function defined in the command shadows the cmdlet it is named after.
+
+    `function Set-Content { }` makes the call that follows run an empty body, which creates
+    nothing, and the call was already listed as unclassified because this reading never saw the
+    body's statements. Its path was recorded as a write first, so the report named a file nobody
+    created. A redirection in the same statement writes whatever the command is, so its target
+    stays.
+    """
+    inv = thread_inventory.inventory(powershell(
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x\n"
+        "function Out-File\n{\n}\ngit log | Out-File -FilePath phantom.log", "sh1"))
+    assert inv["shell_writes"] == []
+    assert [c["command"] for c in inv["unclassified_commands"]] == [
+        "Set-Content -Path phantom.txt -Value x", "Out-File -FilePath phantom.log"]
+    redirected = thread_inventory.inventory(powershell(
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x > out.txt", "sh2"))
+    assert [w["files"] for w in redirected["shell_writes"]] == [["C:/work/repo/out.txt"]]
+    undefined = thread_inventory.inventory(powershell("Set-Content -Path real.txt -Value x", "sh3"))
+    assert [w["files"] for w in undefined["shell_writes"]] == [["C:/work/repo/real.txt"]]
+
+
+def test_a_cmdlet_path_array_names_every_file_it_writes():
+    """The `-Path` and `-LiteralPath` of `Set-Content` and `Add-Content` are declared `string[]`,
+    and every element of such an array is written. Reading the whole value as one word reported a
+    single file called `a.txt,b.txt`, which no write created, and lost the two that it did. The
+    array is split at unquoted commas only, so a comma inside a quoted name stays part of the
+    name, a comma may have blanks around it, and the value of another parameter is never mistaken
+    for a path. `Out-File` declares one destination instead, and has its own case below."""
+    inv = thread_inventory.inventory(powershell(
+        "Set-Content -Path a.txt,b.txt -Value hi\nAdd-Content -Path c.txt , d.txt -Value hi\n"
+        'Add-Content -LiteralPath "my file.txt","other,name.txt" -Value x\n'
+        "Set-Content e.txt,f.txt hi\nOut-File -FilePath g.txt", "arr1"))
+    assert [w["files"] for w in inv["shell_writes"]] == [
+        ["C:/work/repo/a.txt", "C:/work/repo/b.txt"],
+        ["C:/work/repo/c.txt", "C:/work/repo/d.txt"],
+        ["C:/work/repo/my file.txt", "C:/work/repo/other,name.txt"],
+        ["C:/work/repo/e.txt", "C:/work/repo/f.txt"],
+        ["C:/work/repo/g.txt"]]
+    single = thread_inventory.inventory(powershell(
+        "Set-Content -Value one,two -Path a.txt\nSet-Content -Encoding utf8,ascii -Path b.txt -Value x\n"
+        "Set-Content -Path $null,c.txt -Value x", "arr2"))
+    assert [w["files"] for w in single["shell_writes"]] == [
+        ["C:/work/repo/a.txt"], ["C:/work/repo/b.txt"], ["C:/work/repo/c.txt"]]
+
+
+def test_an_array_given_to_a_scalar_destination_names_no_file():
+    """`Out-File` declares its destination as a single `string`, not a `string[]`, and a comma
+    builds an array all the same. What the call then wrote is not one reading: a `string`
+    parameter can take an array as its elements joined by `$OFS` into `c.txt d.txt`, and cmdlet
+    parameter binding can refuse a collection where a scalar `string` is declared, in which case
+    the command fails and writes nothing at all. Both readings are a file this report would name
+    that nobody created, and splitting the value the way a `string[]` is split names two. So the
+    call is listed as unclassified and no file is named for it. One destination is a write,
+    positional or named, and `Set-Content` keeps every element of its declared `string[]`."""
+    inv = thread_inventory.inventory(powershell(
+        "Out-File -FilePath c.txt , d.txt\nOut-File -LiteralPath e.txt,f.txt\nOut-File g.txt,h.txt\n"
+        "Out-File -FilePath one.txt", "of1"))
+    assert [w["files"] for w in inv["shell_writes"]] == [["C:/work/repo/one.txt"]]
+    assert [c["command"] for c in inv["unclassified_commands"]] == [
+        "Out-File -FilePath c.txt , d.txt", "Out-File -LiteralPath e.txt,f.txt", "Out-File g.txt,h.txt"]
+    kept = thread_inventory.inventory(powershell("git log | Out-File -FilePath a.txt,b.txt > c.txt", "of2"))
+    assert [w["files"] for w in kept["shell_writes"]] == [["C:/work/repo/c.txt"]]  # the redirection stands
+    assert [c["command"] for c in kept["unclassified_commands"]] == ["Out-File -FilePath a.txt,b.txt > c.txt"]
+
+
+def test_a_powershell_variable_target_keeps_its_literal_and_only_null_writes_nothing():
+    """A write whose path is a variable is still a write, as it is in Bash: only `$null` is no file."""
+    kept = thread_inventory.inventory(powershell(
+        'Add-Content -Path "$env:TEMP\\a.txt" -Value x\ngit log > $out\nSet-Content $M -Value y', "v1"))
+    assert [(w["command"], w["files"]) for w in kept["shell_writes"]] == [
+        ('Add-Content -Path "$env:TEMP\\a.txt" -Value x', ["$env:TEMP\\a.txt"]),
+        ("git log > $out", ["$out"]),
+        ("Set-Content $M -Value y", ["$M"])]
+    dropped = thread_inventory.inventory(powershell(
+        "git log > $NULL\nSet-Content -Path $null -Value x", "v2"))
+    assert dropped["shell_writes"] == []  # the bit bucket, in either case
+    braced = thread_inventory.inventory(powershell("Add-Content ${null} y", "v3"))
+    assert [w["files"] for w in braced["shell_writes"]] == [["${…}"]]  # a brace form names no variable
+
+
+def test_a_windows_scratchpad_write_reaches_the_scratchpad_paths():
+    """As a POSIX one does: it is session-local, so it is listed there instead of in shell_writes."""
+    inv = thread_inventory.inventory(powershell(
+        f"Set-Content -Path {WIN_SCRATCH}\\notes.md -Value done\ngit log > {WIN_SCRATCH}\\out.txt", "sp1"))
+    assert inv["scratchpad_paths"] == [f"{WIN_SCRATCH_POSIX}/notes.md", f"{WIN_SCRATCH_POSIX}/out.txt"]
+    assert inv["shell_writes"] == []
+
+
+def test_a_definition_in_a_child_scope_shadows_nothing_outside_it():
+    """Shadowing is about the name a later statement reaches, and scope decides that.
+
+    `& { function Set-Content { } }` defines it in the scope the block runs in, so the call after
+    the block still reaches the cmdlet and its write is real. Treating any definition anywhere in
+    the command as a shadow dropped that write, which is the opposite error from the phantom file
+    the shadowing check was added for, and the worse one here: a write that happened and is not
+    reported. Only a definition at the command's own level shadows, and the statements of either
+    are still taken back, because that is about what ran.
+    """
+    child = thread_inventory.inventory(powershell(
+        "& { function Set-Content { } }; Set-Content -Path real.txt -Value x", "s1"))
+    assert [w["files"] for w in child["shell_writes"]] == [["C:/work/repo/real.txt"]]
+    nested = thread_inventory.inventory(powershell(
+        "if ($x) { function Set-Content { } }\nSet-Content -Path real.txt -Value x", "s2"))
+    assert [w["files"] for w in nested["shell_writes"]] == [["C:/work/repo/real.txt"]]
+    # The case the shadowing check exists for still answers as it did.
+    top = thread_inventory.inventory(powershell(
+        "function Set-Content { }; Set-Content -Path phantom.txt -Value x", "s3"))
+    assert top["shell_writes"] == []
+    assert [c["command"] for c in top["unclassified_commands"]] == [
+        "Set-Content -Path phantom.txt -Value x"]  # the statement, which is what is listed
+
+
+def test_a_defined_body_keeps_its_forge_reference_and_performs_nothing():
+    """Two decisions on this helper meet here, and they point opposite ways for one text.
+
+    A body that is only defined performs nothing, so none of its commands is an action of the
+    thread. But a forge reference says what the thread was about rather than what succeeded, which
+    is why an unsupported PowerShell chain keeps its reference while its verdict is withheld. A
+    definition is the same case: the thread named that pull request. So the statements stop being
+    statements and stay as mentions, read for their references and for nothing else.
+    """
+    defined = thread_inventory.inventory(powershell("function Doc { gh pr view 650 }", "d1"))
+    assert [(r["kind"], r["number"]) for r in defined["github_refs"]] == [("pull", 650)]
+    assert defined["git_mutations"] == [] and defined["unclassified_commands"] == []
+    running = thread_inventory.inventory(powershell("if ($x) { gh pr view 650 }", "d2"))
+    assert [(r["kind"], r["number"]) for r in running["github_refs"]] == [("pull", 650)]
+    url = thread_inventory.inventory(powershell(
+        "function Doc { Write-Output 'https://github.com/o/r/pull/7' }", "d3"))
+    assert [(r["kind"], r["number"]) for r in url["github_refs"]] == [("pull", 7)]
+    # The program name folds here exactly as it folds for dispatch: PowerShell resolves `GH` to
+    # the same executable, so a mention inside a definition must not depend on its spelling.
+    folded = thread_inventory.inventory(powershell("function Doc { GH pr view 650 }", "d5"))
+    assert [(r["kind"], r["number"]) for r in folded["github_refs"]] == [("pull", 650)]
+    # The body still performs nothing, which is the other decision this test holds together.
+    assert thread_inventory.inventory(powershell(
+        "function Publish { git push origin main }", "d4"))["git_mutations"] == []
+
+
+def test_a_quoted_scratchpad_path_with_a_space_is_still_reported():
+    """A scratchpad write leaves `shell_writes` for `scratchpad_paths`, and the whole path has to
+    arrive there, alone.
+
+    The token scan that fills that field splits the command at blanks and quotes, so it only ever
+    saw `…/scratchpad/my`; dropping the parsed target as well left the write with no trace of it in
+    the report at all. Recording the target fixes that half, and the cut then stood in the field
+    beside it, which is a path no write created: the one thing this inventory must not report. So
+    the assertion is equality rather than membership, in both shells."""
+    posix = thread_inventory.inventory(bash(f"echo done > '{SCRATCH}/my notes.md'", "sp3"))
+    assert posix["scratchpad_paths"] == [f"{SCRATCH}/my notes.md"]
+    assert posix["shell_writes"] == []
+    windows = thread_inventory.inventory(powershell(
+        f"Set-Content -Path '{WIN_SCRATCH}\\my notes.md' -Value done", "sp4"))
+    assert windows["scratchpad_paths"] == [f"{WIN_SCRATCH_POSIX}/my notes.md"]
+    assert windows["shell_writes"] == []
+    outside = thread_inventory.inventory(bash("echo done > '/work/repo/my notes.md'", "sp5"))
+    assert outside["scratchpad_paths"] == []  # a path outside the scratchpad stays a shell write
+    assert [w["files"] for w in outside["shell_writes"]] == [["/work/repo/my notes.md"]]
+
+
+def test_two_scratchpad_writes_whose_names_differ_by_a_space_both_survive():
+    """A parsed target is never dropped as a fragment, however another target spells its name.
+
+    The field has two sources: a write's target, parsed from the command, and a path merely
+    mentioned in it, picked up by a scan over blanks-separated words. That scan cuts a quoted path
+    at its space, and the cut is a path no write created, so it goes. Judging both sources together
+    went too far: here `notes` is a real write and a space-prefixed sibling of `notes old.md`, and a
+    filter that cannot tell parsed from inferred loses it. Both have to arrive.
+    """
+    inv = thread_inventory.inventory(bash(
+        f"echo x > '{SCRATCH}/notes'; echo y > '{SCRATCH}/notes old.md'", "sp6"))
+    assert inv["scratchpad_paths"] == [f"{SCRATCH}/notes", f"{SCRATCH}/notes old.md"]
+    # The cut still goes, and a path only mentioned still arrives.
+    cut = thread_inventory.inventory(bash(f"echo hi > '{SCRATCH}/my notes.md'", "sp7"))
+    assert cut["scratchpad_paths"] == [f"{SCRATCH}/my notes.md"]
+    mentioned = thread_inventory.inventory(bash(f"cat {SCRATCH}/plain.md", "sp8"))
+    assert mentioned["scratchpad_paths"] == [f"{SCRATCH}/plain.md"]
+
+
+def test_a_windows_edit_path_has_one_spelling_and_names_its_directory():
+    """The same file written by an edit tool and by the shell is one entry of files_written."""
+    inv = thread_inventory.inventory([
+        *powershell("Set-Content -Path C:\\work\\repo\\doc\\a.md -Value x", "sp2"),
+        *[{**entry, "cwd": WIN_CWD} for entry in assistant([
+            tool("Edit", {"file_path": "C:\\work\\repo\\doc\\a.md", "old_string": "x", "new_string": "y"}, "e1"),
+            tool("Write", {"file_path": WIN_SCRATCH + "\\plan.md", "content": "p"}, "e2")],
+            "2026-10-02T09:01:00Z", "m_e")],
+    ])
+    assert [f["path"] for f in inv["files_written"]] == [
+        f"{WIN_SCRATCH_POSIX}/plan.md", "C:/work/repo/doc/a.md"]
+    assert [w["files"] for w in inv["shell_writes"]] == [["C:/work/repo/doc/a.md"]]
+    assert "C:/work/repo/doc" in inv["directories"]  # an edit tool's Windows path names its directory
+    assert inv["scratchpad_paths"] == [f"{WIN_SCRATCH_POSIX}/plan.md"]
+
+
+def test_powershell_backslash_is_a_path_separator_and_a_backtick_escapes():
+    captured = thread_inventory.inventory(powershell(
+        "$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' commit -m \"fix: it's done\"", "q1"))
+    assert [m["command"] for m in captured["git_mutations"]] == [
+        "$sha = & 'C:\\Program Files\\Git\\bin\\git.exe' commit -m \"fix: it's done\""]
+    literal = thread_inventory.inventory(powershell("Set-Content -LiteralPath C:\\repo\\a\\b.txt -Value x", "q2"))
+    assert [w["files"] for w in literal["shell_writes"]] == [["C:/repo/a/b.txt"]]
+    continued = thread_inventory.inventory(powershell("git commit `\n  -m 'wrapped'", "q3"))
+    assert [m["command"] for m in continued["git_mutations"]] == ["git commit -m 'wrapped'"]
+    commented = thread_inventory.inventory(powershell("# git push\n<# git tag v2 #>git fetch --dry-run", "q4"))
+    assert commented["git_mutations"] == [] and commented["unclassified_commands"] == []
+
+
+def test_powershell_commands_that_cannot_be_classified_are_listed_not_dropped():
+    unknown = thread_inventory.inventory(powershell("git frobnicate --hard; gh wobble 3", "u1"))
+    assert [c["command"] for c in unknown["unclassified_commands"]] == ["git frobnicate --hard", "gh wobble 3"]
+    assert unknown["git_mutations"] == []
+    chained = thread_inventory.inventory(powershell(
+        "git status && git commit -m x\ngh pr view 7 || gh pr create", "u2"))
+    assert [c["command"] for c in chained["unclassified_commands"]] == [
+        "git status && git commit -m x", "gh pr view 7 || gh pr create"]
+    assert chained["git_mutations"] == []  # 5.1 runs neither operator, so neither line ran
+    other = thread_inventory.inventory(powershell("Remove-Item -Recurse -Force .\\build", "u3"))
+    assert (other["git_mutations"], other["unclassified_commands"], other["shell_writes"]) == ([], [], [])
+
+
+def test_a_chain_that_cannot_run_still_names_its_forge_reference():
+    """A forge reference says what the thread was about, not what succeeded, so it is collected from
+    a chain whose operator 5.1 does not have, exactly as that chain's write targets are. Only the git
+    and gh classification is withheld there, because the line's own syntax cannot say which commands
+    were meant. Reporting the number and withholding the verdict is the conservative pair: a reader
+    reaches the pull request and still sees the line in `unclassified_commands`."""
+    chain = thread_inventory.inventory(powershell("gh pr view 7 || gh pr create --title t --body b", "r1"))
+    assert [(r["kind"], r["number"]) for r in chain["github_refs"]] == [("pull", 7)]
+    assert [c["command"] for c in chain["unclassified_commands"]] == [
+        "gh pr view 7 || gh pr create --title t --body b"]
+    assert chain["git_mutations"] == []
+
+
+def test_only_the_powershell_program_name_is_case_insensitive():
+    """PowerShell resolves `GIT` to the same executable, so an uppercase program name with a real
+    subcommand is the write it performs. Git and gh parse their own subcommands case sensitively,
+    measured here: `git Commit -m x` answers `fatal: cannot handle Commit as a builtin` and
+    `gh PR create` answers `unknown command "PR" for "gh"`. A mixed-case subcommand therefore ran
+    nothing, and it is listed for a reader instead of counted as a mutation that never happened."""
+    resolved = thread_inventory.inventory(powershell("GIT commit -m x\nGH pr create --title t --body b", "k1"))
+    assert [m["command"] for m in resolved["git_mutations"]] == [
+        "GIT commit -m x", "GH pr create --title t --body b"]
+    assert resolved["unclassified_commands"] == []
+    rejected = thread_inventory.inventory(powershell("Git Commit -m x\nGH PR Create --title t", "k2"))
+    assert [c["command"] for c in rejected["unclassified_commands"]] == [
+        "Git Commit -m x", "GH PR Create --title t"]
+    assert rejected["git_mutations"] == []
+
+
+def test_every_write_of_a_powershell_chain_is_collected():
+    """Which dialect the host's tool runs is not established: PowerShell 7 does chain with `&&`
+    and `||`, so every statement of a chain is read for its write target, which is right under
+    either dialect. The git classification of a chain stays unknown, as the test above pins."""
+    inv = thread_inventory.inventory(powershell(
+        "Set-Content -Path a.txt -Value x && Add-Content -Path b.txt -Value y\n"
+        "Out-File -FilePath c.txt -InputObject z || Set-Content d.txt w", "c1"))
+    assert [(w["command"], w["files"]) for w in inv["shell_writes"]] == [
+        ("Set-Content -Path a.txt -Value x && Add-Content -Path b.txt -Value y",
+         ["C:/work/repo/a.txt", "C:/work/repo/b.txt"]),
+        ("Out-File -FilePath c.txt -InputObject z || Set-Content d.txt w",
+         ["C:/work/repo/c.txt", "C:/work/repo/d.txt"])]
+    chained = thread_inventory.inventory(powershell("git fetch && git push origin HEAD", "c2"))
+    assert [c["command"] for c in chained["unclassified_commands"]] == ["git fetch && git push origin HEAD"]
+    assert chained["git_mutations"] == []
+
+
+def test_powershell_background_start_is_a_task():
+    inv = thread_inventory.inventory([
+        *powershell("git push origin HEAD", "bg1", run_in_background=True),
+        result("bg1", "Command running in background with ID: bg9. Output is being written to: x",
+               "2026-10-02T09:00:05Z"),
+    ])
+    assert [(t["tool"], t["id"]) for t in inv["background_tasks"]] == [("PowerShell", "bg9")]

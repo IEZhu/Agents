@@ -13,8 +13,18 @@ from src.engine import model_tiers
 from src.engine.subagent_text import (TextFormatError, dropped_positions, excerpt,
                                       is_text_result, parse_result)
 from src.schemas.subagent import (ContractExecution, Diagnostic, Escalation, MAX_ERRORS,
-                                  MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_RESULT_CHARS, RESULT_MODELS,
-                                  TaskContract, ValidationResponse)
+                                  MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_REQUEST_CHARS,
+                                  MAX_RESULT_CHARS, RESULT_MODELS,
+                                  TaskContract, Truncation, ValidationResponse)
+
+# The identity the header carries, checked against the retained contract in every path.
+IDENTITY_FIELDS = ("protocol", "task_id", "attempt_id", "bundle_revision", "contract_revision")
+# The diagnostics that decide what the parent does next — hand the result back, prepare a new
+# attempt, or ask the worker to reformat lines — rather than which line to correct. They are
+# reported before the per-line ones so the cap drops a format error instead of one of these (#589).
+DECIDING_PATHS = frozenset([f"$.result.{field}" for field in IDENTITY_FIELDS] + ["$.result.status"])
+DECIDING_CODES = frozenset({"identity_mismatch", "completed_incomplete", "question_required",
+                            "remaining_work_required", "failure_reason_required"})
 
 
 class ContractError(ValueError):
@@ -41,14 +51,68 @@ def diagnostic(path: str, code: str, message: str) -> Diagnostic:
     return Diagnostic(path=path[:256], code=code[:80], message=message[:240])
 
 
-def diagnostics(error: Exception, prefix: str = "$") -> list[Diagnostic]:
+def diagnostics(error: Exception, prefix: str = "$",
+                limit: int | None = MAX_ERRORS) -> list[Diagnostic]:
+    """Every diagnostic one error carries, capped at `limit`.
+
+    A caller that reports the produced count passes `limit=None` and caps through `capped`
+    instead; the list stays bounded by the already bounded size of the input it describes.
+    """
     if isinstance(error, ValidationError):
         return [diagnostic(prefix + "".join(f"[{part}]" if isinstance(part, int) else f".{part}"
                                            for part in item["loc"]), item["type"], item["msg"])
-                for item in error.errors(include_input=False, include_url=False)[:MAX_ERRORS]]
+                for item in error.errors(include_input=False, include_url=False)[:limit]]
     if isinstance(error, ContractError):
         return [diagnostic(prefix + error.path[1:], error.code, str(error))]
     return [diagnostic(prefix, "invalid_input", "Input could not be validated.")]
+
+
+# What a client that could not map the arguments onto the tool's schema sends instead of them.
+WRAPPER_KEYS = frozenset({"__unparsedToolInput", "unparsedToolInput"})
+
+
+def wrapped_arguments(arguments: dict, fields: dict[str, bool]) -> list[Diagnostic] | None:
+    """Diagnostics for a request that arrived as one unnamed field, or None when it did not.
+
+    `fields` maps every accepted argument to whether it is required. Only the wrapper's name,
+    type and size are reported, never its content, and an ordinary unknown field is not a
+    wrapper: it stays `extra_forbidden` in the caller (#630).
+    """
+    key = next((name for name in arguments if name in WRAPPER_KEYS), None)
+    if key is None:
+        return None
+    value = arguments[key]
+    kind = "string" if isinstance(value, str) else type(value).__name__
+    size = len(value) if isinstance(value, str) else len(json.dumps(value, ensure_ascii=False, default=str))
+    path = f"$.{key}"
+    required = ", ".join(name for name, needed in fields.items() if needed)
+    optional = ", ".join(name for name, needed in fields.items() if not needed)
+    return [
+        diagnostic(path, "arguments_wrapped",
+                   f"Arguments arrived as one unnamed field, {key} ({kind}, {size} chars), not as named "
+                   "fields. The server cannot read it; resend each field by name."),
+        diagnostic(path, "arguments_wrapped", f"Required: {required}. Optional: {optional}."),
+        diagnostic(path, "arguments_wrapped",
+                   f"Limits: request {MAX_REQUEST_CHARS} JSON chars; task and each list item 4000 chars; "
+                   "lists 50 items. The tool description lists every limit; load its schema first."),
+    ]
+
+
+def decides_next_action(reported: Diagnostic) -> bool:
+    """Whether this diagnostic is an identity or a status one, which outrank the per-line ones."""
+    return reported.path in DECIDING_PATHS or reported.code in DECIDING_CODES
+
+
+def capped(reported: list[Diagnostic]) -> tuple[list[Diagnostic], Truncation | None]:
+    """The diagnostics a response carries, identity and status first, and what the cap dropped.
+
+    `sorted` is stable, so everything else keeps the order it was produced in. The marker is
+    returned only when the cap actually dropped something, so a response at or under the cap
+    carries none and a valid result is unchanged (#589).
+    """
+    ordered = sorted(reported, key=lambda item: not decides_next_action(item))
+    produced = len(ordered)
+    return ordered[:MAX_ERRORS], Truncation(produced=produced) if produced > MAX_ERRORS else None
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict:
@@ -80,7 +144,7 @@ def bounded_object(value: Any, *, max_chars: int, allow_json: bool = False) -> d
     nodes = 0
     char_count = 0
 
-    def visit(item: Any, depth: int) -> None:
+    def visit(item: Any, depth: int, path: str = "$") -> None:
         nonlocal nodes, char_count
         nodes += 1
         if nodes > MAX_JSON_NODES or depth > MAX_JSON_DEPTH:
@@ -92,12 +156,14 @@ def bounded_object(value: Any, *, max_chars: int, allow_json: bool = False) -> d
                 if type(key) is not str or len(key) > 128:
                     raise ContractError("invalid_key", "JSON keys must be strings up to 128 characters.")
                 char_count += len(key)
-                visit(child, depth + 1)
+                visit(child, depth + 1, f"{path}.{key}")
         elif type(item) is list:
             if len(item) > 100:
-                raise ContractError("array_too_large", "JSON arrays may have at most 100 items.")
-            for child in item:
-                visit(child, depth + 1)
+                raise ContractError(
+                    "array_too_large",
+                    f"JSON arrays may have at most 100 items; {path} has {len(item)}.")
+            for index, child in enumerate(item):
+                visit(child, depth + 1, f"{path}[{index}]")
         elif type(item) is str:
             char_count += len(item)
         elif item is None or type(item) in (bool, int):
@@ -160,11 +226,14 @@ def _source_line(sources: dict[str, list[str]], path: str, position: int) -> str
 def _schema_diagnostics(error: Exception, positions: dict[str, list[int]],
                         sources: dict[str, list[str]]) -> list[Diagnostic]:
     """`diagnostics` with every list position translated back to the line that holds it,
-    and that line quoted, so a schema or size error names it too."""
+    and that line quoted, so a schema or size error names it too.
+
+    Uncapped: `capped` orders and cuts the collected list once, and counts what it dropped.
+    """
     if not isinstance(error, ValidationError):
         return diagnostics(error, "$.result")
     reported = []
-    for item in error.errors(include_input=False, include_url=False)[:MAX_ERRORS]:
+    for item in error.errors(include_input=False, include_url=False):
         path, line = "$.result", ""
         for part in item["loc"]:
             if isinstance(part, int):
@@ -188,8 +257,7 @@ def partial_diagnostics(value: dict, text_errors: list[TextFormatError],
     """
     reported = [diagnostic(f"$.result.{field}", "identity_mismatch",
                            "Does not match the retained contract.")
-                for field in ("protocol", "task_id", "attempt_id", "bundle_revision",
-                              "contract_revision")
+                for field in IDENTITY_FIELDS
                 if value.get(field) != getattr(expected, field)]
     reported += [diagnostic(error.path, error.code, _with_line(str(error), error.line))
                  for error in text_errors]
@@ -215,21 +283,24 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
             raise ContractError("contract_revision_mismatch", "Contract fingerprint does not match.",
                                 "$.contract_revision")
     except (ContractError, ValidationError) as error:
-        return ValidationResponse(valid=False, errors=diagnostics(error, "$.contract")), None
+        errors, truncated = capped(diagnostics(error, "$.contract", limit=None))
+        return ValidationResponse(valid=False, errors=errors, truncated=truncated), None
 
     digest = None
     sources: dict[str, list[str]] = {}
 
-    def finish(errors: list, status: str | None = None, failed_checks: int = 0):
+    def finish(reported: list, status: str | None = None, failed_checks: int = 0):
+        errors, truncated = capped(reported)
         valid = not errors
         if expected.execution is None:
-            return ValidationResponse(valid=valid, errors=errors, result_sha256=digest), None
+            return ValidationResponse(valid=valid, errors=errors, result_sha256=digest,
+                                      truncated=truncated), None
         escalation = model_tiers.escalation(expected.execution, valid=valid, status=status,
                                             failed_checks=failed_checks)
         outcome = Outcome(expected.task_id, expected.attempt_id, expected.execution, valid, status,
                           failed_checks, escalation)
         return ValidationResponse(valid=valid, errors=errors, escalation=escalation,
-                                  result_sha256=digest), outcome
+                                  result_sha256=digest, truncated=truncated), outcome
 
     try:
         if is_text_result(result):
@@ -245,7 +316,7 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
                 raise ContractError(error.code, _with_line(str(error), error.line),
                                     "$" + error.path[len("$.result"):]) from None
             if text_errors:
-                return finish(partial_diagnostics(value, text_errors, expected, sources)[:MAX_ERRORS])
+                return finish(partial_diagnostics(value, text_errors, expected, sources))
             value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
         else:
             value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
@@ -258,10 +329,10 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
     errors = []
 
     def reject(path: str, code: str, message: str) -> None:
-        if len(errors) < MAX_ERRORS:
-            errors.append(diagnostic(path, code, message))
+        """Collect without capping: `finish` orders the list, cuts it and counts the rest."""
+        errors.append(diagnostic(path, code, message))
 
-    for field in ("protocol", "task_id", "attempt_id", "bundle_revision", "contract_revision"):
+    for field in IDENTITY_FIELDS:
         if getattr(report, field) != getattr(expected, field):
             reject(f"$.result.{field}", "identity_mismatch", "Does not match the retained contract.")
     if report.status == "completed" and (report.remaining_work or report.question is not None):

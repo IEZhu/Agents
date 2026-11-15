@@ -191,7 +191,7 @@ def test_two_different_exact_pins_of_one_distribution_are_refused(root, requirem
 
 
 def test_the_repository_manifests_with_every_extra_carried_merge_into_one_specifier_set():
-    """requirements.txt pins pytest>=7.0.0 and anthropic>=0.18.0; evals and signing-tests ask for more."""
+    """requirements.txt pins pytest>=7.0.0,<10 and anthropic>=0.18.0; evals and signing-tests ask for more."""
     import tomllib
     from src.daemon.update_dependencies import requirement_lines
     root = Path(__file__).resolve().parents[1]
@@ -200,9 +200,9 @@ def test_the_repository_manifests_with_every_extra_carried_merge_into_one_specif
     text = environments.requirements_text(requirement_lines((root / "requirements.txt").read_text(encoding="utf-8")),
                                           project["dependencies"], extras)
     lines = text.splitlines()
-    assert "pytest>=7.0.0,>=8.0" in lines and "anthropic>=0.18.0,>=0.40" in lines
+    assert "pytest>=7.0.0,<10,>=8.0" in lines and "anthropic>=0.18.0,>=0.40" in lines
     assert [line for line in lines if line.startswith(("pytest>", "pytest=", "anthropic"))] == \
-        ["pytest>=7.0.0,>=8.0", "anthropic>=0.18.0,>=0.40"]
+        ["pytest>=7.0.0,<10,>=8.0", "anthropic>=0.18.0,>=0.40"]
 
 
 @pytest.mark.parametrize("first, second", [

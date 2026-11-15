@@ -223,7 +223,9 @@ def render_result_format(contract: dict) -> str:
         "limitations or remaining_work items"
     return "\n".join([
         "## Result format",
-        "Reply with only a plain-text result in this form: no JSON, no code fence, nothing before or after it.",
+        "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
+        "no code fence, nothing above line 1, and a character above it discards a result read from "
+        "the reply text.",
         "```text",
         f"task: {contract['task_id']}",
         f"attempt: {contract['attempt_id']}",
@@ -237,7 +239,8 @@ def render_result_format(contract: dict) -> str:
         *_payload_template(payload),
         "",
         "## checks",
-        "- <passed|failed|not_run>: <check actually run>[^e1]",
+        "- <passed|failed|not_run>: <check you ran, as it stands after your change; a run that "
+        "failed before it is evidence, not a failed check>[^e1]",
         "",
         "## evidence",
         f"[^e1]: <command, path:line or URL>{WRITE_SEPARATOR.spelling}<what it showed>",
@@ -247,15 +250,17 @@ def render_result_format(contract: dict) -> str:
         f"- <path or artifact:// reference>{WRITE_SEPARATOR.spelling}<purpose>",
         "",
         "## limitations",
-        "- <assumption, gap or failure reason>",
+        "- <assumption, gap, excluded work or failure reason>",
         "",
         "## remaining_work",
         "- <unfinished work>",
         "```",
-        "Omit a section or the question line when it would be empty; keep summary and "
+        "Omit a section or the question line when it would be empty, never filling it with 'none', "
+        "'n/a' or 'omitted'; keep summary and "
         f"{payload}. One list item per '- ' line; indent continuation lines by two spaces. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
-        f"4000 characters; at most 50 {short_lists} and 100 of any other list. "
+        f"4000 characters; at most 50 {short_lists} and 100 of any other list, grouping extras "
+        "into fewer items. "
         "completed: no remaining_work, no question. partial: remaining_work. failed: a "
         "limitation saying why. input_required: question.",
         "",

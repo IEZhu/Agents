@@ -139,8 +139,8 @@ not establish support for a client and model; see the
 
 | Call | Behavior |
 |---|---|
-| `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
-| `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
+| `route_and_load(query, protocol_version=2, current_persona=..., workspace=None)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
+| `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False, workspace=None)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
 | `log_interaction(..., persona=..., persona_action=...)` | Reads the descriptor leniently (never fails the turn over it: a partial, malformed or mismatching `persona`, an unknown key, an unknown `persona_action`, or `persona_action` without `persona` is written with `attribution` `unverified` or `mismatch` and `warnings`; a complete matching descriptor is `client-reported`; a turn without a resolved project goes to the installation's fallback journal with `workspace.source` `fallback`), returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (a failed history write is logged once per path and errno and reported as `history_last_error` on later results until a write succeeds; Langfuse errors go to the server log; a full queue drops a write with a logged error, and shutdown drains queued writes for up to 10 seconds). The response asks the model not to retry an incomplete call; the persona line is not part of the dedupe hash, so a retry with the full descriptor still yields one entry. The advertised schema lists the 7 descriptor keys and uses plain types (no `anyOf`/`$ref`) so clients can render it |
 
@@ -200,7 +200,7 @@ with a conversation's first activation (`current_persona` null) and with a resto
 refresh, carries a short pointer to it instead, with the same
 `instruction_revision` and the names of the rules it stands for; a client that
 lost the full text restores it (#433), and `run_flow` takes `force_reload=True`
-with `current_persona` for a flow's persona. A first activation's `SUCCESS` also
+with `current_persona` for a flow's persona. `route_and_load` and `get_agent_context` take the optional `workspace` argument and forward it with the request context, so over HTTP and in a stdio server shared by several sessions the repository context is resolved from the caller's own workspace. A `SUCCESS` or `NO_CHANGE` carries `repo_context` only where there is something to report: the first activation of a caller in a workspace it has not been told about, a pending `needs_summary` until the summary is written, a described workspace whose repository hash moved or whose managed section was deleted, and a workspace that could not be resolved at all (`status` `unavailable`, which never describes the installation checkout in its place and is recorded like a described one, so it is reported once and not on every activation). A described checkout whose `CLAUDE.md` resolves outside it is refused before that file is opened, with `status` `workspace_unsafe` and `code` `memory_path_escapes_workspace`: a report embeds that file's managed section, so a symlink leaving the checkout would return the description of a tree outside the grant. The refusal names the path inside the checkout and not the target it resolves to, describes no repository in its place, and is recorded per caller like an unresolved workspace; it is the containment rule `describe_repo` already applies to a session's memory root, applied to the checkout a report actually reads. A later activation of the same caller in the same unchanged workspace carries nothing. Who has been told is decided per caller, the registered workspace over HTTP and the resolved context's origin over stdio, because one process serves several sessions: the Claude desktop app starts a single stdio server for all of its Code sessions, and the daemon serves every session on the machine. Two sessions can still share one identity — two HTTP sessions registered for the same workspace, or two Code sessions of one stdio server — and then a described repository is reported to one of them and not to both, which `describe_repo` answers on request. Neither transport offers anything stabler: nothing in an HTTP request separates two sessions of one workspace, and a stdio process runs a single MCP session over its one pipe pair, whose initialize handshake and per-request `_meta` carry no session identifier (`src/engine/persona.py`, `_caller_identity`). What the repository last said is a separate record, shared by those sessions and consulted before the repository is looked up again, so a repeat activation stats a handful of paths instead of hashing the tree. That record holds only what is true of the checkout; the `workspace_id`, the `registered_workspace` and the persistence advice that follows from the caller's own memory root are composed after it is read, because one checkout can be one session's registered workspace and another registration's granted checkout at the same time. A described report carries the stored section's head capped at 800 characters, `describe_repo` the whole head; a pending one carries `repo_hash`, `repo_path` and, over HTTP, the `workspace_id` its own instruction needs, and advises no write where `write_repo_summary` would refuse one. A `workspace` no authorized root covers — neither the registered root nor an owner-registered checkout grant such as a linked worktree of the same repository — is answered with the `workspace_mismatch` report, never described. A report of an owner-registered checkout that is not the memory root, which is what a linked worktree's session has, describes that checkout and not the main checkout history normalizes it to: the `repo_path`, `repo_hash` and preview are the described checkout's, `registered_workspace` names the memory root beside them, and no summary write is advised from there, because `write_repo_summary` resolves its `repo_path` inside the memory root. A first activation's `SUCCESS` also
 lists in `warnings` each managed routing section that differs from the
 installation's template among the files the client loads and the server can
 resolve: for Claude Code the registered workspace's `CLAUDE.md` and
@@ -353,7 +353,12 @@ Cache clearing is an administrative action and is not required for persona chang
 HTTP repository memory uses `X-Agents-Workspace` with a registered workspace
 UUID. Global connections can route and load personas without that header; memory
 without a resolved project uses the fallback behavior below. A tool's `workspace`
-argument cannot replace a registered HTTP identity. Managed user-scope stdio
+argument cannot replace a registered HTTP identity. Repository-scoped tools refuse a
+`workspace` outside it with `workspace_mismatch`; history tools answer for the registered
+workspace and add `workspace_note`. A path that resolves to an authorized root under
+another spelling is that one directory, so it is answered for that root with the same
+note instead of being refused; only the filesystem's own identity check decides that,
+so two directories whose names differ only in case stay apart. Managed user-scope stdio
 bridges register the session's safe existing directory automatically, including an
 empty folder, and attach the header. They use Node when available and the
 standard-library Python bridge otherwise.
@@ -589,9 +594,16 @@ link, whose content the backup would copy and whose other name the write would
 break. The managed section is rendered from the bytes that same descriptor reads.
 A descriptor pins a node and not a name, so the write compares the destination's
 identity again immediately before the rename and refuses when another node has
-taken the name, leaving that file and the snapshot of the bytes it read. That
-narrows the window rather than closing it: no portable rename refuses an
-unexpected destination.
+taken the name, leaving that file and the snapshot of the bytes it read. It opens
+the name again for that comparison, because a descriptor stat and a path stat do
+not agree about the change time everywhere: on Windows with Python 3.14 the
+descriptor reports the change time of one untouched file and the path reports its
+creation time. A name it can no longer open the same way is refused as well, and
+the device and inode of the name itself, which the two calls do agree on, must
+still match the node that was opened, so a symlink that took the name where
+O_NOFOLLOW does not exist is refused rather than replaced. That narrows the
+window rather than closing it: no portable rename refuses an unexpected
+destination.
 Pinning the parent directory needs the `dir_fd` arguments of the platform's
 `openat` family and is therefore POSIX-only; on Windows the steps run against the
 path, as they did before.
