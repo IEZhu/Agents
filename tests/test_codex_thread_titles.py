@@ -17,6 +17,7 @@ from src.thread_status import status_title
 
 SESSION = "550e8400-e29b-41d4-a716-446655440000"
 TURN = "01a14e91-da9f-75f0-b282-911dfe1f8bbe"
+CLEANUP_OVERRAN = "Codex App Server did not exit within the cleanup deadline"
 _POPEN = subprocess.Popen  # the server fixture replaces it in the subprocess module
 _SERVER = r'''
 import json, os, signal, sys, time
@@ -124,6 +125,17 @@ def rename(**kwargs):
     return adapter.rename_codex_thread(SESSION, "stopped", format_stopped, executable="fake-codex", **kwargs)
 
 
+def outrun_cleanup_reserve(monkeypatch):
+    """Reap the child as usual, then report the cleanup as having outrun its reserve."""
+    real_stop = adapter._stop
+
+    def stop_then_outrun(process, deadline, *, completed):
+        real_stop(process, deadline, completed=completed)
+        raise RuntimeError(CLEANUP_OVERRAN)
+
+    monkeypatch.setattr(adapter, "_stop", stop_then_outrun)
+
+
 def exits(pid, timeout=2.0):
     """Whether process *pid* is gone or a zombie within *timeout* seconds (POSIX ``ps``)."""
     if pid != os.getpid():
@@ -204,6 +216,7 @@ def test_newer_turn_during_title_generation_prevents_old_interrupt_write(server)
 
 
 def test_unnamed_interrupt_expires_without_inventing_body_or_leaking_child(server):
+    """Observes the exchange deadline, the only one that decides a timed-out update."""
     server[0]["title_ready_after"] = 30
     started = time.monotonic()
     with pytest.raises(RuntimeError, match="timed out"):
@@ -306,12 +319,31 @@ def test_invalid_expected_turn_is_rejected_before_launch(server, turn):
 
 
 def test_turn_lookup_shares_the_interrupt_deadline_and_reaps_child(server):
+    """Observes the exchange deadline: the lookup ends at it, not at the cleanup reserve."""
     server[0]["hang_at"] = "thread/turns/list"
     started = time.monotonic()
     with pytest.raises(RuntimeError, match="timed out"):
         rename(expected_turn_id=TURN, timeout=0.4)
     assert time.monotonic() - started < 0.55
     assert server[1][0].poll() is not None
+
+
+def test_cleanup_that_outruns_its_reserve_keeps_why_the_update_failed(server, monkeypatch):
+    """A slow host can leave the child unreaped inside the reserve (#648), and the
+    deadline the two tests above observe must still be the error that surfaces."""
+    server[0]["hang_at"] = "thread/turns/list"
+    outrun_cleanup_reserve(monkeypatch)
+    with pytest.raises(RuntimeError, match="timed out") as caught:
+        rename(expected_turn_id=TURN, timeout=0.4)
+    assert CLEANUP_OVERRAN in caught.value.__notes__
+    assert server[1][0].poll() is not None
+
+
+def test_cleanup_that_outruns_its_reserve_is_the_error_when_nothing_else_failed(server, monkeypatch):
+    """With the rename persisted, the child that outlived the reserve is the outcome."""
+    outrun_cleanup_reserve(monkeypatch)
+    with pytest.raises(RuntimeError, match="cleanup deadline"):
+        rename()
 
 
 @pytest.mark.parametrize("current,status,prefix", [("🏁", "finishing", "🧹"), ("🧹", "working", "🔄")])
@@ -390,9 +422,10 @@ def test_timeout_includes_initialization_and_kills_blocked_child(server, stage, 
     helper = tmp_path / "helper.pid"
     server[0].update(hang_at=stage, ignore_terminate=True, helper=str(helper) if os.name == "posix" else None)
     started = time.monotonic()
-    # The killed child can outlast the cleanup reserve on a slow runner (#518), so either error counts;
-    # the deadline tests below and test_success_closes_and_reaps_server_that_ignores_eof guard the reserve.
-    with pytest.raises(RuntimeError, match="timed out|cleanup deadline"):
+    # The killed child can outlast the cleanup reserve on a slow runner (#518), but since
+    # #648 that no longer answers in place of the timeout; the reserve itself is guarded by
+    # test_success_closes_and_reaps_server_that_ignores_eof.
+    with pytest.raises(RuntimeError, match="timed out"):
         rename(timeout=0.4)
     assert time.monotonic() - started < 1.0  # far below the 30 s hang, with room for a slow runner
     # The child ignores SIGTERM and hangs for 30 s: only the SIGKILL ends it in time,
@@ -423,7 +456,7 @@ def test_a_refused_sigterm_still_sends_sigkill_to_a_blocked_child(server, monkey
 
     monkeypatch.setattr(adapter.os, "killpg", refuse_terminate)
     server[0].update(hang_at="thread/read", ignore_terminate=True)
-    with pytest.raises(RuntimeError, match="timed out|cleanup deadline"):
+    with pytest.raises(RuntimeError, match="timed out"):
         rename(timeout=0.4)
     server[1][0].wait(timeout=2)
 
