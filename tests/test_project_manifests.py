@@ -184,6 +184,15 @@ UNBOUNDED_OPTIONS = frozenset({
 # `-c/dev/null` is `-c` with a path and `-ocache_dir=/tmp` is `-o` with a
 # setting, so a whole-token comparison misses both.
 GLUED_SHORT_OPTIONS = frozenset({"-c", "-o"})
+
+# What the candidate split cuts on, beside whitespace: the characters a shell
+# uses to join commands and to redirect them. A redirection written without a
+# space, `pytest tests/x.py>/dev/null`, is one whitespace token whose first
+# half is the path, and dropping that token reported a wired workflow as having
+# no runner at all (Copilot on PR 662). Cutting the separators finds the path
+# without keeping every step that writes an `&&`, which a blanket "keep any
+# token holding a metacharacter" rule would have done.
+SHELL_SEPARATORS = re.compile(r"[\s;&|<>()]+")
 # `-p` is the sixth and the one with a measurable exception. `-p NAME` imports a
 # module as a plugin, which is arbitrary code; `-p no:NAME` only blocks one and
 # imports nothing (`_pytest/config/__init__.py`, `consider_pluginarg`). The
@@ -411,8 +420,10 @@ def mentions_the_file(script: str, path: str) -> bool:
     reported unmeasured, which is the generous direction.
     """
     name = Path(path).name
-    for token in script.replace(";", " ").split():
+    for token in SHELL_SEPARATORS.split(script):
         token = token.strip("'\"")
+        if not token:
+            continue
         if "$" in token:
             return True               # a value only the step's own shell has
         cleaned = token[2:] if token.startswith("./") else token
@@ -1678,6 +1689,32 @@ def test_a_positional_only_the_shell_knows_is_kept_and_measured():
     assert "No step names it at all" not in str(outcome.value), (
         "a candidate this reader cannot resolve was dropped instead of "
         f"reported: {outcome.value}")
+
+
+@EXECUTES_STEPS
+def test_a_target_with_attached_redirection_is_still_a_candidate():
+    """A false negative the narrowing's own split made, found on the next head.
+
+    `pytest tests/x.py>/dev/null` is one whitespace token, so no token equalled
+    the path and the step was dropped: a correctly wired workflow reported as
+    having no runner (Copilot on PR 662). The split cuts the shell's own
+    separators now, which finds the path in the token the shell would have
+    taken apart.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    for attached in (f"pytest {wanted}>/dev/null",
+                     f"pytest {wanted}>out.txt 2>&1",
+                     f"(pytest {wanted})",
+                     f"pytest {wanted}|tee out.txt"):
+        assert mentions_the_file(attached, wanted), attached
+    # The redirected run is a run, and the recorder says so.
+    assert invocation(
+        wanted, {"w.yml": step(f"pytest {wanted}>/dev/null")}).hosts == ["w.yml"]
+    # Cutting separators is not keeping every step that writes one: a script
+    # whose operators join other commands is still dropped, which is where this
+    # module's cost is held down.
+    assert not mentions_the_file("make lint && make test", wanted)
+    assert not mentions_the_file("pytest tests/test_flows.py | tee out.txt", wanted)
 
 
 @EXECUTES_STEPS
