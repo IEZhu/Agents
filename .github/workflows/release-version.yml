@@ -28,7 +28,7 @@ jobs:
           PLUGIN_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 scripts/bump_plugin_version.py --check --base "$PLUGIN_BASE_SHA"
       - name: Install focused test dependencies
-        run: python3 -m pip install pytest python-dotenv pyyaml
+        run: python3 -m pip install -c requirements.txt pytest python-dotenv pyyaml
       - name: Check release behavior and workflow permissions
         env:
           PYTHONDONTWRITEBYTECODE: "1"
