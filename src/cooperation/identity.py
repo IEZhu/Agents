@@ -14,6 +14,8 @@ import unicodedata
 
 from src.daemon.workspaces import ClientContext, WorkspaceError
 
+from .quota import ACCESS as QUOTA_ACCESS, canonical_quota_key
+
 
 class IdentityError(ValueError):
     def __init__(self, code: str, message: str):
@@ -230,6 +232,19 @@ def normalize_resource(resource, identity: CooperationIdentity):
         if key.startswith("repository_") and ":" in key and not key.startswith(prefix):
             raise IdentityError("scope_denied", "Resource names another repository.")
         value["resource_key"] = key if key.startswith(prefix) else prefix + key
+    elif kind == "external_quota":
+        # A snapshot read never conflicts (policy.resources_conflict), and an
+        # allowance holds nothing to read: a non-write claim would let a second
+        # session spend the budget the holder is spending.
+        if value.get("access") != QUOTA_ACCESS:
+            raise IdentityError("scope_denied", "An external allowance is claimed for write.")
+        # No repository prefix: the allowance belongs to the account, not to
+        # this repository. Canonicalizing here makes two sessions that read the
+        # reviewer from different platform surfaces claim one resource.
+        try:
+            value["resource_key"] = canonical_quota_key(key)
+        except ValueError:
+            raise IdentityError("scope_denied", "An external allowance key is <host>/<account>:<reviewer>.") from None
     elif kind != "heavy_execution":
         raise IdentityError("scope_denied", "Unknown resource type.")
     try:

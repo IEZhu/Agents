@@ -12,8 +12,9 @@ import pytest
 
 from src.cooperation.admin import cleanup
 from src.cooperation.identity import CooperationIdentity
+from src.cooperation import quota
 from src.cooperation.models import PROTOCOL, ApplyResponse, ReadResponse, parse_apply, parse_read, parse_register
-from src.cooperation.service import CooperationService
+from src.cooperation.service import CooperationService, _published_next_free
 from src.cooperation.store import CooperationError, Store, canonical
 
 
@@ -938,3 +939,365 @@ def test_terminal_agreement_cancel_refuses_inconsistent_execution_state(h, incon
     assert after["revision"] == before["revision"]
     assert after["claims"] == before["claims"]
     assert after["agreements"] == before["agreements"]
+
+
+# A reviewer identity this source knows nothing about, used to prove that the
+# allowance queue needs no entry for the reviewer it is protecting.
+UNKNOWN_REVIEWER = "Nebula-Reviewer[bot]"
+
+
+def _allowance(reviewer, account="IEZhu", host="github.com"):
+    return quota.resource(quota.quota_key(host, account, reviewer))
+
+
+def _release(h, actor, *, reason="round complete"):
+    claims = [c for c in h.read()["claims"] if c["participant_id"] == actor["participant_id"]]
+    return h.apply(actor, {"kind": "release", "reason": reason,
+                           "claims": [{"claim_id": c["claim_id"], "expected_revision": c["revision"]} for c in claims]})
+
+
+def test_unknown_reviewer_allowance_queues_sessions_on_a_published_default_backoff(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    first, second = h.register("pr-653", scope=[allowance]), h.register("pr-661", scope=[allowance])
+    acquired = h.acquire(first, allowance)
+    assert acquired["status"] == "ok"
+    assert acquired["claims"][0]["resource"]["resource_key"] == "github.com/iezhu:nebula-reviewer"
+    # Another pull request, another session, the same account-wide allowance,
+    # named from a different platform surface: still one claimed resource.
+    # A raw key from a client that never called the helper: the service is what
+    # makes two spellings of one reviewer the same claimed allowance.
+    refused = h.acquire(second, {"resource_type": "external_quota", "access": "write",
+                                 "resource_key": "GitHub.com/IEZhu:Nebula-Reviewer[bot]"})
+    assert refused["error"] == "claim_conflict"
+    assert refused["owner"] == first["participant_id"]
+    assert refused["resource_key"] == allowance["resource_key"]
+    assert refused.get("next_free_at") is None
+    pause = quota.observed_pause(UNKNOWN_REVIEWER, "Nebula: this account's review budget is spent.", observed_at=h.now)
+    assert (pause.source, pause.wait_seconds) == ("default", quota.DEFAULT_BACKOFF_SECONDS)
+    assert h.checkpoint(first, external_quota=[quota.pause_observation(allowance["resource_key"], pause)])["status"] == "ok"
+    published = h.acquire(second, allowance)
+    assert published["error"] == "claim_conflict"
+    assert published["next_free_at"] == h.now + quota.DEFAULT_BACKOFF_SECONDS
+    assert _release(h, first, reason="pause published")["status"] == "ok"
+    assert h.acquire(second, allowance)["status"] == "ok"
+
+
+def test_two_reviewers_on_one_pull_request_are_held_independently(h):
+    known, unknown = _allowance("coderabbitai[bot]"), _allowance(UNKNOWN_REVIEWER)
+    scope = [known, unknown]
+    a, b, c = h.register("a", scope=scope), h.register("b", scope=scope), h.register("c", scope=scope)
+    assert h.acquire(a, known)["status"] == "ok"
+    assert h.acquire(b, unknown)["status"] == "ok"
+    assert [claim["resource"]["resource_key"] for claim in h.read()["claims"]] == [
+        known["resource_key"], unknown["resource_key"]]
+    assert h.acquire(c, known)["error"] == "claim_conflict"
+    assert h.acquire(c, unknown)["error"] == "claim_conflict"
+    assert h.checkpoint(a, name="round-a")["status"] == "ok"
+    assert _release(h, a)["status"] == "ok"
+    assert h.acquire(c, known)["status"] == "ok"
+
+
+def test_heartbeat_expiry_frees_an_allowance_without_freeing_a_file(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    dead, live = h.register("dead", scope=[allowance, file]), h.register("live", scope=[allowance, file])
+    assert h.acquire(dead, allowance, file)["status"] == "ok"
+    for _ in range(3):
+        h.now += 60
+        assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    quarantined = {c["resource"]["resource_key"]: c["quarantined"] for c in h.read()["claims"]}
+    assert quarantined == {allowance["resource_key"]: True, "checkout_test:src/a.py": True}
+    # The dead session's edits are still in the checkout, so its file claim holds.
+    assert h.acquire(live, file)["error"] == "claim_conflict"
+    taken = h.acquire(live, allowance)
+    assert taken["status"] == "ok", taken
+    # A session that comes back has to acquire again, and now finds it held.
+    assert h.recover(dead)["status"] == "ok"
+    assert h.acquire(dead, allowance)["error"] == "claim_conflict"
+
+
+def test_a_quarantined_holder_that_is_still_alive_keeps_its_allowance(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    assert h.apply(holder, {"kind": "cancel", "reason": "stop this round"})["cancel_pending"] is True
+    assert [c["quarantined"] for c in h.read()["claims"]] == [True]
+    assert h.acquire(other, allowance)["error"] == "claim_conflict"
+
+
+def test_an_automatic_review_nobody_requested_is_published_as_consumed_allowance(h):
+    allowance = _allowance("coderabbitai[bot]")
+    observer = h.register("observer", scope=[allowance])
+    record = quota.consumed_observation(allowance["resource_key"],
+                                        "CodeRabbit reviewed the push automatically; nobody requested it.",
+                                        observed_at=h.now)
+    assert h.checkpoint(observer, external_quota=[record])["status"] == "ok"
+    participant = [p for p in h.read()["participants"] if p["participant_id"] == observer["participant_id"]][0]
+    assert participant["checkpoint"]["external_quota"] == [record]
+    assert not h.read()["claims"]
+
+
+def test_an_allowance_registered_as_a_snapshot_read_is_refused(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    reading = {**allowance, "access": "snapshot_read"}
+    # A snapshot read conflicts with nothing, so a scope that declares one for
+    # an allowance would let its session acquire the key a writer is holding.
+    refused = h.service.register(parse_register(
+        {"protocol": PROTOCOL, "checkout_path": str(h.checkout), "task_id": "reader",
+         "attempt_id": "1", "root_task_id": "reader", "scope": [reading]}), h.identity)
+    assert refused["error"] == "scope_denied"
+    holder = h.register("holder", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    reader = h.register("reader", scope=[allowance])
+    assert h.acquire(reader, reading)["error"] == "scope_denied"
+    assert h.acquire(reader, {**allowance, "access": "integrate"})["error"] == "scope_denied"
+    assert [c["participant_id"] for c in h.read()["claims"]] == [holder["participant_id"]]
+
+
+def test_a_published_pause_cannot_push_other_sessions_past_the_capped_wait(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    capped = quota.pause_observation(allowance["resource_key"], quota.observed_pause(
+        UNKNOWN_REVIEWER, "Nebula is out of budget, retry after 999999999 minutes", observed_at=h.now))
+    assert capped["next_free_at"] == h.now + quota.MAX_WAIT_SECONDS
+    assert h.checkpoint(holder, name="capped", external_quota=[capped])["status"] == "ok"
+    assert h.acquire(other, allowance)["next_free_at"] == h.now + quota.MAX_WAIT_SECONDS
+    # A record a client builds itself is refused at the boundary, so the time
+    # the service hands to every other session stays inside the cap.
+    with pytest.raises(ValueError, match="maximum"):
+        h.checkpoint(holder, name="absurd",
+                     external_quota=[{**capped, "next_free_at": h.now + quota.MAX_WAIT_SECONDS + 1}])
+
+
+def _participant(h, actor):
+    return [p for p in h.read()["participants"] if p["participant_id"] == actor["participant_id"]][0]
+
+
+def test_a_published_pause_outlives_the_work_unit_that_published_it(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    pause = quota.observed_pause(UNKNOWN_REVIEWER, "Nebula: this account is out of review budget.", observed_at=h.now)
+    assert h.checkpoint(holder, name="round-1",
+                        external_quota=[quota.pause_observation(allowance["resource_key"], pause)])["status"] == "ok"
+    assert _release(h, holder, reason="pause published")["status"] == "ok"
+    # The next work unit clears the checkpoint while the reviewer stays paused,
+    # so the time every other session reads cannot live only in it.
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    assert _participant(h, holder)["checkpoint"] is None
+    refused = h.acquire(other, allowance)
+    assert refused["error"] == "claim_conflict"
+    assert refused["next_free_at"] == pause.next_free_at
+    assert [(o["kind"], o["next_free_at"]) for o in _participant(h, holder)["external_quota"]] == [
+        ("paused", pause.next_free_at)]
+
+
+def test_a_lapsed_allowance_frees_an_agreement_assignment(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    scope = [allowance, file]
+    dead, live = h.register("dead", scope=scope), h.register("live", scope=scope)
+    assigned = [{**allowance, "owner": dead["participant_id"]}, {**file, "owner": dead["participant_id"]}]
+    agreement = h.apply(dead, h.proposal([dead, live], resources=assigned))["agreement"]
+    h.ack(dead, agreement)
+    assert h.ack(live, agreement)["agreement"]["state"] == "committed"
+    assert h.acquire(dead, allowance, file, agreement_id="agreement")["status"] == "ok"
+    for _ in range(3):
+        h.now += 60
+        assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # The assignment outlives the holder's heartbeat, so the allowance has to
+    # stop excluding here too, while the file assignment still holds.
+    assert h.acquire(live, file)["error"] == "claim_conflict"
+    assert h.acquire(live, allowance)["status"] == "ok"
+
+
+def _pause(h, reviewer, *, observed_at=None, wait=3600.0):
+    key = quota.quota_key("github.com", "IEZhu", reviewer)
+    pause = quota.observed_pause(reviewer, "limit reached for this account", observed_at=observed_at or h.now,
+                                 default_seconds=wait)
+    return quota.pause_observation(key, pause)
+
+
+def test_an_observation_dated_past_the_coordinator_clock_is_refused(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder = h.register("holder", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    # A client reads the platform's own time, so some skew is tolerated.
+    near = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now + 60)
+    assert h.checkpoint(holder, name="near", external_quota=[near])["status"] == "ok"
+    future = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now + 86400)
+    refused = h.checkpoint(holder, name="future", external_quota=[future])
+    assert refused["error"] == "invalid_request"
+    other = h.register("other", scope=[allowance])
+    assert h.acquire(other, allowance)["next_free_at"] == near["next_free_at"]
+
+
+def test_the_newest_evidence_wins_not_the_newest_publication(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    newer = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now, wait=3600.0)
+    older = _pause(h, UNKNOWN_REVIEWER, observed_at=h.now - 100, wait=60.0)
+    assert h.checkpoint(holder, name="newer", external_quota=[newer])["status"] == "ok"
+    # A session may read an older response after a newer one; the later
+    # publication must not shorten the wait every other session repeats.
+    assert h.checkpoint(holder, name="older", external_quota=[older])["status"] == "ok"
+    assert h.acquire(other, allowance)["next_free_at"] == newer["next_free_at"]
+    published = _participant(h, holder)["external_quota"]
+    assert [observation["observed_at"] for observation in published] == [newer["observed_at"]]
+
+
+def test_the_published_bound_drops_spent_records_before_a_live_pause(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    others = [_allowance(f"reviewer-{index}") for index in range(49)]
+    scope = [allowance, *others]
+    holder, other = h.register("holder", scope=scope), h.register("other", scope=scope)
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    spent = [quota.consumed_observation(record["resource_key"], "an automatic review nobody requested",
+                                        observed_at=h.now + index)
+             for index, record in enumerate([allowance, *others])]
+    assert h.checkpoint(holder, name="spent", external_quota=spent)["status"] == "ok"
+    live = _pause(h, UNKNOWN_REVIEWER)
+    assert h.checkpoint(holder, name="live", external_quota=[live])["status"] == "ok"
+    published = _participant(h, holder)["external_quota"]
+    # Fifty keys and fifty one records, because a pause and a spent record of
+    # one allowance are two: the record that goes is never the live pause.
+    assert len(published) == 50
+    assert live in published
+    assert h.acquire(other, allowance)["next_free_at"] == live["next_free_at"]
+    crowd = [_pause(h, f"reviewer-{index}", observed_at=h.now + index) for index in range(49)]
+    assert h.checkpoint(holder, name="crowd", external_quota=crowd)["status"] == "ok"
+    assert len([o for o in _participant(h, holder)["external_quota"] if o["kind"] == "paused"]) == 50
+
+
+def test_a_lapsed_assignee_does_not_block_a_new_agreement(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    scope = [allowance, file]
+    dead, peer = h.register("dead", scope=scope), h.register("peer", scope=scope)
+    old = h.apply(dead, h.proposal([dead, peer], resources=[{**allowance, "owner": dead["participant_id"]},
+                                                            {**file, "owner": dead["participant_id"]}]))["agreement"]
+    h.ack(dead, old)
+    assert h.ack(peer, old)["agreement"]["state"] == "committed"
+    fresh_a, fresh_b = h.register("fresh-a", scope=scope), h.register("fresh-b", scope=scope)
+    for _ in range(3):
+        h.now += 60
+        for live in (peer, fresh_a, fresh_b):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # The lapsed session's assignment cannot keep agreement coordination shut
+    # for the allowance, while its file assignment still does.
+    blocked = h.apply(fresh_a, h.proposal([fresh_a, fresh_b], name="files",
+                                          resources=[{**file, "owner": fresh_a["participant_id"]}]))["agreement"]
+    h.ack(fresh_a, blocked)
+    assert h.ack(fresh_b, blocked)["error"] == "claim_conflict"
+    allowed = h.apply(fresh_a, h.proposal([fresh_a, fresh_b], name="allowance",
+                                          resources=[{**allowance, "owner": fresh_a["participant_id"]}]))["agreement"]
+    h.ack(fresh_a, allowed)
+    assert h.ack(fresh_b, allowed)["agreement"]["state"] == "committed"
+
+
+def test_only_a_pause_contributes_a_published_next_free_time():
+    key = "github.com/iezhu:coderabbitai"
+    holder = {"external_quota": [
+        {"resource_key": key, "kind": "consumed", "evidence": "spent", "observed_at": 1000.0,
+         "next_free_at": 9000.0, "wait_source": None},
+        {"resource_key": key, "kind": "paused", "evidence": "limit reached", "observed_at": 1000.0,
+         "next_free_at": 4600.0, "wait_source": "default"}]}
+    # The model refuses a consumed record that carries a time, and the reader
+    # does not lean on that alone: a row stored before the rule would still be
+    # read, and only a pause may say when the reviewer is free again.
+    assert _published_next_free(holder, key) == 4600.0
+
+
+def test_a_lapsed_allowance_does_not_block_a_handoff_commit(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    scope = [allowance, file]
+    dead = h.register("dead", scope=scope)
+    assert h.acquire(dead, allowance, file)["status"] == "ok"
+    old, new = h.register("old", scope=scope), h.register("new", scope=scope)
+    assert h.checkpoint(old, name="cp")["status"] == "ok"
+    for _ in range(3):
+        h.now += 60
+        for live in (old, new):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # The handoff branch checks claims of its own, so the lapse exception has
+    # to hold there as well: a dead session's allowance claim excludes nobody,
+    # while its file claim still does, because its edits are in the checkout.
+    files = h.apply(old, h.proposal([old, new], name="files", owner=old, pattern="handoff",
+                                    resources=[{**file, "owner": old["participant_id"]}]))["agreement"]
+    h.ack(old, files)
+    assert h.ack(new, files, accepted_checkpoint="cp")["error"] == "claim_conflict"
+    quota_handoff = h.apply(old, h.proposal([old, new], name="allowance", owner=old, pattern="handoff",
+                                            resources=[{**allowance, "owner": old["participant_id"]}]))["agreement"]
+    h.ack(old, quota_handoff)
+    assert h.ack(new, quota_handoff, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+
+
+def test_an_observation_about_an_unregistered_allowance_is_refused(h):
+    allowance, foreign = _allowance(UNKNOWN_REVIEWER), _allowance("coderabbitai[bot]")
+    holder = h.register("holder", scope=[allowance])
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    # Every session reads published observations and holds its request on them,
+    # so a session could otherwise pause a reviewer it never registered and
+    # suppress allowance it has nothing to do with.
+    refused = h.checkpoint(holder, name="foreign", external_quota=[
+        quota.pause_observation(foreign["resource_key"], quota.observed_pause(
+            "coderabbitai[bot]", "limit reached", observed_at=h.now))])
+    assert refused["error"] == "scope_denied"
+    assert h.checkpoint(holder, name="own", external_quota=[_pause(h, UNKNOWN_REVIEWER)])["status"] == "ok"
+    assert not _participant(h, holder)["external_quota"] or [
+        o["resource_key"] for o in _participant(h, holder)["external_quota"]] == [allowance["resource_key"]]
+
+
+def test_the_live_pause_bound_cannot_be_exceeded_while_scope_shares_it():
+    # Publishing is scope bound and a scope holds at most MAX_ITEMS resources,
+    # so a participant cannot carry more live pauses than the published list
+    # allows. That is why the bound check in _checkpoint cannot be reached, and
+    # this pins the two facts that make it so: if either bound moves on its
+    # own, the guard becomes reachable and this test says where to look.
+    from src.cooperation import models, service
+    assert service.MAX_ITEMS is models.MAX_ITEMS
+    scope = [quota.resource(quota.quota_key("github.com", "IEZhu", f"reviewer-{index}"))
+             for index in range(models.MAX_ITEMS + 1)]
+    with pytest.raises(ValueError, match="scope"):
+        parse_register({"protocol": PROTOCOL, "checkout_path": "/tmp", "task_id": "too-wide",
+                        "attempt_id": "1", "root_task_id": "too-wide", "scope": scope})
+    assert len(parse_register({"protocol": PROTOCOL, "checkout_path": "/tmp", "task_id": "at-the-bound",
+                               "attempt_id": "1", "root_task_id": "at-the-bound",
+                               "scope": scope[:-1]}).scope) == models.MAX_ITEMS
+
+
+def test_a_recovered_holder_does_not_block_the_session_that_took_its_allowance(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    dead, peer = h.register("dead", scope=[allowance]), h.register("peer", scope=[allowance])
+    held = h.apply(dead, h.proposal([dead, peer], resources=[
+        {**allowance, "owner": dead["participant_id"]}]))["agreement"]
+    h.ack(dead, held)
+    assert h.ack(peer, held)["agreement"]["state"] == "committed"
+    assert h.acquire(dead, allowance, agreement_id="agreement")["status"] == "ok"
+    taker, witness = h.register("taker", scope=[allowance]), h.register("witness", scope=[allowance])
+    for _ in range(3):
+        h.now += 60
+        for live in (peer, taker, witness):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    fresh = h.apply(taker, h.proposal([taker, witness], name="fresh", resources=[
+        {**allowance, "owner": taker["participant_id"]}]))["agreement"]
+    h.ack(taker, fresh)
+    assert h.ack(witness, fresh)["agreement"]["state"] == "committed"
+    # The holder comes back: recovery advances its generation and leaves the
+    # old agreement suspended behind it. Its assignment must stop excluding
+    # the session that took the allowance while it was away, or the two block
+    # each other for good, since the holder cannot acquire through a suspended
+    # agreement either.
+    assert h.recover(dead)["status"] == "ok"
+    assert h.apply(dead, {"kind": "heartbeat"})["status"] == "ok"
+    assert h.acquire(taker, allowance, agreement_id="fresh")["status"] == "ok"
+    # A file assignment from the same recovered holder keeps excluding.
+    file = resource("src/a.py")
+    other_dead = h.register("other-dead", scope=[file])
+    neighbour = h.register("neighbour", scope=[file])
+    files = h.apply(other_dead, h.proposal([other_dead, neighbour], name="files", resources=[
+        {**file, "owner": other_dead["participant_id"]}]))["agreement"]
+    h.ack(other_dead, files)
+    assert h.ack(neighbour, files)["agreement"]["state"] == "committed"
+    assert h.acquire(other_dead, file, agreement_id="files")["status"] == "ok"
+    assert h.recover(other_dead)["status"] == "ok"
+    assert h.acquire(neighbour, file)["error"] == "claim_conflict"
