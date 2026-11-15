@@ -70,7 +70,7 @@ jobs:
       # onnxruntime for a two-second suite costs minutes per content change.
       # Measured: 246 cases pass on exactly these three packages.
       - name: Install check dependencies
-        run: python -m pip install pytest python-dotenv pyyaml
+        run: python -m pip install -c requirements.txt pytest python-dotenv pyyaml
       - name: Check skill invariants, calendar freshness and the source-check classifier
         run: >-
           python -B -m pytest

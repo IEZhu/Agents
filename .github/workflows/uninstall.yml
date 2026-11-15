@@ -57,7 +57,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install test dependencies
-        run: python -m pip install pytest python-dotenv
+        run: python -m pip install -c requirements.txt pytest python-dotenv
       # Every test runs on a temporary home with a fake runner; the platform branches
       # (macOS, Linux, Windows) are injected, so each runner exercises all three.
       - name: Uninstall on a temporary home

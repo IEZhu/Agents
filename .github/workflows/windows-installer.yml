@@ -121,7 +121,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install test dependencies
-        run: python -m pip install pytest python-dotenv
+        run: python -m pip install -c requirements.txt pytest python-dotenv
       - name: Exercise native installer prompts, the sync step, instruction migrations, the loopback peer check, file locks and the .env branch helper
         env:
           AGENTS_TEST_PYTHON310: ${{ steps.python310.outputs.python-path }}
@@ -173,7 +173,7 @@ jobs:
         with:
           python-version: '3.14'
       - name: Install test dependencies
-        run: python -m pip install pytest python-dotenv
+        run: python -m pip install -c requirements.txt pytest python-dotenv
       - name: Write instruction files through the installers on the newest interpreter
         run: >-
           python -m pytest tests/test_install_instructions.py

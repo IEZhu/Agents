@@ -95,7 +95,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install test dependencies
-        run: python -m pip install pytest python-dotenv pyyaml
+        run: python -m pip install -c requirements.txt pytest python-dotenv pyyaml
       - name: Show the git and OpenSSH versions sync runs with
         run: git version && (ssh -V 2>&1 || true)
       - name: Sync through local bare repositories, GitHub through a fake API
