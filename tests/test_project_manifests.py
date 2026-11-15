@@ -180,6 +180,10 @@ UNBOUNDED_OPTIONS = frozenset({
     "--basetemp", "--junitxml", "--rootdir", "-c", "-o", "--override-ini",
     "--pyargs",
 })
+# The short ones among them, which pytest also reads glued to their value:
+# `-c/dev/null` is `-c` with a path and `-ocache_dir=/tmp` is `-o` with a
+# setting, so a whole-token comparison misses both.
+GLUED_SHORT_OPTIONS = frozenset({"-c", "-o"})
 # `-p` is the sixth and the one with a measurable exception. `-p NAME` imports a
 # module as a plugin, which is arbitrary code; `-p no:NAME` only blocks one and
 # imports nothing (`_pytest/config/__init__.py`, `consider_pluginarg`). The
@@ -455,16 +459,23 @@ def selects_a_subset(arguments) -> list[str]:
 def unbounded_options(arguments) -> list[str]:
     """The options in this argv that let a run reach outside the tree it is given.
 
-    Both of pytest's spellings of `-p` are read, the separate word and the
-    glued one, because it is the one option here with a value that decides the
-    answer: `no:NAME` blocks a plugin and anything else imports a module. A
-    long option that merely begins with `-p`, such as `--pdb`, is not it.
+    Every short option here is read in both of pytest's spellings, the separate
+    word and the glued one. `-c/dev/null` and `-ocache_dir=/tmp` are what pytest
+    reads them as, so comparing whole tokens let both past while the long
+    spellings were refused -- `--override-ini` was caught and `-o` glued to its
+    value was not (Copilot on PR 662). A long option that merely begins with the
+    same letters, such as `--pdb` or `--capture`, is not one of them.
+
+    `-p` keeps its own branch because it is the one whose value decides the
+    answer: `no:NAME` blocks a plugin and anything else imports a module.
     """
     found = []
     for index, argument in enumerate(arguments):
         option = argument.partition("=")[0]
         if option in UNBOUNDED_OPTIONS:
             found.append(option)
+        elif not argument.startswith("--") and argument[:2] in GLUED_SHORT_OPTIONS:
+            found.append(argument[:2])
         elif argument.startswith("-p") and not argument.startswith("--"):
             value = argument[2:] or (
                 arguments[index + 1] if index + 1 < len(arguments) else "")
@@ -1512,6 +1523,31 @@ def test_a_step_that_names_another_file_is_never_executed():
         assert mentions_the_file(command, wanted), command
     assert not mentions_the_file("pytest tests/test_flows.py", wanted)
     assert not mentions_the_file("pytest tests/test_install_x.py", wanted)
+
+
+def test_a_short_option_glued_to_its_value_is_refused_like_the_separate_word():
+    """pytest reads `-c/dev/null`; a whole-token comparison did not (PR 662).
+
+    `-c` points pytest at a configuration file and `-o` sets one of its values,
+    which is why both are refused: either can send a run outside the tree this
+    guard hands it. Written as separate words they were caught, and glued to
+    their value they went through to the real inner pytest, which is the form
+    pytest itself accepts.
+    """
+    for glued, option in (("-c/dev/null", "-c"), ("-ocache_dir=/tmp", "-o"),
+                          ("-oaddopts=--collect-only", "-o")):
+        assert unbounded_options([glued]) == [option], glued
+    # The separate spellings still answer, and so do the long ones.
+    assert unbounded_options(["-c", "/dev/null"]) == ["-c"]
+    assert unbounded_options(["--override-ini=cache_dir=/tmp"]) == ["--override-ini"]
+    # A long option beginning with the same letter is not one of them, and
+    # neither is an ordinary path argument.
+    for innocent in ("--capture=no", "--color=yes", "tests/test_flows.py", "-q"):
+        assert unbounded_options([innocent]) == [], innocent
+    # `-p no:cacheprovider`, which every committed step writes, is still fine
+    # in both spellings.
+    assert unbounded_options(["-p", "no:cacheprovider"]) == []
+    assert unbounded_options(["-pno:cacheprovider"]) == []
 
 
 @EXECUTES_STEPS
