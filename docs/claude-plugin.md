@@ -1,9 +1,11 @@
 # Claude plugin
 
 `plugins/agents-core` is the Claude plugin submitted to Anthropic's plugin directory (#362).
-The owner's last recorded portal evidence (2026-11-14) showed **Directory policy failed**, not a
+The owner's last recorded portal evidence (2026-11-15) showed the release version refused, not a
 published listing: the directory takes a local MCP server, and a file outside its allowed types,
-only from a Verified organization, and this one is not.
+only from a Verified organization, and this one is not. That reading is the first to name what the
+directory checked, `26.11.14.1328` at `19e7e28`, and the first to report its scan as passed, so
+policy alone stops the version.
 See the [submission ledger](distribution.md#submitted-destinations) for dates, evidence and follow-up links. The
 Connectors Directory takes only remote `https://` MCP servers and no longer takes MCPB
 extensions, so a local server like Agents-Core can be listed only inside a plugin.
@@ -132,13 +134,22 @@ expected and observed:
   more than 40 words, a `LICENSE`, a lowercase ASCII name, regular files only (no symlinks,
   `.DS_Store` or binaries other than the icon), and every path in its manifest and `.mcp.json` stays inside the
   plugin folder, written from `${CLAUDE_PLUGIN_ROOT}`.
+- **Refused again on 2026-11-15**, the check of `26.11.14.1328` at `19e7e28`, read in the portal the
+  same day: *Directory policy refused this version*, on the two findings below and nothing else. It
+  is the first evidence that names the version and the commit checked, and the first to separate the
+  two gates: the page's activity reads *New version detected*, then *Scan passed, but this version
+  doesn't meet directory policy*, then *Blocked from going live by directory policy*. The scan that
+  stopped `26.10.28.1144` therefore reads the whole plugin now. The page also states that a new
+  version meeting the rules can go live, that new commits are picked up about every six hours on a
+  scheduled check, and that no version of this plugin goes live without an Anthropic reviewer.
 - **Blocked since 2026-11-11**, read in the portal on 2026-11-14: *Directory policy failed* with two
   findings, *Local MCP servers accepted only from Verified organizations* and *Files outside the
   allowed types accepted only from Verified organizations*. They reach `.mcp.json`, which declares
   the stdio server, and `scripts/start-server.sh`, which begins with `#!`. Both gate on the
-  organization rather than on the version, so neither a bump nor another check clears them, and the
-  portal states that Anthropic chooses who is a Verified organization and that there is no way to
-  ask to become one yet. The [submission ledger](distribution.md#submission-record) carries the
+  organization rather than on the version, so neither a bump nor another check clears them, which
+  the refusal above confirms on a fresh version at a fresh commit, and the portal states that
+  Anthropic chooses who is a Verified organization and that there is no way to ask to become one
+  yet. The [submission ledger](distribution.md#submission-record) carries the
   evidence and the follow-up channels.
 - **Blocked earlier, on 2026-10-28**, the check of `26.10.28.1144` at `5f59fdb`, read in the portal on
   2026-11-08: *Directory policy failed* with `LOCAL_CODE_NOT_CHECKED`, "the scan of this version
