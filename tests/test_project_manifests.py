@@ -180,10 +180,18 @@ UNBOUNDED_OPTIONS = frozenset({
     "--basetemp", "--junitxml", "--rootdir", "-c", "-o", "--override-ini",
     "--pyargs",
 })
-# The short ones among them, which pytest also reads glued to their value:
-# `-c/dev/null` is `-c` with a path and `-ocache_dir=/tmp` is `-o` with a
-# setting, so a whole-token comparison misses both.
-GLUED_SHORT_OPTIONS = frozenset({"-c", "-o"})
+# The short ones among them, derived rather than listed again, so the two
+# cannot fall out of step: what the scan below has to answer for is whichever
+# of the options above is one letter long.
+GLUED_SHORT_OPTIONS = frozenset(
+    option for option in UNBOUNDED_OPTIONS if len(option) == 2)
+# pytest's own short-option grammar: the options that take a value, and the
+# ones that are flags. Read from the installed pytest's parser rather than
+# recalled, and `test_the_short_option_grammar_is_the_installed_pytest_own`
+# re-derives both and fails when a release changes either -- so the scan is
+# pytest's grammar and not a guess about it.
+VALUE_TAKING_SHORT_OPTIONS = frozenset({"-W", "-c", "-k", "-m", "-o", "-p", "-r"})
+FLAG_SHORT_OPTIONS = frozenset({"-V", "-h", "-l", "-q", "-s", "-v", "-x"})
 
 # What the candidate split cuts on, beside whitespace: the characters a shell
 # uses to join commands and to redirect them. A redirection written without a
@@ -461,24 +469,55 @@ def stub_tree() -> tuple:
     return tree, None
 
 
-def selects_a_subset(arguments) -> list[str]:
-    """The selecting options in this argv, in the order pytest would read them.
+def short_option_in(token: str) -> tuple[str, str] | None:
+    """The first value-taking short option this token carries, and what follows it.
 
-    Both of pytest's spellings for each, the separate word and the glued one.
-    `-kinstall` is what pytest reads as `-k install`, so comparing whole tokens
-    let it past while `-k install` was refused, and the argv then ran against
-    the stub, where a generated case passes whatever the real selection would
-    have dropped (Copilot on PR 662). `unbounded_options` below reads `-c` and
-    `-o` in both spellings for the same reason; one option is one refusal
-    however it is written.
+    pytest's grammar in one place, for both readers below. The spellings
+    arrived one review round at a time and each round taught the readers one
+    more prefix comparison: the separate word `-k install`, the value glued to
+    its option `-c/dev/null`, the `=` form `-k=install`, and then the cluster
+    `-qk install`, which argparse reads as `-q -k install` -- measured on the
+    installed pytest 9.1.1, where `-qk test_alpha` and `-q -k test_alpha`
+    deselect the same test. A prefix comparison is not that grammar and could
+    not answer the fourth spelling, so it is gone: a token of short options is
+    read left to right, a flag is one option and the scan goes on, and the
+    first option that takes a value ends it, because the rest of that token is
+    its value and otherwise the next word is.
+
+    Reading the grammar rather than the prefix is also what keeps
+    `-pno:cacheprovider`, which every committed step writes, from being read as
+    an `-o`: the scan stops at `-p`, whose value the rest is. A character the
+    installed pytest knows as neither a flag nor a value-taking option ends the
+    scan with no answer, because it cannot be told from a value.
+
+    A long option, a path and a bare `-` carry none.
+    """
+    if not token.startswith("-") or token.startswith("--") or token == "-":
+        return None
+    for index, character in enumerate(token[1:], start=1):
+        option = f"-{character}"
+        if option in VALUE_TAKING_SHORT_OPTIONS:
+            return option, token[index + 1:]
+        if option not in FLAG_SHORT_OPTIONS:
+            return None
+    return None
+
+
+def selects_a_subset(arguments) -> list[str]:
+    """The selecting options in this argv, in every spelling pytest reads.
+
+    `-k install`, `-kinstall`, `-k=install` and `-qk install` are one option to
+    pytest, so they are one refusal here; `short_option_in` above is where that
+    is decided. An argv that selects a subset is not handed to the replay at
+    all: what the real file's names and markers would have matched is a
+    question the stub cannot answer, and the generated case would pass whatever
+    the real selection dropped (Copilot and CodeRabbit on PR 662).
     """
     found = set()
     for argument in arguments:
-        named = argument.partition("=")[0]
-        if named in SELECTING_OPTIONS:
-            found.add(named)
-        elif not argument.startswith("--") and argument[:2] in SELECTING_OPTIONS:
-            found.add(argument[:2])
+        read = short_option_in(argument)
+        if read and read[0] in SELECTING_OPTIONS:
+            found.add(read[0])
     return sorted(found)
 
 
@@ -529,28 +568,33 @@ def pytest_configuring_assignments(script: str) -> list[str]:
 def unbounded_options(arguments) -> list[str]:
     """The options in this argv that let a run reach outside the tree it is given.
 
-    Every short option here is read in both of pytest's spellings, the separate
-    word and the glued one. `-c/dev/null` and `-ocache_dir=/tmp` are what pytest
-    reads them as, so comparing whole tokens let both past while the long
-    spellings were refused -- `--override-ini` was caught and `-o` glued to its
-    value was not (Copilot on PR 662). A long option that merely begins with the
-    same letters, such as `--pdb` or `--capture`, is not one of them.
+    A written option is matched whole, which answers the long spellings and the
+    separate short word; every other spelling of a short one is
+    `short_option_in`, so `-c/dev/null`, `-ocache_dir=/tmp` and a cluster are
+    one reading and not three comparisons. A long option that merely begins
+    with the same letters, such as `--pdb` or `--capture`, is not one of them.
 
-    `-p` keeps its own branch because it is the one whose value decides the
-    answer: `no:NAME` blocks a plugin and anything else imports a module.
+    `-p` is the one whose value decides the answer -- `no:NAME` blocks a plugin
+    and anything else imports a module -- so it is asked for that value, glued
+    to it or in the next word.
     """
     found = []
     for index, argument in enumerate(arguments):
         option = argument.partition("=")[0]
         if option in UNBOUNDED_OPTIONS:
             found.append(option)
-        elif not argument.startswith("--") and argument[:2] in GLUED_SHORT_OPTIONS:
-            found.append(argument[:2])
-        elif argument.startswith("-p") and not argument.startswith("--"):
-            value = argument[2:] or (
+            continue
+        read = short_option_in(argument)
+        if read is None:
+            continue
+        short, glued = read
+        if short == "-p":
+            value = glued or (
                 arguments[index + 1] if index + 1 < len(arguments) else "")
             if not value.startswith(BLOCKS_A_PLUGIN):
                 found.append("-p")
+        elif short in GLUED_SHORT_OPTIONS:
+            found.append(short)
     return sorted(set(found))
 
 
@@ -1782,6 +1826,72 @@ def test_a_command_local_pytest_assignment_is_refused_like_the_env_block():
     assert pytest_configuring_assignments(f"pytest {wanted}") == []
     assert pytest_configuring_assignments("PYTHONPATH=. pytest x.py") == []
     assert invocation(wanted, {"w.yml": step(f"pytest {wanted}")}).hosts == ["w.yml"]
+
+
+def test_the_short_option_grammar_is_the_installed_pytest_own():
+    """The two sets are derived from pytest, not recalled, so a release cannot slip.
+
+    `short_option_in` reads a cluster against them, so a pytest that adds a
+    short option or changes one from a flag to a value-taking one would make
+    the scan wrong in silence. This re-derives both from the installed
+    pytest's own parser and fails instead.
+    """
+    from _pytest.config import get_config
+    taking, flags = set(), set()
+    for action in get_config([])._parser.optparser._actions:
+        for spelling in action.option_strings:
+            if len(spelling) == 2 and spelling[0] == "-" and spelling[1] != "-":
+                (flags if action.nargs == 0 else taking).add(spelling)
+    assert taking == set(VALUE_TAKING_SHORT_OPTIONS), sorted(taking)
+    assert flags == set(FLAG_SHORT_OPTIONS), sorted(flags)
+    # And the sets the readers watch are inside the grammar: an option watched
+    # but unknown to pytest would never be found by the scan.
+    assert set(SELECTING_OPTIONS) <= taking
+    assert set(GLUED_SHORT_OPTIONS) <= taking
+
+
+def test_a_selector_inside_a_cluster_of_short_options_is_read():
+    """The fourth spelling, and the one the prefix comparisons could not answer.
+
+    pytest reads `-qk test_executed` as `-q -k test_executed` -- measured on
+    the installed pytest, where the cluster and the separate words deselect the
+    same test -- while a reader comparing the token's first two characters saw
+    only `-q` and reported no selection. The argv then went to the replay,
+    which collected the stub and credited a workflow whose real run matched no
+    test in the real file (CodeRabbit on PR 662).
+    """
+    assert selects_a_subset(["-qk", "test_executed"]) == ["-k"]
+    assert selects_a_subset(["-xvsk", "test_executed"]) == ["-k"]
+    assert selects_a_subset(["-qm", "slow"]) == ["-m"]
+    # The scan stops at the first option that takes a value, so a letter after
+    # one of those is its value and not an option: `-Wk` is `-W k`.
+    assert selects_a_subset(["-Wk"]) == []
+    assert short_option_in("-Wk") == ("-W", "k")
+    # A flag-only cluster carries nothing, and neither does a path or a long
+    # option that starts with the same letters.
+    for innocent in ("-qvx", "--keep-going", "--markers", "tests/test_flows.py", "-"):
+        assert selects_a_subset([innocent]) == [], innocent
+    # The committed spelling every step writes must stay readable as a `-p`,
+    # or the `o` in `no:cacheprovider` would be read as an `-o`.
+    assert short_option_in("-pno:cacheprovider") == ("-p", "no:cacheprovider")
+    assert unbounded_options(["-pno:cacheprovider"]) == []
+    assert unbounded_options(["-qp", "no:cacheprovider"]) == []
+    # A cluster that reaches outside the tree is still refused.
+    assert unbounded_options(["-qc/dev/null"]) == ["-c"]
+
+
+@EXECUTES_STEPS
+def test_a_clustered_selector_leaves_the_step_unmeasured():
+    """The end of that path, asserted where the credit would have been given."""
+    wanted = "tests/test_install_setup_options.py"
+    run = invocation(wanted, {"w.yml": step(f"pytest -qk test_executed {wanted}")})
+    assert run.hosts == [], (run.hosts, run.problems)
+    assert run.problems and "selects a subset with `-k`" in run.problems[0], (
+        run.problems)
+    # And the same command without the selector is a host, so the refusal is
+    # the selector's and not the cluster's.
+    assert invocation(wanted, {"w.yml": step(f"pytest -q {wanted}")}).hosts == [
+        "w.yml"]
 
 
 def test_a_selecting_option_glued_to_its_value_is_read_like_the_separate_word():
