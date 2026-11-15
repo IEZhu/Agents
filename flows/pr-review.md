@@ -464,8 +464,8 @@ report that, keep every rule above that does not need it — one request per hea
 that needs one, the matcher, the published next free time in the working record —
 and say in the final report that the allowance was not serialised.
 
-Read an attempt's state from the reviewer's own check run on the head, and from
-nothing else. Measured on this repository on 2026-11-14: a push starts
+For CodeRabbit, read an attempt's state from its own check run on the head, and
+from nothing else. Measured on this repository on 2026-11-14: a push starts
 CodeRabbit's automatic pass whatever the allowance says, so a push into an
 exhausted window spends that attempt and the pass never re-runs by itself; the
 head then needs exactly one explicit request once the window opens. A push
