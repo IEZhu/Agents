@@ -2058,9 +2058,15 @@ def test_running_the_step_really_hands_the_file_to_pytest(test_file):
     """
     evidence, measured, reasons, refusals, disqualified = executed_verdict(
         test_file, {path.name: load_workflow(path) for path in WORKFLOWS})
-    if evidence:
-        return
-    require_a_recorded_run(test_file, measured, reasons, refusals, disqualified)
+    # The refusal is asked about before the success is honoured, because it is
+    # the one answer no other workflow can supply: a step this guard will not
+    # execute is a verdict about that step, and another workflow running the
+    # same file does not settle it. Reading `evidence` first discarded every
+    # refusal already collected -- the tuple carried it and nothing looked
+    # (Copilot on PR 662, the same shape in the manifests guard).
+    if refusals or not evidence:
+        require_a_recorded_run(
+            test_file, measured, reasons, refusals, disqualified)
 
 
 def test_the_calendar_check_runs_on_a_schedule_nothing_can_skip():
@@ -3278,6 +3284,46 @@ def test_a_program_this_guard_does_not_cover_is_a_failure_not_a_skip():
     with pytest.raises(pytest.skip.Exception):
         require_a_recorded_run(SCHEDULED_BY_CALENDAR, 0,
                                ["w.yml (content): the script did not finish in 120s"])
+
+
+@EXECUTES_STEPS
+def test_a_refused_step_is_not_hidden_by_a_workflow_that_hosts_the_file():
+    """A refusal collected before the success was carried out and dropped.
+
+    `executed_verdict` returns on the first step whose recorded commands
+    credit a run, and it returns the refusals it has collected with it. The
+    guard read `evidence` first and returned, so the tuple carried a refusal
+    that nothing ever looked at: a step reaching outside what the harness
+    bounds stopped breaking the build as soon as any other workflow ran the
+    same file. Which order the two workflows are read in decides only whether
+    the refusal is collected at all, and that is not something this repository
+    arranges, so the guard must not depend on it.
+
+    The remainder this does not close is named in the docstring of
+    `executed_verdict`: a refusal in a step the loop never reaches, because an
+    earlier one already credited a run. Closing that means executing every
+    candidate step rather than stopping at the first success.
+    """
+    refused = "grep -q pytest tests/test_skill_invariants.py\n" + CONTROL_COMMAND + "\n"
+    documents = {
+        "a_refused.yml": {"jobs": {"content": {"steps": [{"run": refused}]}}},
+        "b_hosting.yml": {"jobs": {"content": {"steps": [{"run": CONTROL_COMMAND}]}}},
+    }
+    evidence, measured, reasons, refusals, disqualified = executed_verdict(
+        SCHEDULED_BY_CALENDAR, documents)
+    assert evidence is True, "the second workflow really does run the file"
+    assert len(refusals) == 1 and "grep" in refusals[0], refusals
+    with pytest.raises(pytest.fail.Exception, match="will not execute"):
+        require_a_recorded_run(
+            SCHEDULED_BY_CALENDAR, measured, reasons, refusals, disqualified)
+    # And the other order is the remainder, measured rather than asserted away:
+    # the loop stops at the hosting step and the refusal is never collected.
+    other_way = {
+        "a_hosting.yml": documents["b_hosting.yml"],
+        "b_refused.yml": documents["a_refused.yml"],
+    }
+    assert executed_verdict(SCHEDULED_BY_CALENDAR, other_way)[3] == [], (
+        "the refusal in a step the loop never reaches is the named remainder")
 
 
 def test_a_configuration_that_disables_the_only_candidate_fails():
