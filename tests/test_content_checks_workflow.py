@@ -1982,6 +1982,41 @@ def executed_verdict(test_file, documents):
     return False, measured, reasons, refusals, disqualified
 
 
+def a_failure_is_due(evidence, refusals):
+    """Whether the verdict has to be read out rather than passed over.
+
+    The refusal is asked about before the success is honoured, because it is
+    the one answer no other workflow can supply: a step this guard will not
+    execute is a verdict about that step, and another workflow running the same
+    file does not settle it. Reading `evidence` first returned from the guard,
+    so a refusal `executed_verdict` had already collected sat in the tuple and
+    nothing ever looked at it -- the same shape Copilot found in the manifests
+    guard on PR 662, one call site further out.
+
+    It is a function rather than two clauses at the call site so that the order
+    is the thing a case can hold: the regression beside it fails when the
+    success is honoured first, which `if evidence: return` did silently.
+    """
+    return bool(refusals) or not evidence
+
+
+def test_a_success_does_not_excuse_a_refusal_the_verdict_carried():
+    """The ordering itself, held by a case rather than by the comment.
+
+    `executed_verdict` returns the refusals it collected together with the
+    first credited run, so these two arrive true at once, and that pair is
+    exactly what the old `if evidence: return` dropped. The case beside this
+    one builds the two workflows and measures that the pair really does occur;
+    this one pins what the guard must then do about it.
+    """
+    assert a_failure_is_due(True, ["w.yml (content): grep is not covered"]), (
+        "a refusal collected before the success is still a verdict to read out")
+    assert a_failure_is_due(False, []), "nothing ran the file, which is the old failure"
+    assert a_failure_is_due(False, ["anything"]), "both answers are reasons to read out"
+    assert not a_failure_is_due(True, []), (
+        "a run was credited and nothing was refused, which is the passing case")
+
+
 def require_a_recorded_run(test_file, measured, problems, refusals=(), disqualified=()):
     """Pass, skip or fail on what executing the candidate steps answered.
 
@@ -2058,13 +2093,7 @@ def test_running_the_step_really_hands_the_file_to_pytest(test_file):
     """
     evidence, measured, reasons, refusals, disqualified = executed_verdict(
         test_file, {path.name: load_workflow(path) for path in WORKFLOWS})
-    # The refusal is asked about before the success is honoured, because it is
-    # the one answer no other workflow can supply: a step this guard will not
-    # execute is a verdict about that step, and another workflow running the
-    # same file does not settle it. Reading `evidence` first discarded every
-    # refusal already collected -- the tuple carried it and nothing looked
-    # (Copilot on PR 662, the same shape in the manifests guard).
-    if refusals or not evidence:
+    if a_failure_is_due(evidence, refusals):
         require_a_recorded_run(
             test_file, measured, reasons, refusals, disqualified)
 
