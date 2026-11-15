@@ -31,7 +31,7 @@ Run flows/open-source-tuning.md for skill-system-design using the free SRE book 
 Run flows/open-source-tuning.md: new skill on domain-driven design for system_architect.
 Run flows/open-source-tuning.md: new agent engineering_manager from open management sources.
 Run flows/open-source-tuning.md for implant-premortem.
-Run flows/open-source-tuning.md for skill-fact-verification: a fan-out shipped "not established" as "does not exist".
+Run flows/open-source-tuning.md for skill-fact-verification from <path/to/post-mortem.md> and the run's worker files: a fan-out shipped "not established" as "does not exist".
 ```
 
 ## Inputs and authority
