@@ -48,6 +48,7 @@ on:
       - tests/test_file_lock.py
       - tests/test_env_file.py
       - tests/conftest.py
+      - requirements.txt
       - .github/workflows/windows-installer.yml
   push:
     branches: [main, dev]
@@ -97,6 +98,7 @@ on:
       - tests/test_file_lock.py
       - tests/test_env_file.py
       - tests/conftest.py
+      - requirements.txt
       - .github/workflows/windows-installer.yml
   workflow_dispatch:
 

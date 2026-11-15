@@ -17,6 +17,7 @@ on:
       - tests/conftest.py
       - tests/ci_shard.py
       - tests/test_ci_shard.py
+      - requirements.txt
       - .github/workflows/user-sync.yml
   push:
     branches: [main, dev]
@@ -35,6 +36,7 @@ on:
       - tests/conftest.py
       - tests/ci_shard.py
       - tests/test_ci_shard.py
+      - requirements.txt
       - .github/workflows/user-sync.yml
   workflow_dispatch:
 
