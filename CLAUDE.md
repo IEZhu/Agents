@@ -388,7 +388,7 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 ### Tech Stack
 
 - `mcp==1.30.0` — MCP/JSON-RPC server and FastMCP tool registration; exact pin.
-- `onnxruntime>=1.24.4`, `huggingface-hub>=0.23,<2.0`, `tokenizers>=0.22,<1.0` — direct ONNX embedding inference instead of sentence-transformers; FastEmbed code is vendored as `src.engine` package data and first setup downloads about 1.1 GB.
+- `onnxruntime>=1.24.4`, `huggingface-hub>=0.23,<2.0`, `tokenizers>=0.22,<1.0` — direct ONNX embedding inference instead of sentence-transformers (`src/engine/onnx_embedding.py`), which keeps FastEmbed 0.8.1's catalog and numerical conventions rather than its code: the tree carries `embedding_catalog.json`, `FASTEMBED_LICENSE` and `FASTEMBED_NOTICE`, and no vendored FastEmbed source. First setup downloads about 1.1 GB.
 - `numpy>=1.24` — the vector store is NumPy (`src/engine/vector_store.py`), not ChromaDB.
 - `pydantic>=2.0` (schemas), `PyYAML>=6.0` (frontmatter), `cryptography==50.0.2` (DSSE signing), `uvicorn==0.48.0` (shared service), `langfuse>=3.0` (optional tracing, a no-op without keys), plus `cachetools>=5.3`, `python-dotenv`, `langdetect>=1.0`, `anthropic>=0.18.0`, `pdf2image>=1.16.0` and `Pillow>=13.0.0` (OCR).
 - Extras: `thread-status` (`claude-agent-sdk==0.2.168`), `signing-tests` (`pytest>=8.0`, `model-signing==1.1.1`), `local-inference` (`httpx>=0.28.1,<0.29`), `local-inference-redis` (adds `redis>=7.0.0,<7.1`), `evals` (`datasets>=3.0`, `pytest>=8.0`, `jinja2>=3.1.6`, `openai>=1.40`, `anthropic>=0.40`).
