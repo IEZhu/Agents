@@ -763,21 +763,30 @@ def require_a_host(path: str, run: Invocation) -> None:
     bash, a `noexec` temp filesystem, a shim the kernel refuses, a 120 s timeout
     on a contended runner, an argv pytest rejects or one this guard does not
     hand it -- must not read as a bypass.
+
+    The refusal is read before the positive answer, because it is the one
+    answer no other workflow can supply. It is a verdict about a step, not a
+    measurement nobody made, so another workflow hosting the same file does not
+    settle it: a `pytest <file>` candidate beside a `/usr/bin/pytest <file>` one
+    filled `hosts`, the refusal was demoted to a warning on a green run, and the
+    step that reaches outside what the harness bounds stopped breaking the build
+    (Copilot on PR 662). Only a problem is the host's to answer instead, and
+    only a problem is warned about -- which is also the order the harness's own
+    `require_a_recorded_run` reads these in.
     """
-    unresolved = [*run.problems, *run.refusals]
-    if run.hosts:
-        if unresolved:
-            warnings.warn(
-                f"{len(unresolved)} candidate(s) for {path} could not be "
-                "measured; another workflow answered instead: "
-                + "; ".join(unresolved),
-                UnmeasuredCandidate, stacklevel=2)
-        return
     if run.refusals:
         pytest.fail(
             f"a step that names {path} is one this guard will not execute, so "
             "whether a run really hands the file to pytest was never measured: "
             + "; ".join(run.refusals))
+    if run.hosts:
+        if run.problems:
+            warnings.warn(
+                f"{len(run.problems)} candidate(s) for {path} could not be "
+                "measured; another workflow answered instead: "
+                + "; ".join(run.problems),
+                UnmeasuredCandidate, stacklevel=2)
+        return
     if run.problems and not run.measured:
         pytest.skip(
             f"this guard could not measure whether a workflow runs {path}: "
@@ -1504,6 +1513,36 @@ def test_a_candidate_this_guard_cannot_measure_is_reported_even_on_success():
     with _warnings.catch_warnings():
         _warnings.simplefilter("error", UnmeasuredCandidate)
         require_a_host(wanted, invocation(wanted, {"only.yml": step(f"pytest {wanted}")}))
+
+
+@EXECUTES_STEPS
+def test_a_refused_step_is_not_hidden_by_another_workflow_that_hosts_the_file():
+    """The verdict above was demoted to a warning whenever anything else said yes.
+
+    A refusal is a verdict about a step -- it names a program, a path or a
+    redirection the harness does not cover -- and no other workflow can answer
+    it, which is exactly what the warning above is for a problem. Reading
+    `hosts` first made them one: a `/usr/bin/pytest <file>` candidate beside an
+    ordinary `pytest <file>` one filled `hosts`, the refused step became an
+    `UnmeasuredCandidate` on a green run, and the workflow edit that reaches
+    outside what the harness bounds stopped breaking the build (Copilot on
+    PR 662).
+
+    Both orders, because the answer cannot depend on which workflow the
+    documents happen to name first.
+    """
+    wanted = "tests/test_install_setup_options.py"
+    refused = step(f"/usr/bin/pytest {wanted}")
+    hosting = step(f"pytest {wanted}")
+    for documents in ({"refused.yml": refused, "hosting.yml": hosting},
+                      {"hosting.yml": hosting, "refused.yml": refused}):
+        run = invocation(wanted, documents)
+        assert run.hosts == ["hosting.yml"], (run.hosts, run.problems, run.refusals)
+        assert run.refusals, (
+            "the refused step has to reach the harness, or this case is about "
+            "nothing")
+        with pytest.raises(pytest.fail.Exception, match="will not execute"):
+            require_a_host(wanted, run)
 
 
 def test_the_pytest_contract_this_guard_reads_is_pinned_to_a_range():
