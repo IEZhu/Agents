@@ -50,7 +50,7 @@ Run flows/consistency-audit.md for changes since origin/dev. fix
 ```
 
 Through Agents-Core MCP, call `run_flow(flow="consistency-audit", request=...)`
-with `current_persona` and apply its `persona_activation` (`tech_writer`) as a
+with `current_persona` and `workspace`, and apply its `persona_activation` (`tech_writer`) as a
 switch first. The returned `repo_path` is the target; this file's checkout only
 supplies the instructions and their links. A request that names the flow
 follows the conversation's routing protocol, which for Agents-Core calls
@@ -71,12 +71,14 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
   neighbours ([step 1](#1-record-the-state-and-the-scope)).
 - **Mode:** `report` (default; nothing is written in the repository) or `fix`
   ([step 7](#7-report-and-apply-in-fix-mode)). In either mode, a repository
-  summary that `describe_repo` asks to persist waits until the report is
-  delivered, so that it does not change the state the audit recorded.
+  summary that `describe_repo` asks to persist is not part of the audit: it is
+  written, where the conversation's protocol allows a write, only after the
+  report is delivered, so that it does not change the state the audit recorded.
 - **External URLs:** listed in the coverage record as unverified
   ([step 3](#3-mechanical-pass), item 2); when the request asks to fetch them,
   item 2 says how, and each is recorded there as reachable or failing.
-- **Output:** the report in the invocation language, with quotes verbatim. Write
+- **Output:** the report in the user's language under the conversation's
+  language rules, with quotes verbatim. Write
   it to a file only when asked; a report written into the repository follows the
   target's documentation language policy (for Agents-Core, English, under the
   [language policy](documentation-refresh.md#documentation-language)).
@@ -94,10 +96,12 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
    `git rev-parse HEAD` and `git -c core.quotepath=off status --short`. Every finding refers to this
    state. Reading a live installation checkout is fine; `fix` mode never writes
    there.
-3. For `changes since <ref>`, first resolve the base with
-   `base=$(git merge-base <ref> HEAD)`, and stop and report the ref when that
-   fails: with an empty base the next command still runs and lists only the
-   uncommitted changes. Then take the files changed since the base, committed or
+3. For `changes since <ref>`, fetch the ref first when it is a remote-tracking
+   ref, and record it when the fetch is unavailable, so that a stale ref is not
+   presented as current. Resolve the base with
+   `base=$(git merge-base <ref> HEAD) && [ -n "$base" ]`, and stop and report
+   the ref when that fails (an unknown ref, or histories with no common
+   commit): the commands below need a base. Then take the files changed since the base, committed or
    not, with `git -c core.quotepath=off diff --name-only -M --diff-filter=d "$base"`,
    which leaves out deleted files, plus the untracked ones with
    `git -c core.quotepath=off ls-files --others --exclude-standard`, which that
@@ -148,6 +152,14 @@ instead of the repository-wide patterns: as pathspecs after `--` for
 `git grep`, and as file arguments for the link checker. Keep the extension
 patterns inside each directory (`'flows/*.md' 'flows/*.mdc'`, not `flows/`):
 a bare directory also feeds images and code to the checker and the searches.
+Give exact file names with `git --literal-pathspecs`, since a name such as
+`file[1].md` is otherwise a pattern, and check that every given path matched a
+file. The searches also drop matches in files that step 2 classes as vendored
+or fixture. `git grep` does not search symlinks, and item 1 skips them: list
+tracked ones with `git -c core.quotepath=off ls-files -s | awk '$1==120000'`
+and record them as unchecked. Run the blocks below in bash or zsh; each starts
+with `set -o pipefail`, so that a failing first command does not look like an
+empty result.
 Every `git` call that lists paths carries `-c core.quotepath=off`, so that
 non-ASCII names come out as they are; a name containing a newline or a tab
 stays quoted even then, so record such a file as unchecked. Existence is still
@@ -168,12 +180,16 @@ found while reading in step 4.
    interpreter that has `markdown-it-py`.
 
    ```bash
+   set -o pipefail
    git ls-files -z --cached --others --exclude-standard -- '*.md' '*.mdc' \
+     | sort -zu \
      | xargs -0 -r sh -c 'for f; do if [ -L "$f" ]; then printf "skipped symlink: %s\n" "$f" >&2; elif [ -f "$f" ]; then printf "%s\0" "$f"; fi; done' sh \
      | xargs -0 -r .venv/bin/python scripts/check_docs.py --
    ```
 
-   `--` keeps a file whose name starts with `-` from being read as an option.
+   `sort -zu` lists a file with unresolved merge conflicts once instead of once
+   per stage. `--` keeps a file whose name starts with `-` from being read as an
+   option.
    `-r` keeps GNU `xargs` from running the checker without paths, and so over
    the whole repository, when a narrowed scope has no Markdown files; the
    checker then does not run at all, which the coverage record states as not
@@ -201,10 +217,13 @@ found while reading in step 4.
    accepts, then list the external URLs for the coverage record:
 
    ```bash
-   git grep --untracked -nE '\]\([[:space:]]*(<>|#?)[[:space:]]*\)|(^|[^!])\[[[:space:]]*\]\(' \
+   set -o pipefail
+   git -c core.quotepath=off grep --untracked -nE \
+     '\]\([[:space:]]*(<>|#?)[[:space:]]*\)|(^|[^!])\[[[:space:]]*\]\(' \
      -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json'
    git grep --untracked -hoE "https?://[^]) >\"'\`]+" \
-     -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' | sort -u
+     -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' \
+     | sed -E 's/[.,;:*]+$//' | sort -u
    ```
 
    The first search finds an empty or blank destination (`()`, `(#)`, `( )`,
@@ -212,16 +231,17 @@ found while reading in step 4.
    and an empty reference definition are left to the reading pass. A match
    inside a code span or a fenced block is an example, not a link; in
    Agents-Core this flow's own file matches for that reason. The URL list cuts a
-   URL at its first `)`. When the request asks to fetch the URLs, request each
-   one, for example with `curl -sS -o /dev/null -L -w '%{http_code}' '<url>'`,
-   and record its status code; without network access, record the fetch as not
-   run.
+   URL at its first `)` and drops trailing sentence punctuation. When the
+   request asks to fetch the URLs, request each one, for example with
+   `curl -sS -o /dev/null -L --max-time 20 -w '%{http_code}' '<url>'`, and
+   record its status code; without network access, record the fetch as not run.
 
 3. **Paths.** List the repository paths with a directory part that the
    documents mention, in prose and in code spans alike, and that do not exist,
    each once:
 
    ```bash
+   set -o pipefail
    t=$(mktemp -d)
    git -c core.quotepath=off ls-files --cached --others --exclude-standard \
      | grep -vxFf <(git -c core.quotepath=off ls-files --deleted) \
@@ -231,8 +251,14 @@ found while reading in step 4.
      -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' | sort -u > "$t/mentioned"
    awk -F/ 'NR==FNR {top[$1]=1; next} top[$1]' "$t/known" "$t/mentioned" \
      | comm -23 - "$t/known" \
-     | git -c core.quotepath=off check-ignore --no-index -v -n --stdin \
-     | awk '$1=="::" {print $2}'
+     | while IFS= read -r p; do
+         git -c core.quotepath=off check-ignore --no-index -q -- "$p" 2>/dev/null
+         case $? in
+           1) printf '%s\n' "$p" ;;
+           0) ;;
+           *) printf 'unchecked, beyond a symlink: %s\n' "$p" >&2 ;;
+         esac
+       done
    rm -r "$t"
    ```
 
@@ -246,13 +272,16 @@ found while reading in step 4.
    tree's file names are mostly runtime files, examples for other repositories
    and product names. A bare name
    written as a Markdown link is still checked by item 1. It needs a Git built
-   with PCRE for `git grep -P`. Locate each path it prints with
-   `git grep -nF --untracked -- '<path>'`, and judge it against the `R` row of
-   the class table: many are examples, planned files or quoted command output. For a
-   path that did exist, find the commit that removed it with
-   `git log --diff-filter=D --format=%h -1 -- <path>`, then
-   `git show -M --name-status --format= <commit>`: a path limited `git log`
-   shows a rename only as a deletion.
+   with PCRE for `git grep -P`. A path that runs through a symlink cannot be
+   checked against the ignore rules and is named on standard error; record it as
+   unchecked. Locate each path it prints with
+   `git -c core.quotepath=off grep -nF --untracked -e '<path>'`, and judge it
+   against the `R` row of the class table: many are examples, planned files or
+   quoted command output. For a path that did exist, find the commit that
+   removed it with `c=$(git log --diff-filter=D --format=%h -1 -- '<path>')`,
+   then `[ -n "$c" ] && git -c core.quotepath=off show -M --name-status --format= "$c"`:
+   a path limited `git log` shows a rename only as a deletion. An empty `$c`
+   means the path was never committed; record that.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
    (`git grep` the name in the defining files); a name with no definition is an
@@ -362,7 +391,9 @@ as a finding. A name that does not exist in source stays an `R` finding. Two
 documents that disagree remain a finding even when code shows which one is
 right; code then decides the resolution. A finding in a generated block that
 has no source file, such as the Agents-Core repository memory block, is
-resolved by regenerating it (`describe_repo`), not by editing it.
+resolved by regenerating it, not by editing it: in `fix` mode with
+`describe_repo` and `write_repo_summary` in the fix worktree, in report mode as
+a recommendation.
 
 ## 7. Report, and apply in `fix` mode
 
@@ -388,18 +419,20 @@ unperformed check as passed.
 In `fix` mode, after the report:
 
 1. Choose where the fixes go under the target's contributor rules, never in the
-   live installation checkout; the checkout that receives them is the fix
-   worktree below. When the audited branch is the executor's own, for example
-   the branch of a pull request it is working on, apply on that branch only the
-   findings whose resolution edits files in that pull request's diff and no
-   others, because [pr-review](pr-review.md) keeps a pull request's scope fixed;
-   the others go to a separate branch as below. Otherwise cut a separate worktree and branch:
+   live installation checkout. The checkout that receives them, the audited
+   checkout itself or a newly cut worktree, is the fix worktree below. When the
+   audited branch is the executor's own, for example the branch of a pull
+   request it is working on, apply on that branch the findings whose resolution
+   edits only files in that pull request's diff, and those that the pull
+   request's own change caused, which [pr-review](pr-review.md) keeps in the
+   pull request; the others go to a separate branch as below. Otherwise cut a separate worktree and branch:
    from the recorded `HEAD`, so that it holds the audited text, where the rules
    let a branch build on another, and then the fix branch goes back to the
    audited branch's author;
-   from the integration branch's remote tip where the rules require every change
-   to start there, as Agents-Core's `AGENTS.md` does (`origin/dev` with
-   `--no-track`), and then item 3 defers what that tip does not contain.
+   from the integration branch's remote tip, fetched first, where the rules
+   require every change to start there, as Agents-Core's `AGENTS.md` does
+   (`origin/dev` with `--no-track`), and then item 3 defers what that tip does
+   not contain.
 2. Apply only the findings whose resolution the order of authority settles, and
    `R` fixes with a single correct target. Fix generated text at its source and
    regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`,
