@@ -76,8 +76,10 @@ supplies the instructions and their links.
 2. Record `git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD` and
    `git status --short`. Every finding refers to this state. Reading a live
    installation checkout is fine; `fix` mode never writes there.
-3. For `changes since <ref>`, take `git diff --name-only $(git merge-base <ref> HEAD)`
-   plus uncommitted files, then add their neighbours: the documents that link to
+3. For `changes since <ref>`, take the files changed since the merge base,
+   committed or not, with `git diff --name-only $(git merge-base <ref> HEAD)`,
+   plus the untracked ones with `git ls-files --others --exclude-standard`, which
+   that diff omits. Then add their neighbours: the documents that link to
    them, the documents they link to, and the documents that state rules about the
    same subjects (search the corpus for the subjects the changed passages
    govern). One side of a contradiction is usually outside the diff.
@@ -85,9 +87,10 @@ supplies the instructions and their links.
 
 ## 2. Inventory and classify the corpus
 
-List the documents with `git ls-files`: `*.md`, `*.mdc`, `*.txt`, instruction
-templates, and the text fields of tracked YAML or JSON that people or models
-read. Classify each; the class decides how its findings count.
+List the documents with `git ls-files --cached --others --exclude-standard`, so
+that documents not yet committed are included: `*.md`, `*.mdc`, `*.txt`,
+instruction templates, and the text fields of YAML or JSON that people or
+models read. Classify each; the class decides how its findings count.
 
 | Class | Examples | Treatment |
 |---|---|---|
@@ -102,26 +105,38 @@ Record the count per class for the coverage record.
 ## 3. Mechanical pass
 
 Run the cheap deterministic checks first. They seed the `R` class and leave the
-reading pass for meaning.
+reading pass for meaning. Every search covers the inventory of step 2, untracked
+documents included, which is why the `git grep` commands below carry
+`--untracked`.
 
 1. **Link checker.** Run the target's own checker. For Agents-Core,
    `scripts/check_docs.py` checks Markdown links, images and local anchors, but by
-   default only in tracked `.md` files, so pass the `.mdc` files explicitly. In a
-   worktree without `.venv`, use any interpreter that has `markdown-it-py`.
+   default only in tracked `.md` files, so pass the `.mdc` files and any untracked
+   `.md` file explicitly. In a worktree without `.venv`, use any interpreter that
+   has `markdown-it-py`.
 
    ```bash
    .venv/bin/python scripts/check_docs.py
-   .venv/bin/python scripts/check_docs.py --skip-tool-index $(git ls-files '*.mdc')
+   .venv/bin/python scripts/check_docs.py --skip-tool-index \
+     $(git ls-files --cached --others --exclude-standard '*.mdc') \
+     $(git ls-files --others --exclude-standard '*.md')
    ```
 
    It does not fetch external URLs, and it accepts an empty destination
-   (`[text]()`, `[text](#)`) and an empty link text (`[](path)`) as valid.
+   (`[text]()`, `[text](#)`) and an empty link text (`[](path)`) as valid. It
+   parses Markdown only: for the other inventoried formats (`.txt` files such as
+   `llms.txt`, text fields of YAML or JSON), extract their links and repository
+   paths and check the local targets as in item 3. A format left unchecked is
+   listed in the coverage record with the reason.
 2. **Empty links.** Search for what the checker accepts:
 
    ```bash
-   git grep -nE '\]\(#?\)' -- '*.md' '*.mdc'
-   git grep -nE '(^|[^!])\[\]\(' -- '*.md' '*.mdc'
+   git grep --untracked -nE '\]\(#?\)' -- '*.md' '*.mdc' '*.txt'
+   git grep --untracked -nE '(^|[^!])\[\]\(' -- '*.md' '*.mdc' '*.txt'
    ```
+
+   A match inside a code span or a fenced block is an example, not a link; in
+   Agents-Core this flow's own file matches both searches for that reason.
 
 3. **Paths in prose.** Extract code spans that look like repository paths and
    check each against the tree. For a missing path, find the commit that removed
@@ -143,9 +158,12 @@ reading pass for meaning.
    personas, files, tests) against the tree. Compare every index or catalog with
    what it lists, both ways: an item without an entry, an entry without an item.
 
-Before reporting that a search found nothing, run it once on a scratch file that
-must match, so that zero means "none" and not "the pattern cannot match". Record
-each command with its result.
+Before reporting that a search found nothing, run the same pattern once on a
+sample that must match, so that zero means "none" and not "the pattern cannot
+match". `git grep` sees only the repository's own files, so put the sample in a
+scratch directory outside the repository and search it from there with
+`git grep --no-index -nE '<pattern>' -- <sample>`, which keeps the pattern
+engine the same. Record each command with its result.
 
 ## 4. Reading pass
 
@@ -233,8 +251,9 @@ The report contains, in this order:
    severity, confidence, the locations as `path:line` with their quotes, one
    sentence on why it is a defect, the proposed resolution, and whether it needs
    an owner decision.
-4. **Owner decisions:** the findings the order of authority could not settle,
-   each with its options.
+4. **Owner decisions and deferred findings:** the findings the order of
+   authority could not settle, each with its options, and in `fix` mode the
+   findings deferred because their quotes are not in the fix worktree.
 5. **Coverage:** the inventory counts per class; each mechanical command with its
    result; the areas read in [step 4](#4-reading-pass) and those sampled or
    skipped, with the reason; the handoffs to documentation refresh.
@@ -251,7 +270,12 @@ In `fix` mode, after the report:
    `R` fixes with a single correct target. Fix generated text at its source and
    regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`).
    Leave owner decisions untouched.
-3. Re-run the checks of [step 3](#3-mechanical-pass) and the target's
+3. Before applying a finding, re-read every location it quotes in the fix
+   worktree. When a quote is missing or reads differently there, because the
+   audited branch added or changed that text or it was uncommitted, do not apply
+   a resolution to that other state of the file: report the finding as deferred,
+   with that reason, for whoever owns the audited branch to fix there.
+4. Re-run the checks of [step 3](#3-mechanical-pass) and the target's
    documentation checks, read the full diff, and commit under the target's
    convention (for Agents-Core, a Conventional Commit of type `docs`). Push and
    open a pull request only when the request asks for it, then follow
@@ -266,8 +290,9 @@ In `fix` mode, after the report:
   confidence, and a resolution or an owner decision; no candidate that failed
   [step 5](#5-verify-every-candidate) is reported.
 - The coverage record names each mechanical command and its result.
-- In `fix` mode, only authority-settled findings were changed, on a separate
-  branch, with the checks re-run; owner decisions stay open in the report.
+- In `fix` mode, only authority-settled findings whose quotes read the same in
+  the fix worktree were changed, on a separate branch, with the checks re-run;
+  owner decisions and deferred findings stay open in the report.
 
 ## What this flow does not check
 
