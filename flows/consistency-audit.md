@@ -91,7 +91,11 @@ supplies the instructions and their links.
    repository's documents for the subjects the changed passages govern). One
    side of a contradiction is usually outside the diff. Deleted files
    (`--diff-filter=D`) are not audited, but the documents that still link to or
-   name them are neighbours too, and each such mention is an `R` candidate.
+   name them are neighbours too, and each such mention is an `R` candidate. The
+   same holds for the old path of a renamed file, which that list shows only
+   under its new name;
+   `git diff --name-status --diff-filter=R $(git merge-base <ref> HEAD) | cut -f2`
+   lists the old paths.
 4. State the selected scope and mode, then continue.
 
 ## 2. Inventory and classify the corpus
@@ -136,18 +140,23 @@ found while reading in step 4.
    `scripts/check_docs.py` checks Markdown links, images and local anchors and
    the public tool index. Run without paths, it reads only tracked `.md` files
    and stops with an error on one deleted in the working tree, so give it the
-   inventory's Markdown files instead. In a worktree without `.venv`, use any
+   inventory's existing Markdown files instead, one argument per path so that a
+   name with spaces stays whole. In a worktree without `.venv`, use any
    interpreter that has `markdown-it-py`.
 
    ```bash
-   .venv/bin/python scripts/check_docs.py \
-     $(git ls-files --cached --others --exclude-standard '*.md' '*.mdc' \
-       | grep -vxFf <(git ls-files --deleted))
+   git ls-files -z --cached --others --exclude-standard -- '*.md' '*.mdc' \
+     | xargs -0 sh -c 'for f; do [ -f "$f" ] && printf "%s\0" "$f"; done' sh \
+     | xargs -0 .venv/bin/python scripts/check_docs.py
    ```
 
-   The tool index and its badge are checks of the whole repository. For a
-   narrowed scope, pass the scope's Markdown files with `--skip-tool-index`,
-   unless the scope includes [docs/mcp-tools.md](../docs/mcp-tools.md).
+   Whatever files it is given, the checker also runs three checks of the whole
+   repository: the tool index, its badge, and whether
+   `flows/thread-close.md` names every field its inventory helper emits. For a
+   narrowed scope, list the scope's Markdown files instead of the patterns, add
+   `--skip-tool-index` unless the scope includes
+   [docs/mcp-tools.md](../docs/mcp-tools.md), and do not report an
+   inventory-field error unless the scope includes `flows/thread-close.md`.
 
    It does not fetch external URLs, and it accepts an empty destination
    (`[text]()`, `[text](#)`) and an empty link text (`[](path)`) as valid. It
@@ -307,7 +316,8 @@ The report contains, in this order:
    an owner decision.
 4. **Owner decisions and deferred findings:** the findings the order of
    authority could not settle, each with its options, and in `fix` mode the
-   findings deferred because their quotes are not in the fix worktree.
+   findings deferred because their quotes, defect or target did not hold in
+   the fix worktree.
 5. **Coverage:** the inventory counts per class; each mechanical command with its
    result; the areas read in [step 4](#4-reading-pass) and those sampled or
    skipped, with the reason; the handoffs to documentation refresh.
@@ -332,10 +342,13 @@ In `fix` mode, after the report:
    regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`).
    Leave owner decisions untouched.
 3. Before applying a finding, re-read every location it quotes in the fix
-   worktree. When a quote is missing or reads differently there, typically
-   because it sits in uncommitted changes of the audited checkout or the remote
-   tip moved since the audit, do not apply a resolution to that other state of
-   the file: report the finding as deferred, with the reason.
+   worktree, and confirm there that the defect still holds and that the
+   resolution's target exists (for an `R`, the path or anchor the fix points
+   to). When a quote is missing or reads differently, or the defect or its
+   target does not hold there, typically because it sits in uncommitted changes
+   of the audited checkout or the remote tip moved since the audit, do not apply
+   a resolution to that other state of the file: report the finding as
+   deferred, with the reason.
 4. Re-run the checks of [step 3](#3-mechanical-pass) and the target's
    documentation checks, read the full diff, and commit under the target's
    convention (for Agents-Core, a Conventional Commit of type `docs`). Push and
@@ -351,8 +364,9 @@ In `fix` mode, after the report:
   confidence, and a resolution or an owner decision; no candidate that failed
   [step 5](#5-verify-every-candidate) is reported.
 - The coverage record names each mechanical command and its result.
-- In `fix` mode, only authority-settled findings whose quotes read the same in
-  the fix worktree were changed, on the branch item 1 of the `fix` steps chose,
+- In `fix` mode, only authority-settled findings whose quotes, defect and
+  target held in the fix worktree were changed, on the branch item 1 of the
+  `fix` steps chose,
   with the checks re-run; owner decisions and deferred findings stay open in
   the report.
 
