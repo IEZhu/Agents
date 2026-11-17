@@ -16,7 +16,8 @@ the implementation are out of scope; see
 The result is a verified findings report for the current branch: each finding
 with exact quotes, a class, a severity, a confidence and a proposed resolution,
 plus a coverage record of what was checked. The default mode is read-only; `fix`
-mode also applies the resolutions an authority settles, on a separate branch.
+mode also applies the resolutions an authority settles, on a branch the target's
+contributor rules allow.
 
 ## Defect classes
 
@@ -25,7 +26,7 @@ mode also applies the resolutions an authority settles, on a separate branch.
 | `C` | Contradiction | Two statements about one subject cannot both be followed: an obligation and a prohibition, two values for one number, default, limit or name, two orders of the same steps, two owners of one action, two statuses of one feature | They apply to different scopes, conditions, audiences or times, or a precedence statement that is in context wherever either text is followed settles them |
 | `G` | Gap | An executor following the text must stop or guess: a missing input or default, a step without an actor or a checkable outcome, no branch for a failing or unavailable check, no done criterion, a term used but never defined | A document the text links to for that piece supplies it |
 | `A` | Ambiguity | Two reasonable executors would take different actions from the same text: a vague trigger ("when appropriate"), an unclear referent, an unstated threshold | Only the wording differs; the action is the same either way |
-| `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder, an example for another repository, a file a plan marks as planned, a path at a revision a historical record states, or a path relative to a component root the text names |
+| `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder, an example for another repository, a file a plan marks as planned, a path a historical record names as it stood at the record's date or revision, or a path relative to a component root the text names |
 | `T` | Terminology drift | One concept carries several names, or one name several concepts, so a reader cannot tell whether two passages are about the same thing | A glossary or the text itself defines the alias |
 
 Identical copies of one rule in two places are not a finding; copies that have
@@ -33,9 +34,9 @@ diverged are a `C`. A difference between a current instruction and a historical
 record (a dated plan, audit, report or changelog entry) is not a finding unless a
 current document presents that record as current guidance.
 
-Severity: `blocker` when following the text leads to a wrong or harmful action or
-the executor cannot proceed; `major` when instructions an executor needs together
-disagree, or a required input, step or branch is missing; `minor` when navigation,
+Severity: `blocker` when following the text leads to a wrong or harmful action;
+`major` when instructions an executor needs together disagree, or a required
+input, step or branch is missing so that the executor must stop or guess; `minor` when navigation,
 naming or wording slows a reader without changing the outcome. Confidence is
 `high`, `medium` or `low`, set from the evidence, not from the class.
 
@@ -67,40 +68,49 @@ supplies the instructions and their links.
   ([step 7](#7-report-and-apply-in-fix-mode)).
 - **External URLs:** listed as unverified unless the request asks to fetch them.
 - **Output:** the report in the invocation language, with quotes verbatim. Write
-  it to a file only when asked.
+  it to a file only when asked; a report written into the repository follows the
+  target's documentation language policy (for Agents-Core, English, under the
+  [language policy](documentation-refresh.md#documentation-language)).
 
 ## 1. Record the state and the scope
 
 1. Read the target's `AGENTS.md`, `CLAUDE.md` and documentation index when
    present (for Agents-Core, the [documentation map](../docs/README.md)). They
-   are instructions for this run and part of the audited corpus at once.
+   are instructions for this run, and part of the audited corpus when the scope
+   includes them.
 2. Record `git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD` and
    `git status --short`. Every finding refers to this state. Reading a live
    installation checkout is fine; `fix` mode never writes there.
 3. For `changes since <ref>`, take the files changed since the merge base,
-   committed or not, with `git diff --name-only $(git merge-base <ref> HEAD)`,
-   plus the untracked ones with `git ls-files --others --exclude-standard`, which
-   that diff omits. Then add their neighbours: the documents that link to
-   them, the documents they link to, and the documents that state rules about the
-   same subjects (search the corpus for the subjects the changed passages
-   govern). One side of a contradiction is usually outside the diff.
+   committed or not, with
+   `git diff --name-only --diff-filter=d $(git merge-base <ref> HEAD)`, which
+   leaves out deleted files, plus the untracked ones with
+   `git ls-files --others --exclude-standard`, which that diff omits. Then add
+   their neighbours: the documents that link to them, the documents they link
+   to, and the documents that state rules about the same subjects (search the
+   repository's documents for the subjects the changed passages govern). One
+   side of a contradiction is usually outside the diff. Deleted files
+   (`--diff-filter=D`) are not audited, but the documents that still link to or
+   name them are neighbours too, and each such mention is an `R` candidate.
 4. State the selected scope and mode, then continue.
 
 ## 2. Inventory and classify the corpus
 
-List the documents with `git ls-files --cached --others --exclude-standard`, so
-that documents not yet committed are included: `*.md`, `*.mdc`, `*.txt`,
-instruction templates, and the YAML or JSON files whose text fields people or
-models read (descriptions and instructions, such as those of plugin manifests),
-each named in the inventory. Classify each; the class decides how its findings
-count.
+List the documents in scope; they are the corpus the rest of this flow audits.
+For the default scope, take every file from
+`git ls-files --cached --others --exclude-standard` except those deleted in the
+working tree (`git ls-files --deleted`), so that documents not yet committed are
+included: `*.md`, `*.mdc`, `*.txt`, instruction templates, and the YAML or JSON
+files whose text fields people or models read (descriptions and instructions,
+such as those of plugin manifests), each named in the inventory. Classify each;
+the class decides how its findings count.
 
 | Class | Examples | Treatment |
 |---|---|---|
 | Normative | `AGENTS.md`, repository notes in `CLAUDE.md`, rules, flows, personas, skills, contributor and test guides | Fully audited; usually the side of a contradiction an executor follows |
 | Reference | User guides, READMEs, tool and API references | Fully audited |
 | Generated | Text rendered from a source; for Agents-Core, the managed routing sections rendered from `src/engine/protocol/` and the repository memory block written by `describe_repo` | Audited, but each finding is filed against its source and fixed there |
-| Historical | Dated plans, audits, reports, changelogs | Checked for `R` only, and for being presented elsewhere as current |
+| Historical | Dated plans, audits, reports, changelogs | Checked only for links that no longer resolve, and for being presented elsewhere as current |
 | Vendored or fixture | Third-party text, test inputs and expected outputs | Out of scope |
 
 Record the count per class for the coverage record.
@@ -117,6 +127,10 @@ instead of the repository-wide patterns: as pathspecs after `--` for
 checked against the whole tree (the `known` list of item 3 stays
 repository-wide), so a document in scope that points outside the scope is
 still checked, and a finding that lies only outside the scope is not reported.
+When a check cannot run, because the target has no link checker, its
+interpreter lacks a dependency or Git lacks PCRE for `git grep -P`, record it in
+the coverage record as not run, with the reason, and look for what it would have
+found while reading in step 4.
 
 1. **Link checker.** Run the target's own checker. For Agents-Core,
    `scripts/check_docs.py` checks Markdown links, images and local anchors, but by
@@ -127,7 +141,8 @@ still checked, and a finding that lies only outside the scope is not reported.
    ```bash
    .venv/bin/python scripts/check_docs.py
    .venv/bin/python scripts/check_docs.py --skip-tool-index \
-     $(git ls-files --cached --others --exclude-standard '*.mdc') \
+     $(git ls-files --cached --others --exclude-standard '*.mdc' \
+       | grep -vxFf <(git ls-files --deleted)) \
      $(git ls-files --others --exclude-standard '*.md')
    ```
 
@@ -154,6 +169,7 @@ still checked, and a finding that lies only outside the scope is not reported.
    ```bash
    t=$(mktemp -d)
    git ls-files --cached --others --exclude-standard \
+     | grep -vxFf <(git ls-files --deleted) \
      | awk -F/ '{p=$1; print p; for (i=2; i<=NF; i++) {p=p"/"$i; print p}}' \
      | sort -u > "$t/known"
    git grep --untracked -hoP '(?<![\w./<*-])(?:[\w.-]+/)+[\w.-]*\w(?![\w*<>/{\[-]|[^\x00-\x7f])' \
@@ -298,13 +314,15 @@ unperformed check as passed.
 
 In `fix` mode, after the report:
 
-1. Cut a separate worktree and branch from the recorded `HEAD`, so that it
-   holds the audited text, under the target's branch naming rules and never in
-   the live installation checkout. When the audit covered the integration
-   branch, cut from its remote tip instead (for Agents-Core, `origin/dev` with
-   `--no-track`, as its contributor rules require). A fix branch cut from
-   another audited branch builds on that branch and goes back to its owner, not
-   to the integration branch.
+1. Choose where the fixes go under the target's contributor rules, never in the
+   live installation checkout. When the audited branch is the executor's own,
+   for example the branch of a pull request it is working on, apply them on that
+   branch. Otherwise cut a separate worktree and branch: from the recorded
+   `HEAD`, so that it holds the audited text, where the rules let a branch build
+   on another, and then the fix branch goes back to the audited branch's owner;
+   from the integration branch's remote tip where the rules require every change
+   to start there, as Agents-Core's `AGENTS.md` does (`origin/dev` with
+   `--no-track`), and then item 3 defers what that tip does not contain.
 2. Apply only the findings whose resolution the order of authority settles, and
    `R` fixes with a single correct target. Fix generated text at its source and
    regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`).
@@ -330,8 +348,9 @@ In `fix` mode, after the report:
   [step 5](#5-verify-every-candidate) is reported.
 - The coverage record names each mechanical command and its result.
 - In `fix` mode, only authority-settled findings whose quotes read the same in
-  the fix worktree were changed, on a separate branch, with the checks re-run;
-  owner decisions and deferred findings stay open in the report.
+  the fix worktree were changed, on the branch item 1 of the `fix` steps chose,
+  with the checks re-run; owner decisions and deferred findings stay open in
+  the report.
 
 ## What this flow does not check
 
