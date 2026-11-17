@@ -104,7 +104,7 @@ limits-of-verification record.
 
 | Skill | Description |
 |-------|-------------|
-| `skill-dev-clean-code` | SOLID, DRY as one source of knowledge, KISS, YAGNI, orthogonality, crash early |
+| `skill-dev-clean-code` | SOLID, DRY as one source of knowledge, KISS, YAGNI, orthogonality, crash early, lean-versus-protection review findings |
 | `skill-dev-debugging` | Scientific debugging, root cause analysis, binary search |
 | `skill-dev-security` | Secure coding, OWASP, input validation |
 | `skill-mcp-development` | MCP server development best practices |
