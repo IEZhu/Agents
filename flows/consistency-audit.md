@@ -140,8 +140,9 @@ documents included, which is why the `git grep` commands below carry
    A match inside a code span or a fenced block is an example, not a link; in
    Agents-Core this flow's own file matches both searches for that reason.
 
-3. **Paths.** Check every repository path the documents mention, in prose and
-   in code spans alike. This lists each missing one once:
+3. **Paths.** List the repository paths with a directory part that the
+   documents mention, in prose and in code spans alike, and that do not exist,
+   each once:
 
    ```bash
    t=$(mktemp -d)
@@ -158,8 +159,12 @@ documents included, which is why the `git grep` commands below carry
    It keeps the paths whose first segment exists at the repository root, drops
    those that exist as a file or directory (untracked ones included) and those
    that are ignored local state, and skips globs, placeholders and brace
-   patterns. A path under a top-level directory that no longer exists at all is
-   therefore not listed; the reading pass has to catch it. It needs a Git built
+   patterns. Two kinds of mention are therefore not listed and are left to the
+   reading pass, which the coverage record states: a path under a top-level
+   directory that no longer exists, and a bare file name without a directory,
+   such as `README.md`, whose matches against the tree's file names are mostly
+   runtime files, examples for other repositories and product names. A bare name
+   written as a Markdown link is still checked by item 1. It needs a Git built
    with PCRE for `git grep -P`. Locate each path it prints with
    `git grep -nF --untracked -- '<path>'`, and judge it against the `R` row of
    the class table: many are examples, planned files or quoted command output. For a
