@@ -111,7 +111,7 @@ limits-of-verification record.
 | `skill-blender-scripting` | Blender Python (bpy) scripting, manifold geometry, 3D printing |
 | `skill-roblox-development` | Roblox Luau patterns, DataStore, anti-exploit, performance |
 | `skill-flipper-zero-development` | Flipper Zero FAP and firmware development: Furi/FuriHal API, peripherals, ufbt/fbt builds, responsible use |
-| `skill-code-generation` | Code generation with tests, documentation, error handling and validation |
+| `skill-code-generation` | Smallest complete change: option ladder with a check per rung, reach ranked by irreversibility, what minimal code never drops, tests by risk |
 | `skill-dev-api-design` | REST, GraphQL and gRPC API design: schemas, versioning, errors, pagination |
 | `skill-dev-performance` | Profiling, bottleneck identification, optimization patterns, benchmarking |
 | `skill-dev-testing` | Unit, integration, E2E and property-based testing; TDD/BDD workflow |

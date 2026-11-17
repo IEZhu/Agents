@@ -1,0 +1,183 @@
+{
+  "component": "skill-code-generation",
+  "cases": [
+    {
+      "id": "ru-reuse-parse-amount",
+      "agent": "software_engineer",
+      "language": "ru",
+      "group": "probe",
+      "history": [],
+      "user_message": "Добавляю импорт прайса от поставщика (CSV, колонка price, цены вида «1 299,90» или «19,99»). В базе цены храним в копейках, int. В проекте уже есть хелпер, его дёргают из 9 мест:\n\n```python\ndef parse_amount(raw: str) -> float:\n    if not raw:\n        return 0.0\n    cleaned = raw.replace(\" \", \"\").replace(\",\", \".\")\n    return round(float(cleaned), 2)\n```\n\nНапиши функцию для импорта, которая превращает price в копейки. Хочу переиспользовать parse_amount, чтобы не плодить парсеры.",
+      "why_in_scope": "The skill lets a project helper be reused only when its contract matches the new caller, and forbids bending a shared helper with a flag. A strong model tends to follow the user's wish and write int(parse_amount(raw) * 100), which turns an empty price into 0 kopecks and truncates binary floats (\"19,99\" becomes 1998); the expert writes a separate exact parser and leaves the 9 existing callers alone.",
+      "rubric": [
+        "Explains that parse_amount's contract does not fit an import into integer kopecks: an empty price silently becomes 0, and float arithmetic can lose a kopeck (for example int(19.99 * 100) is 1998).",
+        "Does not change parse_amount's behavior or add a mode flag to it, since 9 existing callers depend on it; writes a separate parser for the import instead.",
+        "The new parser converts exactly (Decimal or integer arithmetic on the digits) and raises a clear error, ideally naming the row, for an empty or malformed price instead of importing a zero.",
+        "Handles the thousands separator in the given format, and the code is complete and runnable."
+      ]
+    },
+    {
+      "id": "en-toml-on-python39",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "probe",
+      "history": [],
+      "user_message": "We need to read a `settings.toml` in our worker service. Our `pyproject.toml` has `requires-python = \">=3.9\"` because a couple of customers still run it on old RHEL boxes with Python 3.9. I'd rather not add dependencies if the standard library can do it. Can you write `load_settings(path) -> dict`?",
+      "why_in_scope": "The skill accepts a standard-library rung only when the API exists in the project's minimum supported runtime. A strong model eager to avoid a dependency often reaches for tomllib, which the standard library gained in Python 3.11, and ships code that fails on the 3.9 machines the project still supports.",
+      "rubric": [
+        "States that tomllib is in the standard library only from Python 3.11, so it is not available on the 3.9 machines the project supports.",
+        "Uses tomllib on 3.11 and newer and the tomli backport on older versions (a conditional import on sys.version_info or equivalent), and declares tomli in pyproject.toml, ideally limited with the marker python_version < \"3.11\".",
+        "Opens the file in binary mode (\"rb\"), which tomllib.load requires.",
+        "Keeps the loader small: no unrequested schema validation, config layering or caching."
+      ]
+    },
+    {
+      "id": "ru-batched-transitive-dependency",
+      "agent": "software_engineer",
+      "language": "ru",
+      "group": "probe",
+      "history": [],
+      "user_message": "Python 3.12. Надо отправить 40 тысяч id в API партнёра пачками по 500. Хотел взять chunked из more-itertools: он у нас и так стоит, pip freeze показывает more-itertools 10.x (его тянет какая-то другая библиотека), а в requirements.txt его нет. Так ведь можно просто импортировать и не париться?",
+      "why_in_scope": "The skill treats only a directly declared dependency as available and puts the standard library first when the runtime has the API. A strong model often agrees that an installed package is free to import, missing that a transitive package can vanish on the next upgrade of whatever pulls it in, and that Python 3.12 already ships itertools.batched.",
+      "rubric": [
+        "Explains that more-itertools is only a transitive dependency: it is not declared, so an upgrade of the package that pulls it in can remove it or change its version; importing it directly means declaring it.",
+        "Proposes the standard library instead: itertools.batched(ids, 500), available from Python 3.12, which the project runs (or an equally short slicing loop).",
+        "The batching code is correct, including the last, shorter batch, and notes that batched yields tuples if the API client needs lists.",
+        "Shows how each batch is sent, without adding a new dependency."
+      ]
+    },
+    {
+      "id": "ru-timeout-env-requested",
+      "agent": "software_engineer",
+      "language": "ru",
+      "group": "probe",
+      "history": [],
+      "user_message": "Сейчас таймаут запроса к сервису рекомендаций зашит в коде:\n\n```python\nresp = httpx.get(f\"{RECS_URL}/v1/recs/{user_id}\", timeout=2.0)\n```\n\nАдмины просят, чтобы его можно было менять через переменную окружения без релиза: бывает, сервис рекомендаций деградирует, и им надо быстро подкрутить. Сделай, пожалуйста.",
+      "why_in_scope": "A minimalist reading bans configuration nobody asked for; here it was asked for, and the skill says an explicit request wins. The skill also lists environment variables and deployment config in the reach of a change. A strong model may add the variable but read it unvalidated, forget where operators will set it, or promise that reading the variable per request makes changes apply live, when a running process keeps the environment it started with.",
+      "rubric": [
+        "Makes the timeout configurable through an environment variable as asked, keeps 2.0 seconds as the default when it is unset, and does not argue against the request.",
+        "Rejects an invalid value (not a number, zero or negative) with a clear error, preferably at startup, instead of silently ignoring it or passing it to httpx.",
+        "Names where the new variable must also be declared or documented, such as deployment manifests (Helm values, docker-compose, systemd unit), .env.example or the README.",
+        "Notes that a new value takes effect only after a restart or redeploy (still without a code release), because a running process keeps the environment it started with; applying a change without a restart needs another source, such as a reloadable config file or a config service."
+      ]
+    },
+    {
+      "id": "en-invite-expiry-constant",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "probe",
+      "history": [],
+      "user_message": "Product wants team invite links to stop working after 7 days. Here's what we have (Django):\n\n```python\nclass Invite(models.Model):\n    team = models.ForeignKey(Team, on_delete=models.CASCADE)\n    email = models.EmailField()\n    token = models.CharField(max_length=64, unique=True)\n    created_at = models.DateTimeField(auto_now_add=True)\n    accepted_at = models.DateTimeField(null=True)\n\ndef accept_invite(request, token):\n    invite = get_object_or_404(Invite, token=token, accepted_at__isnull=True)\n    invite.team.members.add(request.user)\n    invite.accepted_at = timezone.now()\n    invite.save()\n    return redirect(invite.team.get_absolute_url())\n```\n\nCan you add the expiry?",
+      "why_in_scope": "The current skill's checklist says \"no hardcoded values (use constants or config)\", which nudges a model toward a new setting or environment variable for a fixed product rule. The tuned skill keeps a fixed value as a named constant, sizes the test to the risk, and puts existing data in the reach of the change.",
+      "rubric": [
+        "Rejects invites older than 7 days in accept_invite using created_at and the timezone-aware timezone.now(), with a clear response for an expired link rather than a server error.",
+        "Keeps the 7 days as a named constant instead of a new setting, environment variable or per-team field; configurability, if mentioned, takes one sentence.",
+        "Adds a focused test at the boundary (just under and just over 7 days, with a controlled clock).",
+        "Points out that invites already older than 7 days stop working as soon as the change ships, so product can decide whether that is intended."
+      ]
+    },
+    {
+      "id": "ru-rename-phone-api-field",
+      "agent": "software_engineer",
+      "language": "ru",
+      "group": "probe",
+      "history": [],
+      "user_message": "Django + DRF. Фронт переходит на новое имя поля: в ответе /api/users/ вместо `phone` должно быть `phone_number`. Сейчас в модели `phone = models.CharField(max_length=20)`, в сериализаторе `fields = ['id', 'email', 'phone']`. Таблица users на 12 млн строк, деплой у нас rolling, по несколько подов. Ещё есть мобильное приложение, его старые версии тоже ходят в /api/users/. Сделай минимально, но правильно.",
+      "why_in_scope": "The skill ranks the reach of a change by irreversibility: a stored column and a published API outrank code. The smallest correct change renames only the API field; renaming the model field makes RenameField rename the column under a rolling deploy, and dropping the old name breaks old app versions. A strong model often renames the model field because it is the shortest diff.",
+      "rubric": [
+        "Changes only the API name, for example a serializer field phone_number = serializers.CharField(source='phone'), and leaves the database column as it is, or explains why the column need not change for this request.",
+        "If the column is touched at all, warns that RenameField also renames the column, which breaks pods still running old code during a rolling deploy, and gives a backward-compatible sequence (expand, migrate, contract).",
+        "Keeps old mobile app versions working: returns both phone and phone_number for a transition period, or states how to decide when phone can be dropped, instead of removing it at once.",
+        "Names the other places that use the field name: tests and fixtures, the API schema or docs, and any raw SQL, exports or analytics if the column changes."
+      ]
+    },
+    {
+      "id": "en-avatar-url-minimal-ssrf",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "probe",
+      "history": [],
+      "user_message": "Quick one, keep it minimal please, it's an internal-ish app with ~200 users. Add a Flask endpoint `POST /me/avatar_url` that takes `{\"url\": \"...\"}`, downloads the image on the server and uploads it to our S3 bucket as the user's avatar. We already use `requests` and `boto3`.",
+      "why_in_scope": "The skill says minimalism never trims validation at a trust boundary or security, even when the user asks for minimal code. \"Keep it minimal\" plus \"internal-ish\" invites a ten-line fetch-and-upload that lets any user make the server request internal addresses or the cloud metadata endpoint.",
+      "rubric": [
+        "Identifies server-side request forgery: the server fetches a user-supplied URL and could reach internal services or the cloud metadata endpoint (169.254.169.254), and keeps the protection despite the request for minimal code.",
+        "Restricts the fetch: http or https only, resolves the host and rejects private, loopback and link-local addresses, connects to the address it validated (or names the gap a second DNS lookup leaves), and disables redirects or validates each hop.",
+        "Bounds the download with a timeout and a maximum size read as a stream, and checks that the content is an image before uploading.",
+        "Otherwise stays minimal: no unrequested resizing, cropping, background jobs or new dependencies."
+      ]
+    },
+    {
+      "id": "ru-notifier-interface-requested",
+      "agent": "software_engineer",
+      "language": "ru",
+      "group": "probe",
+      "history": [],
+      "user_message": "Хочу вынести отправку уведомлений за интерфейс: `Notifier` с методом send, сейчас одна реализация, `EmailNotifier`. Telegram делаем в следующем спринте, тикет уже в плане. Сейчас в трёх местах (signup.py, billing.py, reports.py) напрямую вызывается `send_email(user.email, subject, body)`. Сделай интерфейс и переведи эти три места.",
+      "why_in_scope": "A minimalist reading pushes back on an interface with one implementation; the skill says an explicit request for an abstraction is built as asked, with at most one line about the smaller option, and the abstraction is shaped by the known callers rather than by speculation. A strong model either lectures on YAGNI or builds a plugin registry with priorities and retries.",
+      "rubric": [
+        "Builds what was asked: a Notifier interface (Protocol or abstract base class) with EmailNotifier, and switches the three call sites to it, without refusing; a smaller alternative, if mentioned, takes at most one sentence.",
+        "Derives the send signature from the three callers (recipient, subject, body), taking the user or a recipient rather than an e-mail string so a Telegram implementation can fit, without speculative extras such as priorities, retries or a registry.",
+        "Shows how callers receive the notifier (a parameter, constructor argument or one factory) and how tests replace it with a fake.",
+        "Keeps the observable behavior of the three call sites unchanged."
+      ]
+    },
+    {
+      "id": "en-local-storage-dead-path",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "probe",
+      "history": [],
+      "user_message": "We're moving uploads from local disk to S3. Ops says local storage goes away everywhere: prod, staging and dev (dev now has MinIO in docker-compose). Current code:\n\n```python\ndef save_upload(f, name):\n    if settings.STORAGE_BACKEND == \"local\":\n        path = os.path.join(settings.MEDIA_ROOT, name)\n        with open(path, \"wb\") as out:\n            out.write(f.read())\n        return f\"/media/{name}\"\n    elif settings.STORAGE_BACKEND == \"s3\":\n        raise NotImplementedError\n```\n\nProd has about 80 GB of existing uploads under MEDIA_ROOT, and the `Document.file_url` column stores paths like `/media/abc.pdf`. Please implement it.",
+      "why_in_scope": "The skill adds a rung that deletes a path the change makes dead, and puts stored data in the reach of the change. A strong model tends to fill in the s3 branch and leave the local branch and its setting in place, and to treat the request as a code change while 80 GB of files and the stored URLs still point at the old location.",
+      "rubric": [
+        "Implements the S3 upload and removes the local-disk branch, the STORAGE_BACKEND switch and the settings that become unused, instead of keeping a dead path.",
+        "Flags that the existing 80 GB must be copied to S3 before the local path is removed and that the stored /media/... values in Document.file_url must be rewritten or still resolved, and proposes an order (copy, verify, switch, then remove).",
+        "Names the other places affected: tests of the local branch, docker-compose volumes, the /media route or web server config, and docs.",
+        "The S3 code itself is correct and short (for example boto3 upload_fileobj with the bucket from settings)."
+      ]
+    },
+    {
+      "id": "en-review-dependency-vs-removed-check",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "probe",
+      "history": [],
+      "user_message": "Review this PR please. Python 3.12 service.\n\n```diff\n--- a/requirements.txt\n+++ b/requirements.txt\n+python-dateutil==2.9.0\n\n--- a/notes/api.py\n+++ b/notes/api.py\n-from datetime import datetime\n+from dateutil import parser as dtparser\n\n def create_note(user, payload):\n-    if len(payload[\"text\"]) > 2000:\n-        raise ValidationError(\"note too long\")\n-    created = datetime.fromisoformat(payload[\"created_at\"])\n+    created = dtparser.isoparse(payload[\"created_at\"])\n     return Note.objects.create(owner=user, text=payload[\"text\"], created=created)\n```\n\nPR description: \"Our mobile client now sends timestamps like 2025-03-01T10:00:00Z and fromisoformat chokes on the Z. Also removed the length check, the column is TEXT now so there's no limit anyway.\"",
+      "why_in_scope": "The ladder puts the standard library above a new dependency, but only when the runtime has the API, and minimal code never drops validation of user input. A strong model may accept the author's claim about Z, which is false on Python 3.12, or weigh the new dependency and the removed length check the same; the expert restores the check first and treats the dependency as the lesser finding.",
+      "rubric": [
+        "Flags the removed length check as the most serious finding: text is user input, and an unbounded size is a storage and abuse risk whatever the column type; asks to restore a limit.",
+        "Points out that datetime.fromisoformat accepts a trailing Z since Python 3.11, so on 3.12 the new python-dateutil dependency is unnecessary, and recommends staying with the standard library.",
+        "Gives the dependency finding a lower severity than the removed validation; it is not a blocker on its own.",
+        "Each finding names the line and a concrete fix."
+      ]
+    },
+    {
+      "id": "ru-control-palindrome",
+      "agent": "software_engineer",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Напиши на Python функцию, которая проверяет, является ли строка палиндромом без учёта регистра, пробелов и знаков препинания. «А роза упала на лапу Азора» должна давать True.",
+      "why_in_scope": "Control: a self-contained function with no project around it. The tuned skill should not change the answer or add ceremony such as a list of touched places or a report of skipped work.",
+      "rubric": [
+        "Normalizes the string by lowercasing (or casefold) and keeping only letters and digits, then compares it with its reverse.",
+        "Works on Cyrillic input, so the given example returns True.",
+        "Does not add unrelated material such as a list of touched files, configuration options or a project checklist."
+      ]
+    },
+    {
+      "id": "en-control-sort-vs-sorted",
+      "agent": "software_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "What's actually the difference between `list.sort()` and `sorted()` in Python? When would I pick one over the other?",
+      "why_in_scope": "Control: an explanation with no code change. The tuned skill should not affect it.",
+      "rubric": [
+        "States that list.sort() sorts the list in place and returns None, while sorted() returns a new list and leaves the input unchanged.",
+        "Notes that sorted() accepts any iterable while sort() exists only on lists, and that both take key and reverse and are stable.",
+        "Gives a sensible rule for choosing between them."
+      ]
+    }
+  ]
+}
