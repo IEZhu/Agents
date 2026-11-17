@@ -83,19 +83,20 @@ supplies the instructions and their links.
    installation checkout is fine; `fix` mode never writes there.
 3. For `changes since <ref>`, take the files changed since the merge base,
    committed or not, with
-   `git diff --name-only --diff-filter=d $(git merge-base <ref> HEAD)`, which
+   `git diff --name-only -M --diff-filter=d $(git merge-base <ref> HEAD)`, which
    leaves out deleted files, plus the untracked ones with
    `git ls-files --others --exclude-standard`, which that diff omits. Then add
    their neighbours: the documents that link to them, the documents they link
    to, and the documents that state rules about the same subjects (search the
    repository's documents for the subjects the changed passages govern). One
    side of a contradiction is usually outside the diff. Deleted files
-   (`--diff-filter=D`) are not audited, but the documents that still link to or
-   name them are neighbours too, and each such mention is an `R` candidate. The
-   same holds for the old path of a renamed file, which that list shows only
+   (`-M --diff-filter=D`) are not audited, but the documents that still link to
+   or name them are neighbours too, and each such mention is an `R` candidate.
+   The same holds for the old path of a renamed file, which that list shows only
    under its new name;
-   `git diff --name-status --diff-filter=R $(git merge-base <ref> HEAD) | cut -f2`
-   lists the old paths.
+   `git diff --name-status -M --diff-filter=R $(git merge-base <ref> HEAD) | cut -f2`
+   lists the old paths. `-M` turns rename detection on whatever `diff.renames`
+   says, so the three lists split the same way on every machine.
 4. State the selected scope and mode, then continue.
 
 ## 2. Inventory and classify the corpus
