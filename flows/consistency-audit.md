@@ -9,8 +9,9 @@ persona:
 This flow finds defects in what a repository *says*, not in what its code does:
 statements that cannot all be followed, instructions an executor cannot finish
 without guessing, wording two readers would act on differently, references that
-lead nowhere, and names that drift. Code defects and claims that disagree with
-the implementation are out of scope; see
+lead nowhere, and names that drift. Code defects and claims about behavior that
+only the implementation can confirm are out of scope, though a name that does
+not exist in source is still a broken reference; see
 [what this flow does not check](#what-this-flow-does-not-check).
 
 The result is a verified findings report for the current branch: each finding
@@ -51,9 +52,9 @@ Run flows/consistency-audit.md for changes since origin/dev. fix
 Through Agents-Core MCP, call `run_flow(flow="consistency-audit", request=...)`
 with `current_persona` and apply its `persona_activation` (`tech_writer`) as a
 switch first. The returned `repo_path` is the target; this file's checkout only
-supplies the instructions and their links. Where Agents-Core is available, a
-request that names this flow, by its ID or by its path, goes through
-`list_flows` and `run_flow`, so that the persona applies; reading the file
+supplies the instructions and their links. A request that names the flow
+follows the conversation's routing protocol, which for Agents-Core calls
+`list_flows` and `run_flow` so that the persona applies; reading the file
 directly is the fallback where the flow is not installed, with the persona
 loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
 
@@ -68,13 +69,13 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
   contributor and test guides. A list of paths narrows it. `changes since <ref>`
   audits the files changed since the merge base with `<ref>` plus their
   neighbours ([step 1](#1-record-the-state-and-the-scope)).
-- **Mode:** `report` (default; nothing is written in the repository while the
-  audit runs, so a repository summary that `describe_repo` asks to persist waits
-  until the report is delivered) or `fix`
-  ([step 7](#7-report-and-apply-in-fix-mode)).
+- **Mode:** `report` (default; nothing is written in the repository) or `fix`
+  ([step 7](#7-report-and-apply-in-fix-mode)). In either mode, a repository
+  summary that `describe_repo` asks to persist waits until the report is
+  delivered, so that it does not change the state the audit recorded.
 - **External URLs:** listed in the coverage record as unverified
   ([step 3](#3-mechanical-pass), item 2); when the request asks to fetch them,
-  each is recorded there as reachable or failing, with its status.
+  item 2 says how, and each is recorded there as reachable or failing.
 - **Output:** the report in the invocation language, with quotes verbatim. Write
   it to a file only when asked; a report written into the repository follows the
   target's documentation language policy (for Agents-Core, English, under the
@@ -90,7 +91,7 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
    from a subdirectory, `git ls-files` lists only that directory. Record the
    branch with `git branch --show-current` (it prints nothing on a detached
    `HEAD`; record `detached at` and `git rev-parse --short HEAD` then),
-   `git rev-parse HEAD` and `git status --short`. Every finding refers to this
+   `git rev-parse HEAD` and `git -c core.quotepath=off status --short`. Every finding refers to this
    state. Reading a live installation checkout is fine; `fix` mode never writes
    there.
 3. For `changes since <ref>`, first resolve the base with
@@ -169,21 +170,24 @@ found while reading in step 4.
    ```bash
    git ls-files -z --cached --others --exclude-standard -- '*.md' '*.mdc' \
      | xargs -0 -r sh -c 'for f; do if [ -L "$f" ]; then printf "skipped symlink: %s\n" "$f" >&2; elif [ -f "$f" ]; then printf "%s\0" "$f"; fi; done' sh \
-     | xargs -0 -r .venv/bin/python scripts/check_docs.py
+     | xargs -0 -r .venv/bin/python scripts/check_docs.py --
    ```
 
+   `--` keeps a file whose name starts with `-` from being read as an option.
    `-r` keeps GNU `xargs` from running the checker without paths, and so over
    the whole repository, when a narrowed scope has no Markdown files; the
    checker then does not run at all, which the coverage record states as not
    run, not as passed. Symlinks are left out and named on standard error,
    because one that points outside the repository makes the checker reject its
-   whole batch; record them as unchecked.
+   whole batch; record them as unchecked. On a corpus large enough for `xargs`
+   to split the list, the checker runs once per batch: read every `Checked`
+   line, and count each whole-repository error once.
 
    Whatever files it is given, the checker also runs three checks of the whole
    repository: the tool index, its badge, and whether
    `flows/thread-close.md` names every field its inventory helper emits. For a
    narrowed scope, list the scope's Markdown files instead of the patterns, add
-   `--skip-tool-index` unless the scope includes
+   `--skip-tool-index` before the `--` unless the scope includes
    [docs/mcp-tools.md](../docs/mcp-tools.md), and do not report an
    inventory-field error unless the scope includes `flows/thread-close.md`.
 
@@ -207,7 +211,11 @@ found while reading in step 4.
    `(<>)`) and an empty or blank link text. A destination broken across lines
    and an empty reference definition are left to the reading pass. A match
    inside a code span or a fenced block is an example, not a link; in
-   Agents-Core this flow's own file matches for that reason.
+   Agents-Core this flow's own file matches for that reason. The URL list cuts a
+   URL at its first `)`. When the request asks to fetch the URLs, request each
+   one, for example with `curl -sS -o /dev/null -L -w '%{http_code}' '<url>'`,
+   and record its status code; without network access, record the fetch as not
+   run.
 
 3. **Paths.** List the repository paths with a directory part that the
    documents mention, in prose and in code spans alike, and that do not exist,
@@ -219,22 +227,24 @@ found while reading in step 4.
      | grep -vxFf <(git -c core.quotepath=off ls-files --deleted) \
      | awk -F/ '{p=$1; print p; for (i=2; i<=NF; i++) {p=p"/"$i; print p}}' \
      | sort -u > "$t/known"
-   git grep --untracked -hoP '(?<![\w./<*-])(?:[\w.-]+/)+[\w.-]*\w(?![\w*<>/{\[-]|[^\x00-\x7f])' \
+   git grep --untracked -hoP '(?<![\w./<*-])(?:[\w.-]+/)+[\w.-]*\w(?![\w*<>/{\[-]|\.\w|[^\x00-\x7f])' \
      -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' | sort -u > "$t/mentioned"
    awk -F/ 'NR==FNR {top[$1]=1; next} top[$1]' "$t/known" "$t/mentioned" \
      | comm -23 - "$t/known" \
      | git -c core.quotepath=off check-ignore --no-index -v -n --stdin \
      | awk '$1=="::" {print $2}'
+   rm -r "$t"
    ```
 
    It keeps the paths whose first segment exists at the repository root, drops
    those that exist as a file or directory (untracked ones included) and those
    that are ignored local state, and skips globs, placeholders and brace
-   patterns. Two kinds of mention are therefore not listed and are left to the
+   patterns. Three kinds of mention are therefore not listed and are left to the
    reading pass, which the coverage record states: a path under a top-level
-   directory that no longer exists, and a bare file name without a directory,
-   such as `README.md`, whose matches against the tree's file names are mostly
-   runtime files, examples for other repositories and product names. A bare name
+   directory that no longer exists, a path with a space in it, and a bare file
+   name without a directory, such as `README.md`, whose matches against the
+   tree's file names are mostly runtime files, examples for other repositories
+   and product names. A bare name
    written as a Markdown link is still checked by item 1. It needs a Git built
    with PCRE for `git grep -P`. Locate each path it prints with
    `git grep -nF --untracked -- '<path>'`, and judge it against the `R` row of
@@ -245,7 +255,8 @@ found while reading in step 4.
    shows a rename only as a deletion.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
-   (`git grep` the name in the defining files). For Agents-Core, the checker
+   (`git grep` the name in the defining files); a name with no definition is an
+   `R` finding, not a handoff. For Agents-Core, the checker
    covers only the tool index in [docs/mcp-tools.md](../docs/mcp-tools.md);
    mentions elsewhere are not checked mechanically.
 5. **Internal cross-references.** "Step N", "section X" and "see above" point at
@@ -297,9 +308,11 @@ Contradictions, gaps and ambiguity are found here; no script finds them.
 When the corpus divides into independent areas or is too large to read in one
 context, the executor may split this pass by area across prepared workers under
 the [delegation contract](README.md#delegated-workers): each worker returns its
-subject-index entries and its local findings, and one integrator runs item 2
-across all areas, because a contradiction usually spans two of them. Validate
-every worker result before using it.
+local findings, and its subject-index entries in its result's summary, and one
+integrator runs item 2 across all areas, because a contradiction usually spans
+two of them. Validate every worker result before using it. Workers report
+severity on their result format's scale; the integrator sets this flow's
+severity from the definitions above, not by translating the label.
 
 ## 5. Verify every candidate
 
@@ -315,7 +328,8 @@ never from memory of an earlier read.
    document supplies the missing piece.
 4. Set the severity and confidence. Note which side changed last
    (`git log -1 --format='%h %cs' -- <path>`, or `git blame -L <start>,<end> -- <path>`
-   for lines); for a file that `git status --short -- <path>` shows as untracked
+   for lines); for a file that
+   `git -c core.quotepath=off status --short -- <path>` shows as untracked
    or modified, record that instead of a commit. It informs the resolution but
    does not decide it.
 
@@ -341,11 +355,14 @@ give both options with the consequence of each.
 For a `T`, propose the canonical term (the glossary's, or the most authoritative
 document's) and list the places to change.
 
-When a candidate is one document disagreeing with code, with no second document
-stating the subject, it belongs to
+When a candidate is one document's claim about behavior disagreeing with code,
+with no second document stating the subject, it belongs to
 [documentation refresh](documentation-refresh.md): record it as a handoff, not
-as a finding. Two documents that disagree remain a finding even when code shows
-which one is right; code then decides the resolution.
+as a finding. A name that does not exist in source stays an `R` finding. Two
+documents that disagree remain a finding even when code shows which one is
+right; code then decides the resolution. A finding in a generated block that
+has no source file, such as the Agents-Core repository memory block, is
+resolved by regenerating it (`describe_repo`), not by editing it.
 
 ## 7. Report, and apply in `fix` mode
 
@@ -374,9 +391,9 @@ In `fix` mode, after the report:
    live installation checkout; the checkout that receives them is the fix
    worktree below. When the audited branch is the executor's own, for example
    the branch of a pull request it is working on, apply on that branch only the
-   findings located in that pull request's diff, because
-   [pr-review](pr-review.md) keeps a pull request's scope fixed; the others go
-   to a separate branch as below. Otherwise cut a separate worktree and branch:
+   findings whose resolution edits files in that pull request's diff and no
+   others, because [pr-review](pr-review.md) keeps a pull request's scope fixed;
+   the others go to a separate branch as below. Otherwise cut a separate worktree and branch:
    from the recorded `HEAD`, so that it holds the audited text, where the rules
    let a branch build on another, and then the fix branch goes back to the
    audited branch's author;
@@ -385,8 +402,9 @@ In `fix` mode, after the report:
    `--no-track`), and then item 3 defers what that tip does not contain.
 2. Apply only the findings whose resolution the order of authority settles, and
    `R` fixes with a single correct target. Fix generated text at its source and
-   regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`).
-   Leave owner decisions untouched.
+   regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`,
+   then the follow-ups `AGENTS.md` names for it, such as adding a printed legacy
+   reminder name where the tests list them). Leave owner decisions untouched.
 3. Before applying a finding, re-read every location it quotes in the fix
    worktree, and confirm there that the defect still holds and that the
    resolution's target exists (for an `R`, the path or anchor the fix points
@@ -396,7 +414,10 @@ In `fix` mode, after the report:
    a resolution to that other state of the file: report the finding as
    deferred, with the reason.
 4. Re-run the checks of [step 3](#3-mechanical-pass) and the target's
-   documentation checks, read the full diff, and commit under the target's
+   documentation checks (for Agents-Core, those of
+   [documentation refresh](documentation-refresh.md#4-validate-the-result),
+   which add `tests/test_check_docs.py` and `tests/test_flows.py` for a flow and
+   the protocol tests for a regenerated section), read the full diff, and commit under the target's
    convention (for Agents-Core, a Conventional Commit of type `docs`). Report
    the fix branch, its worktree path and the commits. Push and open a pull
    request only when the request asks for it, and then run
