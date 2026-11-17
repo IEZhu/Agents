@@ -110,7 +110,13 @@ Record the count per class for the coverage record.
 Run the cheap deterministic checks first. They seed the `R` class and leave the
 reading pass for meaning. Every search covers the inventory of step 2, untracked
 documents included, which is why the `git grep` commands below carry
-`--untracked`.
+`--untracked`. The commands are written for the default scope. When the scope
+is a list of paths or `changes since <ref>`, give them the scope's documents
+instead of the repository-wide patterns: as pathspecs after `--` for
+`git grep`, and as file arguments for the link checker. Existence is still
+checked against the whole tree (the `known` list of item 3 stays
+repository-wide), so a document in scope that points outside the scope is
+still checked, and a finding that lies only outside the scope is not reported.
 
 1. **Link checker.** Run the target's own checker. For Agents-Core,
    `scripts/check_docs.py` checks Markdown links, images and local anchors, but by
