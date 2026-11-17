@@ -25,7 +25,7 @@ mode also applies the resolutions an authority settles, on a separate branch.
 | `C` | Contradiction | Two statements about one subject cannot both be followed: an obligation and a prohibition, two values for one number, default, limit or name, two orders of the same steps, two owners of one action, two statuses of one feature | They apply to different scopes, conditions, audiences or times, or a precedence statement that is in context wherever either text is followed settles them |
 | `G` | Gap | An executor following the text must stop or guess: a missing input or default, a step without an actor or a checkable outcome, no branch for a failing or unavailable check, no done criterion, a term used but never defined | A document the text links to for that piece supplies it |
 | `A` | Ambiguity | Two reasonable executors would take different actions from the same text: a vague trigger ("when appropriate"), an unclear referent, an unstated threshold | Only the wording differs; the action is the same either way |
-| `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder or an example for another repository, marked as such |
+| `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder, an example for another repository, a file a plan marks as planned, a path at a revision a historical record states, or a path relative to a component root the text names |
 | `T` | Terminology drift | One concept carries several names, or one name several concepts, so a reader cannot tell whether two passages are about the same thing | A glossary or the text itself defines the alias |
 
 Identical copies of one rule in two places are not a finding; copies that have
@@ -89,8 +89,10 @@ supplies the instructions and their links.
 
 List the documents with `git ls-files --cached --others --exclude-standard`, so
 that documents not yet committed are included: `*.md`, `*.mdc`, `*.txt`,
-instruction templates, and the text fields of YAML or JSON that people or
-models read. Classify each; the class decides how its findings count.
+instruction templates, and the YAML or JSON files whose text fields people or
+models read (descriptions and instructions, such as those of plugin manifests),
+each named in the inventory. Classify each; the class decides how its findings
+count.
 
 | Class | Examples | Treatment |
 |---|---|---|
@@ -124,26 +126,47 @@ documents included, which is why the `git grep` commands below carry
 
    It does not fetch external URLs, and it accepts an empty destination
    (`[text]()`, `[text](#)`) and an empty link text (`[](path)`) as valid. It
-   parses Markdown only: for the other inventoried formats (`.txt` files such as
-   `llms.txt`, text fields of YAML or JSON), extract their links and repository
-   paths and check the local targets as in item 3. A format left unchecked is
-   listed in the coverage record with the reason.
+   parses Markdown only. The other inventoried formats (`.txt` files such as
+   `llms.txt`, and the YAML or JSON files of step 2) get the plain-text checks
+   of items 2 and 3, and a link relative to such a file is checked while reading
+   it. A format left unchecked is listed in the coverage record with the reason.
 2. **Empty links.** Search for what the checker accepts:
 
    ```bash
-   git grep --untracked -nE '\]\(#?\)' -- '*.md' '*.mdc' '*.txt'
-   git grep --untracked -nE '(^|[^!])\[\]\(' -- '*.md' '*.mdc' '*.txt'
+   git grep --untracked -nE '\]\(#?\)' -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json'
+   git grep --untracked -nE '(^|[^!])\[\]\(' -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json'
    ```
 
    A match inside a code span or a fenced block is an example, not a link; in
    Agents-Core this flow's own file matches both searches for that reason.
 
-3. **Paths in prose.** Extract code spans that look like repository paths and
-   check each against the tree. For a missing path, find the commit that removed
-   it with `git log --diff-filter=D --format=%h -1 -- <path>`, then
-   `git show -M --name-status --format= <commit>`: a path limited `git log` shows
-   a rename only as a deletion. Skip placeholders (`<id>`, `*`), paths in examples
-   for another repository and paths inside quoted command output.
+3. **Paths.** Check every repository path the documents mention, in prose and
+   in code spans alike. This lists each missing one once:
+
+   ```bash
+   t=$(mktemp -d)
+   git ls-files --cached --others --exclude-standard \
+     | awk -F/ '{p=$1; print p; for (i=2; i<=NF; i++) {p=p"/"$i; print p}}' \
+     | sort -u > "$t/known"
+   git grep --untracked -hoP '(?<![\w./<*-])(?:[\w.-]+/)+[\w.-]*\w(?![\w*<>/{\[-]|[^\x00-\x7f])' \
+     -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' | sort -u > "$t/mentioned"
+   awk -F/ 'NR==FNR {top[$1]=1; next} top[$1]' "$t/known" "$t/mentioned" \
+     | comm -23 - "$t/known" \
+     | git check-ignore --no-index -v -n --stdin | awk '$1=="::" {print $2}'
+   ```
+
+   It keeps the paths whose first segment exists at the repository root, drops
+   those that exist as a file or directory (untracked ones included) and those
+   that are ignored local state, and skips globs, placeholders and brace
+   patterns. A path under a top-level directory that no longer exists at all is
+   therefore not listed; the reading pass has to catch it. It needs a Git built
+   with PCRE for `git grep -P`. Locate each path it prints with
+   `git grep -nF --untracked -- '<path>'`, and judge it against the `R` row of
+   the class table: many are examples, planned files or quoted command output. For a
+   path that did exist, find the commit that removed it with
+   `git log --diff-filter=D --format=%h -1 -- <path>`, then
+   `git show -M --name-status --format= <commit>`: a path limited `git log`
+   shows a rename only as a deletion.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
    (`git grep` the name in the defining files). For Agents-Core, the checker
@@ -263,18 +286,22 @@ unperformed check as passed.
 
 In `fix` mode, after the report:
 
-1. Work on a separate branch and worktree under the target's contributor rules
-   (for Agents-Core, a linked worktree cut from `origin/dev` with `--no-track`,
-   never the live installation checkout).
+1. Cut a separate worktree and branch from the recorded `HEAD`, so that it
+   holds the audited text, under the target's branch naming rules and never in
+   the live installation checkout. When the audit covered the integration
+   branch, cut from its remote tip instead (for Agents-Core, `origin/dev` with
+   `--no-track`, as its contributor rules require). A fix branch cut from
+   another audited branch builds on that branch and goes back to its owner, not
+   to the integration branch.
 2. Apply only the findings whose resolution the order of authority settles, and
    `R` fixes with a single correct target. Fix generated text at its source and
    regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`).
    Leave owner decisions untouched.
 3. Before applying a finding, re-read every location it quotes in the fix
-   worktree. When a quote is missing or reads differently there, because the
-   audited branch added or changed that text or it was uncommitted, do not apply
-   a resolution to that other state of the file: report the finding as deferred,
-   with that reason, for whoever owns the audited branch to fix there.
+   worktree. When a quote is missing or reads differently there, typically
+   because it sits in uncommitted changes of the audited checkout or the remote
+   tip moved since the audit, do not apply a resolution to that other state of
+   the file: report the finding as deferred, with the reason.
 4. Re-run the checks of [step 3](#3-mechanical-pass) and the target's
    documentation checks, read the full diff, and commit under the target's
    convention (for Agents-Core, a Conventional Commit of type `docs`). Push and
