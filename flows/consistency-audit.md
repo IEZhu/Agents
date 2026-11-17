@@ -145,6 +145,10 @@ found while reading in step 4.
        | grep -vxFf <(git ls-files --deleted))
    ```
 
+   The tool index and its badge are checks of the whole repository. For a
+   narrowed scope, pass the scope's Markdown files with `--skip-tool-index`,
+   unless the scope includes [docs/mcp-tools.md](../docs/mcp-tools.md).
+
    It does not fetch external URLs, and it accepts an empty destination
    (`[text]()`, `[text](#)`) and an empty link text (`[](path)`) as valid. It
    parses Markdown only. The other inventoried formats (`.txt` files such as
@@ -197,7 +201,7 @@ found while reading in step 4.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
    (`git grep` the name in the defining files). For Agents-Core, the checker
-   covers only the tool table in [docs/mcp-tools.md](../docs/mcp-tools.md);
+   covers only the tool index in [docs/mcp-tools.md](../docs/mcp-tools.md);
    mentions elsewhere are not checked mechanically.
 5. **Internal cross-references.** "Step N", "section X" and "see above" point at
    something that exists and still says what the reference claims; numbered lists
