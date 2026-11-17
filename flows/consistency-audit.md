@@ -92,8 +92,8 @@ supplies the instructions and their links.
    side of a contradiction is usually outside the diff. Deleted files
    (`-M --diff-filter=D`) are not audited, but the documents that still link to
    or name them are neighbours too, and each such mention is an `R` candidate.
-   The same holds for the old path of a renamed file, which that list shows only
-   under its new name;
+   The same holds for the old path of a renamed file, which the list of changed
+   files shows only under its new name;
    `git diff --name-status -M --diff-filter=R $(git merge-base <ref> HEAD) | cut -f2`
    lists the old paths. `-M` turns rename detection on whatever `diff.renames`
    says, so the three lists split the same way on every machine.
@@ -147,9 +147,12 @@ found while reading in step 4.
 
    ```bash
    git ls-files -z --cached --others --exclude-standard -- '*.md' '*.mdc' \
-     | xargs -0 sh -c 'for f; do [ -f "$f" ] && printf "%s\0" "$f"; done' sh \
-     | xargs -0 .venv/bin/python scripts/check_docs.py
+     | xargs -0 -r sh -c 'for f; do [ -f "$f" ] && printf "%s\0" "$f"; done' sh \
+     | xargs -0 -r .venv/bin/python scripts/check_docs.py
    ```
+
+   `-r` keeps GNU `xargs` from running the checker without paths, and so over
+   the whole repository, when a narrowed scope has no Markdown files.
 
    Whatever files it is given, the checker also runs three checks of the whole
    repository: the tool index, its badge, and whether
