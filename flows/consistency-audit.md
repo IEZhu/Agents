@@ -26,7 +26,7 @@ contributor rules allow.
 | `C` | Contradiction | Two statements about one subject cannot both be followed: an obligation and a prohibition, two values for one number, default, limit or name, two orders of the same steps, two owners of one action, two statuses of one feature | They apply to different scopes, conditions, audiences or times, or a precedence statement that is in context wherever either text is followed settles them |
 | `G` | Gap | An executor following the text must stop or guess: a missing input or default, a step without an actor or a checkable outcome, no branch for a failing or unavailable check, no done criterion, a term used but never defined | A document the text links to for that piece supplies it |
 | `A` | Ambiguity | Two reasonable executors would take different actions from the same text: a vague trigger ("when appropriate"), an unclear referent, an unstated threshold | Only the wording differs; the action is the same either way |
-| `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder, an example for another repository, a file a plan marks as planned, a path a historical record names as it stood at the record's date or revision, or a path relative to a component root the text names |
+| `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder, an example for another repository, a file a plan marks as planned, a path a historical record mentions as it stood at the record's date or revision (its Markdown links must still resolve), or a path relative to a component root the text names |
 | `T` | Terminology drift | One concept carries several names, or one name several concepts, so a reader cannot tell whether two passages are about the same thing | A glossary or the text itself defines the alias |
 
 Identical copies of one rule in two places are not a finding; copies that have
@@ -315,9 +315,10 @@ unperformed check as passed.
 In `fix` mode, after the report:
 
 1. Choose where the fixes go under the target's contributor rules, never in the
-   live installation checkout. When the audited branch is the executor's own,
-   for example the branch of a pull request it is working on, apply them on that
-   branch. Otherwise cut a separate worktree and branch: from the recorded
+   live installation checkout; the checkout that receives them is the fix
+   worktree below. When the audited branch is the executor's own, for example
+   the branch of a pull request it is working on, apply them on that branch.
+   Otherwise cut a separate worktree and branch: from the recorded
    `HEAD`, so that it holds the audited text, where the rules let a branch build
    on another, and then the fix branch goes back to the audited branch's owner;
    from the integration branch's remote tip where the rules require every change
