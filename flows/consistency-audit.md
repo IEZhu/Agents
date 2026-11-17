@@ -51,7 +51,11 @@ Run flows/consistency-audit.md for changes since origin/dev. fix
 Through Agents-Core MCP, call `run_flow(flow="consistency-audit", request=...)`
 with `current_persona` and apply its `persona_activation` (`tech_writer`) as a
 switch first. The returned `repo_path` is the target; this file's checkout only
-supplies the instructions and their links.
+supplies the instructions and their links. Where Agents-Core is available, a
+request that names this flow, by its ID or by its path, goes through
+`list_flows` and `run_flow`, so that the persona applies; reading the file
+directly is the fallback where the flow is not installed, with the persona
+loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
 
 ## Inputs and defaults
 
@@ -64,9 +68,13 @@ supplies the instructions and their links.
   contributor and test guides. A list of paths narrows it. `changes since <ref>`
   audits the files changed since the merge base with `<ref>` plus their
   neighbours ([step 1](#1-record-the-state-and-the-scope)).
-- **Mode:** `report` (default; nothing is written in the repository) or `fix`
+- **Mode:** `report` (default; nothing is written in the repository while the
+  audit runs, so a repository summary that `describe_repo` asks to persist waits
+  until the report is delivered) or `fix`
   ([step 7](#7-report-and-apply-in-fix-mode)).
-- **External URLs:** listed as unverified unless the request asks to fetch them.
+- **External URLs:** listed in the coverage record as unverified
+  ([step 3](#3-mechanical-pass), item 2); when the request asks to fetch them,
+  each is recorded there as reachable or failing, with its status.
 - **Output:** the report in the invocation language, with quotes verbatim. Write
   it to a file only when asked; a report written into the repository follows the
   target's documentation language policy (for Agents-Core, English, under the
@@ -78,14 +86,21 @@ supplies the instructions and their links.
    present (for Agents-Core, the [documentation map](../docs/README.md)). They
    are instructions for this run, and part of the audited corpus when the scope
    includes them.
-2. Record `git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD` and
-   `git status --short`. Every finding refers to this state. Reading a live
-   installation checkout is fine; `fix` mode never writes there.
-3. For `changes since <ref>`, take the files changed since the merge base,
-   committed or not, with
-   `git diff --name-only -M --diff-filter=d $(git merge-base <ref> HEAD)`, which
-   leaves out deleted files, plus the untracked ones with
-   `git ls-files --others --exclude-standard`, which that diff omits. Then add
+2. Work from the repository root (`cd "$(git rev-parse --show-toplevel)"`):
+   from a subdirectory, `git ls-files` lists only that directory. Record the
+   branch with `git branch --show-current` (it prints nothing on a detached
+   `HEAD`; record `detached at` and `git rev-parse --short HEAD` then),
+   `git rev-parse HEAD` and `git status --short`. Every finding refers to this
+   state. Reading a live installation checkout is fine; `fix` mode never writes
+   there.
+3. For `changes since <ref>`, first resolve the base with
+   `base=$(git merge-base <ref> HEAD)`, and stop and report the ref when that
+   fails: with an empty base the next command still runs and lists only the
+   uncommitted changes. Then take the files changed since the base, committed or
+   not, with `git -c core.quotepath=off diff --name-only -M --diff-filter=d "$base"`,
+   which leaves out deleted files, plus the untracked ones with
+   `git -c core.quotepath=off ls-files --others --exclude-standard`, which that
+   diff omits. Then add
    their neighbours: the documents that link to them, the documents they link
    to, and the documents that state rules about the same subjects (search the
    repository's documents for the subjects the changed passages govern). One
@@ -94,7 +109,7 @@ supplies the instructions and their links.
    or name them are neighbours too, and each such mention is an `R` candidate.
    The same holds for the old path of a renamed file, which the list of changed
    files shows only under its new name;
-   `git diff --name-status -M --diff-filter=R $(git merge-base <ref> HEAD) | cut -f2`
+   `git -c core.quotepath=off diff --name-status -M --diff-filter=R "$base" | cut -f2`
    lists the old paths. `-M` turns rename detection on whatever `diff.renames`
    says, so the three lists split the same way on every machine.
 4. State the selected scope and mode, then continue.
@@ -103,8 +118,9 @@ supplies the instructions and their links.
 
 List the documents in scope; they are the corpus the rest of this flow audits.
 For the default scope, take every file from
-`git ls-files --cached --others --exclude-standard` except those deleted in the
-working tree (`git ls-files --deleted`), so that documents not yet committed are
+`git -c core.quotepath=off ls-files --cached --others --exclude-standard` except
+those deleted in the working tree
+(`git -c core.quotepath=off ls-files --deleted`), so that documents not yet committed are
 included: `*.md`, `*.mdc`, `*.txt`, instruction templates, and the YAML or JSON
 files whose text fields people or models read (descriptions and instructions,
 such as those of plugin manifests), each named in the inventory. Classify each;
@@ -128,7 +144,12 @@ documents included, which is why the `git grep` commands below carry
 `--untracked`. The commands are written for the default scope. When the scope
 is a list of paths or `changes since <ref>`, give them the scope's documents
 instead of the repository-wide patterns: as pathspecs after `--` for
-`git grep`, and as file arguments for the link checker. Existence is still
+`git grep`, and as file arguments for the link checker. Keep the extension
+patterns inside each directory (`'flows/*.md' 'flows/*.mdc'`, not `flows/`):
+a bare directory also feeds images and code to the checker and the searches.
+Every `git` call that lists paths carries `-c core.quotepath=off`, so that
+non-ASCII names come out as they are; a name containing a newline or a tab
+stays quoted even then, so record such a file as unchecked. Existence is still
 checked against the whole tree (the `known` list of item 3 stays
 repository-wide), so a document in scope that points outside the scope is
 still checked, and a finding that lies only outside the scope is not reported.
@@ -147,12 +168,16 @@ found while reading in step 4.
 
    ```bash
    git ls-files -z --cached --others --exclude-standard -- '*.md' '*.mdc' \
-     | xargs -0 -r sh -c 'for f; do [ -f "$f" ] && printf "%s\0" "$f"; done' sh \
+     | xargs -0 -r sh -c 'for f; do if [ -L "$f" ]; then printf "skipped symlink: %s\n" "$f" >&2; elif [ -f "$f" ]; then printf "%s\0" "$f"; fi; done' sh \
      | xargs -0 -r .venv/bin/python scripts/check_docs.py
    ```
 
    `-r` keeps GNU `xargs` from running the checker without paths, and so over
-   the whole repository, when a narrowed scope has no Markdown files.
+   the whole repository, when a narrowed scope has no Markdown files; the
+   checker then does not run at all, which the coverage record states as not
+   run, not as passed. Symlinks are left out and named on standard error,
+   because one that points outside the repository makes the checker reject its
+   whole batch; record them as unchecked.
 
    Whatever files it is given, the checker also runs three checks of the whole
    repository: the tool index, its badge, and whether
@@ -168,15 +193,21 @@ found while reading in step 4.
    `llms.txt`, and the YAML or JSON files of step 2) get the plain-text checks
    of items 2 and 3, and a link relative to such a file is checked while reading
    it. A format left unchecked is listed in the coverage record with the reason.
-2. **Empty links.** Search for what the checker accepts:
+2. **Empty links and external URLs.** Search for the empty links the checker
+   accepts, then list the external URLs for the coverage record:
 
    ```bash
-   git grep --untracked -nE '\]\(#?\)' -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json'
-   git grep --untracked -nE '(^|[^!])\[\]\(' -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json'
+   git grep --untracked -nE '\]\([[:space:]]*(<>|#?)[[:space:]]*\)|(^|[^!])\[[[:space:]]*\]\(' \
+     -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json'
+   git grep --untracked -hoE "https?://[^]) >\"'\`]+" \
+     -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' | sort -u
    ```
 
-   A match inside a code span or a fenced block is an example, not a link; in
-   Agents-Core this flow's own file matches both searches for that reason.
+   The first search finds an empty or blank destination (`()`, `(#)`, `( )`,
+   `(<>)`) and an empty or blank link text. A destination broken across lines
+   and an empty reference definition are left to the reading pass. A match
+   inside a code span or a fenced block is an example, not a link; in
+   Agents-Core this flow's own file matches for that reason.
 
 3. **Paths.** List the repository paths with a directory part that the
    documents mention, in prose and in code spans alike, and that do not exist,
@@ -184,15 +215,16 @@ found while reading in step 4.
 
    ```bash
    t=$(mktemp -d)
-   git ls-files --cached --others --exclude-standard \
-     | grep -vxFf <(git ls-files --deleted) \
+   git -c core.quotepath=off ls-files --cached --others --exclude-standard \
+     | grep -vxFf <(git -c core.quotepath=off ls-files --deleted) \
      | awk -F/ '{p=$1; print p; for (i=2; i<=NF; i++) {p=p"/"$i; print p}}' \
      | sort -u > "$t/known"
    git grep --untracked -hoP '(?<![\w./<*-])(?:[\w.-]+/)+[\w.-]*\w(?![\w*<>/{\[-]|[^\x00-\x7f])' \
      -- '*.md' '*.mdc' '*.txt' '*.yml' '*.yaml' '*.json' | sort -u > "$t/mentioned"
    awk -F/ 'NR==FNR {top[$1]=1; next} top[$1]' "$t/known" "$t/mentioned" \
      | comm -23 - "$t/known" \
-     | git check-ignore --no-index -v -n --stdin | awk '$1=="::" {print $2}'
+     | git -c core.quotepath=off check-ignore --no-index -v -n --stdin \
+     | awk '$1=="::" {print $2}'
    ```
 
    It keeps the paths whose first segment exists at the repository root, drops
@@ -229,8 +261,9 @@ Before reporting that a search found nothing, run the same pattern once on a
 sample that must match, so that zero means "none" and not "the pattern cannot
 match". `git grep` sees only the repository's own files, so put the sample in a
 scratch directory outside the repository and search it from there with
-`git grep --no-index -nE '<pattern>' -- <sample>`, which keeps the pattern
-engine the same. Record each command with its result.
+`git grep --no-index -n -E '<pattern>' -- <sample>`, using `-P` instead of
+`-E` where the search does, so that the pattern engine stays the same. Record
+each command with its result.
 
 ## 4. Reading pass
 
@@ -261,8 +294,9 @@ Contradictions, gaps and ambiguity are found here; no script finds them.
    otherwise from the subject index) and look for one concept under several names
    and one name used for several concepts.
 
-For a large corpus, split this pass by area across prepared workers under the
-[delegation contract](README.md#delegated-workers): each worker returns its
+When the corpus divides into independent areas or is too large to read in one
+context, the executor may split this pass by area across prepared workers under
+the [delegation contract](README.md#delegated-workers): each worker returns its
 subject-index entries and its local findings, and one integrator runs item 2
 across all areas, because a contradiction usually spans two of them. Validate
 every worker result before using it.
@@ -280,8 +314,10 @@ never from memory of an earlier read.
 3. For an `R`, re-run the check that found it; for a `G`, confirm that no linked
    document supplies the missing piece.
 4. Set the severity and confidence. Note which side changed last
-   (`git log -1 --format='%h %cs' -- <path>`, or `git blame -L` for a line); it
-   informs the resolution but does not decide it.
+   (`git log -1 --format='%h %cs' -- <path>`, or `git blame -L <start>,<end> -- <path>`
+   for lines); for a file that `git status --short -- <path>` shows as untracked
+   or modified, record that instead of a commit. It informs the resolution but
+   does not decide it.
 
 ## 6. Propose a resolution
 
@@ -300,13 +336,16 @@ authority:
 Never resolve by majority: three copies of a wrong value do not outvote one
 source of truth. When the order does not decide, for example two normative
 documents of equal standing disagree and nothing states precedence, mark the
-finding **owner decision** and give both options with the consequence of each.
+finding **owner decision**, a decision for the repository's maintainers, and
+give both options with the consequence of each.
 For a `T`, propose the canonical term (the glossary's, or the most authoritative
 document's) and list the places to change.
 
-When a candidate turns out to be documentation disagreeing with code, it belongs
-to [documentation refresh](documentation-refresh.md): record it as a handoff,
-not as a finding.
+When a candidate is one document disagreeing with code, with no second document
+stating the subject, it belongs to
+[documentation refresh](documentation-refresh.md): record it as a handoff, not
+as a finding. Two documents that disagree remain a finding even when code shows
+which one is right; code then decides the resolution.
 
 ## 7. Report, and apply in `fix` mode
 
@@ -334,10 +373,13 @@ In `fix` mode, after the report:
 1. Choose where the fixes go under the target's contributor rules, never in the
    live installation checkout; the checkout that receives them is the fix
    worktree below. When the audited branch is the executor's own, for example
-   the branch of a pull request it is working on, apply them on that branch.
-   Otherwise cut a separate worktree and branch: from the recorded
-   `HEAD`, so that it holds the audited text, where the rules let a branch build
-   on another, and then the fix branch goes back to the audited branch's owner;
+   the branch of a pull request it is working on, apply on that branch only the
+   findings located in that pull request's diff, because
+   [pr-review](pr-review.md) keeps a pull request's scope fixed; the others go
+   to a separate branch as below. Otherwise cut a separate worktree and branch:
+   from the recorded `HEAD`, so that it holds the audited text, where the rules
+   let a branch build on another, and then the fix branch goes back to the
+   audited branch's author;
    from the integration branch's remote tip where the rules require every change
    to start there, as Agents-Core's `AGENTS.md` does (`origin/dev` with
    `--no-track`), and then item 3 defers what that tip does not contain.
@@ -355,9 +397,11 @@ In `fix` mode, after the report:
    deferred, with the reason.
 4. Re-run the checks of [step 3](#3-mechanical-pass) and the target's
    documentation checks, read the full diff, and commit under the target's
-   convention (for Agents-Core, a Conventional Commit of type `docs`). Push and
-   open a pull request only when the request asks for it, then follow
-   [pr-review](pr-review.md).
+   convention (for Agents-Core, a Conventional Commit of type `docs`). Report
+   the fix branch, its worktree path and the commits. Push and open a pull
+   request only when the request asks for it, and then run
+   [pr-review](pr-review.md) through `run_flow` where Agents-Core is available,
+   with `no-merge` unless the request asks for a merge.
 
 ## Done criteria
 
