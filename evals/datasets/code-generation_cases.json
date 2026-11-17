@@ -26,7 +26,7 @@
       "why_in_scope": "The skill accepts a standard-library rung only when the API exists in the project's minimum supported runtime. A strong model eager to avoid a dependency often reaches for tomllib, which the standard library gained in Python 3.11, and ships code that fails on the 3.9 machines the project still supports.",
       "rubric": [
         "States that tomllib is in the standard library only from Python 3.11, so it is not available on the 3.9 machines the project supports.",
-        "Uses tomllib on 3.11 and newer and the tomli backport on older versions (a conditional import on sys.version_info or equivalent), and declares tomli in pyproject.toml, ideally limited with the marker python_version < \"3.11\".",
+        "Either uses tomllib on 3.11 and newer with the tomli backport on older versions (a conditional import), or uses tomli alone, which also runs on newer versions; in both cases declares tomli in pyproject.toml, limited with the marker python_version < \"3.11\" when tomllib covers the newer versions.",
         "Opens the file in binary mode (\"rb\"), which tomllib.load requires.",
         "Keeps the loader small: no unrequested schema validation, config layering or caching."
       ]
