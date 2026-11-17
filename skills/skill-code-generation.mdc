@@ -1,45 +1,52 @@
 ---
-description: "Code generation patterns. Generate code with tests, documentation, error handling, and validation. Role: Code Generator."
-compiled: "Understand before generating. Generate with tests. Validate output compiles/runs. Follow existing patterns. Minimal diff."
+description: "Smallest complete code change. Trim what the request does not need, pick the implementation from a ladder of alternatives where each rung has its own check (reuse, standard library, declared dependency, short code, new code), delete what the change leaves dead, rank the reach of a change by irreversibility, keep the protections minimal code must not lose, size tests to risk, and report omissions in the right channel. Role: Code Generator."
+compiled: "Map the reach first: callers, tests, fixtures, exports, on-disk and wire formats, schema and migrations, config keys, env vars, CLI flags, public API, other-language consumers, docs; the harder an item is to undo, the higher the bar and the surer a test. Trim what the request does not need and say so. Then take the earliest alternative that survives its check: reuse a helper only if its contract matches (errors, null, units, side effects, cost), never by adding a flag; stdlib only if the API exists in every supported runtime, oldest to newest; a dependency only if declared directly, through the pinned version's API, and not to save a handful of lines; short code only if it reads correctly on first sight. Delete what the change leaves unreachable. Keep untrusted-input checks, error paths guarding stored data, security, accessibility and every requested part; requested config or an abstraction gets built. Tests follow risk, not function count. Before presenting, compile or type-check, lint and run the touched tests when tools allow. Omissions: chat, one line before the footer; worker, limitations, unrun checks as not_run, remaining_work only for unmet criteria."
 keywords:
-  - understand before generating
-  - generate with tests
-  - validate output compiles/runs
-  - follow existing patterns
-  - minimal diff
-  - read before writing
-  - minimal change
-  - test alongside
-  - error handling
-  - code generation patterns
+  - simplest solution
+  - smallest change
+  - reuse existing helper
+  - add a dependency
+  - standard library instead
+  - what else does this break
+  - remove the dead branch
+  - over-engineered
+sources:
+  - https://deptry.com/rules-violations/
+  - https://packaging.python.org/en/latest/specifications/pyproject-toml/
+  - https://docs.npmjs.com/cli/v10/configuring-npm/package-json
+  - https://www.typescriptlang.org/tsconfig/
+  - https://docs.python.org/3/library/tomllib.html
+  - https://docs.python.org/3/library/itertools.html
+  - https://docs.python.org/3/whatsnew/3.13.html
+  - https://martinfowler.com/bliki/ParallelChange.html
+  - https://abseil.io/resources/swe-book/html/ch12.html
 ---
 ## Role
-Code Generator: Produce correct, tested, idiomatic code that integrates seamlessly with existing codebase.
+Code Generator: ship the whole requested behavior with as little new code as stays correct, and be explicit about what was not done.
 
 ## Rules
-- **Read Before Writing**: Understand existing patterns, style, and conventions before generating code.
-- **Minimal Change**: Generate the smallest code change that achieves the goal.
-- **Test Alongside**: For every function, generate at least one test case.
-- **Error Handling**: Include error handling for expected failure modes.
-- **Validate**: Ensure generated code compiles/passes linter before presenting.
+- **Map the reach first.** Before editing, enumerate everything the change touches. In code: call sites, tests and fixtures, exported names. Beyond code: data formats on disk and on the wire, database schema and migrations, config keys, environment variables, CLI flags, public API, clients written in other languages, documentation. Use the host's code graph or reference lookup if it has one; otherwise search text for the symbol, its string form and its serialized name. Work outside this list is not part of the change.
+- **Trim before building.** Drop options, extension points and features the request does not call for, and mention them in a single sentence. This never blocks a refactor whose recurring cost is already known (YAGNI in `skill-dev-clean-code`).
+- **Pick the implementation from the ladder.** Prefer the earliest rung that survives its own check; a rung that fails is skipped, not bent to fit.
+  1. *Reuse.* A helper already in the project counts only when its contract fits the new caller: which errors it raises, how it treats null and empty input, units and precision, side effects (I/O, logging, caching, mutation), cost. Judge that from its callers and tests, not its name. When it does not fit, write a separate function instead of a mode flag on the shared one (the wrong abstraction in `skill-dev-clean-code`).
+  2. *Standard library or platform.* Counts only when the API exists in every runtime version the project supports, from the oldest to the newest, so removals count as much as additions. Read the range from `requires-python` in `pyproject.toml`, `engines` in `package.json`, the supported browser list or the platform's supported SDK range, plus any polyfill the project ships. In TypeScript, `target` and `lib` set the emitted syntax and the type declarations, not what the runtime implements. `tomllib` first shipped in Python 3.11 and `itertools.batched` in 3.12, so neither exists for a project that still supports 3.9; `cgi` was removed in 3.13, so it breaks a project that supports 3.13.
+  3. *Dependency.* Counts only when the manifest declares it directly; call it through the API of the version the lockfile pins. A package present only because something else pulls it in is unavailable until it is declared. A new package is not worth adding when the alternative is a handful of plain lines.
+  4. *Short code.* Counts only when it reads correctly on first sight: a structured format with a parser (JSON, HTML, CSV, URLs, dates) gets the parser, not a regex, and no tricks.
+  5. *New code.* When every earlier rung fails: as little as works, in the patterns the surrounding code already uses.
+- **Delete what the change leaves dead.** A branch, setting, flag or module that becomes unreachable goes in the same change, once the reach list shows that no caller, job, config or other-language client still uses it.
+- **What minimal code keeps.** Checks on input that crosses a trust boundary; error paths whose absence would lose or silently corrupt data; security controls; accessibility; every part of the request. Relocated code carries its checks with it.
+- **Requested beats minimal.** A request for configurability or for an interface is built as asked, shaped by the known callers. Configuration, flags and abstractions nobody requested stay out; a fixed value becomes a named constant.
+- **Calibrate by the request, not by a mode.** Explicit instruction: carry it out, with one sentence about a lighter alternative if there is one. Ambiguous request in conversation: deliver the narrowest version that covers the central behavior, state the assumption, and ask or object once, only when the choice affects stored data, a public contract or one of the kept protections. Autonomous flow or prepared worker: do not halt over a scope choice that can be written down; record the alternative in the pull request description or the result (missing critical input is still `input_required`).
+- **Tests follow risk.** Add a test that would turn red if the behavior regressed wherever a mistake is costly or silent: money, permissions, parsing of outside input, writes to stored data, a fixed bug, and every hard-to-undo item on the reach list. Trivial glue needs none. Test behaviors, not methods (*Software Engineering at Google*, chapter 12).
+- **Validate before presenting.** Compile or type-check, lint, and run the tests the change touches whenever the tools allow; trivial glue without its own test still has to compile and pass the linter. A check that could not run is reported as not run, never as passed.
+- **Report omissions once, in the existing channel.** Conversation: one line before the footer naming what was left out on purpose and what was not verified or not run. Prepared worker result: deliberate omissions go to `limitations`, checks that did not run are `not_run` items under `checks`, and `remaining_work` holds only work the acceptance criteria still require, since it rules out `completed`. Autonomous flow: the pull request description.
 
-## Generation Workflow
-1. **Understand**: Read relevant files, understand the codebase structure.
-2. **Plan**: Identify which files to create/modify, what functions to write.
-3. **Generate**: Write the code following existing patterns and conventions.
-4. **Test**: Write unit tests covering happy path and edge cases.
-5. **Validate**: Run linter, type checker, or compiler. Fix issues.
+## Concepts
+- **Contract**: what a function promises beyond its signature; two helpers with the same signature and different contracts are different functions.
+- **Irreversibility order**: code (a revert undoes it) < config keys, environment variables, CLI flags (operators and scripts depend on them) < public API and wire formats (clients you cannot redeploy) < stored data and schema (a revert does not undo a migration). The higher the item, the higher the bar for a rung and the surer the test.
+- **Expand, migrate, contract**: change an interface others depend on by adding the new form, moving its users, then removing the old one, instead of renaming in place.
 
-## Quality Checklist
-- [ ] Follows existing code style and conventions
-- [ ] No hardcoded values (use constants or config)
-- [ ] Error messages are actionable
-- [ ] Edge cases handled (empty input, null, boundaries)
-- [ ] Tests cover happy path + at least one edge case
-- [ ] No unused imports or dead code
-
-## Anti-Patterns
-- Generating code without reading existing patterns (style mismatch).
-- Large generated files with no tests (untestable output).
-- Over-engineering: generating abstractions for one-time use.
-- Ignoring linter/type errors in generated code.
+## Actions
+- `map_reach(change)`: touched places, ranked by irreversibility.
+- `pick_rung(need)`: after trimming, the earliest alternative whose check passes, noting the checks that failed.
+- Review: the rungs as findings live in `review(code)` of `skill-dev-clean-code`.
