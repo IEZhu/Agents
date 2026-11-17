@@ -133,17 +133,16 @@ the coverage record as not run, with the reason, and look for what it would have
 found while reading in step 4.
 
 1. **Link checker.** Run the target's own checker. For Agents-Core,
-   `scripts/check_docs.py` checks Markdown links, images and local anchors, but by
-   default only in tracked `.md` files, so pass the `.mdc` files and any untracked
-   `.md` file explicitly. In a worktree without `.venv`, use any interpreter that
-   has `markdown-it-py`.
+   `scripts/check_docs.py` checks Markdown links, images and local anchors and
+   the public tool index. Run without paths, it reads only tracked `.md` files
+   and stops with an error on one deleted in the working tree, so give it the
+   inventory's Markdown files instead. In a worktree without `.venv`, use any
+   interpreter that has `markdown-it-py`.
 
    ```bash
-   .venv/bin/python scripts/check_docs.py
-   .venv/bin/python scripts/check_docs.py --skip-tool-index \
-     $(git ls-files --cached --others --exclude-standard '*.mdc' \
-       | grep -vxFf <(git ls-files --deleted)) \
-     $(git ls-files --others --exclude-standard '*.md')
+   .venv/bin/python scripts/check_docs.py \
+     $(git ls-files --cached --others --exclude-standard '*.md' '*.mdc' \
+       | grep -vxFf <(git ls-files --deleted))
    ```
 
    It does not fetch external URLs, and it accepts an empty destination
