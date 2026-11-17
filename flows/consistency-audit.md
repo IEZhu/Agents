@@ -56,8 +56,9 @@ supplies the instructions and their links.
 
 - **Target:** the current checkout on its current branch, with the working tree
   as it is; uncommitted changes are included and recorded.
-- **Scope:** by default every tracked document the repository maintains for
-  people or models: guides and READMEs, AI instructions (`AGENTS.md`,
+- **Scope:** by default every document the repository maintains for people or
+  models, committed or not ([step 2](#2-inventory-and-classify-the-corpus)):
+  guides and READMEs, AI instructions (`AGENTS.md`,
   `CLAUDE.md`, rules, personas, skills, flows, instruction templates),
   contributor and test guides. A list of paths narrows it. `changes since <ref>`
   audits the files changed since the merge base with `<ref>` plus their
