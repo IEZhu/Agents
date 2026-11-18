@@ -431,7 +431,7 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 
 - `install.sh` — clone or fast-forward `~/.agents-core`, then `scripts/init_repo.sh --yes`: venv, dependencies, indexes, client registration, managed instructions, hooks.
 - `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q` — the regular suite; a command-line `-m ''` overrides `addopts` and adds slow tests.
-- `.venv/bin/python scripts/check_docs.py` — offline navigation and the public tool index; 182 tracked Markdown files, 0 errors at this revision. CI runs the same script and fails on stale badge data.
+- `.venv/bin/python scripts/check_docs.py` — offline navigation and the public tool index; 184 tracked Markdown files, 0 errors at this revision. CI runs the same script and fails on stale badge data.
 - `python3 -m src.engine.protocol_text --write` regenerates every protocol surface; `-m src.reindex` rebuilds the stores.
 - `python3 scripts/bump_plugin_version.py --base origin/main` — the next calendar version into `VERSION` and the plugin manifest, before a promotion. It reads the *working tree's* `VERSION`, so run it inside the worktree being promoted.
 - `.venv/bin/python -m src.daemon update|recover|flows-ui|migrate` — update or recover the service checkout, open the web UI, migrate its state.

@@ -54,7 +54,7 @@ own root-selection rules. See [workspace targeting](routing_flow.md).
 | `describe_repo` | Read context or return `needs_summary`; does not write project files | [Repository memory](memory.md) |
 | `write_repo_summary` | Explicitly persist a description using its repository fingerprint; refuses installation/source roots | [Repository memory](memory.md) |
 | `read_history` | Read recent, semantic or exact-entry history; inspect returned workspace and errors | [Memory operations](shared-mcp-daemon.md#memory-and-errors) |
-| `log_interaction` | Record the exact composed answer (without the time line) and the verbatim request, both with secrets and capability values replaced by safe references and prohibited personal details omitted, together with the retained persona attribution, before delivery | [Routing protocol](routing_flow.md) |
+| `log_interaction` | Record the exact composed answer (without the time line) and the verbatim request, both with secrets and capability values replaced by safe references and prohibited personal details omitted, together with the retained persona attribution, before delivery; the call returns once the journal commit is durably accepted | [Routing protocol](routing_flow.md), [memory acceptance](memory-acceptance.md) |
 
 ## Reusable flows and user rules
 
