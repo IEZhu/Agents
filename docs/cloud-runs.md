@@ -258,7 +258,7 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
 2. Seeds `.env` with `EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE=0`, keeping keys that
    are already set. A `.env` that names no model also gets
    `EMBEDDING_MODEL_GENERATION` from `src/model_migration.py`, so the
-   [model switch](../README.md#model-switch-on-update) keeps the seeded model. The
+   [model switch](configuration.md#model-switch-on-update) keeps the seeded model. The
    verification in step 6 fails if `.env` still enables auto-update.
 3. Runs `install.sh --skip-index`, which installs the dependencies, registers
    Agents-Core as a user-scope stdio server in `~/.claude.json` and writes the
@@ -310,7 +310,7 @@ server, and the setup cannot check them unless they also reach the setup script.
 finishes within the cache limit below; set
 `AGENTS_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 for a 241 MB model that indexes in seconds. A rerun moves an `.env` that names an
-older model to the default once ([model switch](../README.md#model-switch-on-update)).
+older model to the default once ([model switch](configuration.md#model-switch-on-update)).
 
 **Cache and updates.** The environment is cached only when setup finishes within
 about five minutes. On 2026-10-03, with the earlier default

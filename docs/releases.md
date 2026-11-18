@@ -7,7 +7,7 @@ This is the one description of the release procedure; the README links it.
 - Every pull request targets `dev`, the integration branch.
 - A release is a pull request from `dev` into `main`. The owner reviews it and
   merges it with a merge commit, never a squash or a rebase. Installations switch
-  between the branches with `channel set` ([update channel](../README.md#update-channel)):
+  between the branches with `channel set` ([update channel](install.md#update-channel)):
   a switch counts as a downgrade only when HEAD has non-merge commits the target
   lacks, so the release's merge commit lets `main` → `dev` switch without a
   confirmation. A squash or rebase merge would put commits on `main` that `dev`

@@ -57,6 +57,62 @@ with its identity, routing fields, skills by tier, preferred implants and prompt
 body. The tab is read-only: agents cannot be switched off there, and their files
 are never changed. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 
+## Creating a new agent
+
+1. Create directory: `agents/<agent_name>/`
+2. Create `system_prompt.mdc` with frontmatter:
+
+```yaml
+---
+identity:
+  name: "my_agent"
+  display_name: "My Agent"
+  role: "Expert in X"
+  tone: "Professional, Clear"
+routing:
+  domain_keywords: ["keyword1", "keyword2"]
+  trigger_command: "/my_command"
+core_skills: []             # required lists of skill IDs, may be empty
+preferred_skills: []
+capable_skills: []
+---
+# My Agent System Prompt
+
+## Identity
+You are an expert in X...
+```
+
+`identity.name` must match the directory name, or the agent fails to load. Use
+lowercase letters, digits and underscores (`^[a-z0-9][a-z0-9_]*$`): the activation
+descriptor accepts no other agent name.
+`trigger_command` and each optional `routing.aliases` entry become MCP slash
+prompts. See [Skill tiers](#skill-tiers) and the
+[field reference](#agent-source-and-metadata), including the
+optional `preferred_implants`.
+
+Validate the frontmatter with `.venv/bin/python scripts/validate_agents.py`. It
+checks required fields and ID format, not whether the listed files exist; a
+missing core skill or preferred implant file can make activation return `ERROR`.
+The MCP server discovers the agent on its next startup; restart the shared daemon
+through its controller when using that transport. The schema is
+[common/agent-schema.json](common/agent-schema.json).
+
+## Skill tiers
+
+Each agent picks its skills explicitly in frontmatter, in three tiers:
+
+```yaml
+core_skills: [skill-content-structure, skill-dev-clean-code]
+preferred_skills: [skill-dev-debugging, skill-dev-performance]
+capable_skills: [skill-dev-testing, skill-git-conventions]
+```
+
+- `core_skills` are always loaded, unless switched off for the installation in the web UI.
+- `preferred_skills` join the semantic pool with their distance multiplied by a boost factor (0.7), so they win close matches.
+- `capable_skills` join the same pool at their base distance.
+
+Skills outside the three lists are never loaded for that agent, except when a flow's persona lists exact skills ([details](../flows/README.md#choose-a-flows-agent-and-components)). Guidance that applies to every agent belongs in [`rules/`](../rules/README.md), not in a skill.
+
 ## Compact worker profiles
 
 Every shipped persona also has an authored `agents/<name>/subagent.mdc` for one

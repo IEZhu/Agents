@@ -353,7 +353,7 @@ flow persona's exact list), without semantic retrieval. See the [rules reference
    tracked files, including an agent's skill lists in step 3, or committing
    locally makes the standalone updater, the daemon's `update` and `auto-update`,
    and `install.sh` skip or refuse updates until the change is removed or
-   upstreamed; see [Updates](../README.md#updates).
+   upstreamed; see [Updates](../docs/install.md#updates).
 
 ## Best Practices
 

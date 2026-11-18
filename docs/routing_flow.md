@@ -377,13 +377,13 @@ home and system/program directories are refused with `workspace_unsafe`;
 automatic launch inference also rejects installation, runtime, application and
 editor-extension directories. An unavailable cwd reports `workspace_required`
 without selecting the installation (full resolution order:
-[Repository Memory](../README.md#-repository-memory)). The results of
+[Repository Memory](memory.md)). The results of
 `log_interaction` and `read_history` report `workspace` and `pid`, and
 `history_last_error` after a failed history write. A `read_history` listing shows
 long texts as previews and stays under Claude Code's 50,000-character limit; a
 shortened entry carries `truncated`, `offset` reads the entries a listing left out,
 and `read_history(entry_id=...)` returns an entry whole
-([details](../README.md#-repository-memory)). Without a resolved project, both use
+([details](memory.md)). Without a resolved project, both use
 the installation's fallback journal and say so in `instruction`. On `workspace_required`,
 `workspace_unsafe` or `workspace_invalid` from another memory tool, keep routing and
 report unavailable memory without retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
@@ -458,19 +458,19 @@ because connectivity returns.
 ## Installation, migration and rollback
 
 `./scripts/init_repo.sh` (Windows: `scripts\init_repo.bat`) installs the protocol.
-The [one-command `install.sh`](../README.md#one-command-install-macos-and-linux)
+The [one-command `install.sh`](install.md#one-command-install-macos-and-linux)
 (macOS and Linux) clones or updates the checkout (default `~/.agents-core`) and
 runs `scripts/init_repo.sh --yes`, which accepts the global instruction and
 routing-reminder prompts without asking.
 
 Instruction installation and refresh (`scripts/install_instructions.py`, Codex
 detection and target files) are described in
-[Codex instruction installation](../README.md#codex-instruction-installation);
+[Codex instruction installation](install.md#codex-instruction-installation);
 they do not register MCP connections. On macOS, the shared daemon's
 `migrate --clients codex` configures Codex's connection (see
 [daemon installation and client migration](shared-mcp-daemon.md#installation-and-client-migration));
 for standalone stdio, add the `[mcp_servers."Agents-Core"]` entry from
-[Codex configuration](../README.md#codex-configtoml) manually.
+[Codex configuration](install.md#codex-configtoml) manually.
 
 Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), Cursor
 (`~/.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`) are configured

@@ -10,7 +10,9 @@ These links describe the published main branch. For an installed version or a de
 
 - [Agent guide](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/agent-guide.md): Task-to-tool map, concrete first calls, expected responses, prerequisites and limits.
 - [MCP client installation](https://raw.githubusercontent.com/IEZhu/Agents/main/llms-install.md): Standalone stdio setup, absolute-path configuration, connection verification and removal.
-- [Project README](https://raw.githubusercontent.com/IEZhu/Agents/main/README.md): Supported client setup, configuration, updates and feature overview.
+- [Install and connect](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/install.md): The installer, per-client MCP configuration, the shared service, updates and removal.
+- [Configuration](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/configuration.md): Environment variables, optional integrations and tracing.
+- [Project README](https://raw.githubusercontent.com/IEZhu/Agents/main/README.md): What Agents-Core is, which clients it supports and the first call.
 - [Claude Code plugin](https://raw.githubusercontent.com/IEZhu/Agents/main/plugins/agents-core/README.md): Launcher prerequisites, setup and privacy policy.
 
 ## Use the tools
