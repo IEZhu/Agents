@@ -16,8 +16,8 @@ not exist in source is still a broken reference; see
 
 The result is a verified findings report for the current branch: each finding
 with exact quotes, a class, a severity, a confidence and a proposed resolution,
-plus a coverage record of what was checked. The default mode is read-only; `fix`
-mode also applies the resolutions an authority settles, on a branch the target's
+plus a coverage record of what was checked. The default mode writes nothing in
+the repository but a report file the request asks for; `fix` mode also applies the resolutions an authority settles, on a branch the target's
 contributor rules allow.
 
 ## Defect classes
@@ -69,7 +69,8 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
   contributor and test guides. A list of paths narrows it. `changes since <ref>`
   audits the files changed since the merge base with `<ref>` plus their
   neighbours ([step 1](#1-record-the-state-and-the-scope)).
-- **Mode:** `report` (default; nothing is written in the repository) or `fix`
+- **Mode:** `report` (default; nothing is written in the repository except a
+  report file the request asks for, as **Output** below says) or `fix`
   ([step 7](#7-report-and-apply-in-fix-mode)). In either mode, a repository
   summary that `describe_repo` asks to persist is not part of the audit: it is
   written, where the conversation's protocol allows a write, only after the
@@ -89,8 +90,11 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
    present (for Agents-Core, the [documentation map](../docs/README.md)). They
    are instructions for this run, and part of the audited corpus when the scope
    includes them.
-2. Work from the repository root (`cd "$(git rev-parse --show-toplevel)"`):
-   from a subdirectory, `git ls-files` lists only that directory. Record the
+2. Work from the repository root, because from a subdirectory `git ls-files`
+   lists only that directory:
+   `top=$(git rev-parse --show-toplevel) && cd "$top"`. When that fails, the
+   target is not a Git work tree; stop and report it. A target below the root
+   does not narrow the default scope. Record the
    branch with `git branch --show-current` (it prints nothing on a detached
    `HEAD`; record `detached at` and `git rev-parse --short HEAD` then),
    `git rev-parse HEAD` and `git -c core.quotepath=off status --short`. Every finding refers to this
@@ -135,7 +139,7 @@ the class decides how its findings count.
 |---|---|---|
 | Normative | `AGENTS.md`, repository notes in `CLAUDE.md`, rules, flows, personas, skills, contributor and test guides | Fully audited; usually the side of a contradiction an executor follows |
 | Reference | User guides, READMEs, tool and API references | Fully audited |
-| Generated | Text rendered from a source; for Agents-Core, the managed routing sections rendered from `src/engine/protocol/` and the repository memory block written by `describe_repo` | Audited, but each finding is filed against its source and fixed there |
+| Generated | Text rendered from a source; for Agents-Core, the managed routing sections rendered from `src/engine/protocol/`, the separator block of `docs/subagent-contract.md` rendered from `SEPARATORS` in `src/engine/subagent_text.py`, and the repository memory block written by `describe_repo` | Audited, but each finding is filed against its source and fixed there |
 | Historical | Dated plans, audits, reports, changelogs | Checked only for links that no longer resolve, and for being presented elsewhere as current |
 | Vendored or fixture | Third-party text, test inputs and expected outputs | Out of scope |
 
@@ -159,7 +163,9 @@ or fixture. `git grep` does not search symlinks, and item 1 skips them: list
 tracked ones with `git -c core.quotepath=off ls-files -s | awk '$1==120000'`
 and record them as unchecked. Run the blocks below in bash or zsh; each starts
 with `set -o pipefail`, so that a failing first command does not look like an
-empty result.
+empty result. `git grep` exits 1 when it finds nothing and 128 on an error, so
+a search that exits 1 with empty output found nothing, and any other failure
+is a check that did not run.
 Every `git` call that lists paths carries `-c core.quotepath=off`, so that
 non-ASCII names come out as they are; a name containing a newline or a tab
 stays quoted even then, so record such a file as unchecked. Existence is still
@@ -176,15 +182,15 @@ found while reading in step 4.
    the public tool index. Run without paths, it reads only tracked `.md` files
    and stops with an error on one deleted in the working tree, so give it the
    inventory's existing Markdown files instead, one argument per path so that a
-   name with spaces stays whole. In a worktree without `.venv`, use any
-   interpreter that has `markdown-it-py`.
+   name with spaces stays whole. In a worktree without `.venv`, set `PYTHON` to
+   any interpreter that has `markdown-it-py`.
 
    ```bash
    set -o pipefail
    git ls-files -z --cached --others --exclude-standard -- '*.md' '*.mdc' \
      | sort -zu \
      | xargs -0 -r sh -c 'for f; do if [ -L "$f" ]; then printf "skipped symlink: %s\n" "$f" >&2; elif [ -f "$f" ]; then printf "%s\0" "$f"; fi; done' sh \
-     | xargs -0 -r .venv/bin/python scripts/check_docs.py --
+     | xargs -0 -r "${PYTHON:-.venv/bin/python}" scripts/check_docs.py --
    ```
 
    `sort -zu` lists a file with unresolved merge conflicts once instead of once
@@ -265,13 +271,15 @@ found while reading in step 4.
    It keeps the paths whose first segment exists at the repository root, drops
    those that exist as a file or directory (untracked ones included) and those
    that are ignored local state, and skips globs, placeholders and brace
-   patterns. Three kinds of mention are therefore not listed and are left to the
+   patterns. Two kinds of mention are therefore not listed and are left to the
    reading pass, which the coverage record states: a path under a top-level
-   directory that no longer exists, a path with a space in it, and a bare file
-   name without a directory, such as `README.md`, whose matches against the
-   tree's file names are mostly runtime files, examples for other repositories
-   and product names. A bare name
-   written as a Markdown link is still checked by item 1. It needs a Git built
+   directory that no longer exists, and a bare file name without a directory,
+   such as `README.md`, whose matches against the tree's file names are mostly
+   runtime files, examples for other repositories and product names. A bare name
+   written as a Markdown link is still checked by item 1. A path with a space in
+   it comes out cut at the space, as the part on one side of it, or not at all,
+   so it is left to the reading pass too, and each printed path is confirmed
+   against the line that mentions it. It needs a Git built
    with PCRE for `git grep -P`. A path that runs through a symlink cannot be
    checked against the ignore rules and is named on standard error; record it as
    unchecked. Locate each path it prints with
@@ -281,7 +289,10 @@ found while reading in step 4.
    removed it with `c=$(git log --diff-filter=D --format=%h -1 -- '<path>')`,
    then `[ -n "$c" ] && git -c core.quotepath=off show -M --name-status --format= "$c"`:
    a path limited `git log` shows a rename only as a deletion. An empty `$c`
-   means the path was never committed; record that.
+   means no commit removed it: when
+   `git -c core.quotepath=off ls-files --deleted -- '<path>'` lists it, it is
+   deleted only in the working tree, and otherwise it was never committed;
+   record which.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
    (`git grep` the name in the defining files); a name with no definition is an
@@ -309,8 +320,8 @@ each command with its result.
 
 Contradictions, gaps and ambiguity are found here; no script finds them.
 
-1. **Build a subject index.** From every normative and reference document in
-   scope, extract the statements that oblige, forbid, set a default or a limit,
+1. **Build a subject index.** From every normative, reference and generated
+   document in scope, extract the statements that oblige, forbid, set a default or a limit,
    order steps, assign an owner or declare a status: typically sentences with
    *must, never, always, only, default, at most, before, after, requires*, and
    numbers. Record each as `subject | statement | path:line`, where the subject is
@@ -424,20 +435,26 @@ In `fix` mode, after the report:
    audited branch is the executor's own, for example the branch of a pull
    request it is working on, apply on that branch the findings whose resolution
    edits only files in that pull request's diff, and those that the pull
-   request's own change caused, which [pr-review](pr-review.md) keeps in the
-   pull request; the others go to a separate branch as below. Otherwise cut a separate worktree and branch:
+   request's own change caused; the others go to a separate branch as below.
+   While the pull request is under [pr-review](pr-review.md), its convergence
+   rules then decide which of these stay in it. Otherwise cut a separate
+   worktree and branch:
    from the recorded `HEAD`, so that it holds the audited text, where the rules
    let a branch build on another, and then the fix branch goes back to the
    audited branch's author;
-   from the integration branch's remote tip, fetched first, where the rules
+   from the integration branch's remote tip, fetched first (when the fetch
+   fails, from the last fetched tip, and the report says so), where the rules
    require every change to start there, as Agents-Core's `AGENTS.md` does
    (`origin/dev` with `--no-track`), and then item 3 defers what that tip does
    not contain.
 2. Apply only the findings whose resolution the order of authority settles, and
    `R` fixes with a single correct target. Fix generated text at its source and
-   regenerate it (for Agents-Core, `python3 -m src.engine.protocol_text --write`,
-   then the follow-ups `AGENTS.md` names for it, such as adding a printed legacy
-   reminder name where the tests list them). Leave owner decisions untouched.
+   regenerate it with the command the target names (for Agents-Core,
+   `python3 -m src.engine.protocol_text --write` for the protocol sections and
+   `python3 -m src.engine.subagent_contract_text --write` for the separator
+   block, then the follow-ups `AGENTS.md` names for them, such as adding a
+   printed legacy reminder name where the tests list them). Leave owner
+   decisions untouched.
 3. Before applying a finding, re-read every location it quotes in the fix
    worktree, and confirm there that the defect still holds and that the
    resolution's target exists (for an `R`, the path or anchor the fix points
@@ -450,9 +467,11 @@ In `fix` mode, after the report:
    documentation checks (for Agents-Core, those of
    [documentation refresh](documentation-refresh.md#4-validate-the-result),
    which add `tests/test_check_docs.py` and `tests/test_flows.py` for a flow and
-   the protocol tests for a regenerated section), read the full diff, and commit under the target's
-   convention (for Agents-Core, a Conventional Commit of type `docs`). Report
-   the fix branch, its worktree path and the commits. Push and open a pull
+   the protocol tests for a regenerated section, or
+   `tests/test_subagent_contract_text.py` for the separator block), read the
+   full diff, and commit under the target's convention (for Agents-Core, a
+   Conventional Commit of type `docs`); the `fix` request covers these local
+   commits. Report the fix branch, its worktree path and the commits. Push and open a pull
    request only when the request asks for it, and then run
    [pr-review](pr-review.md) through `run_flow` where Agents-Core is available,
    with `no-merge` unless the request asks for a merge.
