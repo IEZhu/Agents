@@ -152,7 +152,8 @@ def test_failure_before_commit_keeps_previous_journal(tmp_path, monkeypatch, fai
 def test_directory_sync_failure_is_uncertain_then_retry_recovers(tmp_path, monkeypatch):
     path = tmp_path / "history.md"
     with monkeypatch.context() as patch:
-        patch.setattr(history, "_sync_directory", lambda _: (_ for _ in ()).throw(OSError("sync failed")))
+        # The sync after the commit goes through the descriptor the move used.
+        patch.setattr(history, "_sync_moved", lambda *_: (_ for _ in ()).throw(OSError("sync failed")))
         with pytest.raises(OSError):
             write(path)
     receipt = write(path)
@@ -216,7 +217,8 @@ def test_retry_reschedules_export_without_marking_entry_fresh(tmp_path, monkeypa
     calls = []
     monkeypatch.setattr(history, "_appended", lambda *args: calls.append(args))
     with monkeypatch.context() as patch:
-        patch.setattr(history, "_sync_directory", lambda _: (_ for _ in ()).throw(OSError("sync failed")))
+        # The sync after the commit goes through the descriptor the move used.
+        patch.setattr(history, "_sync_moved", lambda *_: (_ for _ in ()).throw(OSError("sync failed")))
         with pytest.raises(OSError):
             write(path)
     assert not calls
@@ -258,15 +260,15 @@ def test_failed_archive_sync_keeps_recovery_source_without_duplicate(tmp_path, m
     writer = HistoryWriter(str(path), rotation_kb=0)
     if existing_archive:
         writer.append_entry("older", "a", "o")
-    real_sync = history._sync_directory
+    real_sync = history._sync_moved
 
-    def fail_archive(directory):
+    def fail_archive(directory, dir_fd):
         if str(directory) == str(tmp_path / "history"):
             raise OSError("archive sync failed")
-        real_sync(directory)
+        real_sync(directory, dir_fd)
 
     with monkeypatch.context() as patch:
-        patch.setattr(history, "_sync_directory", fail_archive)
+        patch.setattr(history, "_sync_moved", fail_archive)
         original = writer.append_entry("intent", "action", "outcome", idempotency_key="write-1")
     assert original["state"] == "durably_accepted"
     assert Path(str(path) + ".rotating").exists()

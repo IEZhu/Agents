@@ -201,16 +201,76 @@ def test_a_dangling_archive_link_is_not_replaced_by_a_merge(journals):
     assert pending.read_text(encoding="utf-8") == payload
 
 
-def test_the_replace_is_refused_when_the_archive_directory_identity_changed(journals, monkeypatch):
-    """Where there is no directory descriptor, the move reaches the directory by name.
+class Moved:
+    """The same entry with another identity, delegating every other field.
+
+    A rebuilt `os.stat_result` answers None for the Windows-only fields the
+    link predicate reads, so it has to delegate rather than be constructed.
+    """
+
+    def __init__(self, info):
+        self._info = info
+
+    def __getattr__(self, name):
+        return getattr(self._info, name)
+
+    @property
+    def st_dev(self):
+        return self._info.st_dev
+
+    @property
+    def st_ino(self):
+        return (self._info.st_ino or 1) + 1
+
+
+def moved_at(monkeypatch, directory, check):
+    """Make the ``check``-th re-identification of ``directory`` see another identity.
+
+    Only `_refuse_swapped_dir`'s own reads count, so the checks taken before a
+    read and the reads of the guarded open are left alone. Returns the list of
+    re-identifications seen.
+    """
+    real_lstat = history.os.lstat
+    seen = []
+
+    def shifting(entry, *args, **kwargs):
+        info = real_lstat(entry, *args, **kwargs)
+        if os.fspath(entry) == str(directory) and sys._getframe(1).f_code.co_name == "_refuse_swapped_dir":
+            seen.append(1)
+            if len(seen) == check:
+                return Moved(info)
+        return info
+
+    monkeypatch.setattr(history.os, "lstat", shifting)
+    return seen
+
+
+def count_temporaries(monkeypatch):
+    created = []
+    real_temp = history._temp_beside
+
+    def recording(*args, **kwargs):
+        created.append(1)
+        return real_temp(*args, **kwargs)
+
+    monkeypatch.setattr(history, "_temp_beside", recording)
+    return created
+
+
+@pytest.mark.parametrize("check", ["temporary", "move"])
+def test_the_replace_is_refused_when_the_archive_directory_identity_changed(journals, monkeypatch, check):
+    """Where there is no directory descriptor, the merge reaches the directory by name.
 
     Windows accepts no `dir_fd` anywhere, so there the merge reads the directory
-    identity again immediately before the move and refuses a change. Forcing
-    `_ANCHORED_DIR` off runs that branch on any platform, as the neighbouring
-    no-O_NOFOLLOW tests do. The comparison is driven directly rather than by
-    swapping the directory on disk, because a real swap is caught by whichever
-    guard sees it first and that depends on how often the platform's open path
-    reads the directory. The anchored branch is
+    identity again immediately before it creates the temporary archive and again
+    before the move, and refuses a change at either. The first check is what
+    keeps the merged archive from being written into a substituted target at
+    all; the second keeps it from being moved there. Forcing `_ANCHORED_DIR` off
+    runs that branch on any platform, as the neighbouring no-O_NOFOLLOW tests
+    do. The comparison is driven directly rather than by swapping the directory
+    on disk, because a real swap is caught by whichever guard sees it first and
+    that depends on how often the platform's open path reads the directory. The
+    anchored branch is
     test_an_archive_directory_substituted_before_the_move_does_not_redirect_it,
     and the real-swap case for reads is
     test_archive_directory_swap_cannot_redirect_the_open.
@@ -224,43 +284,14 @@ def test_the_replace_is_refused_when_the_archive_directory_identity_changed(jour
     directory = path.parent / "history"
     directory.mkdir()
     (directory / f"{month}.md").write_text("kept", encoding="utf-8")
-    real_lstat = history.os.lstat
-    reads = []
-
-    class Moved:
-        """The same entry with another identity, delegating every other field.
-
-        A rebuilt `os.stat_result` answers None for the Windows-only fields the
-        link predicate reads, so it has to delegate rather than be constructed.
-        """
-
-        def __init__(self, info):
-            self._info = info
-
-        def __getattr__(self, name):
-            return getattr(self._info, name)
-
-        @property
-        def st_dev(self):
-            return self._info.st_dev
-
-        @property
-        def st_ino(self):
-            return (self._info.st_ino or 1) + 1
-
-    def shifting(entry, *args, **kwargs):
-        info = real_lstat(entry, *args, **kwargs)
-        if os.fspath(entry) == str(directory) and sys._getframe(1).f_code.co_name == "_merge_pending_locked":
-            reads.append(1)
-            if len(reads) == 2:  # the read taken immediately before the move
-                return Moved(info)
-        return info
-
-    monkeypatch.setattr(history.os, "lstat", shifting)
+    seen = moved_at(monkeypatch, directory, 1 if check == "temporary" else 2)
+    created = count_temporaries(monkeypatch)
     with pytest.raises(PermissionError, match="archive directory changed"):
         history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
-    assert len(reads) == 2
+    assert len(seen) == (1 if check == "temporary" else 2)
+    assert created == ([] if check == "temporary" else [1])
     assert pending.read_text(encoding="utf-8") == payload
+    assert sorted(item.name for item in directory.iterdir()) == [f"{month}.md"]
     assert (directory / f"{month}.md").read_text(encoding="utf-8") == "kept"
 
 
@@ -623,3 +654,126 @@ def test_no_sync_semantic_index_refuses_unsafe_journal(journals, monkeypatch, ki
     with pytest.raises(OSError):
         store._ensure(None)
     assert not parsed
+
+
+def _journal_in(tmp_path, monkeypatch):
+    """A journal with one entry in a directory of its own, and an empty decoy beside it."""
+    monkeypatch.setattr(history, "_machine_history", lambda _: None)
+    journal, decoy = tmp_path / "journal", tmp_path / "decoy"
+    journal.mkdir()
+    decoy.mkdir()
+    path = journal / "history.md"
+    history.HistoryWriter(str(path)).append_entry("first", "action", "outcome")
+    return path, journal, decoy
+
+
+def _journal_files(directory):
+    """What a write left in ``directory``: the journal and its temporaries, not the lock."""
+    return sorted(item.name for item in directory.iterdir() if not item.name.endswith(".lock"))
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+def test_an_append_refuses_a_journal_directory_swapped_after_its_read(tmp_path, monkeypatch):
+    """The append checked the archive directory but not the journal's own.
+
+    `_replace` held a descriptor for the directory it wrote into, and for
+    `history.md` it opened that descriptor by name without comparing it with
+    anything, so a directory swapped in between the guarded read and the write
+    received the whole journal, the new entry included, while the call reported
+    it durable. The swap here puts a real directory in place, not a link, so the
+    link check alone cannot catch it: only the identity taken before the read
+    can. The original directory keeps its one entry and the decoy stays empty.
+    """
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    checked = tmp_path / "checked"
+    real_render = history.HistoryWriter._render_entry
+
+    def swap_after_the_read(*args, **kwargs):
+        # The entry is rendered after the read and before the replacement is
+        # called, so a swap here also defeats an identity taken at the write.
+        journal.rename(checked)
+        decoy.rename(journal)
+        return real_render(*args, **kwargs)
+
+    monkeypatch.setattr(history.HistoryWriter, "_render_entry", staticmethod(swap_after_the_read))
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    assert _journal_files(journal) == []
+    assert [e.intent for e in history.HistoryReader(str(checked / "history.md")).journal_entries()] == ["first"]
+
+
+@pytest.mark.parametrize("check", ["temporary", "move"])
+def test_an_unanchored_append_re_identifies_the_journal_directory(tmp_path, monkeypatch, check):
+    """Without a directory descriptor, the journal's directory is checked before each step.
+
+    Windows takes no `dir_fd`, so the temporary journal and the move reach the
+    directory by name. The archive merge already re-identified its directory
+    before the move; the journal's own replacement did not, and neither checked
+    before writing the temporary file. Each check is driven here, as in the
+    archive test: the first refusal must come before any temporary file exists,
+    the second before the move, and the journal stays as it was.
+    """
+    path, journal, _decoy = _journal_in(tmp_path, monkeypatch)
+    before = path.read_bytes()
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    seen = moved_at(monkeypatch, journal, 1 if check == "temporary" else 2)
+    created = count_temporaries(monkeypatch)
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    assert len(seen) == (1 if check == "temporary" else 2)
+    assert created == ([] if check == "temporary" else [1])
+    assert _journal_files(journal) == ["history.md"]
+    assert path.read_bytes() == before
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+@pytest.mark.parametrize("where", ["journal", "archive"])
+def test_the_directory_sync_after_a_move_uses_the_held_descriptor(tmp_path, monkeypatch, where):
+    """The entry the move made is synced in the directory that received it.
+
+    The move went through the held descriptor, but the sync after it opened the
+    directory by name again. A swap right after the move therefore synced the
+    decoy and left the real directory entry unsynced, and the call still
+    reported `durably_accepted`. Every directory fsync is recorded by identity
+    here: the one that received the entry must be among them, the decoy never.
+    """
+    monkeypatch.setattr(history, "_machine_history", lambda _: None)
+    holder, decoy, checked = tmp_path / "holder", tmp_path / "decoy", tmp_path / "checked"
+    holder.mkdir()
+    decoy.mkdir()
+    if where == "journal":
+        path = holder / "history.md"
+        history.HistoryWriter(str(path)).append_entry("first", "action", "outcome")
+        directory = holder
+    else:
+        source = tmp_path / "source" / "history.md"
+        history.HistoryWriter(str(source)).append_entry("archived", "action", "outcome")
+        path = holder / "history.md"
+        pending = path.with_name(path.name + ".rotating")
+        pending.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        directory = holder / "history"
+        directory.mkdir()
+    received = os.stat(directory)
+    decoy_identity = (os.stat(decoy).st_dev, os.stat(decoy).st_ino)
+    real_move, real_fsync = history._move_onto, history.os.fsync
+    synced = []
+
+    def move_then_swap(*args, **kwargs):
+        real_move(*args, **kwargs)
+        directory.rename(checked)
+        decoy.rename(directory)
+
+    def recording(fd):
+        info = os.fstat(fd)
+        if stat.S_ISDIR(info.st_mode):
+            synced.append((info.st_dev, info.st_ino))
+        return real_fsync(fd)
+
+    monkeypatch.setattr(history, "_move_onto", move_then_swap)
+    monkeypatch.setattr(history.os, "fsync", recording)
+    if where == "journal":
+        history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    else:
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert (received.st_dev, received.st_ino) in synced
+    assert decoy_identity not in synced
