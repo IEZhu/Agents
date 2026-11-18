@@ -25,7 +25,7 @@ contributor rules allow.
 | ID | Class | A defect when | Not a defect when |
 |---|---|---|---|
 | `C` | Contradiction | Two statements about one subject cannot both be followed: an obligation and a prohibition, two values for one number, default, limit or name, two orders of the same steps, two owners of one action, two statuses of one feature | They apply to different scopes, conditions, audiences or times, or a precedence statement that is in context wherever either text is followed settles them |
-| `G` | Gap | An executor following the text must stop or guess: a missing input or default, a step without an actor or a checkable outcome, no branch for a failing or unavailable check, no done criterion, a term used but never defined | A document the text links to for that piece supplies it |
+| `G` | Gap | An executor following the text must stop or guess: a missing input or default, a step without an actor or a checkable outcome, no branch for a failing or unavailable check, no done criterion, a term used but never defined | A document the text links to, or an instruction every executor of the text already follows (the target's `AGENTS.md` and `CLAUDE.md`, the conversation's protocol), supplies that piece |
 | `A` | Ambiguity | Two reasonable executors would take different actions from the same text: a vague trigger ("when appropriate"), an unclear referent, an unstated threshold | Only the wording differs; the action is the same either way |
 | `R` | Broken reference | A link, anchor, path, step number, tool, command, flag, environment variable or configuration key that does not exist; an empty link destination or link text; a hollow reference whose target exists but does not cover what the sentence promises | It is a placeholder, an example for another repository, a file a plan marks as planned, a path a historical record mentions as it stood at the record's date or revision (its Markdown links must still resolve), or a path relative to a component root the text names |
 | `T` | Terminology drift | One concept carries several names, or one name several concepts, so a reader cannot tell whether two passages are about the same thing | A glossary or the text itself defines the alias |
@@ -38,7 +38,8 @@ current document presents that record as current guidance.
 Severity: `blocker` when following the text leads to a wrong or harmful action;
 `major` when instructions an executor needs together disagree, or a required
 input, step or branch is missing so that the executor must stop or guess; `minor` when navigation,
-naming or wording slows a reader without changing the outcome. Confidence is
+naming or wording slows a reader without changing the outcome. An `A` is rated
+by the worse of its two actions, and is `minor` when both are acceptable. Confidence is
 `high`, `medium` or `low`, set from the evidence, not from the class.
 
 ## How to invoke
@@ -67,7 +68,7 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
   guides and READMEs, AI instructions (`AGENTS.md`,
   `CLAUDE.md`, rules, personas, skills, flows, instruction templates),
   contributor and test guides. A list of paths narrows it. `changes since <ref>`
-  audits the files changed since the merge base with `<ref>` plus their
+  audits the documents among the files changed since the merge base with `<ref>` plus their
   neighbours ([step 1](#1-record-the-state-and-the-scope)).
 - **Mode:** `report` (default; nothing is written in the repository except a
   report file the request asks for, as **Output** below says) or `fix`
@@ -101,15 +102,19 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
    state. Reading a live installation checkout is fine; `fix` mode never writes
    there.
 3. For `changes since <ref>`, fetch the ref first when it is a remote-tracking
-   ref, and record it when the fetch is unavailable, so that a stale ref is not
-   presented as current. Resolve the base with
-   `base=$(git merge-base <ref> HEAD) && [ -n "$base" ]`, and stop and report
-   the ref when that fails (an unknown ref, or histories with no common
+   ref (a fetch writes only Git's remote-tracking refs, not the repository's
+   files, so `report` mode allows it), and record it when the fetch is
+   unavailable, so that a stale ref is not presented as current. Resolve the
+   base with `base=$(git merge-base <ref> HEAD) && [ -n "$base" ]`. When that
+   fails in a shallow clone (`git rev-parse --is-shallow-repository` prints
+   `true`), deepen it with `git fetch --unshallow` and resolve again; otherwise
+   stop and report the ref (an unknown ref, or histories with no common
    commit): the commands below need a base. Then take the files changed since the base, committed or
    not, with `git -c core.quotepath=off diff --name-only -M --diff-filter=d "$base"`,
    which leaves out deleted files, plus the untracked ones with
    `git -c core.quotepath=off ls-files --others --exclude-standard`, which that
-   diff omits. Then add
+   diff omits, and keep the documents among them, the file types of
+   [step 2](#2-inventory-and-classify-the-corpus). Then add
    their neighbours: the documents that link to them, the documents they link
    to, and the documents that state rules about the same subjects (search the
    repository's documents for the subjects the changed passages govern). One
@@ -132,8 +137,9 @@ those deleted in the working tree
 (`git -c core.quotepath=off ls-files --deleted`), so that documents not yet committed are
 included: `*.md`, `*.mdc`, `*.txt`, instruction templates, and the YAML or JSON
 files whose text fields people or models read (descriptions and instructions,
-such as those of plugin manifests), each named in the inventory. Classify each;
-the class decides how its findings count.
+such as those of plugin manifests), each named in the inventory. A file with
+unresolved merge conflicts is listed once per stage; count it once. Classify
+each; the class decides how its findings count.
 
 | Class | Examples | Treatment |
 |---|---|---|
@@ -141,7 +147,7 @@ the class decides how its findings count.
 | Reference | User guides, READMEs, tool and API references | Fully audited |
 | Generated | Text rendered from a source; for Agents-Core, the managed routing sections rendered from `src/engine/protocol/`, the separator block of `docs/subagent-contract.md` rendered from `SEPARATORS` in `src/engine/subagent_text.py`, and the repository memory block written by `describe_repo` | Audited, but each finding is filed against its source and fixed there |
 | Historical | Dated plans, audits, reports, changelogs | Checked only for links that no longer resolve, and for being presented elsewhere as current |
-| Vendored or fixture | Third-party text, test inputs and expected outputs | Out of scope |
+| Vendored or fixture | Third-party text, test inputs and expected outputs, and frozen copies that code compares byte for byte (for Agents-Core, `scripts/templates/legacy/`) | Out of scope, and never edited in `fix` mode |
 
 Record the count per class for the coverage record.
 
@@ -157,15 +163,20 @@ instead of the repository-wide patterns: as pathspecs after `--` for
 patterns inside each directory (`'flows/*.md' 'flows/*.mdc'`, not `flows/`):
 a bare directory also feeds images and code to the checker and the searches.
 Give exact file names with `git --literal-pathspecs`, since a name such as
-`file[1].md` is otherwise a pattern, and check that every given path matched a
-file. The searches also drop matches in files that step 2 classes as vendored
-or fixture. `git grep` does not search symlinks, and item 1 skips them: list
+`file[1].md` is otherwise a pattern, in a call of their own, because that option
+also reads the extension patterns literally; check that every given path
+matched a file with
+`git --literal-pathspecs ls-files --cached --others --exclude-standard --error-unmatch -- <path>...`,
+which fails on one that does not. The commands do not know the vendored and
+fixture files of step 2: drop the matches in those files from their output. `git grep` does not search symlinks, and item 1 skips them: list
 tracked ones with `git -c core.quotepath=off ls-files -s | awk '$1==120000'`
 and record them as unchecked. Run the blocks below in bash or zsh; each starts
 with `set -o pipefail`, so that a failing first command does not look like an
 empty result. `git grep` exits 1 when it finds nothing and 128 on an error, so
 a search that exits 1 with empty output found nothing, and any other failure
-is a check that did not run.
+is a check that did not run. A block's exit status is that of its last
+command only, so read standard error too: a `fatal:` line there is a search
+that did not run, whatever the block's status.
 Every `git` call that lists paths carries `-c core.quotepath=off`, so that
 non-ASCII names come out as they are; a name containing a newline or a tab
 stays quoted even then, so record such a file as unchecked. Existence is still
@@ -239,8 +250,9 @@ found while reading in step 4.
    Agents-Core this flow's own file matches for that reason. The URL list cuts a
    URL at its first `)` and drops trailing sentence punctuation. When the
    request asks to fetch the URLs, request each one, for example with
-   `curl -sS -o /dev/null -L --max-time 20 -w '%{http_code}' '<url>'`, and
-   record its status code; without network access, record the fetch as not run.
+   `curl -sS -g -o /dev/null -L --max-time 20 -w '%{http_code}\n' '<url>'`
+   (`-g` keeps brackets in the URL literal), and record its status code;
+   without network access, record the fetch as not run.
 
 3. **Paths.** List the repository paths with a directory part that the
    documents mention, in prose and in code spans alike, and that do not exist,
@@ -271,9 +283,10 @@ found while reading in step 4.
    It keeps the paths whose first segment exists at the repository root, drops
    those that exist as a file or directory (untracked ones included) and those
    that are ignored local state, and skips globs, placeholders and brace
-   patterns. Two kinds of mention are therefore not listed and are left to the
+   patterns. Three kinds of mention are therefore not listed and are left to the
    reading pass, which the coverage record states: a path under a top-level
-   directory that no longer exists, and a bare file name without a directory,
+   directory that no longer exists, a path that starts with `./` or `../`
+   (item 1 checks those written as Markdown links), and a bare file name without a directory,
    such as `README.md`, whose matches against the tree's file names are mostly
    runtime files, examples for other repositories and product names. A bare name
    written as a Markdown link is still checked by item 1. A path with a space in
@@ -291,8 +304,10 @@ found while reading in step 4.
    a path limited `git log` shows a rename only as a deletion. An empty `$c`
    means no commit removed it: when
    `git -c core.quotepath=off ls-files --deleted -- '<path>'` lists it, it is
-   deleted only in the working tree, and otherwise it was never committed;
-   record which.
+   deleted only in the working tree; otherwise it was never committed, or was
+   removed only while a merge was resolved, which
+   `git log -m --diff-filter=D --format=%h -- '<path>'` then lists. Record
+   which.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
    (`git grep` the name in the defining files); a name with no definition is an
@@ -334,8 +349,8 @@ Contradictions, gaps and ambiguity are found here; no script finds them.
    against order, owner against owner, status against status, and overlapping
    conditions without a stated precedence.
 3. **Read each executable instruction as its executor.** For every flow, how-to,
-   step list and rule that directs an action, assume only what the file and its
-   links provide, and ask: are the inputs and their defaults stated; does each
+   step list and rule that directs an action, assume only what the file, its
+   links and the instructions that row `G` names provide, and ask: are the inputs and their defaults stated; does each
    step have an actor, an action and a checkable outcome; what happens when a
    check fails or a tool is unavailable; is there an observable done criterion;
    is each term defined before use; does each link deliver what its sentence
@@ -346,11 +361,14 @@ Contradictions, gaps and ambiguity are found here; no script finds them.
    and one name used for several concepts.
 
 When the corpus divides into independent areas or is too large to read in one
-context, the executor may split this pass by area across prepared workers under
-the [delegation contract](README.md#delegated-workers): each worker returns its
-local findings, and its subject-index entries in its result's summary, and one
-integrator runs item 2 across all areas, because a contradiction usually spans
-two of them. Validate every worker result before using it. Workers report
+context, this pass may be split by area across prepared workers under the
+[delegation contract](README.md#delegated-workers). Each worker returns its
+local findings, with this flow's class, confidence and quotes in each finding's
+explanation, and publishes its subject-index entries as an output artifact
+that its assignment allows, because a text value of the result holds at most
+4,000 characters. One integrator runs item 2 across all areas, because a
+contradiction usually spans two of them. Validate every worker result, and
+verify every artifact, before using it. Workers report
 severity on their result format's scale; the integrator sets this flow's
 severity from the definitions above, not by translating the label.
 
@@ -364,8 +382,9 @@ never from memory of an earlier read.
    condition, audience or time, an explicit exception, a precedence statement in
    context wherever either text is followed. If such a reading needs no
    guessing, drop the candidate; if it does, reclassify it as `A`.
-3. For an `R`, re-run the check that found it; for a `G`, confirm that no linked
-   document supplies the missing piece.
+3. For an `R`, re-run the check that found it; for a `G`, confirm that neither
+   a linked document nor an instruction that row `G` names supplies the missing
+   piece.
 4. Set the severity and confidence. Note which side changed last
    (`git log -1 --format='%h %cs' -- <path>`, or `git blame -L <start>,<end> -- <path>`
    for lines); for a file that
@@ -429,10 +448,12 @@ unperformed check as passed.
 
 In `fix` mode, after the report:
 
-1. Choose where the fixes go under the target's contributor rules, never in the
+1. When the report holds no finding that item 2 would apply, stop: create no
+   branch, worktree or commit. Otherwise choose where the fixes go under the
+   target's contributor rules, never in the
    live installation checkout. The checkout that receives them, the audited
    checkout itself or a newly cut worktree, is the fix worktree below. When the
-   audited branch is the executor's own, for example the branch of a pull
+   audited branch is the auditing session's own, for example the branch of a pull
    request it is working on, apply on that branch the findings whose resolution
    edits only files in that pull request's diff, and those that the pull
    request's own change caused; the others go to a separate branch as below.
@@ -440,8 +461,8 @@ In `fix` mode, after the report:
    rules then decide which of these stay in it. Otherwise cut a separate
    worktree and branch:
    from the recorded `HEAD`, so that it holds the audited text, where the rules
-   let a branch build on another, and then the fix branch goes back to the
-   audited branch's author;
+   let a branch build on another, and then the report names the fix branch
+   for the audited branch's author;
    from the integration branch's remote tip, fetched first (when the fetch
    fails, from the last fetched tip, and the report says so), where the rules
    require every change to start there, as Agents-Core's `AGENTS.md` does
@@ -450,9 +471,10 @@ In `fix` mode, after the report:
 2. Apply only the findings whose resolution the order of authority settles, and
    `R` fixes with a single correct target. Fix generated text at its source and
    regenerate it with the command the target names (for Agents-Core,
-   `python3 -m src.engine.protocol_text --write` for the protocol sections and
-   `python3 -m src.engine.subagent_contract_text --write` for the separator
-   block, then the follow-ups `AGENTS.md` names for them, such as adding a
+   `.venv/bin/python -m src.engine.protocol_text --write` for the protocol
+   sections and `.venv/bin/python -m src.engine.subagent_contract_text --write`
+   for the separator block, with the `PYTHON` interpreter of step 3 where there
+   is no `.venv`, then the follow-ups `AGENTS.md` names for them, such as adding a
    printed legacy reminder name where the tests list them). Leave owner
    decisions untouched.
 3. Before applying a finding, re-read every location it quotes in the fix
@@ -471,10 +493,13 @@ In `fix` mode, after the report:
    `tests/test_subagent_contract_text.py` for the separator block), read the
    full diff, and commit under the target's convention (for Agents-Core, a
    Conventional Commit of type `docs`); the `fix` request covers these local
-   commits. Report the fix branch, its worktree path and the commits. Push and open a pull
-   request only when the request asks for it, and then run
+   commits. Report the fix branch, its worktree path and the commits. Push only
+   when the request asks for a push or a pull request. For a pull request, run
    [pr-review](pr-review.md) through `run_flow` where Agents-Core is available,
-   with `no-merge` unless the request asks for a merge.
+   with `no-merge` unless the request asks for a merge, instead of opening it
+   first: pr-review opens it after its own review, because opening it starts
+   the bot reviews, and Agents-Core's `AGENTS.md` requires that flow before the
+   first submission.
 
 ## Done criteria
 
