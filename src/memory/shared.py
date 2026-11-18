@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import re
+import sys
 import threading
 import time
 from collections import Counter
@@ -55,11 +56,29 @@ logger = logging.getLogger(__name__)
 MANAGED_ITEMS = frozenset({"feedback_agents_core_routing.md"})
 # Item names that hold key material whatever their content (Codex items may have any name).
 SECRET_NAME = re.compile(r"(?i)^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|.*\.(?:pem|key|p12|pfx|kdbx|keychain))$")
+# Credentials the way notes write them, on top of the user sync's scan, which looks for the forms
+# configuration files use. A labelled value counts only when it looks like one: at least six
+# characters without spaces, with a letter and a digit or symbol, so prose such as "the token is
+# rotated daily" stays a fact.
+MEMORY_SECRETS = (
+    ("labelled_credential", re.compile(
+        r"(?i)(?<![\w-])(?:password|passwd|passphrase|пароль|secret|token|api[_ -]?key|access[_ -]?key|"
+        r"client[_ -]?secret)(?![\w-])[\"'`*]*\s*(?::|=|\bis\b|—|-)\s*[\"'`]?"
+        r"(?=[^\s\"'`<>]*[^\W\d_])(?=[^\s\"'`<>]*[\d!@#%^&*_+=~])(?!\$\{|\{\{)[^\s\"'`<>]{6,}")),
+    ("url_credential", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
+    ("stripe_key", re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}")),
+    ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
+    ("huggingface_token", re.compile(r"\bhf_[A-Za-z0-9]{30,}")),
+    ("npm_token", re.compile(r"\bnpm_[A-Za-z0-9]{36}")),
+    ("bearer_token", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{20,}")),
+)
 MAX_FACT_BYTES = native.MAX_SHOW
 CHUNK_CHARS = 1500
 STORE_NAME = "shared_memory_store"
 MODEL_MARKER = ".shared_memory_model"
-LOCK_NAME = ".shared_memory.lock"
+LOCK_NAME = ".shared_memory.lock"  # one builder at a time
+SAVE_LOCK_NAME = ".shared_memory.save.lock"  # a save excludes reloads, which share it
 # Chunks per embedding call. In the shared service every embedding goes through one inference worker,
 # so a persona routing call waits for at most one batch: two chunks are a few seconds on a small CPU.
 EMBED_BATCH = 2
@@ -78,6 +97,8 @@ FACT_ID = re.compile(r"[0-9a-f]{12}")
 RESULT_BUDGET = INLINE_LIMIT - 5_000
 PREVIEW_CHARS = 600
 MIN_PREVIEW_CHARS = 100
+FIELD_CHARS = 300  # a fact's name and description in a listing
+MAX_SOURCES = 10  # sources listed per fact; sources_total gives the count beyond
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _HEADING = re.compile(r"^#{1,6}\s")
@@ -93,6 +114,7 @@ class Source:
     project: str  # Claude Code's project directory name; "" outside projects and for Codex
     file: str
     path: str  # where the file is, under the store's label
+    mtime: float = 0.0  # the file's modification time; not shown
 
     def to_dict(self) -> dict:
         return {"client": self.client, "store": self.store, "project": self.project, "file": self.file,
@@ -116,19 +138,31 @@ class Fact:
         return "project" if any(source.project for source in self.sources) else "user"
 
     @property
-    def modified(self) -> str:
-        return datetime.fromtimestamp(self.timestamp, timezone.utc).isoformat(timespec="seconds")
+    def modified(self) -> Optional[str]:
+        try:
+            return datetime.fromtimestamp(self.timestamp, timezone.utc).isoformat(timespec="seconds")
+        except (OverflowError, OSError, ValueError):
+            return None
 
     def summary(self) -> dict:
-        return {"id": self.id, "name": self.name, "description": self.description, "type": self.type,
-                "modified": self.modified, "scope": self.scope,
-                "sources": [source.to_dict() for source in self.sources]}
+        """The fact without its text; long fields are cut so one fact always fits a listing."""
+        out = {"id": self.id, "name": _cut(self.name, FIELD_CHARS), "description": _cut(self.description, FIELD_CHARS),
+               "type": _cut(self.type, 100), "modified": self.modified, "scope": self.scope,
+               "sources": [source.to_dict() for source in self.sources[:MAX_SOURCES]]}
+        if len(self.sources) > MAX_SOURCES:
+            out["sources_total"] = len(self.sources)
+        return out
+
+
+def _cut(text: Optional[str], limit: int) -> Optional[str]:
+    return preview(text, limit) if text is not None and len(text) > limit else text
 
 
 @dataclass
 class Collection:
     facts: Dict[str, Fact]
-    skipped: Counter
+    skipped: Counter  # by reason
+    skipped_at: Counter = field(default_factory=Counter)  # by (project, reason), to report only what a scope shows
 
 
 _parsed: Dict[str, Tuple[Tuple[int, int], Optional[tuple]]] = {}
@@ -158,6 +192,8 @@ def _read_item(path: Path) -> tuple:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return ("not_text",)
+    if any(pattern.search(text) for _, pattern in MEMORY_SECRETS):
+        return ("secret",)
     meta, _ = native.frontmatter(text)
     return ("ok", data, info.st_mtime, hashlib.sha256(data).hexdigest(), native.fields(meta))
 
@@ -183,42 +219,62 @@ def _item(path: Path) -> tuple:
 
 def collect(stores: Iterable[native.Store]) -> Collection:
     """The facts of every discovered memory directory, and what was skipped, by reason."""
-    facts: Dict[str, Fact] = {}
-    skipped: Counter = Counter()
+    collection = Collection({}, Counter())
+
+    def skip(project: str, reason: str) -> None:
+        collection.skipped[reason] += 1
+        collection.skipped_at[(project, reason)] += 1
+
     for store in stores:
-        for project, memory in native.places(store, every_dir=True):
-            for name in native.item_names(store, memory):
-                if name in MANAGED_ITEMS:
-                    skipped["managed"] += 1
-                    continue
-                if SECRET_NAME.match(name):
-                    skipped["secret"] += 1
-                    continue
-                path = memory / name
+        try:
+            # A directory this account may not list ends this store's walk, not the whole answer.
+            found_places = list(native.places(store, every_dir=True))
+        except OSError:
+            skip("", "unreadable")
+            continue
+        for project, memory in found_places:
+            try:
+                names = native.item_names(store, memory)
+            except OSError:
+                skip(project, "unreadable")
+                continue
+            for name in names:
                 try:
-                    native.inside(store, path)
-                except native.Refused:
-                    skipped["refused"] += 1
-                    continue
-                result = _item(path)
-                if result[0] != "ok":
-                    skipped[result[0]] += 1
-                    continue
-                _, data, mtime, digest, found = result
-                relative = memory.relative_to(store.path).as_posix()
-                source = Source(store.client, store.label, project, name, f"{store.label}/{relative}/{name}")
-                fact = facts.get(digest[:12])
-                if fact is None:
-                    text = data.decode("utf-8")
-                    dated = native.timestamp_of(found["modified"])
-                    facts[digest[:12]] = Fact(digest[:12], digest, text, found["name"], found["description"],
-                                              found["type"], dated if dated is not None else mtime, [source],
-                                              dated is not None)
-                else:
-                    fact.sources.append(source)
-                    if not fact.dated:
-                        fact.timestamp = max(fact.timestamp, mtime)
-    return Collection(facts, skipped)
+                    reason = _add(collection.facts, store, project, memory, name)
+                except (OSError, ValueError, OverflowError, RecursionError):
+                    reason = "unreadable"
+                if reason:
+                    skip(project, reason)
+    return collection
+
+
+def _add(facts: Dict[str, Fact], store: native.Store, project: str, memory: Path, name: str) -> Optional[str]:
+    """Adds the item ``name`` to ``facts``; the reason it was skipped, or None."""
+    if name in MANAGED_ITEMS:
+        return "managed"
+    if SECRET_NAME.match(name):
+        return "secret"
+    path = memory / name
+    try:
+        native.inside(store, path)
+    except native.Refused:
+        return "refused"
+    result = _item(path)
+    if result[0] != "ok":
+        return result[0]
+    _, data, mtime, digest, found = result
+    relative = memory.relative_to(store.path).as_posix()
+    source = Source(store.client, store.label, project, name, f"{store.label}/{relative}/{name}", mtime)
+    fact = facts.get(digest[:12])
+    if fact is None:
+        dated = native.timestamp_of(found["modified"])
+        facts[digest[:12]] = Fact(digest[:12], digest, data.decode("utf-8"), found["name"], found["description"],
+                                  found["type"], dated if dated is not None else mtime, [source], dated is not None)
+    else:
+        fact.sources.append(source)
+        if not fact.dated:
+            fact.timestamp = max(fact.timestamp, mtime)
+    return None
 
 
 def discover() -> List[native.Store]:
@@ -256,20 +312,37 @@ def project_keys(root: Optional[Path]) -> set:
 def select(facts: Iterable[Fact], *, scope: str, projects: set, client: Optional[str] = None,
            memory_type: Optional[str] = None) -> List[Fact]:
     """The facts a caller in ``projects`` may see under ``scope``, newest first, each with only the
-    sources it may see: a copy of a fact in another project's memory stays unnamed."""
+    sources it may see: a copy of a fact in another project's memory stays unnamed, and an undated
+    fact's time comes from the visible copies only."""
     chosen = []
     for fact in facts:
         sources = [source for source in fact.sources
-                   if (client is None or source.client == client)
-                   and (scope == "all" or not source.project or (scope == "project" and source.project in projects))]
+                   if (client is None or source.client == client) and shows(source.project, scope, projects)]
         if not sources:
             continue
         if memory_type is not None and (fact.type or "").lower() != memory_type.lower():
             continue
+        moment = fact.timestamp if fact.dated else max(source.mtime for source in sources)
         chosen.append(Fact(fact.id, fact.sha256, fact.text, fact.name, fact.description, fact.type,
-                           fact.timestamp, sources, fact.dated))
+                           moment, sources, fact.dated))
     chosen.sort(key=lambda fact: (-fact.timestamp, fact.id))
     return chosen
+
+
+# Windows and macOS file systems usually ignore case, and a workspace root can arrive spelled with
+# another case than the one Claude Code named its project directory after.
+_FOLD_CASE = os.name == "nt" or sys.platform == "darwin"
+
+
+def shows(project: str, scope: str, projects: set) -> bool:
+    """A place of ``project`` ("" for user-level memory) shows under ``scope`` to a caller in ``projects``."""
+    if scope == "all" or not project:
+        return True
+    if scope != "project":
+        return False
+    if _FOLD_CASE:
+        return project.casefold() in {key.casefold() for key in projects}
+    return project in projects
 
 
 # --- chunks and lexical search ----------------------------------------------------------------------
@@ -355,18 +428,45 @@ def _default_fingerprint() -> str:
     return model_fingerprint()
 
 
+def _foreground_busy() -> bool:
+    """Another embedding waits for or holds the shared service's one inference worker (persona
+    routing, a query). Over stdio there is no such worker, and nothing to wait for."""
+    from src.engine import embedder
+    executor = getattr(embedder, "_inference", None)
+    return executor is not None and getattr(executor, "pending", 0) > 0
+
+
+YIELD_POLL_SECONDS = 0.25
+YIELD_MAX_SECONDS = 30.0
+
+
+def _retry(action: Callable[[], None], attempts: int = 5) -> None:
+    """``action``, retried on ``PermissionError``: on Windows replacing a file that another process
+    (or a virus scanner) has open fails for a moment."""
+    for attempt in range(attempts):
+        try:
+            action()
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2 * (attempt + 1))
+
+
 class SharedMemoryIndex:
     """Chunk vectors of the shared facts, built in the background; lexical search needs none."""
 
     def __init__(self, data_dir: str, *, embed_texts: Callable = _default_embed_texts,
                  embed_query: Callable = _default_embed_query, fingerprint: Callable[[], str] = _default_fingerprint,
-                 save_every: float = SAVE_EVERY_SECONDS):
+                 save_every: float = SAVE_EVERY_SECONDS, busy: Callable[[], bool] = _foreground_busy):
         self.data_dir = data_dir
         self._embed_texts, self._embed_query, self._fingerprint = embed_texts, embed_query, fingerprint
         self._save_every = save_every
+        self._busy = busy
         self._lock = threading.RLock()
         self._store = None
         self._store_stamp = None
+        self._model: Optional[str] = None  # the marker saved with the loaded vectors
         self._wanted: Dict[str, str] = {}
         self._thread: Optional[threading.Thread] = None
         self._state = {"state": "idle", "covered": 0, "total": 0}
@@ -375,20 +475,28 @@ class SharedMemoryIndex:
     # ---- storage
     def _paths(self):
         return (os.path.join(self.data_dir, STORE_NAME + ".json"), os.path.join(self.data_dir, MODEL_MARKER),
-                os.path.join(self.data_dir, LOCK_NAME))
+                os.path.join(self.data_dir, LOCK_NAME), os.path.join(self.data_dir, SAVE_LOCK_NAME))
 
     def _vectors(self):
-        """The vector store as saved on disk, reloaded when another process saved it since."""
+        """The vector store as saved on disk, reloaded when another process saved it since.
+
+        A save writes the store's two files and the model marker one after another, and the store
+        discards both files when it finds them from two different saves. So a save holds the save
+        lock exclusively and a reload holds it shared: a reload never sees half a save."""
         from src.engine.vector_store import NumpyVectorStore
-        meta_path, marker_path, _ = self._paths()
-        try:
-            stamp = (os.stat(meta_path).st_mtime_ns, self._read_marker(marker_path))
-        except OSError:
-            stamp = None
+        from src.file_lock import file_lock
+        meta_path, marker_path, _, save_lock = self._paths()
         with self._lock:
-            if self._store is None or stamp != self._store_stamp:
-                self._store = NumpyVectorStore(STORE_NAME, self.data_dir)
-                self._store_stamp = stamp
+            os.makedirs(self.data_dir, exist_ok=True)
+            with file_lock(save_lock, shared=True):
+                try:
+                    stamp = (os.stat(meta_path).st_mtime_ns, self._read_marker(marker_path))
+                except OSError:
+                    stamp = None
+                if self._store is None or stamp != self._store_stamp:
+                    self._store = NumpyVectorStore(STORE_NAME, self.data_dir)
+                    self._store_stamp = stamp
+                    self._model = stamp[1] if stamp else None
             return self._store
 
     @staticmethod
@@ -400,25 +508,30 @@ class SharedMemoryIndex:
             return None
 
     def _usable(self, model: str) -> bool:
-        """The stored vectors were made by ``model``."""
-        return self._read_marker(self._paths()[1]) == model
+        """The loaded vectors were made by ``model`` (the marker saved together with them)."""
+        self._vectors()
+        with self._lock:
+            return self._model == model
 
     def _save(self, vectors: Dict[str, np.ndarray], documents: Dict[str, str], model: str) -> None:
-        store = self._vectors()
+        from src.engine.vector_store import NumpyVectorStore
+        from src.file_lock import file_lock
+        _, marker_path, _, save_lock = self._paths()
         ids = sorted(vectors)
-        if ids:
-            store.replace(ids=ids, embeddings=np.asarray([vectors[i] for i in ids], dtype=np.float32),
-                          documents=[documents[i] for i in ids], metadatas=[{} for _ in ids])
-        else:
-            store.clear()
-        store.save()
-        marker_path = self._paths()[1]
-        os.makedirs(self.data_dir, exist_ok=True)
-        temporary = marker_path + ".tmp"
-        with open(temporary, "w", encoding="utf-8") as stream:
-            stream.write(model)
-        os.replace(temporary, marker_path)
         with self._lock:
+            os.makedirs(self.data_dir, exist_ok=True)
+            with file_lock(save_lock):
+                store = NumpyVectorStore(STORE_NAME, self.data_dir)
+                if ids:
+                    store.replace(ids=ids, embeddings=np.asarray([vectors[i] for i in ids], dtype=np.float32),
+                                  documents=[documents[i] for i in ids], metadatas=[{} for _ in ids])
+                else:
+                    store.clear()
+                _retry(store.save)
+                temporary = marker_path + ".tmp"
+                with open(temporary, "w", encoding="utf-8") as stream:
+                    stream.write(model)
+                _retry(lambda: os.replace(temporary, marker_path))
             self._store_stamp = None  # read the saved state back on next use
 
     # ---- building
@@ -432,16 +545,23 @@ class SharedMemoryIndex:
         with self._lock:
             if documents != self._wanted:  # a running build restarts only for a real change
                 self._wanted = dict(documents)
-            if self._thread is not None and self._thread.is_alive():
+            if self._thread is not None:
                 return dict(self._state)
             covered = self._covered(documents)
-            if covered == len(documents):
+            # Stored chunks that are no longer wanted (a deleted or newly skipped note) are pruned by
+            # a build that embeds nothing: their text must not stay on disk.
+            if covered == len(documents) and self._vectors().count() == covered:
                 self._state = {"state": "ready", "covered": covered, "total": len(documents)}
                 return dict(self._state)
             self._state = {"state": "building", "covered": covered, "total": len(documents)}
             self._thread = threading.Thread(target=self._build, name="shared-memory-index", daemon=True)
             self._thread.start()
             return dict(self._state)
+
+    def coverage(self, documents: Dict[str, str]) -> dict:
+        """The build state with ``covered`` and ``total`` counted over ``documents`` only."""
+        state = self.status()
+        return {**state, "covered": self._covered(documents), "total": len(documents)}
 
     def _covered(self, documents: Dict[str, str]) -> int:
         try:
@@ -466,7 +586,10 @@ class SharedMemoryIndex:
                     with self._lock:
                         wanted = self._wanted
                     if self._build_once(wanted):
-                        break
+                        with self._lock:
+                            if self._wanted is wanted:
+                                self._thread = None  # under the lock: a refresh after this starts a new build
+                                return
         except BlockingIOError:
             with self._lock:
                 self._state = {**self._state, "state": "building_elsewhere"}
@@ -474,6 +597,8 @@ class SharedMemoryIndex:
             logger.warning("shared memory index build failed: %s", error, exc_info=True)
             with self._lock:
                 self._state = {**self._state, "state": "failed", "error": f"{type(error).__name__}: {error}"}
+        with self._lock:
+            self._thread = None
 
     def _build_once(self, wanted: Dict[str, str]) -> bool:
         """Embeds what ``wanted`` lacks; True when done, False when ``wanted`` changed meanwhile."""
@@ -492,6 +617,7 @@ class SharedMemoryIndex:
                 if self._wanted is not wanted:
                     self._save(vectors, wanted, model)
                     return False
+            self._yield()
             batch = todo[start:start + EMBED_BATCH]
             embedded = np.asarray(self._embed_texts([wanted[chunk_id] for chunk_id in batch]), dtype=np.float32)
             for chunk_id, vector in zip(batch, embedded):
@@ -507,6 +633,13 @@ class SharedMemoryIndex:
                 return False
             self._state = {"state": "ready", "covered": len(vectors), "total": len(wanted)}
         return True
+
+    def _yield(self) -> None:
+        """Waits, up to ``YIELD_MAX_SECONDS``, while another embedding is queued or running, so the
+        build never queues ahead of persona routing: a foreground call waits for one batch at most."""
+        deadline = time.monotonic() + YIELD_MAX_SECONDS
+        while self._busy() and time.monotonic() < deadline:
+            time.sleep(YIELD_POLL_SECONDS)
 
     # ---- searching
     def _chunk_tokens(self, chunk_id: str, document: str) -> List[str]:
@@ -533,9 +666,11 @@ class SharedMemoryIndex:
                    if documents[chunk_id] == document]
         if not current:
             return {}, {}
-        vectors = store.get_embeddings(current)
         query_vector = np.asarray(self._embed_query(query), dtype=np.float32).reshape(-1)
         query_vector = query_vector / (np.linalg.norm(query_vector) or 1.0)
+        # Vectors of another size (a store saved for another model while this query loaded) are left out.
+        vectors = {chunk_id: vector for chunk_id, vector in store.get_embeddings(current).items()
+                   if vector.shape == query_vector.shape}
         similarity = {}
         for chunk_id, vector in vectors.items():
             similarity[chunk_id] = float(np.dot(vector, query_vector) / (np.linalg.norm(vector) or 1.0))
@@ -572,23 +707,34 @@ class SharedMemoryIndex:
                   "lexical": entry["lexical"], "semantic": entry["semantic"]} for fact_id, entry in ranked],
                 vectors)
 
-    def similar(self, fact: Fact, others: Sequence[Fact], vectors: Dict[str, np.ndarray]) -> List[dict]:
-        """Facts of another client or project whose nearest chunk is at least ``SIMILAR_MIN`` similar."""
-        own = [vectors[chunk_id] for chunk_id, _ in chunks(fact) if chunk_id in vectors]
-        if not own:
+    def similar(self, fact: Fact, others: Sequence[Fact], vectors: Dict[str, np.ndarray],
+                matrices: Optional[Dict[str, Optional[np.ndarray]]] = None) -> List[dict]:
+        """Facts of another client or project whose nearest chunk is at least ``SIMILAR_MIN`` similar.
+
+        ``matrices`` caches each fact's normalized chunk vectors across the rows of one query."""
+        matrices = {} if matrices is None else matrices
+
+        def matrix_of(item: Fact) -> Optional[np.ndarray]:
+            if item.id not in matrices:
+                rows = [vectors[chunk_id] for chunk_id, _ in chunks(item) if chunk_id in vectors]
+                if rows:
+                    matrix = np.asarray(rows, dtype=np.float32)
+                    matrices[item.id] = matrix / np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-12)
+                else:
+                    matrices[item.id] = None
+            return matrices[item.id]
+
+        mine = matrix_of(fact)
+        if mine is None:
             return []
-        mine = np.asarray(own, dtype=np.float32)
-        mine = mine / np.maximum(np.linalg.norm(mine, axis=1, keepdims=True), 1e-12)
         places = {(source.client, source.project) for source in fact.sources}
         found = []
         for other in others:
             if other.id == fact.id or not ({(s.client, s.project) for s in other.sources} - places):
                 continue
-            theirs = [vectors[chunk_id] for chunk_id, _ in chunks(other) if chunk_id in vectors]
-            if not theirs:
+            matrix = matrix_of(other)
+            if matrix is None:
                 continue
-            matrix = np.asarray(theirs, dtype=np.float32)
-            matrix = matrix / np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-12)
             score = float((mine @ matrix.T).max())
             if score >= SIMILAR_MIN:
                 found.append({"id": other.id, "name": other.name, "similarity": round(score, 4),
@@ -654,11 +800,21 @@ def _listing(mode: str, rows: List[Tuple[Fact, Optional[str], dict]], extra: dic
         payload = render(size, len(rows))
         if _fits(payload):
             return payload
-    for count in range(len(rows) - 1, -1, -1):
+    for count in range(len(rows) - 1, 0, -1):
         payload = render(MIN_PREVIEW_CHARS, count)
         if _fits(payload):
             return payload
-    return render(MIN_PREVIEW_CHARS, 0)
+    if not rows:
+        return render(MIN_PREVIEW_CHARS, 0)
+    # Not even one row fits with its text: the first comes without it, so offset still moves on.
+    payload = {"mode": mode, "total": 1, "facts": [_entry(rows[0][0], None, 0, {})]}
+    note = "This fact's text is left out to keep the result inline; read_shared_memory(fact_id=<id>) returns it."
+    if len(rows) > 1:
+        payload["omitted"] = len(rows) - 1
+        note += f" Repeat this call with offset={offset + 1} for the rest."
+    payload["instruction"] = note
+    payload.update(extra)
+    return payload
 
 
 def read(*, root: Optional[Path], scope: str = "project", client: Optional[str] = None,
@@ -670,10 +826,19 @@ def read(*, root: Optional[Path], scope: str = "project", client: Optional[str] 
     collection = collect(discover() if stores is None else stores)
     projects = project_keys(root)
     report: dict = {"scope": scope}
-    if collection.skipped:
-        report["skipped"] = dict(sorted(collection.skipped.items()))
+    skipped = Counter()
+    for (project, reason), count in collection.skipped_at.items():
+        if shows(project, scope, projects):  # another project's skipped files stay uncounted
+            skipped[reason] += count
+    if skipped:
+        report["skipped"] = dict(sorted(skipped.items()))
     if root is None and scope == "project":
         report["note"] = "No project resolved, so only user-level facts are shown."
+    elif scope == "project" and not any(
+            shows(source.project, "project", projects) and source.project
+            for fact in collection.facts.values() for source in fact.sources):
+        report["note"] = ("No client keeps memory for this workspace's project; only user-level facts "
+                          "are shown.")
     visible = select(collection.facts.values(), scope=scope, projects=projects, client=client,
                      memory_type=memory_type)
     if fact_id is not None:
@@ -682,12 +847,16 @@ def read(*, root: Optional[Path], scope: str = "project", client: Optional[str] 
     if not query:
         rows = [(fact, _body(fact), {}) for fact in visible[offset:offset + limit]]
         return _listing("recency", rows, report, offset)
-    report["index"] = index.refresh(documents_of(collection.facts.values())) if semantic else {"state": "off"}
+    if semantic:
+        index.refresh(documents_of(collection.facts.values()))  # every fact, so a scope change needs no build
+        report["index"] = index.coverage(documents_of(visible))  # counted over what this scope shows
+    else:
+        report["index"] = {"state": "off"}
     ranked, vectors = index.search(query, visible, use_vectors=semantic)
-    rows = []
+    rows, matrices = [], {}
     for item in ranked[offset:offset + limit]:
         extra = {"score": item["score"], "match": {"lexical": item["lexical"], "semantic": item["semantic"]}}
-        alike = index.similar(item["fact"], visible, vectors) if vectors else []
+        alike = index.similar(item["fact"], visible, vectors, matrices) if vectors else []
         if alike:
             extra["similar"] = alike
         rows.append((item["fact"], item["chunk"], extra))

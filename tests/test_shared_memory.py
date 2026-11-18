@@ -367,3 +367,156 @@ async def test_the_tool_searches_and_reads_a_fact(served, world):
     assert found["facts"][0]["name"] == "style"
     whole = json.loads(await server.read_shared_memory(fact_id=found["facts"][0]["id"].upper()))
     assert whole["facts"][0]["text"].startswith("---\nname: style")
+
+
+# --- review and pre-mortem fixes ------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body", [
+    "- Password: hunter2x",
+    "пароль: Qwerty123",
+    "db is at postgres://admin:p4ss@db.local/app",
+    "stripe sk_live_" + "a1" * 12,
+    "maps key AIza" + "B" * 35,
+    "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl",
+    "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123",
+])
+def test_credentials_written_the_way_notes_write_them_are_skipped(world, body):
+    write(world["own"] / "pasted.md", note("pasted", "a pasted credential", body))
+    collection = shared.collect(world["stores"])
+    assert "pasted" not in by_name(collection.facts.values())
+    assert collection.skipped["secret"] == 4
+
+
+@pytest.mark.parametrize("body", [
+    "The token is rotated daily by the deploy job.",
+    "пароль: хранится в менеджере паролей, не в заметках",
+    "Use the password=<from the vault> placeholder in examples.",
+])
+def test_prose_about_credentials_stays_a_fact(world, body):
+    write(world["own"] / "prose.md", note("prose", "talks about secrets", body))
+    assert "prose" in by_name(shared.collect(world["stores"]).facts.values())
+
+
+@pytest.mark.parametrize("frontmatter", [
+    "modified: 2026-02-30", "modified: 9999-12-31T23:59:59-14:00", "modified: 1901-01-01",
+    "name: [unclosed", "nested: " + "[" * 2000 + "]" * 2000,
+])
+def test_a_bad_frontmatter_never_fails_the_whole_answer(world, frontmatter, tmp_path):
+    write(world["own"] / "odd.md", f"---\n{frontmatter}\n---\nan odd note\n")
+    collection = shared.collect(world["stores"])
+    odd = next(fact for fact in collection.facts.values() if fact.sources[0].file == "odd.md")
+    assert odd.modified is not None
+    payload = shared.read(root=world["root"], stores=world["stores"], index=shared.SharedMemoryIndex(str(tmp_path / "i")))
+    assert payload["total"] >= 1
+
+
+def test_an_unreadable_directory_is_counted_not_fatal(world, monkeypatch):
+    real = native.item_names
+
+    def denied(store, memory):
+        if memory == world["own"]:
+            raise PermissionError(13, "denied")
+        return real(store, memory)
+
+    monkeypatch.setattr(native, "item_names", denied)
+    collection = shared.collect(world["stores"])
+    assert collection.skipped["unreadable"] == 1
+    assert "prefs" in by_name(collection.facts.values())
+
+
+def test_one_huge_fact_still_fits_and_paging_moves_on(world, tmp_path):
+    write(world["own"] / "huge_desc.md", note("big", "d" * 100_000, "body"))
+    for number in range(15):
+        write(world["codex"] / "memories" / f"copy_{number}.md", (world["own"] / "huge_desc.md").read_text(encoding="utf-8"))
+    payload = shared.read(root=world["root"], stores=world["stores"], index=shared.SharedMemoryIndex(str(tmp_path / "i")))
+    big = next(fact for fact in payload["facts"] if fact["name"] == "big")
+    assert len(big["description"]) <= shared.FIELD_CHARS and big["sources_total"] == 16
+    assert len(big["sources"]) == shared.MAX_SOURCES
+    assert shown_size(shared.to_json(payload)) <= shared.RESULT_BUDGET
+
+
+def test_hidden_copies_leave_no_trace_in_time_or_counts(world, tmp_path):
+    other = world["claude"] / "projects" / native.project_name(world["other"]) / "memory"
+    write(other / "leak.md", note("leak", "another project's key", KEY))
+    undated = "a note without a date\n"
+    write(world["own"] / "undated.md", undated)
+    copy = write(other / "undated.md", undated)
+    os.utime(world["own"] / "undated.md", (1_000_000_000, 1_000_000_000))
+    os.utime(copy, (2_000_000_000, 2_000_000_000))
+    payload = shared.read(root=world["root"], stores=world["stores"], index=shared.SharedMemoryIndex(str(tmp_path / "i")),
+                          limit=50)
+    fact = next(fact for fact in payload["facts"] if fact["sources"][0]["file"] == "undated.md")
+    assert fact["modified"].startswith("2001-09-09")
+    assert payload["skipped"]["secret"] == 3  # the other project's key is not counted here
+
+
+def test_a_root_spelled_in_another_case_still_finds_its_project(world, monkeypatch):
+    monkeypatch.setattr(shared, "_FOLD_CASE", True)
+    spelled = Path(str(world["root"]).swapcase())
+    facts = shared.collect(world["stores"]).facts.values()
+    assert "style" in by_name(shared.select(facts, scope="project", projects=shared.project_keys(spelled)))
+
+
+def test_a_deleted_note_leaves_the_store_on_disk(world, tmp_path):
+    index = make_index(tmp_path / "index", FakeModel())
+    build(world, index)
+    (world["codex"] / "memories" / "codex_note.md").unlink()
+    shared.read(root=world["root"], query="deploys", stores=world["stores"], index=index)
+    index.join(30)
+    stored = (tmp_path / "index" / (shared.STORE_NAME + ".json")).read_text(encoding="utf-8")
+    assert "daemon update command" not in stored
+
+
+def test_reloads_never_see_half_a_save(world, tmp_path):
+    model = FakeModel()
+    writer = make_index(tmp_path / "index", model)
+    build(world, writer)
+    documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    vectors = {chunk_id: model.vector(text) for chunk_id, text in documents.items()}
+    stop, problems = threading.Event(), []
+
+    def reload():
+        reader = make_index(tmp_path / "index", model)
+        while not stop.is_set():
+            reader._store_stamp = "stale"  # force a reload from disk
+            if reader._vectors().count() != len(vectors):
+                problems.append("the store was lost")
+
+    readers = [threading.Thread(target=reload, daemon=True) for _ in range(2)]
+    for thread in readers:
+        thread.start()
+    try:
+        for _ in range(15):
+            writer._save(vectors, documents, model.fingerprint())
+    finally:
+        stop.set()
+        for thread in readers:
+            thread.join(10)
+    assert not problems
+
+
+def test_the_build_waits_while_a_foreground_embedding_is_queued(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(shared, "YIELD_POLL_SECONDS", 0.01)
+    busy = threading.Event()
+    busy.set()
+    model = FakeModel()
+    index = make_index(tmp_path / "index", model, busy=busy.is_set)
+    index.refresh(shared.documents_of(shared.collect(world["stores"]).facts.values()))
+    try:
+        index.join(0.3)
+        assert model.calls == 0 and index.status()["state"] == "building"
+    finally:
+        busy.clear()
+        index.join(30)
+    assert index.status()["state"] == "ready" and model.calls > 0
+
+
+@pytest.mark.asyncio
+async def test_the_tool_turns_hybrid_once_retrieval_is_ready(served, world, monkeypatch):
+    import src.server as server
+    monkeypatch.setattr(server.readiness, "is_ready", lambda: True)
+    first = json.loads(await server.read_shared_memory(query="markdown links"))
+    served.join(30)
+    second = json.loads(await server.read_shared_memory(query="markdown links"))
+    assert first["facts"][0]["name"] == "style" and second["mode"] == "hybrid"
+    assert second["index"]["state"] == "ready" and second["index"]["covered"] == second["index"]["total"]

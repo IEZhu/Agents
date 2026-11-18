@@ -43,8 +43,7 @@ CODEX_MEMORY_DIRS = ("memories", "memories_v2")
 
 
 class Refused(Exception):
-    """A path this module will not read: ``code`` names why (``symlink_refused``, ``not_a_file``,
-    ``outside_store``)."""
+    """A path this module will not read: ``code`` names why (``symlink_refused``, ``not_a_file``)."""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -136,7 +135,7 @@ def frontmatter(text: str) -> tuple[dict, bool]:
         return {}, True
     try:
         value = yaml.safe_load(block)
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError, ValueError, OverflowError):  # also a date such as 2026-02-30
         return {}, False
     return (value, True) if isinstance(value, dict) else ({}, False)
 
@@ -152,7 +151,16 @@ def field_text(value) -> str | None:
 
 
 def timestamp_of(value) -> float | None:
-    """A frontmatter time as a POSIX timestamp, or None; a time without a zone counts as UTC."""
+    """A frontmatter time as a POSIX timestamp, or None; a time without a zone counts as UTC. A time
+    before 1970 or after 9999, which ``datetime.fromtimestamp`` cannot always turn back, is None."""
+    moment = _timestamp(value)
+    return moment if moment is not None and 0 <= moment <= _LATEST else None
+
+
+_LATEST = 253402214400.0  # 9999-12-31T00:00:00Z
+
+
+def _timestamp(value) -> float | None:
     if isinstance(value, datetime):
         moment = value
     elif isinstance(value, date):

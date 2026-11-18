@@ -2325,8 +2325,9 @@ async def read_history(
         return json.dumps(payload, ensure_ascii=False)
 
 
+# Not traced (no @observe): its result is the text of every client's memory, which must not leave
+# the machine through the optional Langfuse traces.
 @mcp.tool(**TOOL_HINTS["read_shared_memory"])
-@observe(name="read_shared_memory")
 async def read_shared_memory(
     query: ta.opt_str("Optional text to search the facts for.") = None,
     scope: ta.opt_str("project (default): this workspace's facts and the user-level ones; user: only the "
@@ -2364,13 +2365,13 @@ async def read_shared_memory(
     Code's 50,000-character result limit: previews shrink, then the last facts are left out.
     """
     try:
-        root, workspace_report = None, {}
+        root, workspace_report, unresolved = None, {}, None
         try:
             client_context = await resolve_client_context(ctx, workspace)
             root = client_context.require_root()
             workspace_report = _workspace_report(client_context, root)
-        except WorkspaceError:
-            pass  # no project: the user-level facts only
+        except WorkspaceError as error:
+            unresolved = str(error)  # no project: the user-level facts only, and the caller learns why
         scope = (scope or "project").strip().lower()
         client = (client or "").strip().lower() or None
         memory_type = (memory_type or "").strip() or None
@@ -2398,7 +2399,9 @@ async def read_shared_memory(
             root=root, scope=scope, client=client, memory_type=memory_type, query=query, limit=limit,
             offset=offset, fact_id=fact_id, semantic=semantic))
         if query and not semantic:
-            payload["index"] = {"state": "warming_up"}
+            payload["index"] = {"state": readiness.state()}  # warming_up, or failed: lexical only
+        if unresolved is not None:
+            payload["note"] = f"{payload.get('note', '')} The workspace did not resolve: {unresolved}".strip()
         payload.update(workspace_report)
         debug_log("read_shared_memory", "res", {"mode": payload["mode"], "total": payload["total"],
                                                 "omitted": payload.get("omitted", 0)})
