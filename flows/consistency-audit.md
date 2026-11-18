@@ -320,10 +320,16 @@ found while reading in step 4.
    removed only while a merge was resolved, which
    `git --literal-pathspecs log -m --diff-filter=D --format=%h -- '<path>'`
    then lists, once per parent of the merge. Record which.
-4. **Names.** For tools, commands, flags, environment variables and configuration
-   keys the documents mention, confirm that a definition exists in source
-   (`git grep` the name in the defining files); a name with no definition is an
-   `R` finding, not a handoff. For Agents-Core, the checker
+4. **Names.** For the tools, commands, flags, environment variables and
+   configuration keys that the repository itself provides and its documents
+   mention, confirm that a definition exists in its source (`git grep` the name
+   in the files that define such names, for Agents-Core the tool registrations
+   under `src/` and the argument parsers of `scripts/`); a name with no
+   definition is an `R` finding, not a handoff. A name that belongs to an
+   external tool, such as a `git` or `curl` flag, is checked against that
+   tool's own documentation where the tool is installed (`git help <command>`,
+   `man`, `--help`), or recorded as unchecked; it is never an `R` only because
+   the repository does not define it. For Agents-Core, the checker
    covers only the tool index in [docs/mcp-tools.md](../docs/mcp-tools.md);
    mentions elsewhere are not checked mechanically.
 5. **Internal cross-references.** "Step N", "section X" and "see above" point at
