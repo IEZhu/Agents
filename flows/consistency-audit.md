@@ -228,7 +228,10 @@ found while reading in step 4.
    Whatever files it is given, the checker also runs three checks of the whole
    repository: the tool index, its badge, and whether
    `flows/thread-close.md` names every field its inventory helper emits. For a
-   narrowed scope, list the scope's Markdown files instead of the patterns, add
+   narrowed scope, list the scope's Markdown files instead of the patterns
+   (exact names in a `git --literal-pathspecs ls-files` call of their own
+   without `--exclude-standard`, as in the match check above, so that a named
+   file `.gitignore` excludes still reaches the checker), add
    `--skip-tool-index` before the `--` unless the scope includes
    [docs/mcp-tools.md](../docs/mcp-tools.md), and do not report an
    inventory-field error unless the scope includes `flows/thread-close.md`.
