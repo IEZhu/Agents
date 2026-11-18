@@ -69,6 +69,7 @@ from src.memory import fallback
 from src.memory import record as turn_record
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
 from src.memory.history_results import listing, to_json
+from src.memory import shared as shared_memory
 from src.result_size import RESULT_SIZE_CEILING
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
                                    WorkspaceError, WorkspaceMismatch, HistoryStores, calling_app)
@@ -556,6 +557,7 @@ TOOL_HINTS = {
     "write_repo_summary": tool_hints("Write the repository summary", read_only=False, destructive=True,
                                      idempotent=False),
     "read_history": tool_hints("Read history", read_only=True),
+    "read_shared_memory": tool_hints("Read the AI clients' shared memory", read_only=True),
     "local_inference_status": tool_hints("Read local inference status", read_only=True, idempotent=True),
     "local_context_create": tool_hints("Capture local inference context", read_only=False, destructive=False, idempotent=False),
     "local_context_grant": tool_hints("Grant local context access", read_only=False, destructive=False, idempotent=False),
@@ -2320,6 +2322,91 @@ async def read_history(
         logger.error("read_history failed: %s", e, exc_info=True)
         payload = {"status": "error", "error": str(e)}
         debug_log("read_history", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+@mcp.tool(**TOOL_HINTS["read_shared_memory"])
+@observe(name="read_shared_memory")
+async def read_shared_memory(
+    query: ta.opt_str("Optional text to search the facts for.") = None,
+    scope: ta.opt_str("project (default): this workspace's facts and the user-level ones; user: only the "
+                      "user-level ones; all: every project's.") = None,
+    client: ta.opt_str("Optional client whose memory to keep: claude or codex.") = None,
+    memory_type: ta.opt_str("Optional memory type to keep, such as user, feedback, project or reference.") = None,
+    limit: Annotated[int, Field(description="Facts to return, 1 to 100.")] = 10,
+    offset: Annotated[int, Field(description="Facts to skip first, newest or best first.")] = 0,
+    fact_id: ta.opt_str("Optional id of one fact to return whole; query, limit and offset are then ignored.") = None,
+    ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+) -> str:
+    """Read what the AI clients keep in their native memory on this machine, with each fact's source.
+
+    Claude Code's memory files and Codex's memories (when its memories feature is on) are read,
+    never written; a file holding a credential, key material, a non-text or an oversized file is
+    skipped and only counted in ``skipped``. A fact is one distinct file content: the same text in
+    two places is one fact with two ``sources`` ({client, store, project, file, path}).
+
+    - Without ``query``: the newest facts, each with a preview of its text.
+    - With ``query``: lexical (BM25) and semantic matches fused per fact; ``match`` gives each
+      kind's rank. The semantic index builds in the background on first use and after changes;
+      ``index`` reports {state, covered, total} and until it is ready the search is partly or
+      wholly lexical (``mode``: lexical or hybrid). ``similar`` lists facts of another client or
+      project that say much the same, so disagreements surface instead of being merged.
+    - With ``fact_id``: that fact with its whole text.
+
+    ``scope`` decides which projects' facts show: ``project`` keeps this workspace's project
+    (and, for a git worktree, its main checkout's) plus user-level facts; without a resolved
+    project it keeps the user-level facts only. ``client`` and ``memory_type`` narrow further.
+
+    Returns JSON: {mode (recency, lexical, hybrid or fact), total, facts, omitted?, instruction?,
+    scope, skipped?, index?, note?, workspace?}. A fact: {id, name, description, type, modified,
+    scope, sources, text, truncated?, score?, match?, similar?}. The listing stays under Claude
+    Code's 50,000-character result limit: previews shrink, then the last facts are left out.
+    """
+    try:
+        root, workspace_report = None, {}
+        try:
+            client_context = await resolve_client_context(ctx, workspace)
+            root = client_context.require_root()
+            workspace_report = _workspace_report(client_context, root)
+        except WorkspaceError:
+            pass  # no project: the user-level facts only
+        scope = (scope or "project").strip().lower()
+        client = (client or "").strip().lower() or None
+        memory_type = (memory_type or "").strip() or None
+        query = (query or "").strip() or None
+        fact_id = (fact_id or "").strip().lower() or None
+        problem = None
+        if scope not in shared_memory.SCOPES:
+            problem = f"scope is one of {', '.join(shared_memory.SCOPES)}"
+        elif client is not None and client not in shared_memory.CLIENTS:
+            problem = f"client is one of {', '.join(shared_memory.CLIENTS)}"
+        elif fact_id is not None and not shared_memory.FACT_ID.fullmatch(fact_id):
+            problem = "fact_id is a fact's id: 12 hexadecimal characters"
+        if problem:
+            payload = {"status": "error", "error": problem, **workspace_report}
+            debug_log("read_shared_memory", "error", payload)
+            return to_json(payload)
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        debug_log("read_shared_memory", "req", {"scope": scope, "client": client, "memory_type": memory_type,
+                                                "query": query, "limit": limit, "offset": offset,
+                                                "fact_id": fact_id})
+        # The lexical search needs no model: while retrieval warms up, the answer stays lexical.
+        semantic = readiness.is_ready()
+        payload = await asyncio.get_running_loop().run_in_executor(None, lambda: shared_memory.read(
+            root=root, scope=scope, client=client, memory_type=memory_type, query=query, limit=limit,
+            offset=offset, fact_id=fact_id, semantic=semantic))
+        if query and not semantic:
+            payload["index"] = {"state": "warming_up"}
+        payload.update(workspace_report)
+        debug_log("read_shared_memory", "res", {"mode": payload["mode"], "total": payload["total"],
+                                                "omitted": payload.get("omitted", 0)})
+        return to_json(payload)
+    except Exception as e:
+        logger.error("read_shared_memory failed: %s", e, exc_info=True)
+        payload = {"status": "error", "error": str(e)}
+        debug_log("read_shared_memory", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
 
 
