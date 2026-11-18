@@ -22,6 +22,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Shared local inference and KV cache](shared-kv-inference.md) | Reconcile the existing Agents-Core implementation, then implement requested local-inference or Redis snapshot gaps in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Inventory public surfaces and review documentation for people and AI against current source | Reviewed changes on a separate branch, a coverage record, navigation/tool-index checks and explicit validation limits |
+| [Consistency audit](consistency-audit.md) | Find what the instructions and documentation of the current branch say wrongly about themselves: contradictions, gaps, ambiguity, broken or empty references and terminology drift, by a mechanical pass and a subject-indexed reading pass, each candidate verified against the recorded state | A findings report with quotes, severity, confidence, a proposed resolution or an owner decision, and a coverage record; in `fix` mode, the authority-settled fixes on a branch the target's contributor rules allow |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
 | [PR/MR queue](pr-queue.md) | Order several open requests, prove the order merges on a throwaway branch, check the integrated tree, then run `pr-review` per item | One merge chain for the owner, each item with its head, checks and remaining blocker |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
@@ -40,8 +41,8 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Open-source tuning](open-source-tuning.md) | Tune a skill, implant or agent, or create one, from free and legally available sources: probe the gap, extract only the delta, verify facts, wire it to its owners and hand probe cases to A/B eval | A tuned component with its `sources`, a probe case set and a pull request against `dev` |
 | [Legal reference refresh](legal-reference-refresh.md) | Re-verify a jurisdiction, labour or investment skill whose freshness test came due: one research line per skill from primary sources only, a separate line instructed to refute each claim, a gap critic, then new `as_of` and `review_on` dates | Refreshed skills with a per-claim record, an explicit limits-of-verification section and a pull request against `dev` |
 
-Built-in flows declare their persona: `documentation-refresh` runs as
-`tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
+Built-in flows declare their persona: `documentation-refresh` and
+`consistency-audit` run as `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
 `software_engineer`, `pr-review` as `code_reviewer`, `thread-close` as
 `investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `autodev-select`
 as `product_manager`, `autodev-implement` as `software_engineer`,

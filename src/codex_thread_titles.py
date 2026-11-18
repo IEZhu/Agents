@@ -239,8 +239,10 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
     """Read, format, persist and confirm the current thread title via stdio.
 
     The total deadline starts before process creation and includes initialization
-    and cleanup. Part of it is reserved for closing/terminating the child. No
-    success result establishes refresh in a separate, already-open desktop UI.
+    and cleanup. Part of it is reserved for closing/terminating the child; a
+    cleanup that outruns that reserve is recorded on the original error instead
+    of replacing it. No success result establishes refresh in a separate,
+    already-open desktop UI.
     """
     started = time.monotonic()
     try:
@@ -270,6 +272,9 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
     if not isinstance(executable, str) or not executable:
         raise ValueError("A Codex executable is required")
     deadline = started + timeout
+    # The exchange runs to its own deadline; what is left of the total is the
+    # cleanup reserve. Only the exchange deadline decides whether the update
+    # timed out, so a reserve the host outruns never answers in its place.
     exchange_deadline = deadline - min(0.2, timeout / 3)
     options = {"start_new_session": True} if os.name == "posix" else {
         "creationflags": subprocess.CREATE_NO_WINDOW,
@@ -291,6 +296,7 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
 
     worker = threading.Thread(target=exchange, name="codex-title-stdio", daemon=True)
     completed = False
+    failure: BaseException | None = None
     try:
         worker.start()
         try:
@@ -301,9 +307,18 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
         if not successful:
             raise value
         return value
+    except BaseException as error:
+        failure = error
+        raise
     finally:
         try:
             _stop(process, deadline, completed=completed)
+        except BaseException as cleanup_failure:
+            # Keep why the update failed: a slow host can leave the child
+            # unreaped inside the reserve, and that is the lesser answer.
+            if failure is None:
+                raise
+            failure.add_note(str(cleanup_failure))
         finally:
             worker.join(timeout=_remaining(deadline))
             process.stdin.close()
