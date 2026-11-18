@@ -342,7 +342,9 @@ def test_sdk_uses_explicit_session_reads_back_and_avoids_duplicate_writes(sdk, t
     assert result["title"] == prefix + " Test task" and result["persisted"] is True
     assert result["live_ui_refresh_verified"] is False
     assert result["claude_desktop_sidebar_updated"] is False
-    assert result["note"] == runtime.CLI_HELPER_NOTE
+    assert "Claude Code CLI session title" in result["note"]
+    assert "desktop app sidebar does not show it" in result["note"]
+    assert 'mcp__ccd_session_mgmt__set_session_title and session_id "self"' in result["note"]
     assert len(state["writes"]) == 1
     assert runtime.rename_claude_session(SESSION, str(tmp_path), status)["changed"] is False
     assert len(state["writes"]) == 1

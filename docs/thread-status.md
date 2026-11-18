@@ -249,8 +249,10 @@ other thread-status hooks still install.
 
 ## Explicit helper and limits
 
-The hook context gives Claude an argument array for its current session. Its
-helper performs a metadata-only read, rename and readback using public SDK APIs,
+In a Claude Code CLI session the hook context gives Claude an argument array for
+its current session. A Claude desktop app Code tab gets no such array: its
+context names the app's title tools instead (see [Client support](#client-support)). The helper
+performs a metadata-only read, rename and readback using public SDK APIs,
 without sending a prompt or invoking a model:
 
 ```bash
