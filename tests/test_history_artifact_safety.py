@@ -777,3 +777,132 @@ def test_the_directory_sync_after_a_move_uses_the_held_descriptor(tmp_path, monk
         history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
     assert (received.st_dev, received.st_ino) in synced
     assert decoy_identity not in synced
+
+
+def _rotating_journal(tmp_path, monkeypatch):
+    """A journal that rotates on its next append, and a decoy holding a journal of its own."""
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    (decoy / "history.md").write_text("DECOY_JOURNAL\n", encoding="utf-8")
+    return path, journal, decoy
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+def test_a_rotation_does_not_move_a_journal_swapped_in_after_the_append(tmp_path, monkeypatch):
+    """The rotation moved `history.md` aside by name after the append committed it.
+
+    The append wrote through the directory it had checked, and then the
+    rotation's `os.replace` and its directory sync resolved the name again, so a
+    directory swapped in between had its own journal moved to `.rotating` and
+    merged. The swap here is a real directory with a journal of its own, put in
+    place after the append's commit and before the rotation, where the identity
+    the append took is already fixed. The rotation refuses, which the append
+    logs without failing the entry it already recorded, and the decoy's journal
+    stays where it was.
+    """
+    path, journal, decoy = _rotating_journal(tmp_path, monkeypatch)
+    checked = tmp_path / "checked"
+    real_rotate = history.HistoryWriter._maybe_rotate_locked
+
+    def swap_then_rotate(self, directory_info):
+        journal.rename(checked)
+        decoy.rename(journal)
+        return real_rotate(self, directory_info)
+
+    monkeypatch.setattr(history.HistoryWriter, "_maybe_rotate_locked", swap_then_rotate)
+    result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("second", "action", "outcome")
+    assert result["state"] == "durably_accepted" and "rotated_to" not in result
+    assert _journal_files(journal) == ["history.md"]
+    assert (journal / "history.md").read_text(encoding="utf-8") == "DECOY_JOURNAL\n"
+    assert [e.intent for e in history.HistoryReader(str(checked / "history.md")).journal_entries()] == ["first", "second"]
+
+
+def test_an_unanchored_rotation_re_identifies_the_journal_directory(tmp_path, monkeypatch):
+    """Without a directory descriptor, the rotation's move is preceded by a check by name.
+
+    The append's own replacement makes two re-identifications of the journal's
+    directory, before its temporary file and before its move; the rotation's
+    move is the third. A changed identity there refuses the rotation before
+    anything is moved, and the journal keeps both entries in place.
+    """
+    path, journal, _decoy = _journal_in(tmp_path, monkeypatch)
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    seen = moved_at(monkeypatch, journal, 3)
+    result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("second", "action", "outcome")
+    assert len(seen) == 3
+    assert result["state"] == "durably_accepted" and "rotated_to" not in result
+    assert _journal_files(journal) == ["history.md"]
+    assert [e.intent for e in history.HistoryReader(str(path)).journal_entries()] == ["first", "second"]
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+@pytest.mark.parametrize("keyed", [True, False])
+def test_a_replayed_receipt_is_synced_in_the_directory_its_read_checked(tmp_path, monkeypatch, keyed):
+    """A retry answered `durably_accepted` after syncing whatever the name held.
+
+    The replay re-syncs the file holding the receipt and its directory entry
+    before it answers, because the first call may have died between its move
+    and its directory sync. Both syncs reopened the directory by name, so a
+    directory swapped in after the read was synced instead. The swap here comes
+    after the read, while the replay parses what it read; the sync now refuses
+    rather than vouch for a directory it never read.
+    """
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    key = {"idempotency_key": "retry-1"} if keyed else {}
+    history.HistoryWriter(str(path)).append_entry("retried", "action", "outcome", **key)
+    checked = tmp_path / "checked"
+    real_parse = history.HistoryReader._parse
+    swapped = []
+
+    def swap_while_parsing(text):
+        if not swapped:
+            swapped.append(1)
+            journal.rename(checked)
+            decoy.rename(journal)
+        return real_parse(text)
+
+    monkeypatch.setattr(history.HistoryReader, "_parse", staticmethod(swap_while_parsing))
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.HistoryWriter(str(path)).append_entry("retried", "action", "outcome", **key)
+    assert swapped
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+def test_a_replayed_receipt_syncs_the_held_directory_after_its_check(tmp_path, monkeypatch):
+    """Past the identity check, the replay's syncs still go through the held descriptor.
+
+    The check refuses a directory swapped before it. A swap after it, between
+    the check and the syncs, is what the descriptor answers for: the file is
+    opened relative to it and the directory entry is synced through it, so the
+    directory that holds the receipt is the one synced and the decoy never is.
+    """
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    history.HistoryWriter(str(path)).append_entry("retried", "action", "outcome", idempotency_key="retry-1")
+    held = os.stat(journal)
+    checked = tmp_path / "checked"
+    real_open, real_fsync = history.os.open, history.os.fsync
+    synced, swapped = [], []
+
+    def swap_before_the_file_open(name, flags, *args, **kwargs):
+        # Only the replay's own file open: the guarded read opens the same name
+        # through a descriptor too, and a swap there is the check's to refuse.
+        if (not swapped and name == "history.md" and kwargs.get("dir_fd") is not None
+                and sys._getframe(1).f_code.co_name == "_sync_recorded"):
+            swapped.append(1)
+            journal.rename(checked)
+            decoy.rename(journal)
+        return real_open(name, flags, *args, **kwargs)
+
+    def recording(fd):
+        info = os.fstat(fd)
+        synced.append((info.st_dev, info.st_ino))
+        return real_fsync(fd)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(history.os, "open", swap_before_the_file_open)
+        patch.setattr(history.os, "fsync", recording)
+        result = history.HistoryWriter(str(path)).append_entry(
+            "retried", "action", "outcome", idempotency_key="retry-1")
+    assert swapped and result["state"] == "durably_accepted"
+    assert (held.st_dev, held.st_ino) in synced
+    decoy_now = os.stat(journal)
+    assert (decoy_now.st_dev, decoy_now.st_ino) not in synced

@@ -237,15 +237,17 @@ def test_suffix_recovery_syncs_archive_before_removing_pending(tmp_path, monkeyp
     payload_bytes = payload.encode() + extra_bytes
     archive.write_bytes(payload_bytes)
     pending.write_bytes(payload_bytes)
-    real_sync = history._sync_directory
+    real_sync = history._sync_recorded
 
-    def fail_archive(directory):
-        if str(directory) == str(archive_dir):
+    def fail_archive(path, info, **kwargs):
+        # The already-archived branch syncs the archive and its directory entry
+        # together, through the directory the merge checked.
+        if os.path.dirname(path) == str(archive_dir):
             raise OSError("archive directory sync failed")
-        real_sync(directory)
+        real_sync(path, info, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(history, "_sync_directory", fail_archive)
+        patch.setattr(history, "_sync_recorded", fail_archive)
         with pytest.raises(OSError):
             writer._merge_pending_locked(str(pending))
     assert pending.read_bytes() == payload_bytes

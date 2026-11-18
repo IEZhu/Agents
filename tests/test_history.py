@@ -536,9 +536,9 @@ class TestRotationWithOpenHandle:
 
         real_rotate = writer._maybe_rotate_locked
 
-        def rotate_checking_handle():
+        def rotate_checking_handle(directory_info):
             assert opened and all(handle.closed for handle in opened)
-            return real_rotate()
+            return real_rotate(directory_info)
 
         monkeypatch.setattr(builtins, "open", tracking_open)
         monkeypatch.setattr(os, "fdopen", tracking_fdopen)
@@ -574,14 +574,19 @@ def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path
     assert archives
     before = archives[0].read_text(encoding="utf-8")
 
-    real_replace = os.replace
+    from src.memory import history
 
-    def locked(src, dst):
-        if str(src) == history_path:
+    real_move = history._move_onto
+
+    def locked(directory, temporary, name, dir_fd):
+        # The rotation moves the live journal aside through `_move_onto`, by its
+        # directory descriptor where there is one, so that is where Windows'
+        # "in use" refusal is simulated.
+        if temporary == os.path.basename(history_path):
             raise PermissionError(32, "in use")
-        return real_replace(src, dst)
+        return real_move(directory, temporary, name, dir_fd)
 
-    monkeypatch.setattr("src.memory.history.os.replace", locked)
+    monkeypatch.setattr("src.memory.history._move_onto", locked)
     for i in range(3, 6):
         assert writer.append_entry(f"q{i} " + "y" * 600, "a", "o" * 600)["status"] == "recorded"
     assert archives[0].read_text(encoding="utf-8") == before

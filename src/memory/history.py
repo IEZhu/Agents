@@ -488,17 +488,21 @@ _ANCHORED_DIR = (hasattr(os, "O_DIRECTORY") and os.open in os.supports_dir_fd
                  and os.rename in os.supports_dir_fd)
 
 
+def _checked_directory(directory):
+    """The identity of ``directory``, refused as ``_open_regular`` refuses it: a link or a non-directory."""
+    info = os.lstat(directory)
+    _regular_kind(info, directory=True)
+    return info
+
+
 def _journal_directory(path):
     """The checked identity of the directory holding ``path``, taken before it is read.
 
-    Every replacement compares the directory it writes into with this, so the
-    trust a guarded read earned reaches the write instead of ending at the read.
-    It refuses what ``_open_regular`` refuses for the same directory: a link or
-    anything that is not a directory.
+    Every replacement, move and sync compares the directory it reaches with
+    this, so the trust a guarded read earned reaches the write instead of
+    ending at the read.
     """
-    info = os.lstat(os.path.dirname(path) or ".")
-    _regular_kind(info, directory=True)
-    return info
+    return _checked_directory(os.path.dirname(path) or ".")
 
 
 def _refuse_swapped_dir(directory, info, message):
@@ -599,6 +603,35 @@ def _sync_moved(directory, dir_fd) -> None:
     if dir_fd is None:
         _sync_directory(directory)
     else:
+        os.fsync(dir_fd)
+
+
+def _sync_recorded(path: str, info, *, root=None) -> None:
+    """Persist a file that is already written, and the entry that names it, in the directory ``info`` checked.
+
+    A replay answers with a receipt as durable, so it syncs what holds the
+    receipt again, and both syncs have to reach the directory its read checked:
+    opened by name, a swapped directory would be synced while the one holding
+    the receipt stayed as it was. With a descriptor the file is opened relative
+    to it, without following a link; without one (Windows) the directory is
+    re-identified first and the file goes through ``_sync_file``.
+    """
+    directory, name = os.path.dirname(path) or ".", os.path.basename(path)
+    message = "journal directory changed before its receipt was synced"
+    with _anchored_dir(directory, info, message) as dir_fd:
+        if dir_fd is None:
+            _refuse_swapped_dir(directory, info, message)
+            _sync_file(path, root=root)
+            _sync_directory(directory)
+            return
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(name, flags, dir_fd=dir_fd)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise PermissionError("journal artifact must be a regular file")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
         os.fsync(dir_fd)
 
 
@@ -894,9 +927,13 @@ class HistoryWriter:
         with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
             if os.path.islink(self.history_path):
                 raise MemoryWriteRejected("journal_symlink_unsupported")
+            # The journal's directory as the read in _append_locked finds it.
+            # The replacement that commits the entry and the rotation after it
+            # both reach this directory or refuse.
+            directory_info = _journal_directory(self.history_path)
             result, fresh = self._append_locked(
                 entry_id, intent, action, outcome, files, tags, metadata,
-                idempotency_key, payload_fingerprint,
+                idempotency_key, payload_fingerprint, directory_info,
             )
 
             # Rotate after the append handle is closed (Windows cannot move an
@@ -904,7 +941,7 @@ class HistoryWriter:
             # race a second writer. The entry is already written: a rotation
             # failure is logged and never turns it into an error.
             try:
-                rotated_to = self._maybe_rotate_locked()
+                rotated_to = self._maybe_rotate_locked(directory_info)
             except Exception as err:
                 key = (self.history_path, getattr(err, "errno", None))
                 if key not in _ROTATION_WARNED:
@@ -924,10 +961,7 @@ class HistoryWriter:
         return result
 
     def _append_locked(self, entry_id, intent, action, outcome, files, tags, metadata,
-                       idempotency_key, payload_fingerprint):
-        # The journal's directory as the read below finds it; the replacement
-        # that commits the entry writes there or refuses.
-        directory_info = _journal_directory(self.history_path)
+                       idempotency_key, payload_fingerprint, directory_info):
         try:
             with _open_regular(self.history_path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
                 content = fh.read()
@@ -950,6 +984,9 @@ class HistoryWriter:
             # Synced segments are another writer's data, not this acceptance scope.
             texts = [(self.history_path, content)]
             archives = _archive_names(self.archive_dir, strict=True)
+            # Checked before the archives are read, so a receipt replayed from
+            # one is synced in the directory that read checked.
+            archive_info = _checked_directory(self.archive_dir) if archives else None
             paths = [self.history_path + ".rotating"] + [os.path.join(self.archive_dir, name) for name in archives]
             for path in paths:
                 try:
@@ -973,9 +1010,9 @@ class HistoryWriter:
                         raise MemoryWriteRejected("idempotency_conflict")
                     # A prior call could have died between replace and directory
                     # sync. Establish durability again before replaying its receipt.
-                    _sync_file(path, root=(None if path in (self.history_path, self.history_path + ".rotating")
-                                           else _archive_root(self.history_path, self.archive_dir)))
-                    _sync_directory(os.path.dirname(path) or ".")
+                    live = path in (self.history_path, self.history_path + ".rotating")
+                    _sync_recorded(path, directory_info if live else archive_info,
+                                   root=None if live else _archive_root(self.history_path, self.archive_dir))
                     return {**receipt["result"], "path": self.history_path}, False
             if collision:
                 raise MemoryWriteRejected("idempotency_collision")
@@ -999,8 +1036,7 @@ class HistoryWriter:
                     # A complete different entry is not evidence of a torn append.
                     raise MemoryWriteRejected("history_entry_conflict")
             if complete_duplicate:
-                _sync_file(self.history_path)
-                _sync_directory(os.path.dirname(self.history_path) or ".")
+                _sync_recorded(self.history_path, directory_info)
                 return {"status": "duplicate", "entry_id": entry_id, "path": self.history_path,
                         "state": "durably_accepted"}, False
 
@@ -1027,9 +1063,9 @@ class HistoryWriter:
             return {"status": "duplicate", "entry_id": entry.id, "path": self.history_path}
         os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
         with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
+            directory_info = _journal_directory(self.history_path)
             if not os.path.lexists(self.history_path):
-                _replace(self.history_path, self._render_header(),
-                         info=_journal_directory(self.history_path))
+                _replace(self.history_path, self._render_header(), info=directory_info)
             with _open_regular(self.history_path, "r+", encoding="utf-8", newline="") as fh:
                 try:
                     _lock_exclusive(fh)
@@ -1046,7 +1082,7 @@ class HistoryWriter:
                 finally:
                     _unlock(fh)
             try:
-                self._maybe_rotate_locked()
+                self._maybe_rotate_locked(directory_info)
             except Exception as err:
                 logger.warning("history rotation failed for %s: %s", self.history_path, err)
         _appended(self.history_path, entry.id)
@@ -1119,12 +1155,14 @@ class HistoryWriter:
         recent = [match[1] for match in ids[-self.dedup_tail:]]
         return entry_id in recent
 
-    def _maybe_rotate_locked(self) -> Optional[str]:
+    def _maybe_rotate_locked(self, directory_info) -> Optional[str]:
         """Move ``history.md`` to ``history/YYYY-MM.md`` if it is too large.
 
         MUST be called while the caller still holds the exclusive lock on
         ``history.md`` — otherwise concurrent writers could race with the
-        move/merge step.
+        move/merge step. ``directory_info`` is the identity the caller took of
+        the journal's directory before its own read and write; the move to
+        ``.rotating`` and the fresh journal both reach that directory or refuse.
 
         Returns the archive path if rotation happened, else ``None``.
         """
@@ -1143,9 +1181,16 @@ class HistoryWriter:
         # A failed merge may already have replaced the archive. Do not restore
         # pending to live and append to it: that would defeat suffix recovery.
         # Readers include pending, and the next rotation recovers it first.
-        directory_info = _journal_directory(self.history_path)
-        os.replace(self.history_path, pending)
-        _sync_directory(os.path.dirname(self.history_path) or ".")
+        # The move goes through the directory the append checked, not its name:
+        # by name, a directory swapped in after the append's commit would have
+        # its own journal moved aside and merged instead.
+        directory = os.path.dirname(self.history_path) or "."
+        message = "journal directory changed before it was rotated"
+        with _anchored_dir(directory, directory_info, message) as dir_fd:
+            if dir_fd is None:
+                _refuse_swapped_dir(directory, directory_info, message)
+            _move_onto(directory, os.path.basename(self.history_path), os.path.basename(pending), dir_fd)
+            _sync_moved(directory, dir_fd)
         archive_path = self._merge_pending_locked(pending)
 
         # Recreate fresh history.md with header pointing at the archive.
@@ -1234,8 +1279,8 @@ class HistoryWriter:
         archive_root = _archive_root(self.history_path, self.archive_dir)
         if existed and self._archive_ends_with(archive_path, payload, root=archive_root):
             # A crash after the append but before the unlink: already archived.
-            _sync_file(archive_path, root=archive_root)
-            _sync_directory(self.archive_dir)
+            # Synced in the directory checked above, as a replayed receipt is.
+            _sync_recorded(archive_path, archive_dir_info, root=archive_root)
             self._discard_pending(pending)
             return archive_path
         # Build the merged archive beside the real one and replace it in one
