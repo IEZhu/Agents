@@ -174,7 +174,7 @@ Codex `SessionStart`, Cursor `sessionStart`, or Antigravity's named
 `mcpServers.Agents-Readiness`. Remove copied files after unlinking the adapter.
 Avoid restoring the entire backup after other settings have changed.
 
-The [full uninstaller](../README.md#uninstall) also inventories these adapters. It removes
+The [full uninstaller](install.md#uninstall) also inventories these adapters. It removes
 unchanged generated entries whose interpreter is in the selected installation's `.venv`,
 including encoded Windows commands. It keeps unrelated handlers in a mixed group and backs
 up edited configurations. Copied runtimes are removed only if they still match that

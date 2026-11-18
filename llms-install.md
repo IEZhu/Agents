@@ -19,7 +19,7 @@ bash /tmp/agents-core-install.sh --skip-mcp
 
 The default destination is `~/.agents-core`. `--skip-mcp` skips client configuration and global routing instructions, but still installs dependencies and builds indexes. For an existing shared-service installation, use its documented update procedure instead of rerunning setup while it serves sessions.
 
-On Windows, clone the repository and follow [After Cloning](README.md#after-cloning), using `scripts\init_repo.bat --skip-mcp`. The standalone interpreter is then `.venv\Scripts\python.exe` in that clone; the plugin's shell launcher is not supported on Windows.
+On Windows, clone the repository and follow [After Cloning](docs/install.md#after-cloning), using `scripts\init_repo.bat --skip-mcp`. The standalone interpreter is then `.venv\Scripts\python.exe` in that clone; the plugin's shell launcher is not supported on Windows.
 
 ## 2. Add one MCP entry
 
@@ -38,7 +38,7 @@ Open the client's MCP server configuration. In Cline, use its MCP Servers config
 
 On Windows, use the absolute `.venv\Scripts\python.exe` path and escape backslashes in JSON. Keep tool approval under the client's existing policy.
 
-On NixOS, add `LD_LIBRARY_PATH` with `/run/current-system/sw/share/nix-ld/lib` in the entry's `env` when using Nix Python, as described in [After Cloning](README.md#after-cloning).
+On NixOS, add `LD_LIBRARY_PATH` with `/run/current-system/sw/share/nix-ld/lib` in the entry's `env` when using Nix Python, as described in [After Cloning](docs/install.md#after-cloning).
 
 For a configuration dedicated to one project, add `"env": {"AGENTS_CLIENT_REPO_ROOT": "/absolute/path/to/project"}` to the server entry. This override takes precedence over `workspace`, so memory and workflow tools cannot select another repository through `workspace` while it is set. Use a separate entry with a matching override for each project; omit the override when `workspace` should select the repository. Do not point the override at your home directory or the server installation. Pass the selected project's absolute path as `workspace` to memory and workflow tools.
 
@@ -64,4 +64,4 @@ Record whether the client actually completed installation and connected successf
 - Wrong repository memory target: when `AGENTS_CLIENT_REPO_ROOT` is set, correct that entry's project path and reconnect; otherwise pass the selected project's absolute `workspace`.
 - Duplicate tools in Claude Code: keep either its direct `Agents-Core` registration or the plugin, following the [plugin setup guide](plugins/agents-core/README.md#setup).
 
-To disconnect this client, remove only its `Agents-Core` entry. To remove the installation, follow [Uninstall](README.md#uninstall), starting with the dry run. The [plugin Privacy Policy](plugins/agents-core/README.md#privacy-policy) describes local storage, optional tracing and optional Git sync.
+To disconnect this client, remove only its `Agents-Core` entry. To remove the installation, follow [Uninstall](docs/install.md#uninstall), starting with the dry run. The [plugin Privacy Policy](plugins/agents-core/README.md#privacy-policy) describes local storage, optional tracing and optional Git sync.

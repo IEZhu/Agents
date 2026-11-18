@@ -231,7 +231,7 @@ it selects the session workspace before signature verification, and signed calls
 do not register or change that binding.
 New projects, clones and worktrees get memory on their first call without a
 migration. A tool call's `workspace` argument (see
-[Repository Memory](../README.md#-repository-memory)) is registered the same way,
+[Repository Memory](memory.md)) is registered the same way,
 either verified via HMAC `workspace_signature` or inside the MCP roots the bridge's client declares;
 when the daemon refuses it, a session's bridge keeps using the session's project. A session that started
 while the daemon was unreachable registers on its next request. An existing
@@ -648,7 +648,7 @@ exclusively. Debug pruning leaves symlinked directories and JSON entries untouch
 
 The three persona tools record complete requests and exact returned responses,
 paired by `data.call_id`; successful responses include all instruction blocks and
-the footer. See [Debug Logging](../README.md#debug-logging) for the snapshot fields
+the footer. See [Debug Logging](development.md#debug-logging) for the snapshot fields
 and stored prompt/history content. The debug flag is read at process startup;
 restart the daemon after changing it in `.env`.
 
@@ -822,7 +822,7 @@ the item, with no tab active:
 - **AI apps**: Claude Code, Claude Desktop, Codex and Cursor, each connected,
   configured or not set up, in words.
 - **Updates** ([#381](https://github.com/IEZhu/Agents/issues/381)): the version, the
-  branch the installation follows (its [update channel](../README.md#update-channel))
+  branch the installation follows (its [update channel](install.md#update-channel))
   and where that setting comes from, the checked-out branch, whether scheduled
   updates are on and the last scheduled run, and when a change applies: at the next
   scheduled run, or with the `update` command it names. A `main` / `dev` choice with
@@ -1740,7 +1740,7 @@ without an execution time limit, and `IgnoreNew` skips a run while the previous
 one still updates. A run fetches `AGENTS_AUTO_UPDATE_REMOTE` /
 `AGENTS_AUTO_UPDATE_BRANCH` (defaults `origin` / `main`) and stops there when the installation is up to date
 and no [model switch](#embedding-model) is pending.
-These two are the installation's [update channel](../README.md#update-channel), which
+These two are the installation's [update channel](install.md#update-channel), which
 the stdio servers use as well: the controller (`update`, `auto-update run` and
 `status`, `channel`) reads them, `AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH` and
 `AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE` from the installation's `.env` with

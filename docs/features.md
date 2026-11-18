@@ -22,14 +22,14 @@ implemented and documented; it does not mean every client was tested live.
 
 | Client | Connects through | Protocol instructions | Set up by |
 |---|---|---|---|
-| Claude Code | A stdio entry in the user scope of `~/.claude.json`, the [Claude Code plugin](../plugins/agents-core/README.md), or a bridge to the shared service | Managed section in `~/.claude/CLAUDE.md` | [Installer](../README.md#one-command-install-macos-and-linux) or plugin |
+| Claude Code | A stdio entry in the user scope of `~/.claude.json`, the [Claude Code plugin](../plugins/agents-core/README.md), or a bridge to the shared service | Managed section in `~/.claude/CLAUDE.md` | [Installer](install.md#one-command-install-macos-and-linux) or plugin |
 | Claude Desktop | The `Agents-Core-Desktop` stdio entry or a bridge to the shared service | MCP initialization text | Installer |
 | Codex | A stdio entry in `config.toml` or a bridge to the shared service | Managed section in `AGENTS.md` | Installer |
 | Cursor | A stdio entry in `mcp.json` or a bridge to the shared service | MCP initialization text | Installer |
 | Antigravity | A stdio entry with a native plugin (startup rules and a workspace hook) or a bridge to the shared service | Plugin rules file | Installer |
 | Other MCP clients | A hand-written stdio entry | MCP initialization text; copy the [routing template](../scripts/templates/routing-protocol-core.md) for persistent instructions | [Manual install](../llms-install.md) |
 
-The [shared local service](../README.md#shared-macos-and-windows-service) runs
+The [shared local service](install.md#shared-macos-and-windows-service) runs
 on macOS and Windows; on Linux every client starts its own standalone stdio
 server.
 
@@ -47,7 +47,7 @@ and the host's own worker tools.
 | [Personal and repository workflows](../flows/README.md#personal-and-repository-flows) | Your own procedures, saved globally or per project, each with the persona it runs as | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Delegated workers](subagent-contract.md#compact-exchange) | A bounded task for a fresh worker with a fixed result format, validated against its contract | ✅ | 🟡 ⁴ | ✅ | 🟡 ⁵ | 🟡 ⁴ | 🟡 ⁴ |
 | [Worker model tiers](subagent-model-tiers.md#model-resolution) | Simple delegated tasks on a lighter model, moved up one tier at a time when a result falls short | ✅ | ❌ | ✅ | 🟡 ⁶ | ❌ | ❌ |
-| [Repository memory](../README.md#-repository-memory) | A short description of each project, returned when work starts | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
+| [Repository memory](memory.md) | A short description of each project, returned when work starts | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Turn log and history](shared-mcp-daemon.md#memory-and-errors) | Every answer recorded with its persona, and earlier turns of a project to read or search | ✅ | 🟡 ⁷ | ✅ | ✅ | ✅ | 🟡 ⁷ |
 | [Shared artifacts](shared-artifacts.md#native-worker-workflow) | The same exact inputs for several workers, pinned by hash instead of pasted into every prompt | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Agent cooperation](agent-cooperation/runtime.md#enablement-and-authority) | Overlapping sessions, even in different clients, that message each other and claim work instead of colliding | ✅ ⁸ | 🟡 ³ ⁸ | ✅ ⁸ | ✅ ⁸ | ✅ ⁸ | 🟡 ³ ⁸ |
@@ -81,10 +81,10 @@ and the host's own worker tools.
 
 | Feature | What you get | Claude Code | Claude Desktop | Codex | Cursor | Antigravity | Other MCP clients |
 |---|---|:-:|:-:|:-:|:-:|:-:|:-:|
-| [One-command installer](../README.md#one-command-install-macos-and-linux) | The server installed and registered with every supported client it finds | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ¹ |
+| [One-command installer](install.md#one-command-install-macos-and-linux) | The server installed and registered with every supported client it finds | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ¹ |
 | [Managed instruction files](routing_flow.md#installation-migration-and-rollback) | The persona protocol kept current in the client's own instruction file, your text left alone | ✅ | 🟡 ² | ✅ | 🟡 ² | ✅ | 🟡 ³ |
 | [Claude Code plugin](../plugins/agents-core/README.md#setup) | The server launched from a marketplace plugin instead of a registration written by setup | ✅ ⁴ | ➖ | ➖ | ➖ | ➖ | ➖ |
-| [Shared local service](../README.md#shared-macos-and-windows-service) | One background server holding the model for every client and session, on macOS and Windows | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ⁵ |
+| [Shared local service](install.md#shared-macos-and-windows-service) | One background server holding the model for every client and session, on macOS and Windows | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ⁵ |
 | [MCP proxy](mcp-proxy.md#connect-a-server) | Your other MCP servers through the one Agents-Core connection, with per-app access and credentials in the OS secret store | ✅ ¹² | ✅ ¹² | ✅ ¹² | ✅ ¹² | 🟡 ⁶ ¹² | 🟡 ⁵ ¹² |
 | [Session readiness banner](session-readiness.md#session-readiness-banner) | A snapshot of time, directory, Git state and host when a session starts | ✅ | 🟡 ⁷ | 🟡 ⁸ | 🟡 ⁷ | 🟡 ⁷ | ❌ |
 | [Persona restore after compaction](session-readiness.md#persona-restore-after-compaction) | A reminder to reload the active persona right after the client compacts the conversation | ✅ | ❌ | 🟡 ⁹ | ❌ | ❌ | ❌ |
@@ -118,11 +118,11 @@ These features do not depend on the client you chat in.
 | Feature | What you get | Where it runs |
 |---|---|---|
 | [Personal library sync](user-sync.md#user-library-sync) | Your personal flows, persona choices and component switches kept identical on all your machines through one private Git repository you own | Any installation; off until you set it up |
-| [Updates and update channels](../README.md#update-channel) | Releases from `main` or every merged change from `dev`, with a rollback path on the shared service | Standalone servers update themselves; the shared service has an opt-in updater |
+| [Updates and update channels](install.md#update-channel) | Releases from `main` or every merged change from `dev`, with a rollback path on the shared service | Standalone servers update themselves; the shared service has an opt-in updater |
 | [Web settings page](shared-mcp-daemon.md#flow-editor) | A local browser page to edit flows, switch rules, skills and implants, run sync, choose the update channel and manage MCP connections | The shared service on macOS and Windows |
 | [Autodev](autodev.md#autodev) | Scheduled, sandboxed self-development: a session implements an issue you marked ready in the configured repository and the runner opens a pull request only you can merge | macOS; runs the Claude Code CLI, with optional Codex reviews that fall back to Claude where its sandbox cannot run; off by default |
 | [Cloud issue agent](cloud-runs.md#issue-agent) | `/agent` commands in a GitHub issue or pull request that plan, implement and review in a cloud session | A Claude Code cloud routine; per-repository setup |
 | [Evaluations](README.md#evaluation-guides) | Deterministic routing and retrieval checks and hosted-model A/B runs before a change ships | Local scripts and hosted model APIs |
-| [Observability](../README.md#-observability) | Traces of routing, loading, retrieval and memory calls in your own Langfuse project | Off until both Langfuse keys are set |
+| [Observability](configuration.md#-observability) | Traces of routing, loading, retrieval and memory calls in your own Langfuse project | Off until both Langfuse keys are set |
 | [Instruction signing](instruction-signing-core.md) | Local signing and verification of instruction files; runtime enforcement is planned | Local command line |
 | [Distribution](distribution.md#submitted-destinations) | The Claude Code plugin marketplace in this repository and a Glama directory listing | GitHub and Glama |

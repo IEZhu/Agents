@@ -49,7 +49,7 @@ removed, renamed or reprioritized.
   of the process.
 - `RULES_ENABLED=0` in the environment or the installation `.env` disables the
   layer for diagnostics: bundles carry an empty `rules_block`, and the footer shows
-  `—` for `Rules`. See [environment variables](../README.md#environment-variables).
+  `—` for `Rules`. See [environment variables](../docs/configuration.md#environment-variables).
 - With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`,
   tab *Rules*) can switch single rules off for the whole installation. A switched-off
   built-in rule leaves persona bundles and the footer unless a flow persona names it; its
