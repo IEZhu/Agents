@@ -17,8 +17,10 @@ not exist in source is still a broken reference; see
 The result is a verified findings report for the current branch: each finding
 with exact quotes, a class, a severity, a confidence and a proposed resolution,
 plus a coverage record of what was checked. The default mode writes nothing in
-the repository but a report file the request asks for; `fix` mode also applies the resolutions an authority settles, on a branch the target's
-contributor rules allow.
+the repository but a report file the request asks for and, after the report,
+the repository summary described under **Mode** below; `fix` mode also applies
+the resolutions an authority settles, on a branch the target's contributor
+rules allow.
 
 ## Defect classes
 
@@ -75,7 +77,8 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
   ([step 7](#7-report-and-apply-in-fix-mode)). In either mode, a repository
   summary that `describe_repo` asks to persist is not part of the audit: it is
   written, where the conversation's protocol allows a write, only after the
-  report is delivered, so that it does not change the state the audit recorded.
+  report is delivered, so that it does not change the state the audit recorded,
+  and in `fix` mode only after the fix steps end, outside the fix commits.
 - **External URLs:** listed in the coverage record as unverified
   ([step 3](#3-mechanical-pass), item 2); when the request asks to fetch them,
   item 2 says how, and each is recorded there as reachable or failing.
@@ -119,7 +122,8 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
    to, and the documents that state rules about the same subjects (search the
    repository's documents for the subjects the changed passages govern). One
    side of a contradiction is usually outside the diff. Deleted files
-   (`-M --diff-filter=D`) are not audited, but the documents that still link to
+   (`git -c core.quotepath=off diff --name-only -M --diff-filter=D "$base"`)
+   are not audited, but the documents that still link to
    or name them are neighbours too, and each such mention is an `R` candidate.
    The same holds for the old path of a renamed file, which the list of changed
    files shows only under its new name;
@@ -145,9 +149,9 @@ each; the class decides how its findings count.
 |---|---|---|
 | Normative | `AGENTS.md`, repository notes in `CLAUDE.md`, rules, flows, personas, skills, contributor and test guides | Fully audited; usually the side of a contradiction an executor follows |
 | Reference | User guides, READMEs, tool and API references | Fully audited |
-| Generated | Text rendered from a source; for Agents-Core, the managed routing sections rendered from `src/engine/protocol/`, the separator block of `docs/subagent-contract.md` rendered from `SEPARATORS` in `src/engine/subagent_text.py`, and the repository memory block written by `describe_repo` | Audited, but each finding is filed against its source and fixed there |
+| Generated | Text rendered from a source; for Agents-Core, the surfaces rendered from `src/engine/protocol/` (the managed routing sections, `scripts/templates/routing-protocol-core.md` and `scripts/templates/memory-routing.md`), the separator block of `docs/subagent-contract.md` rendered from `SEPARATORS` in `src/engine/subagent_text.py`, and the repository memory block that `write_repo_summary` persists from `describe_repo`'s context | Audited, but each finding is filed against its source and fixed there |
 | Historical | Dated plans, audits, reports, changelogs | Checked only for links that no longer resolve, and for being presented elsewhere as current |
-| Vendored or fixture | Third-party text, test inputs and expected outputs, and frozen copies that code compares byte for byte (for Agents-Core, `scripts/templates/legacy/`) | Out of scope, and never edited in `fix` mode |
+| Vendored or fixture | Third-party text, test inputs and expected outputs, and frozen copies that code compares byte for byte (for Agents-Core, the `memory-routing-v*.md` files in `scripts/templates/legacy/`, whose `README.md` is normative) | Out of scope, and never edited in `fix` mode; a new copy that a regeneration adds is kept |
 
 Record the count per class for the coverage record.
 
@@ -166,8 +170,9 @@ Give exact file names with `git --literal-pathspecs`, since a name such as
 `file[1].md` is otherwise a pattern, in a call of their own, because that option
 also reads the extension patterns literally; check that every given path
 matched a file with
-`git --literal-pathspecs ls-files --cached --others --exclude-standard --error-unmatch -- <path>...`,
-which fails on one that does not. The commands do not know the vendored and
+`git --literal-pathspecs -c core.quotepath=off ls-files --cached --others --exclude-standard --error-unmatch -- <path>...`,
+which fails on one that does not; a path deleted only in the working tree
+still passes it, and is dropped as in step 2. The commands do not know the vendored and
 fixture files of step 2: drop the matches in those files from their output. `git grep` does not search symlinks, and item 1 skips them: list
 tracked ones with `git -c core.quotepath=off ls-files -s | awk '$1==120000'`
 and record them as unchecked. Run the blocks below in bash or zsh; each starts
@@ -299,15 +304,18 @@ found while reading in step 4.
    `git -c core.quotepath=off grep -nF --untracked -e '<path>'`, and judge it
    against the `R` row of the class table: many are examples, planned files or
    quoted command output. For a path that did exist, find the commit that
-   removed it with `c=$(git log --diff-filter=D --format=%h -1 -- '<path>')`,
+   removed it with
+   `c=$(git --literal-pathspecs log --diff-filter=D --format=%h -1 -- '<path>')`
+   (without `--literal-pathspecs`, a name such as `file[1].md` also matches
+   `file1.md`),
    then `[ -n "$c" ] && git -c core.quotepath=off show -M --name-status --format= "$c"`:
    a path limited `git log` shows a rename only as a deletion. An empty `$c`
    means no commit removed it: when
    `git -c core.quotepath=off ls-files --deleted -- '<path>'` lists it, it is
    deleted only in the working tree; otherwise it was never committed, or was
    removed only while a merge was resolved, which
-   `git log -m --diff-filter=D --format=%h -- '<path>'` then lists. Record
-   which.
+   `git --literal-pathspecs log -m --diff-filter=D --format=%h -- '<path>'`
+   then lists, once per parent of the merge. Record which.
 4. **Names.** For tools, commands, flags, environment variables and configuration
    keys the documents mention, confirm that a definition exists in source
    (`git grep` the name in the defining files); a name with no definition is an
@@ -454,11 +462,12 @@ In `fix` mode, after the report:
    live installation checkout. The checkout that receives them, the audited
    checkout itself or a newly cut worktree, is the fix worktree below. When the
    audited branch is the auditing session's own, for example the branch of a pull
-   request it is working on, apply on that branch the findings whose resolution
-   edits only files in that pull request's diff, and those that the pull
-   request's own change caused; the others go to a separate branch as below.
-   While the pull request is under [pr-review](pr-review.md), its convergence
-   rules then decide which of these stay in it. Otherwise cut a separate
+   request it is working on, apply on that branch the findings that the pull
+   request's own change caused; the others go to a separate branch as below,
+   because [pr-review](pr-review.md) keeps a pull request's scope fixed and
+   puts a change outside it in its own pull request. While the pull request is
+   under pr-review, its convergence rules then decide which of these stay in
+   it. Otherwise cut a separate
    worktree and branch:
    from the recorded `HEAD`, so that it holds the audited text, where the rules
    let a branch build on another, and then the report names the fix branch
@@ -489,8 +498,9 @@ In `fix` mode, after the report:
    documentation checks (for Agents-Core, those of
    [documentation refresh](documentation-refresh.md#4-validate-the-result),
    which add `tests/test_check_docs.py` and `tests/test_flows.py` for a flow and
-   the protocol tests for a regenerated section, or
-   `tests/test_subagent_contract_text.py` for the separator block), read the
+   the protocol tests for a regenerated section, and the
+   `tests/test_subagent_contract_text.py` that `AGENTS.md` names for the
+   separator block), read the
    full diff, and commit under the target's convention (for Agents-Core, a
    Conventional Commit of type `docs`); the `fix` request covers these local
    commits. Report the fix branch, its worktree path and the commits. Push only
