@@ -77,8 +77,14 @@ jobs:
       # is the first job to run that test on 3.13, and leaving a required
       # workflow red on every run would hide every other failure behind it. The
       # one failing case is deselected there, by name, until #577 is fixed; the
-      # rest of the file still runs on both interpreters.
+      # rest of the file still runs on both interpreters. The deselection goes
+      # through PYTEST_ADDOPTS, which pytest splits itself, so neither bash nor
+      # pwsh sees it and an empty value adds no argument. Inside `run` the
+      # expression's `&&` and `||` read as shell operators to the content-check
+      # guard, which then refuses the step as starting unconfined programs.
       - name: Workspace resolution, installer migration and memory writes
+        env:
+          PYTEST_ADDOPTS: ${{ (runner.os == 'Windows' && matrix.python != '3.11') && '--deselect=tests/test_installer_instructions.py::test_installer_hook_migrates_preserves_and_repeats_without_backup_growth' || '' }}
         run: >-
           python -B -m pytest tests/test_workspace_auto.py tests/test_config_client_root.py
           tests/test_daemon.py tests/test_daemon_clients.py tests/test_daemon_registrations.py
@@ -87,7 +93,6 @@ jobs:
           tests/test_daemon_runtime_override.py tests/test_python_stdio_bridge.py
           tests/test_python_workspace_hook.py tests/test_standalone_workspace.py
           tests/test_standalone_workspace_mcp.py -q -p no:cacheprovider
-          ${{ (runner.os == 'Windows' && matrix.python != '3.11') && '--deselect tests/test_installer_instructions.py::test_installer_hook_migrates_preserves_and_repeats_without_backup_growth' || '' }}
       - name: Node bridge session isolation and authenticated hooks
         run: node --test bridge/test.mjs
       - name: Journal reads, durable acceptance and retry recovery
