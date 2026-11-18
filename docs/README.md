@@ -71,7 +71,7 @@ also applies to AI instructions, plans, and reports.
 | Review and merge a PR/MR | [PR/MR review flow](../flows/pr-review.md) | Live reviews, current-head checks, and repository merge rules |
 | Take several open PRs/MRs to the target branch in sequence | [PR/MR queue flow](../flows/pr-queue.md) | The chain simulation, integrated-tree runs, the target's rulesets, and `pr-review` per item |
 | Close a conversation without losing its work | [Thread close flow](../flows/thread-close.md) | `scripts/dev/thread_inventory.py`, the live repository and GitHub state, `log_interaction` |
-| Improve or add a skill, implant or agent from free sources | [Open-source tuning flow](../flows/open-source-tuning.md) | `skills/README.md`, `implants/README.md`, `agents/README.md`, `agents/common/agent-schema.json`, `evals/ablation/CASES.md`, `tests/test_skill_freshness.py`, `tests/test_subagent.py` |
+| Improve or add a skill, implant or agent, from free sources or from a defect in this installation's own run | [Open-source tuning flow](../flows/open-source-tuning.md) | `skills/README.md`, `implants/README.md`, `agents/README.md`, `agents/common/agent-schema.json`, `evals/ablation/CASES.md`, `tests/test_skill_freshness.py`, `tests/test_subagent.py` |
 
 ## AI instruction sources
 
