@@ -490,7 +490,7 @@ async def test_api_reports_failure_in_current_call(server_workspace, monkeypatch
     assert "Do not retry logging" not in result["instruction"]
 
 
-@pytest.mark.parametrize("separator", [" ", " ", "\x85"])
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
 def test_a_keyed_receipt_survives_line_separators_in_metadata(tmp_path, separator):
     """`str.splitlines` breaks at NEL and the Unicode line and paragraph separators.
 
