@@ -53,33 +53,24 @@ import json
 import os
 import re
 import secrets
-import stat
 import tempfile
 import threading
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from src.environments import is_link
-from src.utils.prompt_loader import split_frontmatter
-from .client_dirs import claude_config_dirs, codex_homes
+from src.memory import native
+from src.memory.native import HEAD, INDEX, MAX_SHOW, PROJECT, SANITIZE, Store
 from .state import atomic_private, private_dir, read_json
 
 PREFIX = "/ui/api/memory"
-INDEX = "MEMORY.md"
 TRASH = "memory-trash"
 MAX_EDIT = 256 * 1024  # larger files are shown, not edited
-MAX_SHOW = 1024 * 1024  # larger files are listed without their text
-HEAD = 64 * 1024  # what is read of a larger file for its frontmatter
 MAX_BODY = 4 * MAX_EDIT  # a JSON body escapes the text
-FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}")  # 255 characters, the usual file name limit
-PROJECT = re.compile(r"[A-Za-z0-9._-]{1,255}")
 LINK = re.compile(r"^\s*[-*+]\s+\[(?P<title>[^\]]*)\]\((?P<file>[^)\s]+)\)")
-SANITIZE = re.compile(r"[^A-Za-z0-9]")
 DEFAULT_MODE = 0o644
 CACHE_LIMIT = 10_000  # remembered item times; a list that outgrows it starts over
 # A file system without hard links (FAT, some network shares) answers os.link with these; Windows
@@ -103,30 +94,6 @@ class MemoryRefused(Exception):
         self.code, self.status, self.extra = code, status, extra
 
 
-@dataclass(frozen=True)
-class Store:
-    """A configuration directory with memory: Claude Code's, or Codex's home."""
-    path: Path
-    client: str
-    label: str
-
-    @property
-    def id(self) -> str:
-        return str(self.path)
-
-    def memory_dir(self, project: str) -> Path:
-        if self.client == "codex":
-            return self.path / "memories"
-        return self.path / "memory" if project == "" else self.path / "projects" / project / "memory"
-
-
-def _label(path: Path, home: Path) -> str:
-    try:
-        return "~/" + path.relative_to(home).as_posix()
-    except ValueError:
-        return str(path)
-
-
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -135,10 +102,13 @@ def _iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(timespec="seconds")
 
 
-def _item_name(store: Store, name: str) -> bool:
-    """A plain file name; Claude Code's items are Markdown files other than its index."""
-    return (isinstance(name, str) and FILE.fullmatch(name) is not None and name not in (".", "..")
-            and (store.client != "claude" or (name.endswith(".md") and not _is_index(store, name))))
+_item_name = native.is_item_name
+_is_index = native.is_index_name
+_frontmatter = native.frontmatter
+_metadata = native.metadata_of
+_field = native.field_text
+_when = native.timestamp_of
+_fields = native.fields
 
 
 def _index(store: Store, memory: Path) -> Path | None:
@@ -147,61 +117,12 @@ def _index(store: Store, memory: Path) -> Path | None:
     return index if store.client == "claude" and not is_link(index) and index.is_file() else None
 
 
-def _is_index(store: Store, file) -> bool:
-    """Claude Code's index name in any case: Windows and macOS file systems usually ignore case, so
-    ``memory.md`` would reach ``MEMORY.md``."""
-    return store.client == "claude" and isinstance(file, str) and file.lower() == INDEX.lower()
-
-
 def _inside(store: Store, path: Path) -> None:
-    """Refuses a path that resolves outside its store, as one through a link swapped in after the
-    per-step checks would; operations on the path still follow a swap made after this check."""
-    resolved = path.resolve()
-    if resolved != store.path and not resolved.is_relative_to(store.path):
-        raise MemoryRefused("symlink_refused", f"{path.name} resolves outside {store.label}")
-
-
-def _frontmatter(text: str) -> tuple[dict, bool]:
-    """The frontmatter mapping and whether it parsed; a file without one has ``{}`` and parses."""
-    block, _ = split_frontmatter(text)
-    if block is None:
-        return {}, True
+    """``native.inside``, refusing with this page's error."""
     try:
-        value = yaml.safe_load(block)
-    except yaml.YAMLError:
-        return {}, False
-    return (value, True) if isinstance(value, dict) else ({}, False)
-
-
-def _metadata(meta: dict) -> dict:
-    return meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
-
-
-def _field(value) -> str | None:
-    if value is None or isinstance(value, (dict, list)):
-        return None
-    return value.isoformat() if hasattr(value, "isoformat") else str(value)
-
-
-def _when(value) -> float | None:
-    """A frontmatter time as a POSIX timestamp, or None; a time without a zone counts as UTC."""
-    if isinstance(value, datetime):
-        moment = value
-    elif isinstance(value, date):
-        moment = datetime(value.year, value.month, value.day)
-    elif isinstance(value, str):
-        try:
-            moment = datetime.fromisoformat(value.strip())
-        except ValueError:
-            return None
-    else:
-        return None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    try:
-        return moment.timestamp()
-    except (OverflowError, OSError, ValueError):
-        return None
+        native.inside(store, path)
+    except native.Refused as error:
+        raise MemoryRefused(error.code, str(error)) from None
 
 
 def links(text: str) -> list[dict]:
@@ -237,28 +158,14 @@ def _links_unsupported(error: OSError) -> bool:
 
 
 def _open(path: Path):
-    """``path`` opened for reading without following a symlink, also one that replaced the file since
-    it was listed; a symlink, a junction and anything that is not a regular file are refused.
+    """``native.open_regular`` with this module's link test, refusing with this page's error.
 
-    ``O_NONBLOCK`` keeps the open itself from waiting. A FIFO under an item's name would otherwise
-    hold ``O_RDONLY`` until some process opened it for writing, and a save reads the file it is about
-    to replace while it holds the page's lock, so one such entry would stall every later write."""
-    if is_link(path):
-        raise MemoryRefused("symlink_refused", f"{path.name} is a symlink")
+    A save reads the file it is about to replace while it holds the page's lock, so a FIFO under an
+    item's name would stall every later write if the open could wait (``O_NONBLOCK`` there)."""
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-                     | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
-    except OSError as error:
-        if error.errno == errno.ELOOP:  # O_NOFOLLOW met a symlink
-            raise MemoryRefused("symlink_refused", f"{path.name} is a symlink") from None
-        raise
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise MemoryRefused("not_a_file", f"{path.name} is not a regular file")
-    except BaseException:
-        os.close(fd)
-        raise
-    return os.fdopen(fd, "rb")
+        return native.open_regular(path, link_check=lambda candidate: is_link(candidate))
+    except native.Refused as error:
+        raise MemoryRefused(error.code, str(error)) from None
 
 
 def _read(path: Path) -> bytes:
@@ -386,13 +293,6 @@ def _rewritable(raw: bytes, name: str) -> str:
     return _utf8(raw, name)
 
 
-def _fields(meta: dict) -> dict:
-    metadata = _metadata(meta)
-    return {"name": _field(meta.get("name")), "description": _field(meta.get("description")),
-            "type": _field(metadata.get("type", meta.get("type"))),
-            "modified": _field(metadata.get("modified", meta.get("modified")))}
-
-
 def _warning(error: Exception) -> str:
     """A refusal or storage error that came after the change itself was done, for the answer."""
     if isinstance(error, MemoryRefused):
@@ -499,13 +399,7 @@ class MemoryUI:
 
     def stores(self) -> list[Store]:
         """The configuration directories with memory, Claude Code's first, from ``client_dirs``."""
-        home = Path(self.home or Path.home()).resolve()
-        directory = getattr(self.service, "directory", None)
-        found = [Store(path, "claude", _label(path, home))
-                 for path in claude_config_dirs(directory, home=self.home, environ=self.environ)]
-        found += [Store(path, "codex", _label(path, home))
-                  for path in codex_homes(directory, home=self.home, environ=self.environ)]
-        return found
+        return native.stores(getattr(self.service, "directory", None), home=self.home, environ=self.environ)
 
     def _store(self, store: str) -> Store:
         for candidate in self.stores():
@@ -556,29 +450,11 @@ class MemoryUI:
     @staticmethod
     def _names(store: Store, memory: Path) -> list[str]:
         """The item files of a memory directory, sorted; Claude Code's ``MEMORY.md`` is not an item."""
-        try:
-            entries = list(os.scandir(memory))
-        except (FileNotFoundError, NotADirectoryError):
-            return []
-        return sorted(entry.name for entry in entries
-                      if _item_name(store, entry.name) and entry.is_file(follow_symlinks=False))
+        return native.item_names(store, memory)
 
     def _places(self, store: Store):
         """``(project, memory dir)`` of every place in ``store`` that holds an item or an index."""
-        candidates = [""]
-        projects = store.path / "projects"
-        if store.client == "claude" and not is_link(projects):
-            try:
-                candidates += sorted(entry.name for entry in os.scandir(projects)
-                                     if entry.is_dir(follow_symlinks=False) and PROJECT.fullmatch(entry.name))
-            except (FileNotFoundError, NotADirectoryError):
-                pass
-        for project in candidates:
-            memory = store.memory_dir(project)
-            if (project and is_link(memory.parent)) or is_link(memory) or not memory.is_dir():
-                continue
-            if self._names(store, memory) or _index(store, memory):
-                yield project, memory
+        return native.places(store, names=self._names, link_check=lambda candidate: is_link(candidate))
 
     def _workspaces(self) -> dict[str, tuple[str, str]]:
         """Registered workspaces by Claude Code's project directory name: ``{name: (id, root)}``."""
