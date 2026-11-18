@@ -69,7 +69,8 @@ loaded as [the workflow guide](README.md#without-agents-core-mcp) describes.
   models, committed or not ([step 2](#2-inventory-and-classify-the-corpus)):
   guides and READMEs, AI instructions (`AGENTS.md`,
   `CLAUDE.md`, rules, personas, skills, flows, instruction templates),
-  contributor and test guides. A list of paths narrows it. `changes since <ref>`
+  contributor and test guides. A list of paths narrows it, and a path it names
+  is audited even when `.gitignore` excludes it. `changes since <ref>`
   audits the documents among the files changed since the merge base with `<ref>` plus their
   neighbours ([step 1](#1-record-the-state-and-the-scope)).
 - **Mode:** `report` (default; nothing is written in the repository except a
@@ -168,11 +169,14 @@ patterns inside each directory (`'flows/*.md' 'flows/*.mdc'`, not `flows/`):
 a bare directory also feeds images and code to the checker and the searches.
 Give exact file names with `git --literal-pathspecs`, since a name such as
 `file[1].md` is otherwise a pattern, in a call of their own, because that option
-also reads the extension patterns literally; check that every given path
-matched a file with
-`git --literal-pathspecs -c core.quotepath=off ls-files --cached --others --exclude-standard --error-unmatch -- <path>...`,
-which fails on one that does not; a path deleted only in the working tree
-still passes it, and is dropped as in step 2. The commands do not know the vendored and
+also reads the extension patterns literally. In that call, put
+`--no-exclude-standard` after `--untracked`, so that the searches reach a named
+file that `.gitignore` excludes; without it, `git grep` skips the file and
+reports no match. Check that every given path matched a file with
+`git --literal-pathspecs -c core.quotepath=off ls-files --cached --others --error-unmatch -- <path>...`,
+which also matches an ignored file and fails on a path that matches none;
+record such a path in the coverage record as not found. A path deleted only
+in the working tree still passes the check, and is dropped as in step 2. The commands do not know the vendored and
 fixture files of step 2: drop the matches in those files from their output. `git grep` does not search symlinks, and item 1 skips them: list
 tracked ones with `git -c core.quotepath=off ls-files -s | awk '$1==120000'`
 and record them as unchecked. Run the blocks below in bash or zsh; each starts
@@ -503,7 +507,9 @@ In `fix` mode, after the report:
    separator block), read the
    full diff, and commit under the target's convention (for Agents-Core, a
    Conventional Commit of type `docs`); the `fix` request covers these local
-   commits. Report the fix branch, its worktree path and the commits. Push only
+   commits. When item 3 deferred every finding and nothing changed, commit
+   nothing: the report lists them as deferred. Report the fix branch, its
+   worktree path and the commits. Push only
    when the request asks for a push or a pull request. For a pull request, run
    [pr-review](pr-review.md) through `run_flow` where Agents-Core is available,
    with `no-merge` unless the request asks for a merge, instead of opening it
