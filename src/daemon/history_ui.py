@@ -41,7 +41,8 @@ from typing import Optional
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.memory.history import ENTRY_ID, EntryChanged, _archive_names, _reading, delete_entry, parsed_file
+from src.memory.history import (ENTRY_ID, EntryChanged, _archive_names, _open_regular, _reading,
+                                _regular_kind, delete_entry, parsed_file)
 from src.memory.history_stats import FileSummaries, attribution
 from .state import read_json
 from .workspaces import WorkspaceError
@@ -82,9 +83,21 @@ def _file_path(root: Path, name: str) -> Path:
 
 
 def _files(root: Path) -> list[str]:
-    """``current`` when ``history.md`` exists, then the archives of a real month, newest first."""
+    """``current`` when ``history.md`` is a regular file, then the archives of a real month, newest first.
+
+    ``Path.is_file()`` follows a link, so a substituted ``history.md`` would be
+    listed here and then refused by the guarded reader, which the caller records
+    as one unreadable file while still reporting the workspace available. A
+    current journal that cannot be read safely makes the workspace unreadable,
+    so this raises and lets the caller report it that way, as it already does
+    for an unsafe archive directory.
+    """
     names = [name[:7] for name in reversed(_archive_names(str(root / "history"))) if _MONTH.fullmatch(name[:7])]
-    return ([CURRENT] if (root / "history.md").is_file() else []) + names
+    try:
+        _regular_kind(os.lstat(root / "history.md"))
+    except FileNotFoundError:
+        return names
+    return [CURRENT] + names
 
 
 def _same(path: Path, other: Path) -> bool:
@@ -210,20 +223,39 @@ class HistoryUI:
                             "files": [], "entries": 0, "bytes": 0, "newest": None})
                 continue
             files = []
-            for name in _files(root):
+            try:
+                names = _files(root)
+            except OSError:
+                out.append({"workspace": identity, "name": _name(identity, root), "root": str(root),
+                            "available": False, "unreadable": True, "unresolved": identity == UNRESOLVED,
+                            "files": [], "entries": 0, "bytes": 0, "newest": None})
+                continue
+            current_unreadable = False
+            for name in names:
                 try:
                     path = _file_path(root, name)
                     if name == CURRENT:
                         with _reading(str(path)):
-                            answers = self.summaries.answers(str(path))
+                            answers = self.summaries.answers(str(path), root=str(root))
                     else:
-                        answers = self.summaries.answers(str(path))
+                        answers = self.summaries.answers(str(path), root=str(root))
                     size = path.stat().st_size
                 except (HistoryError, OSError):
+                    if name == CURRENT:
+                        # A regular history.md the guarded read refuses is the
+                        # workspace's journal failing, not one file among others:
+                        # report it as discovery does, so the UI shows its notice.
+                        current_unreadable = True
+                        break
                     files.append({"file": name, "entries": None, "bytes": None, "newest": None, "unreadable": True})
                     continue
                 files.append({"file": name, "entries": len(answers), "bytes": size,
                               "newest": max((answer.time for answer in answers), default=None)})
+            if current_unreadable:
+                out.append({"workspace": identity, "name": _name(identity, root), "root": str(root),
+                            "available": False, "unreadable": True, "unresolved": identity == UNRESOLVED,
+                            "files": [], "entries": 0, "bytes": 0, "newest": None})
+                continue
             if not files:
                 continue
             out.append({"workspace": identity, "name": _name(identity, root),
@@ -294,7 +326,7 @@ class HistoryUI:
             raise HistoryError("file_not_found", f"{file} does not exist in this workspace", 404)
         # history.md under the shared history lock, as every reader: a rotation never sees it open.
         with _reading(str(root / "history.md")) if file == CURRENT else _nothing():
-            with open(path, encoding="utf-8", errors="replace", newline="") as stream:
+            with _open_regular(path, root=str(root), encoding="utf-8", errors="replace", newline="") as stream:
                 return {"workspace": workspace, "file": file, "text": stream.read()}
 
     def delete(self, workspace: str, file, entry, time) -> dict:
@@ -317,10 +349,11 @@ class HistoryUI:
         for identity, root in self._workspaces():
             try:
                 root = self._root(identity)
-            except WorkspaceError:
+                names = _files(root)
+            except (WorkspaceError, OSError):
                 continue
             matches = 0
-            for name in _files(root):
+            for name in names:
                 try:
                     entries = self._entries(root, name)
                 except (HistoryError, OSError):

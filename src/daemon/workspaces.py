@@ -218,8 +218,16 @@ class ClientContext:
 
     def require_root(self):
         self.workspace_root()
-        for relative in ("history.md", "history", "CLAUDE.md", "data/memory"):
-            if not (self.root / relative).resolve().is_relative_to(self.root):
+        for relative in ("history.md", "history.md.rotating", "history", "CLAUDE.md", "data/memory"):
+            try:
+                resolved = (self.root / relative).resolve()
+            except (OSError, RuntimeError):
+                # A symlink loop raises RuntimeError before Python 3.13 (later
+                # versions return the path unresolved and the check below judges
+                # it); an unreadable component can raise OSError. Either way the
+                # memory path cannot be placed inside the workspace.
+                raise WorkspaceError("workspace_invalid: memory path cannot be resolved") from None
+            if not resolved.is_relative_to(self.root):
                 raise WorkspaceError("workspace_invalid: memory path escapes workspace")
         return self.root
 

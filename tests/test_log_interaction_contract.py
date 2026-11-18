@@ -165,7 +165,7 @@ async def test_a_turn_without_a_project_goes_to_the_fallback_journal(writer, mon
     """#292: the turn is kept, with the directory the client named, and nothing is written there."""
     monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=Refusing()))
     response = await call(persona=FULL)
-    assert response["timestamp"] and response["history"] == {"status": "queued"}
+    assert response["timestamp"] and response["history"] == {"status": "recorded"}
     assert response["workspace"] == {"root": None, "source": "fallback", "claimed": "/work/unregistered",
                                      "reason": "workspace_required", "detail": "workspace_required: no workspace",
                                      "journal": str(fallback_journal / "history.md")}

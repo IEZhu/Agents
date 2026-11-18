@@ -21,7 +21,7 @@ field with safe references and omit prohibited personal details. Pass
 `workspace`, the absolute path of your working directory, whenever you have one,
 here and to the other memory and flow tools: one server process can serve several
 sessions, as the one the Claude desktop app starts for its Code sessions does. The call
-returns at once; when the footer's `Rules` list includes `answer-timestamp` and the
+waits for the local journal commit; report any memory acceptance error. When the footer's `Rules` list includes `answer-timestamp` and the
 call returns a `timestamp`, prepend it to the answer as its first line, followed by
 an empty line. Otherwise add no time line.
 After logging, deliver the composed answer. This order matters: clients may end
@@ -65,7 +65,7 @@ footer as
 and the actual keep/switch/refresh/restore action only together with it; `files`/`tags`
 are JSON arrays. Compact workers use the mode above. Other callers without a
 retained descriptor omit both and add no footer; that logging compatibility does
-not waive initial activation. Incomplete attribution is still logged as `unverified`; do not retry. The call returns at once; when the footer's `Rules` list includes
+not waive initial activation. Incomplete attribution is still logged as `unverified`; do not retry. The call waits for the local journal commit; report any memory acceptance error. When the footer's `Rules` list includes
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.

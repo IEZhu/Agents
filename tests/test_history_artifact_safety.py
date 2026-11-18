@@ -1,0 +1,967 @@
+"""Journal artifacts must not read or import a linked private journal."""
+
+import os
+import stat
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+from src.memory import history
+
+
+def link_or_skip(path, target, *, directory=False):
+    try:
+        path.symlink_to(target, target_is_directory=directory)
+    except OSError as error:
+        if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+            if os.environ.get("AGENTS_TEST_REQUIRE_SYMLINKS") == "1":
+                pytest.fail("CI must execute journal symlink safety checks")
+            pytest.skip("Windows symlink privilege unavailable")
+        raise
+
+
+@pytest.fixture
+def journals(tmp_path, monkeypatch):
+    monkeypatch.setattr(history, "_machine_history", lambda _: None)
+    selected, private = tmp_path / "selected", tmp_path / "private"
+    selected.mkdir()
+    private.mkdir()
+    target = private / "history.md"
+    history.HistoryWriter(str(target)).append_entry("PRIVATE_MARKER", "action", "outcome")
+    return selected / "history.md", target
+
+
+@pytest.mark.parametrize("artifact", ["history.md", "history.md.rotating", "history/2026-01.md"])
+@pytest.mark.parametrize("read", ["journal_entries", "git_export"])
+def test_linked_journal_artifacts_fail_closed(journals, artifact, read):
+    path, target = journals
+    linked = path.parent / artifact
+    linked.parent.mkdir(exist_ok=True)
+    link_or_skip(linked, target)
+    with pytest.raises(OSError):
+        if read == "git_export":
+            history.journal_blocks(str(path))
+        else:
+            history.HistoryReader(str(path)).journal_entries()
+
+
+def test_recent_read_rejects_pending_link_without_sync(journals):
+    path, target = journals
+    link_or_skip(path.with_name(path.name + ".rotating"), target)
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path)).read_recent()
+
+
+@pytest.mark.parametrize("target_kind", ["inside", "missing", "directory"])
+def test_pending_must_be_a_regular_file_even_without_an_escape(journals, target_kind):
+    path, _ = journals
+    pending = path.with_name(path.name + ".rotating")
+    if target_kind == "directory":
+        pending.mkdir()
+    else:
+        target = path.with_name("other.md")
+        if target_kind == "inside":
+            target.write_text("local")
+        link_or_skip(pending, target)
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path)).read_recent()
+
+
+def test_cached_regular_file_cannot_be_retargeted_to_link(journals):
+    path, target = journals
+    history.HistoryWriter(str(path)).append_entry("local", "action", "outcome")
+    assert history.parsed_file(str(path))[1][0].intent == "local"
+    path.unlink()
+    link_or_skip(path, target)
+    with pytest.raises(OSError):
+        history.parsed_file(str(path))
+
+
+def test_leaf_swap_between_inspection_and_open_is_not_read(journals, monkeypatch):
+    path, target = journals
+    path.write_text("local")
+    # Confirm symlink privilege before injecting a race into the open boundary.
+    probe = path.with_name("probe")
+    link_or_skip(probe, target)
+    probe.unlink()
+    real_open = os.open
+    swapped = False
+
+    def replace_then_open(filename, flags, *args, **kwargs):
+        nonlocal swapped
+        if os.path.basename(os.fspath(filename)) == path.name and not swapped:
+            swapped = True
+            path.unlink()
+            path.symlink_to(target)
+        return real_open(filename, flags, *args, **kwargs)
+
+    monkeypatch.setattr(history.os, "open", replace_then_open)
+    with pytest.raises(OSError):
+        history.parsed_file(str(path))
+    assert swapped
+
+
+def test_keyed_acceptance_refuses_pending_link_before_commit(journals):
+    path, target = journals
+    link_or_skip(path.with_name(path.name + ".rotating"), target)
+    before = target.read_bytes()
+    with pytest.raises(OSError):
+        history.HistoryWriter(str(path)).append_entry("local", "action", "outcome", idempotency_key="one")
+    assert not path.exists()
+    assert target.read_bytes() == before
+
+
+def test_rotation_does_not_import_linked_pending(journals):
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    link_or_skip(pending, target)
+    before = target.read_bytes()
+    with pytest.raises(OSError):
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert not (path.parent / "history").exists()
+    assert pending.is_symlink() and target.read_bytes() == before
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX named pipes")
+def test_pending_fifo_is_rejected_before_read(journals):
+    path, _ = journals
+    os.mkfifo(path.with_name(path.name + ".rotating"))
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path)).read_recent()
+
+
+def test_archive_directory_link_never_exports_private_entries(journals):
+    path, target = journals
+    target.rename(target.with_name("2026-01.md"))
+    link_or_skip(path.parent / "history", target.parent, directory=True)
+    with pytest.raises(OSError):
+        history.journal_blocks(str(path))
+
+
+def test_nested_archive_cannot_follow_an_earlier_directory_link(journals):
+    path, target = journals
+    nested = target.parent / "nested"
+    nested.mkdir()
+    target.rename(nested / "2026-01.md")
+    link_or_skip(path.parent / "custom", target.parent, directory=True)
+    archive = path.parent / "custom" / "nested"
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path), str(archive)).journal_entries()
+    with pytest.raises(OSError):
+        history.journal_blocks(str(path), str(archive))
+
+
+def test_regular_external_archive_remains_supported(journals):
+    path, target = journals
+    target.rename(target.with_name("2026-01.md"))
+    entries = history.HistoryReader(str(path), str(target.parent)).journal_entries()
+    assert [entry.intent for entry in entries] == ["PRIVATE_MARKER"]
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="POSIX descriptor-relative directory open")
+def test_archive_directory_swap_cannot_redirect_the_open(journals, monkeypatch):
+    path, target = journals
+    directory = path.parent / "history"
+    directory.mkdir()
+    (directory / "2026-01.md").write_text("local")
+    target.rename(target.with_name("2026-01.md"))
+    real_open = os.open
+
+    def swapped(filename, flags, *args, **kwargs):
+        if filename == "history":
+            directory.rename(path.parent / "original")
+            directory.symlink_to(target.parent, target_is_directory=True)
+        return real_open(filename, flags, *args, **kwargs)
+
+    monkeypatch.setattr(history.os, "open", swapped)
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path)).journal_entries()
+
+
+def test_a_dangling_archive_link_is_not_replaced_by_a_merge(journals):
+    """`os.path.exists` follows the link, so a dangling archive reads as absent.
+
+    The merge would then take the create path and `os.replace` would overwrite
+    the link itself, while the append reported the entry as recorded.
+    """
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    payload = target.read_text(encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    month = max(match[0] for match in history._HEADER_RE.findall(payload))[:7]
+    directory = path.parent / "history"
+    directory.mkdir()
+    archive = directory / f"{month}.md"
+    link_or_skip(archive, directory / "never-written.md")
+    assert archive.is_symlink() and not archive.exists()
+    with pytest.raises(OSError):
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert archive.is_symlink() and not archive.exists()
+    assert pending.read_text(encoding="utf-8") == payload
+
+
+class Moved:
+    """The same entry with another identity, delegating every other field.
+
+    A rebuilt `os.stat_result` answers None for the Windows-only fields the
+    link predicate reads, so it has to delegate rather than be constructed.
+    """
+
+    def __init__(self, info):
+        self._info = info
+
+    def __getattr__(self, name):
+        return getattr(self._info, name)
+
+    @property
+    def st_dev(self):
+        return self._info.st_dev
+
+    @property
+    def st_ino(self):
+        return (self._info.st_ino or 1) + 1
+
+
+def moved_at(monkeypatch, directory, check):
+    """Make the ``check``-th re-identification of ``directory`` see another identity.
+
+    Only `_refuse_swapped_dir`'s own reads count, so the checks taken before a
+    read and the reads of the guarded open are left alone. Returns the list of
+    re-identifications seen.
+    """
+    real_lstat = history.os.lstat
+    seen = []
+
+    def shifting(entry, *args, **kwargs):
+        info = real_lstat(entry, *args, **kwargs)
+        if os.fspath(entry) == str(directory) and sys._getframe(1).f_code.co_name == "_refuse_swapped_dir":
+            seen.append(1)
+            if len(seen) == check:
+                return Moved(info)
+        return info
+
+    monkeypatch.setattr(history.os, "lstat", shifting)
+    return seen
+
+
+def count_temporaries(monkeypatch):
+    created = []
+    real_temp = history._temp_beside
+
+    def recording(*args, **kwargs):
+        created.append(1)
+        return real_temp(*args, **kwargs)
+
+    monkeypatch.setattr(history, "_temp_beside", recording)
+    return created
+
+
+@pytest.mark.parametrize("check", ["temporary", "move"])
+def test_the_replace_is_refused_when_the_archive_directory_identity_changed(journals, monkeypatch, check):
+    """Where there is no directory descriptor, the merge reaches the directory by name.
+
+    Windows accepts no `dir_fd` anywhere, so there the merge reads the directory
+    identity again immediately before it creates the temporary archive and again
+    before the move, and refuses a change at either. The first check is what
+    keeps the merged archive from being written into a substituted target at
+    all; the second keeps it from being moved there. Forcing `_ANCHORED_DIR` off
+    runs that branch on any platform, as the neighbouring no-O_NOFOLLOW tests
+    do. The comparison is driven directly rather than by swapping the directory
+    on disk, because a real swap is caught by whichever guard sees it first and
+    that depends on how often the platform's open path reads the directory. The
+    anchored branch is
+    test_an_archive_directory_substituted_before_the_move_does_not_redirect_it,
+    and the real-swap case for reads is
+    test_archive_directory_swap_cannot_redirect_the_open.
+    """
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    payload = target.read_text(encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    month = max(match[0] for match in history._HEADER_RE.findall(payload))[:7]
+    directory = path.parent / "history"
+    directory.mkdir()
+    (directory / f"{month}.md").write_text("kept", encoding="utf-8")
+    seen = moved_at(monkeypatch, directory, 1 if check == "temporary" else 2)
+    created = count_temporaries(monkeypatch)
+    with pytest.raises(PermissionError, match="archive directory changed"):
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert len(seen) == (1 if check == "temporary" else 2)
+    assert created == ([] if check == "temporary" else [1])
+    assert pending.read_text(encoding="utf-8") == payload
+    assert sorted(item.name for item in directory.iterdir()) == [f"{month}.md"]
+    assert (directory / f"{month}.md").read_text(encoding="utf-8") == "kept"
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory move")
+def test_an_archive_directory_substituted_before_the_move_does_not_redirect_it(journals, monkeypatch):
+    """The move goes through the directory's descriptor, so its name no longer decides.
+
+    Three review findings on this module were one mechanism: a directory
+    validated by name is resolved again by every later call, and the trust the
+    check earned does not survive to the use. Here the name is replaced with a
+    link to another directory after the merge opened and checked the real one,
+    in the moment before the move. The merged archive still lands in the
+    directory that was checked, and the link's target stays empty.
+    """
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    payload = target.read_text(encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    month = max(match[0] for match in history._HEADER_RE.findall(payload))[:7]
+    directory = path.parent / "history"
+    directory.mkdir()
+    (directory / f"{month}.md").write_text("kept", encoding="utf-8")
+    decoy = path.parent / "decoy"
+    decoy.mkdir()
+    real_move = history._move_onto
+
+    def swap_then_move(archive_dir, temporary, name, dir_fd):
+        assert dir_fd is not None, "the merge must hold a descriptor for the directory"
+        directory.rename(path.parent / "checked")
+        link_or_skip(path.parent / "history", decoy, directory=True)
+        return real_move(archive_dir, temporary, name, dir_fd)
+
+    monkeypatch.setattr(history, "_move_onto", swap_then_move)
+    history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert list(decoy.iterdir()) == []
+    merged = (path.parent / "checked" / f"{month}.md").read_text(encoding="utf-8")
+    assert merged.startswith("kept") and "PRIVATE_MARKER" in merged
+
+
+def test_a_refused_local_archive_is_not_reported_as_a_missing_entry(journals):
+    """An entry lookup answered "not found" where a guarded read had refused the archive.
+
+    `_older_file` already skips an unreadable synced segment and keeps a local
+    archive's error, so the only error that can reach `find` belongs to this
+    checkout. Catching it there turned the refusal into an empty success, which
+    is the one answer a fail-closed read must never produce.
+    """
+    path, target = journals
+    directory = path.parent / "history"
+    directory.mkdir()
+    archive = directory / "2026-01.md"
+    archive.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    entry_id = history.HistoryReader(str(path)).journal_entries()[0].id
+    assert history.HistoryReader(str(path)).find(entry_id) is not None
+    archive.unlink()
+    link_or_skip(archive, target)
+    with pytest.raises(OSError):
+        history.HistoryReader(str(path)).find(entry_id)
+
+
+def test_the_no_nofollow_fallback_takes_its_root_from_a_handle(journals, monkeypatch):
+    """Off Windows this can only assert the structure, which is the point of it.
+
+    The expected root used to come from `os.path.realpath`, which resolves the
+    name a second time: a junction put over the root after the lstat above was
+    resolved to its target and the final-path comparison then accepted the
+    substituted directory. Only a Windows handle can refuse that, so the
+    behaviour itself is checked by the Windows jobs; what is checked here is
+    that the fallback asks the handle helper at all, and no longer resolves the
+    name. Reverting the fix makes this fail because `realpath` never raises.
+    """
+    path, _ = journals
+    path.write_text("local")
+    reached = []
+
+    def from_handle(value):
+        reached.append(value)
+        raise PermissionError("journal artifact must be a regular directory")
+
+    monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    monkeypatch.setattr(history, "_windows_directory_path", from_handle)
+    with pytest.raises(PermissionError, match="regular directory"):
+        history.parsed_file(str(path))
+    assert reached == [str(path.parent)]
+
+
+def test_a_delete_refuses_an_archive_directory_swapped_after_the_read(journals, monkeypatch):
+    """`delete_entry` read the archive under guard and then replaced it by name.
+
+    `mkstemp` and the move both resolved `history/` again, so a swap between the
+    guarded read and the replacement sent the rewritten archive into the
+    substituted directory. The directory's identity is now taken before the
+    read and the replacement anchored to it. The swap here happens after the
+    read has closed, as the entry is cut out of what it read, and it puts a real
+    directory in place, so neither a link check nor the read itself can refuse
+    it: only the replacement's identity check can. Both directories keep what
+    they held.
+    """
+    path, target = journals
+    directory = path.parent / "history"
+    directory.mkdir()
+    archive = directory / "2026-01.md"
+    archive.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    original = archive.read_bytes()
+    entry = history.HistoryReader(str(path)).journal_entries()[0]
+    decoy, checked = path.parent / "decoy", path.parent / "checked"
+    decoy.mkdir()
+    (decoy / "2026-01.md").write_text("DECOY_ARCHIVE\n", encoding="utf-8")
+    real_without = history.without_entry
+    swapped = []
+
+    def swap_after_the_read(*args, **kwargs):
+        swapped.append(1)
+        directory.rename(checked)
+        decoy.rename(directory)
+        return real_without(*args, **kwargs)
+
+    monkeypatch.setattr(history, "without_entry", swap_after_the_read)
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.delete_entry(str(path), "2026-01", entry.id, entry.timestamp)
+    assert swapped
+    assert (checked / "2026-01.md").read_bytes() == original
+    assert sorted(item.name for item in directory.iterdir()) == ["2026-01.md"]
+    assert (directory / "2026-01.md").read_text(encoding="utf-8") == "DECOY_ARCHIVE\n"
+
+
+def test_a_second_write_survives_a_platform_without_fchmod(journals, monkeypatch):
+    """Windows has no `os.fchmod`, and `AttributeError` is not an `OSError`.
+
+    The mode of the file being replaced is copied inside a suppressed block, so
+    a missing call there looks harmless and is not: the first write to a journal
+    raises `FileNotFoundError` before reaching it, and only the second write
+    reaches the chmod and fails. One append therefore passes and the next one
+    loses its entry, which is how this arrived from the Windows job rather than
+    from any local run.
+    """
+    path, _ = journals
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    monkeypatch.delattr(history.os, "fchmod", raising=False)
+    history.HistoryWriter(str(path)).append_entry("first", "action", "outcome")
+    history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    assert [e.intent for e in history.HistoryReader(str(path)).journal_entries()] == ["first", "second"]
+
+
+def test_failed_unlink_does_not_truncate_a_retargeted_pending(journals, monkeypatch):
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    link_or_skip(pending, target)
+    before = target.read_bytes()
+
+    def denied(_):
+        raise PermissionError("pending busy")
+
+    monkeypatch.setattr(history.os, "unlink", denied)
+    history.HistoryWriter._discard_pending(str(pending))
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("mismatch", ["identity", "path"])
+def test_no_nofollow_fallback_checks_tag_zero_file_identity_and_path(journals, monkeypatch, mismatch):
+    path, target = journals
+    path.write_text("local")
+    real_lstat, real_fstat = os.lstat, os.fstat
+
+    def shaped(info, *, changed_identity=False):
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        return SimpleNamespace(**{**values, "st_file_attributes": 0x420, "st_reparse_tag": 0,
+                                  "st_ino": info.st_ino + int(changed_identity)})
+
+    def lstat(filename, *args, **kwargs):
+        info = real_lstat(filename, *args, **kwargs)
+        return shaped(info) if stat.S_ISREG(info.st_mode) else info
+
+    def fstat(fd):
+        return shaped(real_fstat(fd), changed_identity=mismatch == "identity")
+
+    monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    # The fallback reads the root from a directory handle; off Windows there is
+    # none, so it resolves the name exactly as the branch used to.
+    monkeypatch.setattr(history, "_windows_directory_path", os.path.realpath)
+    monkeypatch.setattr(history.os, "lstat", lstat)
+    monkeypatch.setattr(history.os, "fstat", fstat)
+    monkeypatch.setattr(history, "_windows_final_path", lambda _: str(target))
+    with pytest.raises(PermissionError, match="changed" if mismatch == "identity" else "escaped"):
+        history.parsed_file(str(path))
+
+
+def test_workspace_preflight_rejects_pending_escape(journals):
+    from src.daemon.workspaces import ClientContext, WorkspaceError
+
+    path, target = journals
+    link_or_skip(path.with_name(path.name + ".rotating"), target)
+    context = ClientContext("test", "stdio", root=path.parent)
+    with pytest.raises(WorkspaceError, match="escapes"):
+        context.require_root()
+
+
+@pytest.mark.parametrize("plain,extended", [
+    ("C:\\Work\\history.md", "\\\\?\\C:\\Work\\history.md"),
+    ("\\\\Host\\Share\\history.md", "\\\\?\\UNC\\Host\\Share\\history.md"),
+])
+def test_windows_handle_path_normalization_preserves_dos_and_unc(plain, extended):
+    assert history._normalized_windows_path(plain) == history._normalized_windows_path(extended)
+
+
+@pytest.mark.parametrize("tag", [0, 0x9000601A])
+@pytest.mark.parametrize("artifact", ["file", "root", "directory"])
+def test_windows_non_link_reparse_artifacts_remain_readable(journals, monkeypatch, tag, artifact):
+    path, _ = journals
+    root = path.parent
+    if artifact == "directory":
+        (root / "history").mkdir()
+        path = root / "history" / "2026-10.md"
+    selected = path if artifact == "file" else root if artifact == "root" else path.parent
+    path.write_bytes(b"cloud-backed journal")
+    real_lstat, real_fstat = os.lstat, os.fstat
+
+    def shaped(info, tag):
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        attributes = 0x410 if stat.S_ISDIR(info.st_mode) else 0x420
+        return SimpleNamespace(**{**values, "st_file_attributes": attributes, "st_reparse_tag": tag})
+
+    def lstat(filename, *args, **kwargs):
+        info = real_lstat(filename, *args, **kwargs)
+        return shaped(info, tag) if os.fspath(filename) == str(selected) else info
+
+    def fstat(fd):
+        info = real_fstat(fd)
+        return shaped(info, 0) if stat.S_ISREG(info.st_mode) else info
+
+    monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    # The fallback reads the root from a directory handle; off Windows there is
+    # none, so it resolves the name exactly as the branch used to.
+    monkeypatch.setattr(history, "_windows_directory_path", os.path.realpath)
+    monkeypatch.setattr(history.os, "lstat", lstat)
+    monkeypatch.setattr(history.os, "fstat", fstat)
+    monkeypatch.setattr(history, "_windows_final_path", lambda _: history._normalized_windows_path(str(path)))
+    with history._open_regular(str(path), "rb", root=str(root)) as stream:
+        assert stream.read() == b"cloud-backed journal"
+    if artifact == "directory":
+        assert history._archive_names(str(path.parent)) == ["2026-10.md"]
+
+
+@pytest.mark.parametrize("tag", [0xA000000C, 0xA0000003, 0x20000001])
+@pytest.mark.parametrize("artifact", ["file", "root", "directory"])
+def test_windows_name_surrogate_reparse_artifacts_remain_refused(journals, monkeypatch, tag, artifact):
+    path, _ = journals
+    root = path.parent
+    if artifact == "directory":
+        (root / "history").mkdir()
+        path = root / "history" / "2026-10.md"
+    selected = path if artifact == "file" else root if artifact == "root" else path.parent
+    path.write_bytes(b"must not be read")
+    real_lstat = os.lstat
+
+    def lstat(filename, *args, **kwargs):
+        info = real_lstat(filename, *args, **kwargs)
+        if os.fspath(filename) == str(selected):
+            values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+            return SimpleNamespace(**{**values, "st_file_attributes": 0x400, "st_reparse_tag": tag})
+        return info
+
+    monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    # The fallback reads the root from a directory handle; off Windows there is
+    # none, so it resolves the name exactly as the branch used to.
+    monkeypatch.setattr(history, "_windows_directory_path", os.path.realpath)
+    monkeypatch.setattr(history.os, "lstat", lstat)
+    monkeypatch.setattr(history, "_windows_final_path", lambda _: pytest.fail("link opened before refusal"))
+    with pytest.raises(PermissionError):
+        with history._open_regular(str(path), "rb", root=str(root)):
+            pytest.fail("unsafe journal exposed")
+
+
+def test_regular_history_file_does_not_disable_read_or_export(journals):
+    path, _ = journals
+    history.HistoryWriter(str(path)).append_entry("local", "action", "outcome")
+    (path.parent / "history").write_text("project release history")
+    reader = history.HistoryReader(str(path))
+    assert [e.intent for e in reader.journal_entries()] == ["local"]
+    assert [e.intent for e, _ in history.journal_blocks(str(path))] == ["local"]
+    assert [e.intent for e in reader.read_merged(history.MachineHistory("local"))] == ["local"]
+    # Keep keyed acceptance fail-closed when its receipt archive cannot be enumerated.
+    with pytest.raises(NotADirectoryError):
+        history.HistoryWriter(str(path)).append_entry("next", "action", "outcome", idempotency_key="one")
+
+
+def test_failed_unlink_empties_regular_pending_and_keeps_delete_usable(journals, monkeypatch):
+    path, _ = journals
+    pending = path.with_name(path.name + ".rotating")
+    real_unlink = os.unlink
+
+    def refuse_pending(filename, *args, **kwargs):
+        if os.fspath(filename) == str(pending):
+            raise PermissionError("pending busy")
+        return real_unlink(filename, *args, **kwargs)
+
+    monkeypatch.setattr(history.os, "unlink", refuse_pending)
+    result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("local", "action", "outcome")
+    assert pending.stat().st_size == 0
+    reader = history.HistoryReader(str(path))
+    assert reader.read_recent() == []
+    entry, = reader.journal_entries()
+    assert entry.id == result["entry_id"]
+    history.delete_entry(str(path), entry.timestamp[:7], entry.id, entry.timestamp)
+    assert reader.journal_entries() == []
+
+
+def test_delete_reports_unsafe_pending_without_following_it(journals):
+    path, target = journals
+    receipt = history.HistoryWriter(str(path)).append_entry("local", "action", "outcome")
+    before = target.read_bytes()
+    link_or_skip(path.with_name(path.name + ".rotating"), target)
+    with pytest.raises(PermissionError):
+        history.delete_entry(str(path), None, receipt["entry_id"], receipt["timestamp"])
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_statistics_refuse_linked_pending_even_with_cached_answers(journals, warm):
+    from src.memory.history_stats import FileSummaries, _workspace_answers
+
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    summaries = FileSummaries()
+    if warm:
+        pending.write_bytes(target.read_bytes())
+        assert summaries.answers(str(pending))
+        pending.unlink()
+    link_or_skip(pending, target)
+    with pytest.raises(OSError):
+        list(_workspace_answers(path.parent, summaries, "2000-01"))
+
+
+def test_ui_raw_source_refuses_an_in_workspace_link(journals, monkeypatch):
+    from src.daemon.history_ui import HistoryUI
+
+    path, target = journals
+    inside = path.parent / "other.md"
+    inside.write_bytes(target.read_bytes())
+    link_or_skip(path, inside)
+    ui = HistoryUI(SimpleNamespace())
+    monkeypatch.setattr(ui, "_root", lambda _: path.parent)
+    with pytest.raises(OSError):
+        ui.source("workspace", "current")
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "fifo"])
+def test_no_sync_semantic_index_refuses_unsafe_journal(journals, monkeypatch, kind):
+    path, target = journals
+    if kind == "symlink":
+        link_or_skip(path, target)
+    elif kind == "directory":
+        path.mkdir()
+    elif hasattr(os, "mkfifo"):
+        os.mkfifo(path)
+    else:
+        pytest.skip("POSIX named pipes")
+    data_dir = path.parent / "index"
+    data_dir.mkdir()
+    fake_store = SimpleNamespace(count=lambda: 0)
+    monkeypatch.setitem(sys.modules, "src.engine.vector_store", SimpleNamespace(NumpyVectorStore=lambda **_: fake_store))
+    monkeypatch.setitem(sys.modules, "src.engine.embedder", SimpleNamespace(model_fingerprint=lambda: "test"))
+    store = history.HistoryStore(str(path), str(data_dir))
+    parsed = []
+    monkeypatch.setattr(store, "_refresh", lambda *args, **kwargs: parsed.extend(kwargs["load"]()))
+    with pytest.raises(OSError):
+        store._ensure(None)
+    assert not parsed
+
+
+def _journal_in(tmp_path, monkeypatch):
+    """A journal with one entry in a directory of its own, and an empty decoy beside it."""
+    monkeypatch.setattr(history, "_machine_history", lambda _: None)
+    journal, decoy = tmp_path / "journal", tmp_path / "decoy"
+    journal.mkdir()
+    decoy.mkdir()
+    path = journal / "history.md"
+    history.HistoryWriter(str(path)).append_entry("first", "action", "outcome")
+    return path, journal, decoy
+
+
+def _journal_files(directory):
+    """What a write left in ``directory``: the journal and its temporaries, not the lock."""
+    return sorted(item.name for item in directory.iterdir() if not item.name.endswith(".lock"))
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+def test_an_append_refuses_a_journal_directory_swapped_after_its_read(tmp_path, monkeypatch):
+    """The append checked the archive directory but not the journal's own.
+
+    `_replace` held a descriptor for the directory it wrote into, and for
+    `history.md` it opened that descriptor by name without comparing it with
+    anything, so a directory swapped in between the guarded read and the write
+    received the whole journal, the new entry included, while the call reported
+    it durable. The swap here puts a real directory in place, not a link, so the
+    link check alone cannot catch it: only the identity taken before the read
+    can. The original directory keeps its one entry and the decoy stays empty.
+    """
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    checked = tmp_path / "checked"
+    real_render = history.HistoryWriter._render_entry
+
+    def swap_after_the_read(*args, **kwargs):
+        # The entry is rendered after the read and before the replacement is
+        # called, so a swap here also defeats an identity taken at the write.
+        journal.rename(checked)
+        decoy.rename(journal)
+        return real_render(*args, **kwargs)
+
+    monkeypatch.setattr(history.HistoryWriter, "_render_entry", staticmethod(swap_after_the_read))
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    assert _journal_files(journal) == []
+    assert [e.intent for e in history.HistoryReader(str(checked / "history.md")).journal_entries()] == ["first"]
+
+
+@pytest.mark.parametrize("check", ["temporary", "move"])
+def test_an_unanchored_append_re_identifies_the_journal_directory(tmp_path, monkeypatch, check):
+    """Without a directory descriptor, the journal's directory is checked before each step.
+
+    Windows takes no `dir_fd`, so the temporary journal and the move reach the
+    directory by name. The archive merge already re-identified its directory
+    before the move; the journal's own replacement did not, and neither checked
+    before writing the temporary file. Each check is driven here, as in the
+    archive test: the first refusal must come before any temporary file exists,
+    the second before the move, and the journal stays as it was.
+    """
+    path, journal, _decoy = _journal_in(tmp_path, monkeypatch)
+    before = path.read_bytes()
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    seen = moved_at(monkeypatch, journal, 1 if check == "temporary" else 2)
+    created = count_temporaries(monkeypatch)
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    assert len(seen) == (1 if check == "temporary" else 2)
+    assert created == ([] if check == "temporary" else [1])
+    assert _journal_files(journal) == ["history.md"]
+    assert path.read_bytes() == before
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+@pytest.mark.parametrize("where", ["journal", "archive"])
+def test_the_directory_sync_after_a_move_uses_the_held_descriptor(tmp_path, monkeypatch, where):
+    """The entry the move made is synced in the directory that received it.
+
+    The move went through the held descriptor, but the sync after it opened the
+    directory by name again. A swap right after the move therefore synced the
+    decoy and left the real directory entry unsynced, and the call still
+    reported `durably_accepted`. Every directory fsync is recorded by identity
+    here: the one that received the entry must be among them, the decoy never.
+    """
+    monkeypatch.setattr(history, "_machine_history", lambda _: None)
+    holder, decoy, checked = tmp_path / "holder", tmp_path / "decoy", tmp_path / "checked"
+    holder.mkdir()
+    decoy.mkdir()
+    if where == "journal":
+        path = holder / "history.md"
+        history.HistoryWriter(str(path)).append_entry("first", "action", "outcome")
+        directory = holder
+    else:
+        source = tmp_path / "source" / "history.md"
+        history.HistoryWriter(str(source)).append_entry("archived", "action", "outcome")
+        path = holder / "history.md"
+        pending = path.with_name(path.name + ".rotating")
+        pending.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        directory = holder / "history"
+        directory.mkdir()
+    received = os.stat(directory)
+    decoy_identity = (os.stat(decoy).st_dev, os.stat(decoy).st_ino)
+    real_move, real_fsync = history._move_onto, history.os.fsync
+    synced = []
+
+    def move_then_swap(*args, **kwargs):
+        real_move(*args, **kwargs)
+        directory.rename(checked)
+        decoy.rename(directory)
+
+    def recording(fd):
+        info = os.fstat(fd)
+        if stat.S_ISDIR(info.st_mode):
+            synced.append((info.st_dev, info.st_ino))
+        return real_fsync(fd)
+
+    monkeypatch.setattr(history, "_move_onto", move_then_swap)
+    monkeypatch.setattr(history.os, "fsync", recording)
+    if where == "journal":
+        history.HistoryWriter(str(path)).append_entry("second", "action", "outcome")
+    else:
+        history.HistoryWriter(str(path))._merge_pending_locked(str(pending))
+    assert (received.st_dev, received.st_ino) in synced
+    assert decoy_identity not in synced
+
+
+def _rotating_journal(tmp_path, monkeypatch):
+    """A journal that rotates on its next append, and a decoy holding a journal of its own."""
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    (decoy / "history.md").write_text("DECOY_JOURNAL\n", encoding="utf-8")
+    return path, journal, decoy
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+def test_a_rotation_does_not_move_a_journal_swapped_in_after_the_append(tmp_path, monkeypatch):
+    """The rotation moved `history.md` aside by name after the append committed it.
+
+    The append wrote through the directory it had checked, and then the
+    rotation's `os.replace` and its directory sync resolved the name again, so a
+    directory swapped in between had its own journal moved to `.rotating` and
+    merged. The swap here is a real directory with a journal of its own, put in
+    place after the append's commit and before the rotation, where the identity
+    the append took is already fixed. The rotation refuses, which the append
+    logs without failing the entry it already recorded, and the decoy's journal
+    stays where it was.
+    """
+    path, journal, decoy = _rotating_journal(tmp_path, monkeypatch)
+    checked = tmp_path / "checked"
+    real_rotate = history.HistoryWriter._maybe_rotate_locked
+
+    def swap_then_rotate(self, directory_info):
+        journal.rename(checked)
+        decoy.rename(journal)
+        return real_rotate(self, directory_info)
+
+    monkeypatch.setattr(history.HistoryWriter, "_maybe_rotate_locked", swap_then_rotate)
+    result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("second", "action", "outcome")
+    assert result["state"] == "durably_accepted" and "rotated_to" not in result
+    assert _journal_files(journal) == ["history.md"]
+    assert (journal / "history.md").read_text(encoding="utf-8") == "DECOY_JOURNAL\n"
+    assert [e.intent for e in history.HistoryReader(str(checked / "history.md")).journal_entries()] == ["first", "second"]
+
+
+def test_an_unanchored_rotation_re_identifies_the_journal_directory(tmp_path, monkeypatch):
+    """Without a directory descriptor, the rotation's move is preceded by a check by name.
+
+    The append's own replacement makes two re-identifications of the journal's
+    directory, before its temporary file and before its move; the rotation's
+    move is the third. A changed identity there refuses the rotation before
+    anything is moved, and the journal keeps both entries in place.
+    """
+    path, journal, _decoy = _journal_in(tmp_path, monkeypatch)
+    monkeypatch.setattr(history, "_ANCHORED_DIR", False)
+    seen = moved_at(monkeypatch, journal, 3)
+    result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("second", "action", "outcome")
+    assert len(seen) == 3
+    assert result["state"] == "durably_accepted" and "rotated_to" not in result
+    assert _journal_files(journal) == ["history.md"]
+    assert [e.intent for e in history.HistoryReader(str(path)).journal_entries()] == ["first", "second"]
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+@pytest.mark.parametrize("keyed", [True, False])
+def test_a_replayed_receipt_is_synced_in_the_directory_its_read_checked(tmp_path, monkeypatch, keyed):
+    """A retry answered `durably_accepted` after syncing whatever the name held.
+
+    The replay re-syncs the file holding the receipt and its directory entry
+    before it answers, because the first call may have died between its move
+    and its directory sync. Both syncs reopened the directory by name, so a
+    directory swapped in after the read was synced instead. The swap here comes
+    after the read, while the replay parses what it read; the sync now refuses
+    rather than vouch for a directory it never read.
+    """
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    key = {"idempotency_key": "retry-1"} if keyed else {}
+    history.HistoryWriter(str(path)).append_entry("retried", "action", "outcome", **key)
+    checked = tmp_path / "checked"
+    real_parse = history.HistoryReader._parse
+    swapped = []
+
+    def swap_while_parsing(text):
+        if not swapped:
+            swapped.append(1)
+            journal.rename(checked)
+            decoy.rename(journal)
+        return real_parse(text)
+
+    monkeypatch.setattr(history.HistoryReader, "_parse", staticmethod(swap_while_parsing))
+    with pytest.raises(PermissionError, match="journal directory changed"):
+        history.HistoryWriter(str(path)).append_entry("retried", "action", "outcome", **key)
+    assert swapped
+
+
+@pytest.mark.skipif(not history._ANCHORED_DIR, reason="POSIX descriptor-relative directory")
+def test_a_replayed_receipt_syncs_the_held_directory_after_its_check(tmp_path, monkeypatch):
+    """Past the identity check, the replay's syncs still go through the held descriptor.
+
+    The check refuses a directory swapped before it. A swap after it, between
+    the check and the syncs, is what the descriptor answers for: the file is
+    opened relative to it and the directory entry is synced through it, so the
+    directory that holds the receipt is the one synced and the decoy never is.
+    """
+    path, journal, decoy = _journal_in(tmp_path, monkeypatch)
+    history.HistoryWriter(str(path)).append_entry("retried", "action", "outcome", idempotency_key="retry-1")
+    held = os.stat(journal)
+    checked = tmp_path / "checked"
+    real_open, real_fsync = history.os.open, history.os.fsync
+    synced, swapped = [], []
+
+    def swap_before_the_file_open(name, flags, *args, **kwargs):
+        # Only the replay's own file open: the guarded read opens the same name
+        # through a descriptor too, and a swap there is the check's to refuse.
+        if (not swapped and name == "history.md" and kwargs.get("dir_fd") is not None
+                and sys._getframe(1).f_code.co_name == "_sync_recorded"):
+            swapped.append(1)
+            journal.rename(checked)
+            decoy.rename(journal)
+        return real_open(name, flags, *args, **kwargs)
+
+    def recording(fd):
+        info = os.fstat(fd)
+        synced.append((info.st_dev, info.st_ino))
+        return real_fsync(fd)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(history.os, "open", swap_before_the_file_open)
+        patch.setattr(history.os, "fsync", recording)
+        result = history.HistoryWriter(str(path)).append_entry(
+            "retried", "action", "outcome", idempotency_key="retry-1")
+    assert swapped and result["state"] == "durably_accepted"
+    assert (held.st_dev, held.st_ino) in synced
+    decoy_now = os.stat(journal)
+    assert (decoy_now.st_dev, decoy_now.st_ino) not in synced
+
+
+class _FakeKernel:
+    """kernel32 as `_windows_directory_path` uses it, answering from a fixed attribute and tag."""
+
+    def __init__(self, attributes, tag):
+        # Plain functions, because the code under test sets `argtypes` on each.
+        def query(handle, kind, info, size):
+            target = info._obj
+            target.FileAttributes, target.ReparseTag = attributes, tag
+            return True
+
+        def final_path(handle, buffer, length, flags):
+            buffer.value = "\\\\?\\C:\\work\\project"
+            return len(buffer.value)
+
+        def by_name(path):
+            # The name-based query the handle-based one replaced; reaching it is a failure.
+            raise AssertionError("read by name")
+
+        self.CreateFileW = lambda *args: 7
+        self.CloseHandle = lambda handle: True
+        self.GetFileInformationByHandleEx = query
+        self.GetFinalPathNameByHandleW = final_path
+        self.GetFileAttributesW = by_name
+
+
+@pytest.mark.parametrize("attributes, tag, allowed", [
+    (0x10, 0, True),                         # a plain directory
+    (0x10 | 0x400, 0x9000001A, True),        # a cloud-backed directory: reparse point, non-link tag
+    (0x10 | 0x400, 0xA000000C, False),       # a directory symlink: name-surrogate tag
+    (0x10 | 0x400, 0xA0000003, False),       # a junction (mount point): name-surrogate tag
+    (0x20, 0, False),                        # not a directory
+])
+def test_the_windows_root_check_refuses_only_links(monkeypatch, attributes, tag, allowed):
+    """`_windows_directory_path` refused every reparse point, a cloud-backed root included.
+
+    `_regular_kind` lets a non-link reparse tag through, so a OneDrive-backed
+    workspace passed that check and then failed this one: its history could not
+    be read at all. The attributes and tag now come from the opened handle, and
+    only a name-surrogate tag is refused. The Windows API is replaced by a fake
+    that answers with the given attributes and tag, so this runs everywhere; the
+    Windows jobs run the real call through the guarded-open tests.
+    """
+    import ctypes
+
+    monkeypatch.setattr(ctypes, "WinDLL", lambda name, **kwargs: _FakeKernel(attributes, tag), raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 0, raising=False)
+    if allowed:
+        assert history._windows_directory_path("C:\\work\\project") == "\\\\?\\C:\\work\\project"
+    else:
+        with pytest.raises(PermissionError, match="regular directory"):
+            history._windows_directory_path("C:\\work\\project")

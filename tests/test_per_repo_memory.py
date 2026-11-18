@@ -129,7 +129,8 @@ class TestHistoryFailureReporting:
             assert server.drain_pending_logs(5)
         assert first["workspace"] == {"root": str(client_root), "source": "env"}
         assert first["pid"] == os.getpid()
-        assert "history_last_error" not in first
+        assert first["history_last_error"]["code"] == "history_unwritable"
+        assert first["history"]["state"] == "unknown"
         assert second["history_last_error"]["code"] == "history_unwritable"
         assert second["history_last_error"]["errno"] == 13
         assert second["history_last_error"]["path"] == str(client_root / "history.md")

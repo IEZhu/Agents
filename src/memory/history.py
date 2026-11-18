@@ -132,11 +132,192 @@ def _reading(history_path: str):
         yield
 
 
-def _archive_names(archive_dir: str) -> List[str]:
+def _archive_names(archive_dir: str, *, strict=False) -> List[str]:
     try:
+        info = os.lstat(archive_dir)
+        if _is_link(info):
+            raise PermissionError("journal archive directory must not be a link")
+        if not stat.S_ISDIR(info.st_mode):
+            if strict:
+                raise NotADirectoryError("journal archive path is not a directory")
+            return []
         return sorted(name for name in os.listdir(archive_dir) if _ARCHIVE_NAME.fullmatch(name))
-    except OSError:
+    except FileNotFoundError:
         return []
+
+
+def _is_link(info):
+    """Classify an lstat result, including Windows name-surrogate reparse tags."""
+    reparse = getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    tag = getattr(info, "st_reparse_tag", 0)
+    # CPython lstat traverses non-name-surrogate reparse points and may return
+    # their attributes with tag 0. Symlinks and junctions retain their link tag.
+    return stat.S_ISLNK(info.st_mode) or bool(reparse and tag & 0x20000000)
+
+
+def _regular_kind(info, *, directory=False):
+    """Reject links, Windows name-surrogate reparse points and special files."""
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if _is_link(info) or not expected(info.st_mode):
+        raise PermissionError("journal artifact must be a regular directory" if directory
+                              else "journal artifact must be a regular file")
+
+
+def _windows_final_path(fd):
+    """Resolve the opened handle, never the pathname that may have been swapped."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    final_path = kernel.GetFinalPathNameByHandleW
+    final_path.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+    final_path.restype = wintypes.DWORD
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = final_path(msvcrt.get_osfhandle(fd), buffer, len(buffer), 0)
+    if not length or length >= len(buffer):
+        raise OSError("cannot validate journal file handle")
+    return _normalized_windows_path(buffer.value)
+
+
+def _normalized_windows_path(value):
+    """Compare DOS and extended-length DOS/UNC names in the same namespace."""
+    import ntpath
+
+    if value[:8].upper() == "\\\\?\\UNC\\":
+        value = "\\\\" + value[8:]
+    elif value.startswith("\\\\?\\"):
+        value = value[4:]
+    return ntpath.normcase(ntpath.normpath(value))
+
+
+def _windows_directory_path(path):
+    """The real path of a directory, read from a handle that refuses a reparse point.
+
+    ``os.path.realpath`` resolves the name a second time, so a junction put in
+    place after the caller checked the name would be resolved to its target and
+    every later comparison would match the substituted directory instead.
+    ``FILE_FLAG_OPEN_REPARSE_POINT`` is the Windows counterpart of ``O_NOFOLLOW``:
+    a junction or symlink opens as itself and is refused here, so the path
+    returned always belongs to a directory that was not substituted.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    # No access requested, every share mode, OPEN_EXISTING, and
+    # BACKUP_SEMANTICS | OPEN_REPARSE_POINT so a directory opens and a link does
+    # not resolve.
+    handle = create(path, 0, 0x7, None, 3, 0x02000000 | 0x00200000, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        # The attributes and reparse tag come from the handle just opened, not
+        # from the name again. Only a name-surrogate tag (a symlink or junction)
+        # is a link: a cloud-backed directory carries a reparse point with a
+        # non-link tag, which `_regular_kind` accepts and this has to accept too.
+        class AttributeTagInfo(ctypes.Structure):
+            _fields_ = [("FileAttributes", wintypes.DWORD), ("ReparseTag", wintypes.DWORD)]
+
+        info = AttributeTagInfo()
+        query = kernel.GetFileInformationByHandleEx
+        query.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+        query.restype = wintypes.BOOL
+        if not query(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):  # FileAttributeTagInfo
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not info.FileAttributes & 0x10:  # FILE_ATTRIBUTE_DIRECTORY
+            raise PermissionError("journal artifact must be a regular directory")
+        if info.FileAttributes & 0x400 and info.ReparseTag & 0x20000000:  # a name surrogate
+            raise PermissionError("journal artifact must be a regular directory")
+        final_path = kernel.GetFinalPathNameByHandleW
+        final_path.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+        final_path.restype = wintypes.DWORD
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = final_path(handle, buffer, len(buffer), 0)
+        if not length or length >= len(buffer):
+            raise OSError("cannot validate journal directory handle")
+        # Raw, like GetFinalPathNameByHandleW gives it: the caller joins the
+        # relative part and normalizes the whole once, as before.
+        return buffer.value
+    finally:
+        kernel.CloseHandle(handle)
+
+
+@contextlib.contextmanager
+def _open_regular(path, mode="r", *, root=None, **kwargs):
+    """Open a journal artifact without following a substituted file or directory.
+
+    The caller selects a trusted root; its ancestors are trusted. Descendants
+    and the file must not be links. POSIX traverses from a directory descriptor.
+    Windows additionally checks the final handle path before exposing any bytes,
+    since it has no O_NOFOLLOW.
+    """
+    path = os.path.abspath(path)
+    parent, name = os.path.split(path)
+    root = os.path.abspath(root or parent)
+    relative = os.path.relpath(path, root)
+    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        raise PermissionError("journal file is outside its authorized root")
+    root_info = os.lstat(root)
+    _regular_kind(root_info, directory=True)
+    expected_path = None
+    directory_fd = None
+    anchored = hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
+    try:
+        if anchored:
+            directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            if not os.path.samestat(root_info, os.fstat(directory_fd)):
+                raise PermissionError("journal directory changed while opening")
+            for component in relative.split(os.sep)[:-1]:
+                next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                  dir_fd=directory_fd)
+                os.close(directory_fd)
+                directory_fd = next_fd
+        else:
+            # The expected root comes from a handle that refuses a reparse
+            # point, not from resolving the name again: a junction put over the
+            # root between the lstat above and this call is refused here
+            # instead of becoming the path the final-path check below accepts.
+            expected_path = _normalized_windows_path(
+                os.path.join(_windows_directory_path(root), relative))
+            directory = root
+            for component in relative.split(os.sep)[:-1]:
+                directory = os.path.join(directory, component)
+                _regular_kind(os.lstat(directory), directory=True)
+
+        def opener(filename, flags):
+            before = os.stat(name, dir_fd=directory_fd, follow_symlinks=False) if anchored else os.lstat(path)
+            _regular_kind(before)
+            # No truncation or data access until the actual descriptor is checked.
+            if flags & (os.O_TRUNC | os.O_CREAT):
+                raise ValueError("journal guarded open requires an existing file")
+            flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+            fd = os.open(name, flags, dir_fd=directory_fd) if anchored else os.open(filename, flags)
+            try:
+                opened = os.fstat(fd)
+                # Windows fstat omits the reparse tag even for ordinary cloud
+                # files. Link classification belongs to lstat above; identity
+                # and final handle path still verify the object actually opened.
+                if not stat.S_ISREG(opened.st_mode):
+                    raise PermissionError("journal artifact must be a regular file")
+                if not os.path.samestat(before, opened):
+                    raise PermissionError("journal file changed while opening")
+                if not anchored and _windows_final_path(fd) != expected_path:
+                    raise PermissionError("journal file escaped its directory")
+                return fd
+            except BaseException:
+                os.close(fd)
+                raise
+
+        with open(path, mode, opener=opener, **kwargs) as stream:
+            yield stream
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
 
 
 def _month_after(month: str) -> str:
@@ -161,34 +342,32 @@ class _ParsedFiles:
         self._max_files, self._max_bytes = max_files, max_bytes
         self._lock = threading.Lock()
 
-    def load(self, path: str) -> Optional[Tuple[str, Tuple[HistoryEntry, ...]]]:
-        """``(sha256 of the bytes, entries)``, or None when ``path`` is not a regular file.
+    def load(self, path: str, *, root=None) -> Optional[Tuple[str, Tuple[HistoryEntry, ...]]]:
+        """``(sha256 of the bytes, entries)``, or None when ``path`` is missing.
 
         Other read errors propagate; entries are shared, so callers copy before changing them.
         """
         try:
-            info = os.stat(path)
-        except (FileNotFoundError, NotADirectoryError):
+            with _open_regular(path, "rb", root=root) as stream:
+                info = os.fstat(stream.fileno())
+                key = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+                with self._lock:
+                    cached = self._items.get(path)
+                    if cached is not None and cached[0] == key:
+                        self._items.move_to_end(path)
+                        return cached[1], cached[2]
+                data = stream.read()
+                info = os.fstat(stream.fileno())
+        except FileNotFoundError:
             return None
-        if not stat.S_ISREG(info.st_mode):
-            return None
-        key = (info.st_ino, info.st_size, info.st_mtime_ns)  # a replaced file differs even at equal size and time
-        with self._lock:
-            cached = self._items.get(path)
-            if cached is not None and cached[0] == key:
-                self._items.move_to_end(path)
-                return cached[1], cached[2]
-        with open(path, "rb") as stream:
-            data = stream.read()
-            info = os.fstat(stream.fileno())
         digest = hashlib.sha256(data).hexdigest()
         entries = tuple(HistoryReader._parse(data.decode("utf-8", "replace")))
         with self._lock:
             previous = self._items.pop(path, None)
             if previous is not None:
                 self._bytes -= previous[3]
-            if len(data) == info.st_size:  # unchanged while it was read: safe to keep
-                self._items[path] = ((info.st_ino, info.st_size, info.st_mtime_ns), digest, entries, len(data))
+            if len(data) == info.st_size and key == (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns):
+                self._items[path] = (key, digest, entries, len(data))
                 self._bytes += len(data)
                 while self._items and (len(self._items) > self._max_files or self._bytes > self._max_bytes):
                     _, dropped = self._items.popitem(last=False)
@@ -199,9 +378,20 @@ class _ParsedFiles:
 _PARSED = _ParsedFiles()
 
 
-def parsed_file(path: str) -> Optional[Tuple[str, Tuple[HistoryEntry, ...]]]:
+def parsed_file(path: str, *, root=None) -> Optional[Tuple[str, Tuple[HistoryEntry, ...]]]:
     """``(sha256, entries)`` of a history file through the shared parse cache; see ``_ParsedFiles``."""
-    return _PARSED.load(path)
+    return _PARSED.load(path, root=root)
+
+
+def _archive_root(history_path, archive_dir):
+    """Keep local archives below the workspace; explicit external roots stay supported."""
+    root, archive = os.path.dirname(os.path.abspath(history_path)), os.path.abspath(archive_dir)
+    try:
+        if os.path.normcase(os.path.commonpath((root, archive))) == os.path.normcase(root):
+            return root
+    except ValueError:  # An explicitly selected archive on another Windows drive.
+        pass
+    return archive
 
 
 # --- Sync with the user's other machines (optional) -------------------------
@@ -252,7 +442,7 @@ def _machine_history(history_path: str) -> Optional[MachineHistory]:
         return None
 
 
-def _appended(history_path: str, entry_id: str) -> None:
+def _appended(history_path: str, entry_id: Optional[str]) -> None:
     """Tell the sync that an entry was appended; its failure never fails the append."""
     integration = _sync
     if integration is None:
@@ -279,7 +469,12 @@ class EntryChanged(Exception):
     """The entry to delete is not there as it was shown."""
 
 
+class MemoryWriteRejected(ValueError):
+    """A write was rejected before mutation, rather than failing in storage."""
+
+
 _MARKER = re.compile(r"\s*(?:<!--|>)")  # a rotation's merge comment or the archive pointer
+_RECEIPT_RE = re.compile(r"^<!-- agents-write-receipt (.+) -->\r?$", re.MULTILINE)
 
 
 def without_entry(content: str, entry_id: str, timestamp: str) -> str:
@@ -303,24 +498,238 @@ def without_entry(content: str, entry_id: str, timestamp: str) -> str:
     raise EntryChanged("the entry is no longer there as shown")
 
 
-def _replace(path: str, text: str) -> None:
+_ANCHORED_DIR = (hasattr(os, "O_DIRECTORY") and os.open in os.supports_dir_fd
+                 and os.rename in os.supports_dir_fd)
+
+
+def _checked_directory(directory):
+    """The identity of ``directory``, refused as ``_open_regular`` refuses it: a link or a non-directory."""
+    info = os.lstat(directory)
+    _regular_kind(info, directory=True)
+    return info
+
+
+def _journal_directory(path):
+    """The checked identity of the directory holding ``path``, taken before it is read.
+
+    Every replacement, move and sync compares the directory it reaches with
+    this, so the trust a guarded read earned reaches the write instead of
+    ending at the read.
+    """
+    return _checked_directory(os.path.dirname(path) or ".")
+
+
+def _refuse_swapped_dir(directory, info, message):
+    """Re-identify ``directory`` by name where no descriptor can hold it.
+
+    Windows accepts no directory descriptor, so a create or a move there reaches
+    the directory by name. Each one is preceded by this comparison with the
+    caller's check, and a swap is refused rather than followed. The window left
+    is this comparison to the call that follows it.
+    """
+    current = os.lstat(directory)
+    swapped = _is_link(current) or not stat.S_ISDIR(current.st_mode)
+    if info.st_ino and current.st_ino:
+        # A file system that numbers no entry cannot tell two apart.
+        swapped = swapped or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)
+    if swapped:
+        raise PermissionError(message)
+
+
+@contextlib.contextmanager
+def _anchored_dir(path, info, message="journal directory changed before it was written"):
+    """A descriptor for ``path`` that the steps below use instead of its name.
+
+    The trust a pathname carries has to be earned again at every call, because
+    the kernel resolves the name afresh each time. A descriptor holds the
+    directory object itself, so a name swapped afterwards cannot redirect a
+    create, a move or a sync made through it. Windows accepts no directory
+    descriptor anywhere (``os.supports_dir_fd`` is empty there), so it yields
+    ``None`` and the caller re-identifies the directory by name with
+    ``_refuse_swapped_dir`` before each step instead.
+
+    ``O_NOFOLLOW`` is deliberately not used: a trusted root may legitimately be
+    reached through a link, which is what ``_open_regular`` means by trusting a
+    selected root's ancestors, and refusing one here would stop a working
+    installation rather than an attack. Which directory the descriptor holds is
+    established instead by ``info``, the caller's own check of it taken before
+    its read: a name substituted between that check and this open has another
+    identity and is refused with ``message``.
+    """
+    if not _ANCHORED_DIR:
+        yield None
+        return
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISDIR(opened.st_mode):
+            raise PermissionError("journal artifact must be a regular directory")
+        if not os.path.samestat(info, opened):
+            raise PermissionError(message)
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _temp_beside(directory, name, dir_fd):
+    """``(descriptor, name)`` of a fresh temporary file for a replacement of ``name``."""
+    prefix, suffix = "." + name + ".", ".tmp"
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    for _attempt in range(100):
+        candidate = prefix + os.urandom(8).hex() + suffix
+        try:
+            if dir_fd is None:
+                return os.open(os.path.join(directory, candidate), flags, 0o600), candidate
+            return os.open(candidate, flags, 0o600, dir_fd=dir_fd), candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError("no free temporary name in the journal directory")
+
+
+def _move_onto(directory, temporary, name, dir_fd):
+    """Put ``temporary`` at ``name`` in one step, through ``dir_fd`` where there is one.
+
+    ``os.replace`` takes no directory descriptor on any platform, but
+    ``os.rename`` does and overwrites atomically on POSIX, which is exactly what
+    a replacement needs.
+    """
+    if dir_fd is None:
+        os.replace(os.path.join(directory, temporary), os.path.join(directory, name))
+    else:
+        os.rename(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
+def _discard_temp(directory, temporary, dir_fd):
+    with contextlib.suppress(OSError):
+        if dir_fd is None:
+            os.unlink(os.path.join(directory, temporary))
+        else:
+            os.unlink(temporary, dir_fd=dir_fd)
+
+
+def _sync_moved(directory, dir_fd) -> None:
+    """Persist the entry a move just made, through the descriptor the move used.
+
+    Opening the directory by name again here would sync whatever the name holds
+    now: after a swap, a decoy, while the directory that received the entry
+    stayed unsynced and the call still reported it durable.
+    """
+    if dir_fd is None:
+        _sync_directory(directory)
+    else:
+        os.fsync(dir_fd)
+
+
+def _sync_recorded(path: str, info, *, root=None, expected=None) -> None:
+    """Persist a file that is already written, and the entry that names it, in the directory ``info`` checked.
+
+    A replay answers with a receipt as durable, so it syncs what holds the
+    receipt again, and both syncs have to reach what its read checked: opened by
+    name, a swapped directory would be synced while the one holding the receipt
+    stayed as it was. ``expected`` is the identity of the file that read, so a
+    file replaced since (an editor's save, say) is refused instead of synced in
+    its place. With a descriptor the file is opened relative to it, without
+    following a link; without one (Windows) the directory is re-identified first
+    and the file goes through ``_sync_file``.
+    """
+    directory, name = os.path.dirname(path) or ".", os.path.basename(path)
+    message = "journal directory changed before its receipt was synced"
+    with _anchored_dir(directory, info, message) as dir_fd:
+        if dir_fd is None:
+            _refuse_swapped_dir(directory, info, message)
+            _sync_file(path, root=root, expected=expected)
+            _sync_directory(directory)
+            return
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(name, flags, dir_fd=dir_fd)
+        try:
+            opened = os.fstat(fd)
+            if not stat.S_ISREG(opened.st_mode):
+                raise PermissionError("journal artifact must be a regular file")
+            if expected is not None and not os.path.samestat(expected, opened):
+                raise PermissionError("journal file changed before its receipt was synced")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.fsync(dir_fd)
+
+
+def _replace(path: str, text: str, *, info) -> None:
     """Write ``text`` beside ``path`` and replace it in one step, synced first, keeping its mode.
 
     ``surrogateescape`` writes back exactly the bytes a read with it decoded, invalid ones included.
+    ``info`` is ``_journal_directory(path)``, taken before the caller read the
+    file it replaces. The temporary file, the move and the directory sync all go
+    through one descriptor for that directory, so none reaches it by a name that
+    may have been substituted since; without a descriptor, the directory is
+    re-identified before the temporary file is created and again before the move.
     """
-    temp = path + ".tmp"
+    directory, name = os.path.dirname(path) or ".", os.path.basename(path)
+    message = "journal directory changed before it was written"
+    with _anchored_dir(directory, info, message) as dir_fd:
+        if dir_fd is None:
+            _refuse_swapped_dir(directory, info, message)
+        fd, temp = _temp_beside(directory, name, dir_fd)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+                with contextlib.suppress(OSError):
+                    # os.fchmod is POSIX only, and AttributeError is not an
+                    # OSError, so reaching for it on Windows would not be
+                    # suppressed: it would fail the second write to a journal,
+                    # the first one having raised FileNotFoundError here first.
+                    if dir_fd is not None:
+                        os.fchmod(stream.fileno(), stat.S_IMODE(os.stat(name, dir_fd=dir_fd).st_mode))
+                    else:
+                        os.chmod(os.path.join(directory, temp), stat.S_IMODE(os.stat(path).st_mode))
+            if dir_fd is None:
+                _refuse_swapped_dir(directory, info, message)
+            _move_onto(directory, temp, name, dir_fd)
+            _sync_moved(directory, dir_fd)
+        except BaseException:
+            _discard_temp(directory, temp, dir_fd)
+            raise
+
+
+def _sync_file(path: str, *, root=None, expected=None) -> None:
+    # Windows _commit/FlushFileBuffers requires a writable handle, even when
+    # replay only confirms an existing record and does not modify its bytes.
+    with _open_regular(path, "r+b" if os.name == "nt" else "rb", root=root) as stream:
+        if expected is not None and not os.path.samestat(expected, os.fstat(stream.fileno())):
+            raise PermissionError("journal file changed before its receipt was synced")
+        os.fsync(stream.fileno())
+
+
+_LINE_BREAKS_JSON_KEEPS = {"\x85": "\\u0085", " ": "\\u2028", " ": "\\u2029"}
+
+
+def _one_line_json(value) -> str:
+    """JSON that stays on one line of the journal.
+
+    ``json.dumps`` escapes only C0 controls, and ``ensure_ascii=False`` keeps
+    the rest as written; ``str.splitlines``, which the reader uses, also breaks
+    at NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR. One of those in metadata
+    split the **Meta:** line, the reader kept the truncated JSON, and a keyed
+    retry found the entry without its receipt and answered
+    ``idempotency_collision``. Escaped here, they read back as the same text.
+    """
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    for char, escaped in _LINE_BREAKS_JSON_KEEPS.items():
+        text = text.replace(char, escaped)
+    return text
+
+
+def _sync_directory(path: str) -> None:
+    """Persist a directory entry on POSIX; Windows only promises process-crash recovery."""
+    if os.name == "nt":
+        return
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        with open(temp, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        with contextlib.suppress(OSError):
-            os.chmod(temp, stat.S_IMODE(os.stat(path).st_mode))
-        os.replace(temp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(temp)
-        raise
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def delete_entry(history_path: str, month: Optional[str], entry_id: str, timestamp: str,
@@ -336,14 +745,33 @@ def delete_entry(history_path: str, month: Optional[str], entry_id: str, timesta
     path = history_path if month is None else os.path.join(archive_dir, f"{month}.md")
     with _WRITE_LOCK, file_lock(_sidecar(history_path)):
         pending = history_path + ".rotating"
-        if os.path.exists(pending) and os.path.getsize(pending) > 0:  # an emptied leftover holds nothing
-            raise EntryChanged("a rotation of history.md is pending; try again in a moment")
         try:
-            with open(path, "r", encoding="utf-8", errors="surrogateescape", newline="") as stream:
+            with _open_regular(pending, "rb") as stream:
+                if os.fstat(stream.fileno()).st_size > 0:  # an emptied leftover holds nothing
+                    raise EntryChanged("a rotation of history.md is pending; try again in a moment")
+        except FileNotFoundError:
+            pass
+        # Taken before the guarded read, so the replacement writes into the
+        # directory that read checked and refuses one swapped in since.
+        try:
+            directory_info = _journal_directory(path)
+        except FileNotFoundError:
+            raise EntryChanged("the file is gone") from None
+        try:
+            with _open_regular(path, "r", root=_archive_root(history_path, archive_dir) if month else None,
+                               encoding="utf-8", errors="surrogateescape", newline="") as stream:
                 content = stream.read()
         except FileNotFoundError:
             raise EntryChanged("the file is gone") from None
-        _replace(path, without_entry(content, entry_id, timestamp))
+        updated = without_entry(content, entry_id, timestamp)
+        for entry in HistoryReader._parse(content):
+            if entry.id == entry_id and entry.timestamp == timestamp:
+                receipt = (entry.metadata or {}).get("_agents_write")
+                if receipt:
+                    # Keep only the acceptance receipt, not the deleted content.
+                    # A delayed retry must not resurrect a deliberately removed entry.
+                    updated += "\n<!-- agents-write-receipt " + json.dumps(receipt, sort_keys=True) + " -->\n"
+        _replace(path, updated, info=directory_info)
     _deleted(history_path, entry_id, timestamp)
 
 
@@ -377,22 +805,23 @@ def _journal_texts(history_path: str, archive_dir: Optional[str], since_month: O
     archive_dir = archive_dir or os.path.join(os.path.dirname(history_path), "history")
     pending = history_path + ".rotating"
     live: List[str] = []
-    if os.path.exists(history_path) or os.path.exists(pending):
+    if os.path.lexists(history_path) or os.path.lexists(pending):
         with _reading(history_path):
             for path in (pending, history_path):
                 try:
-                    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    with _open_regular(path, "r", encoding="utf-8", errors="replace") as fh:
                         live.append(fh.read())
-                except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+                except FileNotFoundError:
                     continue
     older = []
     for name in _archive_names(archive_dir):
         if since_month and name[:7] < since_month:
             continue
         try:
-            with open(os.path.join(archive_dir, name), "r", encoding="utf-8", errors="replace") as fh:
+            with _open_regular(os.path.join(archive_dir, name), "r", root=_archive_root(history_path, archive_dir),
+                               encoding="utf-8", errors="replace") as fh:
                 older.append(fh.read())
-        except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+        except FileNotFoundError:
             continue
     return older + live
 
@@ -505,18 +934,26 @@ class HistoryWriter:
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         dedupe_action: Optional[str] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+        payload_fingerprint: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Append a single entry; returns a JSON-friendly status dict.
 
         ``dedupe_action`` replaces ``action`` in the content hash, so a retry that
         differs only in an appended attribution line is still a duplicate.
         """
+        if idempotency_key is not None and (not isinstance(idempotency_key, str)
+                                             or not 1 <= len(idempotency_key) <= 256
+                                             or not idempotency_key.strip()):
+            raise MemoryWriteRejected("invalid_idempotency_key")
         intent = (intent or "").strip()
         action = (action or "").strip()
         outcome = (outcome or "").strip()
         if not (intent and action and outcome):
             return {
                 "status": "error",
+                "state": "rejected",
                 "error": "intent, action, and outcome are all required",
             }
 
@@ -524,46 +961,27 @@ class HistoryWriter:
 
         os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
 
-        # Open in append+read mode so we can scan the tail under the lock.
-        # Every write + header + dedup + rotation happens INSIDE the lock so
-        # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
-        # attached to the same repo) cannot interleave and corrupt the file.
+        # Commit the entry and its retry receipt in the SAME atomic replacement.
+        # The journal is also the recoverable source for indexing and Git export.
         rotated_to: Optional[str] = None
         with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
-            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
-                try:
-                    _lock_exclusive(fh)
-
-                    # Re-check size under the lock — a concurrent writer may have
-                    # created the file between our os.makedirs and open().
-                    fh.seek(0, os.SEEK_END)
-                    if fh.tell() == 0:
-                        fh.write(self._render_header())
-                        fh.flush()
-
-                    if self._is_duplicate_from_handle(fh, entry_id):
-                        return {
-                            "status": "duplicate",
-                            "entry_id": entry_id,
-                            "path": self.history_path,
-                        }
-
-                    timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
-                    block = self._render_entry(
-                        entry_id, timestamp, intent, action, outcome, files, tags, metadata
-                    )
-                    fh.write(block)
-                    fh.flush()
-                    os.fsync(fh.fileno())
-                finally:
-                    _unlock(fh)
+            if os.path.islink(self.history_path):
+                raise MemoryWriteRejected("journal_symlink_unsupported")
+            # The journal's directory as the read in _append_locked finds it.
+            # The replacement that commits the entry and the rotation after it
+            # both reach this directory or refuse.
+            directory_info = _journal_directory(self.history_path)
+            result, fresh = self._append_locked(
+                entry_id, intent, action, outcome, files, tags, metadata,
+                idempotency_key, payload_fingerprint, directory_info,
+            )
 
             # Rotate after the append handle is closed (Windows cannot move an
             # open file) but still inside both locks, so the move/merge cannot
             # race a second writer. The entry is already written: a rotation
             # failure is logged and never turns it into an error.
             try:
-                rotated_to = self._maybe_rotate_locked()
+                rotated_to = self._maybe_rotate_locked(directory_info)
             except Exception as err:
                 key = (self.history_path, getattr(err, "errno", None))
                 if key not in _ROTATION_WARNED:
@@ -572,17 +990,113 @@ class HistoryWriter:
 
         # Outside every history lock, and it only schedules the work: sharing the
         # entry waits for the library lock in the sync's own worker, never here.
-        _appended(self.history_path, entry_id)
-
-        result: Dict[str, Any] = {
-            "status": "recorded",
-            "entry_id": entry_id,
-            "path": self.history_path,
-            "timestamp": timestamp,
-        }
-        if rotated_to:
+        if fresh:
+            _appended(self.history_path, result["entry_id"])
+        elif idempotency_key is not None:
+            # Reconcile after a lost commit notification, but do not classify an
+            # old/replayed (possibly deleted) entry as newly approved for sharing.
+            _appended(self.history_path, None)
+        if rotated_to and idempotency_key is None:
             result["rotated_to"] = rotated_to
         return result
+
+    def _append_locked(self, entry_id, intent, action, outcome, files, tags, metadata,
+                       idempotency_key, payload_fingerprint, directory_info):
+        # The identity of each file read here goes with its text, so a replay
+        # syncs the very file whose bytes held the receipt or refuses.
+        journal_info = None
+        try:
+            with _open_regular(self.history_path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
+                content = fh.read()
+                journal_info = os.fstat(fh.fileno())
+        except FileNotFoundError:
+            content = self._render_header()
+        if not content:
+            content = self._render_header()
+        metadata = dict(metadata or {})
+        key_digest = None
+        if idempotency_key is not None:
+            scope = os.path.normcase(os.path.realpath(self.history_path))
+            key_digest = hashlib.sha256(json.dumps(
+                ["log_interaction/v1", scope, idempotency_key], ensure_ascii=False,
+            ).encode("utf-8")).hexdigest()
+            payload_digest = payload_fingerprint or hashlib.sha256(json.dumps(
+                [intent, action, outcome, files or [], tags or [], metadata],
+                sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            # The local journal includes archives and interrupted rotations.
+            # Synced segments are another writer's data, not this acceptance scope.
+            texts = [(self.history_path, content, journal_info)]
+            archives = _archive_names(self.archive_dir, strict=True)
+            # Checked before the archives are read, so a receipt replayed from
+            # one is synced in the directory that read checked.
+            archive_info = _checked_directory(self.archive_dir) if archives else None
+            paths = [self.history_path + ".rotating"] + [os.path.join(self.archive_dir, name) for name in archives]
+            for path in paths:
+                try:
+                    with _open_regular(path, root=(None if path == self.history_path + ".rotating"
+                                                   else _archive_root(self.history_path, self.archive_dir)),
+                                       encoding="utf-8", errors="surrogateescape", newline="") as fh:
+                        texts.append((path, fh.read(), os.fstat(fh.fileno())))
+                except FileNotFoundError:
+                    continue
+            entry_id = key_digest[:12]  # Preserve the v1 Personal/Git id format.
+            collision = False
+            for path, text, file_info in texts:
+                entries = HistoryReader._parse(text)
+                receipts = [(entry.metadata or {}).get("_agents_write", {}) for entry in entries]
+                receipts.extend(json.loads(match) for match in _RECEIPT_RE.findall(text))
+                collision |= any(entry.id == entry_id for entry in entries)
+                for receipt in receipts:
+                    if not isinstance(receipt, dict) or receipt.get("key_digest") != key_digest:
+                        continue
+                    if receipt.get("payload_digest") != payload_digest:
+                        raise MemoryWriteRejected("idempotency_conflict")
+                    # A prior call could have died between replace and directory
+                    # sync. Establish durability again before replaying its receipt.
+                    live = path in (self.history_path, self.history_path + ".rotating")
+                    _sync_recorded(path, directory_info if live else archive_info,
+                                   root=None if live else _archive_root(self.history_path, self.archive_dir),
+                                   expected=file_info)
+                    return {**receipt["result"], "path": self.history_path}, False
+            if collision:
+                raise MemoryWriteRejected("idempotency_collision")
+        else:
+            entries = HistoryReader._parse(content)
+            complete_duplicate = False
+            for entry in entries[-self.dedup_tail:]:
+                if entry.id != entry_id:
+                    continue
+                if (entry.action and entry.intent == " ".join(intent.split())
+                        and entry.outcome == " ".join(outcome.split())):
+                    complete_duplicate = True
+                elif (not entry.intent or not entry.action or not entry.outcome
+                      or (entry.intent == " ".join(intent.split())
+                          and " ".join(outcome.split()).startswith(entry.outcome))):
+                    # Old append-in-place versions could leave a valid heading
+                    # with missing/truncated fields. Do not acknowledge that as
+                    # the complete write the caller is retrying.
+                    content = without_entry(content, entry.id, entry.timestamp)
+                else:
+                    # A complete different entry is not evidence of a torn append.
+                    raise MemoryWriteRejected("history_entry_conflict")
+            if complete_duplicate:
+                _sync_recorded(self.history_path, directory_info, expected=journal_info)
+                return {"status": "duplicate", "entry_id": entry_id, "path": self.history_path,
+                        "state": "durably_accepted"}, False
+
+        timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+        result = {"status": "recorded", "entry_id": entry_id, "path": self.history_path,
+                  "timestamp": timestamp, "state": "durably_accepted"}
+        if "answer_timestamp" in metadata:
+            result["answer_timestamp"] = metadata["answer_timestamp"]
+        if key_digest is not None:
+            metadata["_agents_write"] = {"version": 1, "key_digest": key_digest,
+                                        "payload_digest": payload_digest,
+                                        "result": {key: value for key, value in result.items() if key != "path"}}
+        block = self._render_entry(entry_id, timestamp, intent, action, outcome, files, tags, metadata)
+        _replace(self.history_path, content + block, info=directory_info)
+        return result, True
 
     def append_existing(self, entry: "HistoryEntry") -> Dict[str, Any]:
         """Append an entry kept elsewhere as it is: its id, time, fields and metadata (#292).
@@ -594,7 +1108,10 @@ class HistoryWriter:
             return {"status": "duplicate", "entry_id": entry.id, "path": self.history_path}
         os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
         with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
-            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+            directory_info = _journal_directory(self.history_path)
+            if not os.path.lexists(self.history_path):
+                _replace(self.history_path, self._render_header(), info=directory_info)
+            with _open_regular(self.history_path, "r+", encoding="utf-8", newline="") as fh:
                 try:
                     _lock_exclusive(fh)
                     fh.seek(0, os.SEEK_END)
@@ -610,7 +1127,7 @@ class HistoryWriter:
                 finally:
                     _unlock(fh)
             try:
-                self._maybe_rotate_locked()
+                self._maybe_rotate_locked(directory_info)
             except Exception as err:
                 logger.warning("history rotation failed for %s: %s", self.history_path, err)
         _appended(self.history_path, entry.id)
@@ -668,7 +1185,7 @@ class HistoryWriter:
             normalized = [t if t.startswith("#") else f"#{t}" for t in normalized]
             lines.append(f"**Tags:** {' '.join(normalized)}")
         if metadata:
-            lines.append(f"**Meta:** {json.dumps(metadata, ensure_ascii=False, sort_keys=True)}")
+            lines.append(f"**Meta:** {_one_line_json(metadata)}")
         lines.append("")  # trailing newline
         return "\n".join(lines) + "\n"
 
@@ -683,65 +1200,56 @@ class HistoryWriter:
         recent = [match[1] for match in ids[-self.dedup_tail:]]
         return entry_id in recent
 
-    def _maybe_rotate_locked(self) -> Optional[str]:
+    def _maybe_rotate_locked(self, directory_info) -> Optional[str]:
         """Move ``history.md`` to ``history/YYYY-MM.md`` if it is too large.
 
         MUST be called while the caller still holds the exclusive lock on
         ``history.md`` — otherwise concurrent writers could race with the
-        move/merge step.
+        move/merge step. ``directory_info`` is the identity the caller took of
+        the journal's directory before its own read and write; the move to
+        ``.rotating`` and the fresh journal both reach that directory or refuse.
 
         Returns the archive path if rotation happened, else ``None``.
         """
         # A pending file left by an interrupted rotation is merged first, before
         # any early return, so its entries never stay hidden or get overwritten.
         pending = self.history_path + ".rotating"
-        if os.path.exists(pending):
+        if os.path.lexists(pending):
             self._merge_pending_locked(pending)
-        if not os.path.exists(self.history_path):
+        if not os.path.lexists(self.history_path):
             return None
         size_kb = os.path.getsize(self.history_path) / 1024
         if size_kb < self.rotation_kb:
             return None
 
-        # The archive month is the newest entry's: an entry moved in from elsewhere keeps its older
-        # time (#292), and an archive of month M must hold nothing later than M.
-        last_ts = self._read_newest_timestamp() or _dt.datetime.now(_dt.timezone.utc).isoformat()
-        month = last_ts[:7]  # YYYY-MM
-        os.makedirs(self.archive_dir, exist_ok=True)
-        archive_path = os.path.join(self.archive_dir, f"{month}.md")
-
-        # If a file for this month already exists, append-merge with a separator
-        # so multi-rotation months stay in one archive file.
-        if os.path.exists(archive_path):
-            # Move the live file aside first: if another process holds it open
-            # (Windows), this fails before anything reaches the archive, so a
-            # repeated failure cannot merge the same payload twice.
-            os.replace(self.history_path, pending)
-            try:
-                archive_path = self._merge_pending_locked(pending)
-            except Exception:
-                # The archive was rolled back: put the entries back so
-                # read_history still sees them.
-                if not os.path.exists(self.history_path):
-                    os.replace(pending, self.history_path)
-                raise
-        else:
-            shutil.move(self.history_path, archive_path)
+        # Keep a durable recovery source until even a first archive is synced.
+        # A failed merge may already have replaced the archive. Do not restore
+        # pending to live and append to it: that would defeat suffix recovery.
+        # Readers include pending, and the next rotation recovers it first.
+        # The move goes through the directory the append checked, not its name:
+        # by name, a directory swapped in after the append's commit would have
+        # its own journal moved aside and merged instead.
+        directory = os.path.dirname(self.history_path) or "."
+        message = "journal directory changed before it was rotated"
+        with _anchored_dir(directory, directory_info, message) as dir_fd:
+            if dir_fd is None:
+                _refuse_swapped_dir(directory, directory_info, message)
+            _move_onto(directory, os.path.basename(self.history_path), os.path.basename(pending), dir_fd)
+            _sync_moved(directory, dir_fd)
+        archive_path = self._merge_pending_locked(pending)
 
         # Recreate fresh history.md with header pointing at the archive.
-        with open(self.history_path, "w", encoding="utf-8", newline="") as fh:
-            fh.write(self._render_header())
-            fh.write(
+        _replace(self.history_path, self._render_header() + (
                 f"\n> Previous entries archived to "
                 f"`{os.path.relpath(archive_path, os.path.dirname(self.history_path))}` "
                 f"on {_dt.datetime.now(_dt.timezone.utc).isoformat(timespec='seconds')}.\n"
-            )
+            ), info=directory_info)
 
         return archive_path
 
     @staticmethod
     def _discard_pending(pending: str) -> None:
-        """Remove (or empty) an already-archived pending file, never raising.
+        """Remove or safely empty an already-archived pending file, never raising.
 
         The archive holds the payload at this point, so a cleanup failure must
         not look like a failed merge: a leftover payload is recognized by
@@ -749,12 +1257,17 @@ class HistoryWriter:
         """
         try:
             os.unlink(pending)
+            _sync_directory(os.path.dirname(pending) or ".")
             return
         except OSError:
             pass
         try:
-            with open(pending, "w", encoding="utf-8"):
-                pass
+            with _open_regular(pending, "r+b") as stream:
+                stream.truncate(0)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileNotFoundError:
+            pass  # The unlink succeeded but syncing the directory failed.
         except OSError as err:
             key = (pending, getattr(err, "errno", None))
             if key not in _ROTATION_WARNED:
@@ -762,17 +1275,22 @@ class HistoryWriter:
                 logger.warning("could not clear archived pending file %s: %s", pending, err)
 
     @staticmethod
-    def _archive_ends_with(archive_path: str, payload: str) -> bool:
-        data = payload.encode("utf-8")
-        try:
-            with open(archive_path, "rb") as fh:
-                size = fh.seek(0, os.SEEK_END)
-                if size < len(data):
-                    return False
-                fh.seek(size - len(data))
-                return fh.read() == data
-        except OSError:
-            return False
+    def _archive_ends_with(archive_path: str, payload: str, *, root=None):
+        """The archive's identity when it already ends with ``payload``, else None.
+
+        A read that fails is not a mismatch: answering "not archived" for it
+        would append the payload a second time once the merge's own copy
+        succeeds, so the error propagates and the pending file waits for the
+        next attempt. The identity lets the sync that follows refuse a file
+        replaced since this read.
+        """
+        data = payload.encode("utf-8", errors="surrogateescape")
+        with _open_regular(archive_path, "rb", root=root) as fh:
+            size = fh.seek(0, os.SEEK_END)
+            if size < len(data):
+                return None
+            fh.seek(size - len(data))
+            return os.fstat(fh.fileno()) if fh.read() == data else None
 
     def _merge_pending_locked(self, pending: str) -> str:
         """Append the pending file to its month's archive, then empty it.
@@ -780,7 +1298,9 @@ class HistoryWriter:
         The archive is rebuilt in a temporary file and replaced atomically, so a
         failure or crash cannot leave partial content. Returns the archive path.
         """
-        with open(pending, "r", encoding="utf-8") as src:
+        # Suffix recovery compares bytes; universal newline conversion would
+        # turn an already archived CRLF payload into a second, different copy.
+        with _open_regular(pending, "r", encoding="utf-8", errors="surrogateescape", newline="") as src:
             payload = src.read()
         if not payload:
             # Emptied after an archived merge: nothing to add to the archive.
@@ -792,38 +1312,73 @@ class HistoryWriter:
         matches = _HEADER_RE.findall(payload)
         month = (max(match[0] for match in matches) if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
         os.makedirs(self.archive_dir, exist_ok=True)
+        archive_dir_info = os.lstat(self.archive_dir)
+        _regular_kind(archive_dir_info, directory=True)
+        _sync_directory(os.path.dirname(self.archive_dir) or ".")
         archive_path = os.path.join(self.archive_dir, f"{month}.md")
-        existed = os.path.exists(archive_path)
-        if existed and self._archive_ends_with(archive_path, payload):
+        # os.path.exists follows the link, so a dangling archive symlink reads as
+        # absent: the replace below would overwrite the link itself while this
+        # append reports the entry as recorded. Decide from the entry instead,
+        # and let a link or a special file raise rather than be replaced.
+        try:
+            _regular_kind(os.lstat(archive_path))
+        except FileNotFoundError:
+            existed = False
+        else:
+            existed = True
+        archive_root = _archive_root(self.history_path, self.archive_dir)
+        archived = self._archive_ends_with(archive_path, payload, root=archive_root) if existed else None
+        if archived is not None:
             # A crash after the append but before the unlink: already archived.
+            # Synced in the directory checked above, as the file that read showed,
+            # as a replayed receipt is.
+            _sync_recorded(archive_path, archive_dir_info, root=archive_root, expected=archived)
             self._discard_pending(pending)
             return archive_path
         # Build the merged archive beside the real one and replace it in one
         # step: a crash or error at any point leaves the archive as it was, and
         # the pending file is only emptied after the replace.
-        temp = archive_path + ".tmp"
-        try:
-            with open(temp, "wb") as dst:
-                if existed:
-                    with open(archive_path, "rb") as old:
-                        shutil.copyfileobj(old, dst)
-                    dst.write(b"\n\n<!-- merged on rotation -->\n\n")
-                dst.write(payload.encode("utf-8"))
-                dst.flush()
-                os.fsync(dst.fileno())
-            os.replace(temp, archive_path)
-        except Exception:
+        archive_name = os.path.basename(archive_path)
+        moved = "journal archive directory changed while rotating"
+        with _anchored_dir(self.archive_dir, archive_dir_info, moved) as dir_fd:
+            if dir_fd is None:
+                # Windows takes no directory descriptor, so the temporary file is
+                # created by name: re-identify the directory first, or the whole
+                # merged archive would be written into a substituted target
+                # before the check at the move refused it.
+                _refuse_swapped_dir(self.archive_dir, archive_dir_info, moved)
+            fd, temp = _temp_beside(self.archive_dir, archive_name, dir_fd)
             try:
-                os.unlink(temp)
-            except OSError:
-                pass
-            raise
+                stream = os.fdopen(fd, "wb")
+                fd = None  # stream owns the descriptor, including on a later write failure.
+                with stream as dst:
+                    if existed:
+                        with _open_regular(archive_path, "rb", root=archive_root) as old:
+                            shutil.copyfileobj(old, dst)
+                        dst.write(b"\n\n<!-- merged on rotation -->\n\n")
+                    dst.write(payload.encode("utf-8", errors="surrogateescape"))
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                if dir_fd is None:
+                    # The move reaches the directory by name too: re-identify it
+                    # immediately before, and refuse a swap rather than send the
+                    # archive to the link's target. Elsewhere the descriptor above
+                    # holds the directory itself and there is no window.
+                    _refuse_swapped_dir(self.archive_dir, archive_dir_info, moved)
+                _move_onto(self.archive_dir, temp, archive_name, dir_fd)
+                _sync_moved(self.archive_dir, dir_fd)
+            except Exception:
+                if fd is not None:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                _discard_temp(self.archive_dir, temp, dir_fd)
+                raise
         self._discard_pending(pending)
         return archive_path
 
     def _read_newest_timestamp(self) -> Optional[str]:
         try:
-            with open(self.history_path, "r", encoding="utf-8") as fh:
+            with _open_regular(self.history_path, "r", encoding="utf-8") as fh:
                 content = fh.read()
         except FileNotFoundError:
             return None
@@ -847,7 +1402,7 @@ class HistoryReader:
 
         Reads under the shared history lock (``_reading``).
         """
-        if not os.path.exists(self.history_path):
+        if not os.path.lexists(self.history_path):
             return []
         with _reading(self.history_path):
             return self._read_unlocked()
@@ -855,7 +1410,7 @@ class HistoryReader:
     def _read_unlocked(self) -> List[HistoryEntry]:
         """``read_all`` for a caller that already holds the history lock."""
         try:
-            with open(self.history_path, "r", encoding="utf-8") as fh:
+            with _open_regular(self.history_path, "r", encoding="utf-8") as fh:
                 content = fh.read()
         except FileNotFoundError:
             return []
@@ -864,7 +1419,7 @@ class HistoryReader:
     def _live_files(self) -> List[Tuple[str, str, Tuple[HistoryEntry, ...]]]:
         """``(path, sha256, entries)`` of a pending rotation and ``history.md``, under the shared lock."""
         pending = self.history_path + ".rotating"
-        if not (os.path.exists(self.history_path) or os.path.exists(pending)):
+        if not (os.path.lexists(self.history_path) or os.path.lexists(pending)):
             return []
         out = []
         with _reading(self.history_path):
@@ -874,8 +1429,7 @@ class HistoryReader:
                     out.append((path, parsed[0], parsed[1]))
         return out
 
-    @staticmethod
-    def _older_file(machine: Optional[str], path: str, deleted: FrozenSet[Tuple[str, str]] = frozenset()):
+    def _older_file(self, machine: Optional[str], path: str, deleted: FrozenSet[Tuple[str, str]] = frozenset()):
         """``(sha256, entries)`` of an archive or segment; an unreadable segment is skipped, an archive is not.
 
         A segment's last block without its ``**Machine:**`` line was cut short by a crash or a full
@@ -883,7 +1437,7 @@ class HistoryReader:
         A segment's copy of a ``deleted`` entry is left out as well.
         """
         if machine is None:
-            return parsed_file(path)
+            return parsed_file(path, root=_archive_root(self.history_path, self.archive_dir))
         try:
             parsed = parsed_file(path)
         except OSError:
@@ -913,7 +1467,7 @@ class HistoryReader:
         """This checkout's whole journal (``history.md``, a pending rotation, ``history/*.md``), parsed once per change."""
         entries = [entry for _, _, items in self._live_files() for entry in items]
         for name in _archive_names(self.archive_dir):
-            parsed = parsed_file(os.path.join(self.archive_dir, name))
+            parsed = parsed_file(os.path.join(self.archive_dir, name), root=_archive_root(self.history_path, self.archive_dir))
             if parsed is not None:
                 entries.extend(parsed[1])
         return entries
@@ -933,13 +1487,13 @@ class HistoryReader:
         With the user library sync set up for this repository, the list is the
         merged history (``history.md``, ``history/*.md`` and the synced
         segments), read newest month first until ``limit`` is filled; otherwise
-        ``history.md`` alone. ``machine`` filters as ``_machine_filter`` says.
+        ``history.md`` and any pending rotation. ``machine`` filters as ``_machine_filter`` says.
         """
         limit = max(1, limit) if limit > 0 else 20
         machines = _machine_history(self.history_path)
         keep = _machine_filter(machine, machines)
         if machines is None:
-            entries = self.read_all()
+            entries = [entry for _, _, items in self._live_files() for entry in items]
         else:
             entries = self._recent_merged(machines, limit, since, keep)
         if keep is not None:
@@ -956,7 +1510,8 @@ class HistoryReader:
         ``history/*.md``), so an entry that rotation archived is still found, and with the user
         library sync set up for this repository through the synced segments too. Files are read
         newest month first, and the search stops at this checkout's own copy, which wins over a
-        segment's. An archive that cannot be read is skipped with a warning.
+        segment's. A segment that cannot be read is skipped; an archive of this checkout that
+        cannot be read raises, so a refused read is never reported as "no such entry".
         """
         chosen: Dict[str, HistoryEntry] = {}
         for _path, _digest, entries in self._live_files():
@@ -971,11 +1526,12 @@ class HistoryReader:
                     break
                 if side == 1:
                     continue
-            try:
-                parsed = self._older_file(machine, path, machines.deleted)
-            except OSError:
-                logger.warning("could not read history archive %s", path, exc_info=True)
-                continue
+            # _older_file already skips an unreadable synced segment and
+            # returns None, so the only error that reaches here belongs to this
+            # checkout's own archive. Swallowing it would answer a lookup with
+            # an empty success, or with a segment's older copy, exactly when a
+            # guarded read refused a substituted archive. It is raised instead.
+            parsed = self._older_file(machine, path, machines.deleted)
             if parsed is not None:
                 _merge_into(chosen, machine, [e for e in parsed[1] if e.id == entry_id])
         return chosen.get(entry_id)
@@ -1177,22 +1733,19 @@ class HistoryStore:
             if machines is not None:
                 return self._ensure_merged(machines, embed_texts)
 
-            # If the history file was deleted/moved, clear the store so semantic
-            # search doesn't return stale entries.
-            if not os.path.exists(self.history_path):
-                if self._store.count() > 0:
-                    self._store.clear()
-                    self._store.save()
-                return self._store
-
-            from src.engine.embedder import model_fingerprint
             with _reading(self.history_path):
                 # Content-based invalidation catches edits that preserve mtimes.
                 try:
-                    with open(self.history_path, "rb") as source:
+                    with _open_regular(self.history_path, "rb") as source:
                         data = source.read()
                 except FileNotFoundError:
-                    data = b""
+                    # Missing history clears stale vectors without loading an
+                    # embedding model. Unsafe artifacts remain storage errors.
+                    if self._store.count() > 0:
+                        self._store.clear()
+                        self._store.save()
+                    return self._store
+            from src.engine.embedder import model_fingerprint
             digest = hashlib.sha256(data).hexdigest() + ":" + model_fingerprint()
             # Embedding runs under the index's own lock, never the history lock:
             # appends and readers do not wait for the model.

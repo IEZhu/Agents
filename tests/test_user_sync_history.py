@@ -163,6 +163,33 @@ def run_cli(box: Box, *arguments) -> int:
 # --- the acceptance: two machines, one repository ----------------------------------------------
 
 
+def test_keyed_acceptance_replay_and_git_sync_keep_one_entry(shared, clock):
+    a, b = shared
+    original = a.log("keyed memory", idempotency_key="mem-01")
+    for box in (a, b):
+        box.sync()
+    assert a.log("keyed memory", idempotency_key="mem-01") == original
+    for box in (a, b):
+        box.sync()
+        entries = [entry for entry in box.read(limit=20) if entry.intent == "keyed memory"]
+        assert len(entries) == 1 and entries[0].id == original["entry_id"]
+    assert "keyed memory" not in b.history.read_text()
+
+
+def test_deleted_keyed_entry_stays_deleted_after_retry_and_sync(shared, clock):
+    a, b = shared
+    original = a.log("remove keyed memory", idempotency_key="mem-delete")
+    for box in (a, b):
+        box.sync()
+    with a.active():
+        journal.delete_entry(str(a.history), None, original["entry_id"], original["timestamp"])
+    assert history_sync.drain(60)
+    assert a.log("remove keyed memory", idempotency_key="mem-delete") == original
+    for box in (a, b, a):
+        box.sync()
+    assert not any(entry.id == original["entry_id"] for box in (a, b) for entry in box.read(limit=20))
+
+
 def test_two_machines_see_each_others_entries_once_and_in_time_order(shared, clock):
     a, b = shared
     first = a.log("first on a")
@@ -804,9 +831,9 @@ def test_recency_reads_stop_once_the_limit_is_filled(two, clock, monkeypatch):
     parsed = []
     real = journal.parsed_file
 
-    def recording(path):
+    def recording(path, **kwargs):
         parsed.append(Path(path).name)
-        return real(path)
+        return real(path, **kwargs)
 
     monkeypatch.setattr(journal, "parsed_file", recording)
     journal._PARSED = journal._ParsedFiles()
@@ -815,16 +842,32 @@ def test_recency_reads_stop_once_the_limit_is_filled(two, clock, monkeypatch):
     assert "2026-01.md" not in parsed and "2026-02.md" not in parsed
     everything = a.read(limit=50, machine="machine-b")
     assert len(everything) == 7 and "2026-01.md" in parsed
-    opened = []
+    read = []
     real_open = open
 
     def recording_open(file, *args, **kwargs):
-        opened.append(Path(file).name)
-        return real_open(file, *args, **kwargs)
+        stream = real_open(file, *args, **kwargs)
+
+        class Observed:
+            def __enter__(self):
+                stream.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                return stream.__exit__(*exc)
+
+            def __getattr__(self, name):
+                return getattr(stream, name)
+
+            def read(self, *args):
+                read.append(Path(file).name)
+                return stream.read(*args)
+
+        return Observed()
 
     monkeypatch.setattr(journal, "open", recording_open, raising=False)
     assert a.read(limit=50, machine="machine-b") == everything
-    assert not [name for name in opened if name.startswith("2026-0")]  # unchanged parts come from the cache
+    assert not [name for name in read if name.startswith("2026-0")]  # validate handles, reuse cached bytes
 
 
 def test_readers_wait_for_a_writer_or_rotation_in_progress(shared, clock):

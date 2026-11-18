@@ -62,7 +62,7 @@ footer as
 and the actual keep/switch/refresh/restore action only together with it; `files`/`tags`
 are JSON arrays. Compact workers use the mode above. Other callers without a
 retained descriptor omit both and add no footer; that logging compatibility does
-not waive initial activation. Incomplete attribution is still logged as `unverified`; do not retry. The call returns at once; when the footer's `Rules` list includes
+not waive initial activation. Incomplete attribution is still logged as `unverified`; do not retry. The call waits for the local journal commit; report any memory acceptance error. When the footer's `Rules` list includes
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
