@@ -31,7 +31,7 @@ this policy, updating any required-check rule at the same time.
 
 ## Debug Logging
 
-Enable detailed per-call JSON logging when [running the server manually](../README.md#generic-stdio):
+Enable detailed per-call JSON logging when [running the server manually](install.md#generic-stdio):
 
 ```bash
 AGENTS_DEBUG=1 python src/server.py

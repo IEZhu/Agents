@@ -43,7 +43,7 @@ server sessions stopped, run
 `.venv/bin/python -m src.reindex`. An `.env` without
 `EMBEDDING_MODEL_GENERATION=2`, such as one copied by hand from `env.example`,
 needs that line too; otherwise the next start switches it to the default
-([model switch](#model-switch-on-update)). The [shared macOS and Windows service](../README.md#shared-macos-and-windows-service)
+([model switch](#model-switch-on-update)). The [shared macOS and Windows service](install.md#shared-macos-and-windows-service)
 pins its model in its own configuration.
 
 The dense adapter in `src/engine/onnx_embedding.py` retains the catalog, model
@@ -95,7 +95,7 @@ The shared service switches in its update transaction instead
 | `EMBEDDING_PROMPTS` | `on` | Model-specific query and passage prompts ([embedding_prompts.py](../src/engine/embedding_prompts.py)); `off` embeds text as given |
 | `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at about 2.8 GB with the default in the [recorded run](embedding-models-eval-results.md)); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](shared-mcp-daemon.md)) |
-| `AGENTS_CLIENT_REPO_ROOT` | Unset: a verified `workspace` or sole current MCP root; without roots, the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above the session directory, else that safe existing directory ([rules](../README.md#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: a verified `workspace` or sole current MCP root; without roots, the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above the session directory, else that safe existing directory ([rules](memory.md)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](../rules/README.md) in loaded context |
 | `AGENTS_SUBAGENT_TIERING` | `1` | Resolve model tiers when worker preparation supplies `complexity`; `0` keeps the host model. Per-client model/effort overrides and escalation are in [delegated model tiers](subagent-model-tiers.md#configuration) |
 | `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable`; accepting the setup option or `--yes` sets this to `1` |

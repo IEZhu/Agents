@@ -23,17 +23,17 @@ checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
 
 - an `EMBEDDING_MODEL` already set in `.env` is kept, except that an `.env`
   from before the current model generation moves to the default model once
-  ([model switch on update](../README.md#model-switch-on-update)); otherwise setup writes the
-  one default model (see [Environment Variables](../README.md#environment-variables));
+  ([model switch on update](configuration.md#model-switch-on-update)); otherwise setup writes the
+  one default model (see [Environment Variables](configuration.md#environment-variables));
 - an existing `.venv` is reused and its dependencies are refreshed (in the
   environment it links to, after an [update delivered
-  dependencies](../README.md#standalone-stdio-auto-update)); it is recreated only when its
+  dependencies](install.md#standalone-stdio-auto-update)); it is recreated only when its
   Python version is unknown or older than 3.11;
 - the Claude instruction and routing-reminder prompts are accepted. Client
   registration and Codex instructions never ask (see [After Cloning](#after-cloning));
 - sync between machines is not asked about: the summary says how to turn it on,
   and the `AGENTS_USER_SYNC_*` variables set it up without questions
-  ([Sync between machines](../README.md#sync-between-machines)).
+  ([Sync between machines](user-sync.md)).
 
 Without a terminal the confirmation is skipped. To inspect the script first,
 download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
@@ -53,9 +53,9 @@ curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/dev/install.sh | bash 
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |
 | `AGENTS_REPO_URL` | `https://github.com/IEZhu/Agents.git` | Repository for a fresh clone |
-| `AGENTS_BRANCH` | `main` for a new clone; a rerun keeps the checked-out branch | Branch to install: `main` takes releases, `dev` every merged pull request. A new `.env` gets it as `AGENTS_AUTO_UPDATE_BRANCH`, so both updaters follow it; an existing `.env` that names another branch keeps it, with a warning ([update channel](../README.md#update-channel)) |
+| `AGENTS_BRANCH` | `main` for a new clone; a rerun keeps the checked-out branch | Branch to install: `main` takes releases, `dev` every merged pull request. A new `.env` gets it as `AGENTS_AUTO_UPDATE_BRANCH`, so both updaters follow it; an existing `.env` that names another branch keeps it, with a warning ([update channel](install.md#update-channel)) |
 | `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
-| `AGENTS_USER_SYNC_REPO`, `AGENTS_USER_SYNC_REMOTE` | unset | Set up [sync between machines](../README.md#sync-between-machines) without questions, with the variables listed there |
+| `AGENTS_USER_SYNC_REPO`, `AGENTS_USER_SYNC_REMOTE` | unset | Set up [sync between machines](user-sync.md) without questions, with the variables listed there |
 
 The installer never uses `sudo`. It refuses a non-empty `AGENTS_HOME` that is not
 an Agents-Core checkout.
@@ -66,10 +66,10 @@ set), then reruns setup, which refreshes dependencies in `.venv` and the indexes
 in place, and warns when `.env` follows another branch than an explicit
 `AGENTS_BRANCH`. Without `AGENTS_BRANCH` a rerun keeps the checked-out branch
 (a detached HEAD gets `main`) and never switches channels: that is
-`channel set`'s job, with its downgrade check ([update channel](../README.md#update-channel)).
+`channel set`'s job, with its downgrade check ([update channel](install.md#update-channel)).
 First close the client sessions that run this installation's stdio server, as
 for any manual Git operation or rebuild. If this checkout serves the shared service, update it with
-`.venv/bin/python -m src.daemon update` instead (see [Updates](../README.md#updates)).
+`.venv/bin/python -m src.daemon update` instead (see [Updates](install.md#updates)).
 An update is refused when the checkout has uncommitted changes to tracked files
 (commit or stash them first). Untracked files do not block an update and are left
 in place; `git pull --ff-only` aborts without touching them if an incoming file
@@ -245,7 +245,7 @@ The interactive script:
 - on macOS, once the shared service is installed, keeps these clients on the
   service instead of writing standalone stdio entries. Do not rerun setup while
   the service runs (see [service updates](shared-mcp-daemon.md#updates-and-recovery));
-- asks once, at the end, whether to set up [sync between machines](../README.md#sync-between-machines),
+- asks once, at the end, whether to set up [sync between machines](user-sync.md),
   unless it is set up already; with `--yes` or without a terminal it does not ask,
   and the summary says how to turn it on.
 
@@ -461,7 +461,7 @@ environment selects: when setup runs with `CLAUDE_CONFIG_DIR`, the app must see 
 same value. While the shared service is installed, setup keeps the entries `migrate`
 wrote. The shared desktop server selects a sole current MCP root automatically;
 with several roots its memory and flow tools need the caller's root-verified
-`workspace` argument ([rules](../README.md#-repository-memory)).
+`workspace` argument ([rules](memory.md)).
 
 ## Cursor (`.cursor/mcp.json` in the client project)
 
