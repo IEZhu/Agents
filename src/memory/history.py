@@ -702,7 +702,7 @@ def _sync_file(path: str, *, root=None, expected=None) -> None:
         os.fsync(stream.fileno())
 
 
-_LINE_BREAKS_JSON_KEEPS = {"\x85": "\\u0085", " ": "\\u2028", " ": "\\u2029"}
+_LINE_BREAKS_JSON_KEEPS = {"\x85": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 
 
 def _one_line_json(value) -> str:
