@@ -383,33 +383,39 @@ def test_a_delete_refuses_an_archive_directory_swapped_after_the_read(journals, 
 
     `mkstemp` and the move both resolved `history/` again, so a swap between the
     guarded read and the replacement sent the rewritten archive into the
-    substituted directory. The directory is now checked and the replacement
-    anchored to it, so the swap is refused.
+    substituted directory. The directory's identity is now taken before the
+    read and the replacement anchored to it. The swap here happens after the
+    read has closed, as the entry is cut out of what it read, and it puts a real
+    directory in place, so neither a link check nor the read itself can refuse
+    it: only the replacement's identity check can. Both directories keep what
+    they held.
     """
     path, target = journals
     directory = path.parent / "history"
     directory.mkdir()
     archive = directory / "2026-01.md"
     archive.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    original = archive.read_bytes()
     entry = history.HistoryReader(str(path)).journal_entries()[0]
-    decoy = path.parent / "decoy"
+    decoy, checked = path.parent / "decoy", path.parent / "checked"
     decoy.mkdir()
-    real_lstat = history.os.lstat
+    (decoy / "2026-01.md").write_text("DECOY_ARCHIVE\n", encoding="utf-8")
+    real_without = history.without_entry
     swapped = []
 
-    def swapping(entry_path, *args, **kwargs):
-        # One shot, and without touching the file system to decide: probing it
-        # here would call lstat again through this very function.
-        if not swapped and os.fspath(entry_path) == str(directory):
-            swapped.append(1)
-            directory.rename(path.parent / "checked")
-            link_or_skip(path.parent / "history", decoy, directory=True)
-        return real_lstat(entry_path, *args, **kwargs)
+    def swap_after_the_read(*args, **kwargs):
+        swapped.append(1)
+        directory.rename(checked)
+        decoy.rename(directory)
+        return real_without(*args, **kwargs)
 
-    monkeypatch.setattr(history.os, "lstat", swapping)
-    with pytest.raises(PermissionError):
+    monkeypatch.setattr(history, "without_entry", swap_after_the_read)
+    with pytest.raises(PermissionError, match="journal directory changed"):
         history.delete_entry(str(path), "2026-01", entry.id, entry.timestamp)
-    assert swapped and list(decoy.iterdir()) == []
+    assert swapped
+    assert (checked / "2026-01.md").read_bytes() == original
+    assert sorted(item.name for item in directory.iterdir()) == ["2026-01.md"]
+    assert (directory / "2026-01.md").read_text(encoding="utf-8") == "DECOY_ARCHIVE\n"
 
 
 def test_a_second_write_survives_a_platform_without_fchmod(journals, monkeypatch):
@@ -906,3 +912,56 @@ def test_a_replayed_receipt_syncs_the_held_directory_after_its_check(tmp_path, m
     assert (held.st_dev, held.st_ino) in synced
     decoy_now = os.stat(journal)
     assert (decoy_now.st_dev, decoy_now.st_ino) not in synced
+
+
+class _FakeKernel:
+    """kernel32 as `_windows_directory_path` uses it, answering from a fixed attribute and tag."""
+
+    def __init__(self, attributes, tag):
+        # Plain functions, because the code under test sets `argtypes` on each.
+        def query(handle, kind, info, size):
+            target = info._obj
+            target.FileAttributes, target.ReparseTag = attributes, tag
+            return True
+
+        def final_path(handle, buffer, length, flags):
+            buffer.value = "\\\\?\\C:\\work\\project"
+            return len(buffer.value)
+
+        def by_name(path):
+            # The name-based query the handle-based one replaced; reaching it is a failure.
+            raise AssertionError("read by name")
+
+        self.CreateFileW = lambda *args: 7
+        self.CloseHandle = lambda handle: True
+        self.GetFileInformationByHandleEx = query
+        self.GetFinalPathNameByHandleW = final_path
+        self.GetFileAttributesW = by_name
+
+
+@pytest.mark.parametrize("attributes, tag, allowed", [
+    (0x10, 0, True),                         # a plain directory
+    (0x10 | 0x400, 0x9000001A, True),        # a cloud-backed directory: reparse point, non-link tag
+    (0x10 | 0x400, 0xA000000C, False),       # a directory symlink: name-surrogate tag
+    (0x10 | 0x400, 0xA0000003, False),       # a junction (mount point): name-surrogate tag
+    (0x20, 0, False),                        # not a directory
+])
+def test_the_windows_root_check_refuses_only_links(monkeypatch, attributes, tag, allowed):
+    """`_windows_directory_path` refused every reparse point, a cloud-backed root included.
+
+    `_regular_kind` lets a non-link reparse tag through, so a OneDrive-backed
+    workspace passed that check and then failed this one: its history could not
+    be read at all. The attributes and tag now come from the opened handle, and
+    only a name-surrogate tag is refused. The Windows API is replaced by a fake
+    that answers with the given attributes and tag, so this runs everywhere; the
+    Windows jobs run the real call through the guarded-open tests.
+    """
+    import ctypes
+
+    monkeypatch.setattr(ctypes, "WinDLL", lambda name, **kwargs: _FakeKernel(attributes, tag), raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 0, raising=False)
+    if allowed:
+        assert history._windows_directory_path("C:\\work\\project") == "\\\\?\\C:\\work\\project"
+    else:
+        with pytest.raises(PermissionError, match="regular directory"):
+            history._windows_directory_path("C:\\work\\project")

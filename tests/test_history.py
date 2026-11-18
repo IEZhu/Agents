@@ -536,8 +536,12 @@ class TestRotationWithOpenHandle:
 
         real_rotate = writer._maybe_rotate_locked
 
+        observed = []
+
         def rotate_checking_handle(directory_info):
-            assert opened and all(handle.closed for handle in opened)
+            # Recorded, not asserted: append_entry logs a rotation's exception
+            # and still reports the entry, so an assertion here would vanish.
+            observed.append(bool(opened) and all(handle.closed for handle in opened))
             return real_rotate(directory_info)
 
         monkeypatch.setattr(builtins, "open", tracking_open)
@@ -549,20 +553,22 @@ class TestRotationWithOpenHandle:
         ]
         monkeypatch.undo()
         assert statuses == ["recorded"] * 4
+        assert observed and all(observed), observed
         archives = list((tmp_path / "history").glob("*"))
         assert len(archives) >= 1
 
     def test_rotation_failure_still_reports_recorded(self, tmp_path, history_path, monkeypatch, caplog):
         writer = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
 
-        def boom():
+        def boom(directory_info):
             raise PermissionError(32, "in use")
 
         monkeypatch.setattr(writer, "_maybe_rotate_locked", boom)
         with caplog.at_level("WARNING"):
             result = writer.append_entry("q " + "x" * 2000, "a", "o")
         assert result["status"] == "recorded"
-        assert "history rotation failed" in caplog.text
+        # The injected error itself, not a TypeError from a stub of the wrong shape.
+        assert "history rotation failed" in caplog.text and "in use" in caplog.text
 
 
 def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path, monkeypatch):

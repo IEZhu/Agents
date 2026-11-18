@@ -230,6 +230,7 @@ class HistoryUI:
                             "available": False, "unreadable": True, "unresolved": identity == UNRESOLVED,
                             "files": [], "entries": 0, "bytes": 0, "newest": None})
                 continue
+            current_unreadable = False
             for name in names:
                 try:
                     path = _file_path(root, name)
@@ -240,10 +241,21 @@ class HistoryUI:
                         answers = self.summaries.answers(str(path), root=str(root))
                     size = path.stat().st_size
                 except (HistoryError, OSError):
+                    if name == CURRENT:
+                        # A regular history.md the guarded read refuses is the
+                        # workspace's journal failing, not one file among others:
+                        # report it as discovery does, so the UI shows its notice.
+                        current_unreadable = True
+                        break
                     files.append({"file": name, "entries": None, "bytes": None, "newest": None, "unreadable": True})
                     continue
                 files.append({"file": name, "entries": len(answers), "bytes": size,
                               "newest": max((answer.time for answer in answers), default=None)})
+            if current_unreadable:
+                out.append({"workspace": identity, "name": _name(identity, root), "root": str(root),
+                            "available": False, "unreadable": True, "unresolved": identity == UNRESOLVED,
+                            "files": [], "entries": 0, "bytes": 0, "newest": None})
+                continue
             if not files:
                 continue
             out.append({"workspace": identity, "name": _name(identity, root),

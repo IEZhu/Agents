@@ -478,7 +478,9 @@ async def test_keyed_write_refuses_unauthorized_workspace(server_workspace, monk
 @pytest.mark.asyncio
 async def test_api_reports_failure_in_current_call(server_workspace, monkeypatch):
     server, _ = server_workspace
-    monkeypatch.setattr(history, "_replace", lambda *_: (_ for _ in ()).throw(OSError("full disk")))
+    # `_replace` takes the directory identity as a keyword; a stub without it
+    # would fail with TypeError and the test would pass for the wrong reason.
+    monkeypatch.setattr(history, "_replace", lambda *_, **__: (_ for _ in ()).throw(OSError("full disk")))
     result = json.loads(await server.log_interaction("software_engineer", "q", "r", idempotency_key="key", persona_action="keep"))
     assert result["history"]["status"] == "error"
     assert result["history"]["state"] == "unknown"
@@ -486,3 +488,113 @@ async def test_api_reports_failure_in_current_call(server_workspace, monkeypatch
     assert "same idempotency_key" in result["instruction"]
     assert "The turn was logged" not in result["instruction"]
     assert "Do not retry logging" not in result["instruction"]
+
+
+@pytest.mark.parametrize("separator", [" ", " ", "\x85"])
+def test_a_keyed_receipt_survives_line_separators_in_metadata(tmp_path, separator):
+    """`str.splitlines` breaks at NEL and the Unicode line and paragraph separators.
+
+    `json.dumps(ensure_ascii=False)` kept them as written, so one in metadata
+    split the **Meta:** line, the reader kept the truncated JSON, and the
+    same-key retry found the entry without its receipt: `idempotency_collision`
+    instead of the receipt the first call returned.
+    """
+    path = tmp_path / "history.md"
+    note = f"before{separator}after"
+    first = HistoryWriter(str(path)).append_entry(
+        "intent", "action", "outcome", metadata={"note": note}, idempotency_key="sep-1")
+    again = HistoryWriter(str(path)).append_entry(
+        "intent", "action", "outcome", metadata={"note": note}, idempotency_key="sep-1")
+    assert again == first
+    [entry] = HistoryReader(str(path)).journal_entries()
+    assert entry.metadata["note"] == note
+
+
+@pytest.mark.parametrize("keyed", [True, False])
+def test_a_replay_refuses_a_journal_replaced_since_its_read(tmp_path, monkeypatch, keyed):
+    """The replay synced the file the name held at the sync, not the one it read.
+
+    An editor saving `history.md` between the retry's read and its sync swaps the
+    file in the same directory, so the directory check passes; the sync then
+    vouched for a file whose bytes the receipt never came from. The identity of
+    the file read now goes with its text, and the replacement is refused.
+    """
+    path = tmp_path / "history.md"
+    key = {"idempotency_key": "edit-1"} if keyed else {}
+    HistoryWriter(str(path)).append_entry("retried", "action", "outcome", **key)
+    real_parse = HistoryReader._parse
+    replaced = []
+
+    def save_after_the_read(text):
+        if not replaced:
+            replaced.append(1)
+            saved = path.with_name("saved.tmp")
+            saved.write_bytes(path.read_bytes())
+            os.replace(saved, path)  # same bytes, another file: what an editor's save leaves
+        return real_parse(text)
+
+    monkeypatch.setattr(HistoryReader, "_parse", staticmethod(save_after_the_read))
+    with pytest.raises(PermissionError, match="journal file changed"):
+        HistoryWriter(str(path)).append_entry("retried", "action", "outcome", **key)
+    assert replaced
+
+
+def test_a_failed_suffix_read_keeps_the_pending_file_without_a_second_copy(tmp_path, monkeypatch):
+    """A read error in the suffix check used to count as "not archived yet".
+
+    The merge then copied the archive, which already ended with the payload, and
+    appended the payload again. The error now propagates: the merge fails, the
+    archive and the pending file stay as they were, and the next attempt decides.
+    """
+    writer = HistoryWriter(str(tmp_path / "history.md"))
+    archive_dir = tmp_path / "history"
+    archive_dir.mkdir()
+    payload = "## 2026-01-02T03:04:05+00:00 | abcdef123456\nENTRY\n"
+    archive, pending = archive_dir / "2026-01.md", tmp_path / "history.md.rotating"
+    archive.write_text(payload, encoding="utf-8")
+    pending.write_text(payload, encoding="utf-8")
+    real_open = history._open_regular
+
+    def failing_in_the_suffix_check(target, *args, **kwargs):
+        if sys._getframe(1).f_code.co_name == "_archive_ends_with":
+            raise PermissionError("archive briefly unreadable")
+        return real_open(target, *args, **kwargs)
+
+    monkeypatch.setattr(history, "_open_regular", failing_in_the_suffix_check)
+    with pytest.raises(PermissionError, match="briefly unreadable"):
+        writer._merge_pending_locked(str(pending))
+    assert archive.read_text(encoding="utf-8") == payload
+    assert pending.read_text(encoding="utf-8") == payload
+
+
+@pytest.mark.parametrize("error", [RuntimeError("Symlink loop"), OSError(40, "Too many levels of symbolic links")])
+def test_an_unresolvable_memory_path_is_workspace_invalid(tmp_path, monkeypatch, error):
+    """`Path.resolve()` raises RuntimeError on a symlink loop before Python 3.13.
+
+    The preflight let it escape instead of answering `workspace_invalid`, the
+    error every other unplaceable memory path gets.
+    """
+    from pathlib import Path
+    from src.daemon.workspaces import ClientContext, WorkspaceError
+
+    real_resolve = Path.resolve
+
+    def resolving(self, *args, **kwargs):
+        if self.name == "history.md.rotating":
+            raise error
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolving)
+    context = ClientContext(request_id="r", transport="http", root=tmp_path)
+    with pytest.raises(WorkspaceError, match="^workspace_invalid: memory path cannot be resolved"):
+        context.require_root()
+
+
+@pytest.mark.asyncio
+async def test_an_invalid_idempotency_key_says_nothing_was_written(server_workspace):
+    """The rejection carried the persona default, which reads as a persona problem."""
+    server, _ = server_workspace
+    result = json.loads(await server.log_interaction("software_engineer", "q", "r", idempotency_key="   "))
+    assert result["status"] == "ERROR" and result["message"] == "invalid_idempotency_key"
+    assert result["instruction"].startswith("Nothing was accepted.")
+    assert "idempotency_key" in result["instruction"]

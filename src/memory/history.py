@@ -216,8 +216,22 @@ def _windows_directory_path(path):
     if handle == wintypes.HANDLE(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
-        attributes = kernel.GetFileAttributesW(path)
-        if attributes != 0xFFFFFFFF and attributes & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+        # The attributes and reparse tag come from the handle just opened, not
+        # from the name again. Only a name-surrogate tag (a symlink or junction)
+        # is a link: a cloud-backed directory carries a reparse point with a
+        # non-link tag, which `_regular_kind` accepts and this has to accept too.
+        class AttributeTagInfo(ctypes.Structure):
+            _fields_ = [("FileAttributes", wintypes.DWORD), ("ReparseTag", wintypes.DWORD)]
+
+        info = AttributeTagInfo()
+        query = kernel.GetFileInformationByHandleEx
+        query.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+        query.restype = wintypes.BOOL
+        if not query(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):  # FileAttributeTagInfo
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not info.FileAttributes & 0x10:  # FILE_ATTRIBUTE_DIRECTORY
+            raise PermissionError("journal artifact must be a regular directory")
+        if info.FileAttributes & 0x400 and info.ReparseTag & 0x20000000:  # a name surrogate
             raise PermissionError("journal artifact must be a regular directory")
         final_path = kernel.GetFinalPathNameByHandleW
         final_path.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
@@ -606,29 +620,34 @@ def _sync_moved(directory, dir_fd) -> None:
         os.fsync(dir_fd)
 
 
-def _sync_recorded(path: str, info, *, root=None) -> None:
+def _sync_recorded(path: str, info, *, root=None, expected=None) -> None:
     """Persist a file that is already written, and the entry that names it, in the directory ``info`` checked.
 
     A replay answers with a receipt as durable, so it syncs what holds the
-    receipt again, and both syncs have to reach the directory its read checked:
-    opened by name, a swapped directory would be synced while the one holding
-    the receipt stayed as it was. With a descriptor the file is opened relative
-    to it, without following a link; without one (Windows) the directory is
-    re-identified first and the file goes through ``_sync_file``.
+    receipt again, and both syncs have to reach what its read checked: opened by
+    name, a swapped directory would be synced while the one holding the receipt
+    stayed as it was. ``expected`` is the identity of the file that read, so a
+    file replaced since (an editor's save, say) is refused instead of synced in
+    its place. With a descriptor the file is opened relative to it, without
+    following a link; without one (Windows) the directory is re-identified first
+    and the file goes through ``_sync_file``.
     """
     directory, name = os.path.dirname(path) or ".", os.path.basename(path)
     message = "journal directory changed before its receipt was synced"
     with _anchored_dir(directory, info, message) as dir_fd:
         if dir_fd is None:
             _refuse_swapped_dir(directory, info, message)
-            _sync_file(path, root=root)
+            _sync_file(path, root=root, expected=expected)
             _sync_directory(directory)
             return
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         fd = os.open(name, flags, dir_fd=dir_fd)
         try:
-            if not stat.S_ISREG(os.fstat(fd).st_mode):
+            opened = os.fstat(fd)
+            if not stat.S_ISREG(opened.st_mode):
                 raise PermissionError("journal artifact must be a regular file")
+            if expected is not None and not os.path.samestat(expected, opened):
+                raise PermissionError("journal file changed before its receipt was synced")
             os.fsync(fd)
         finally:
             os.close(fd)
@@ -674,11 +693,32 @@ def _replace(path: str, text: str, *, info) -> None:
             raise
 
 
-def _sync_file(path: str, *, root=None) -> None:
+def _sync_file(path: str, *, root=None, expected=None) -> None:
     # Windows _commit/FlushFileBuffers requires a writable handle, even when
     # replay only confirms an existing record and does not modify its bytes.
     with _open_regular(path, "r+b" if os.name == "nt" else "rb", root=root) as stream:
+        if expected is not None and not os.path.samestat(expected, os.fstat(stream.fileno())):
+            raise PermissionError("journal file changed before its receipt was synced")
         os.fsync(stream.fileno())
+
+
+_LINE_BREAKS_JSON_KEEPS = {"\x85": "\\u0085", " ": "\\u2028", " ": "\\u2029"}
+
+
+def _one_line_json(value) -> str:
+    """JSON that stays on one line of the journal.
+
+    ``json.dumps`` escapes only C0 controls, and ``ensure_ascii=False`` keeps
+    the rest as written; ``str.splitlines``, which the reader uses, also breaks
+    at NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR. One of those in metadata
+    split the **Meta:** line, the reader kept the truncated JSON, and a keyed
+    retry found the entry without its receipt and answered
+    ``idempotency_collision``. Escaped here, they read back as the same text.
+    """
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    for char, escaped in _LINE_BREAKS_JSON_KEEPS.items():
+        text = text.replace(char, escaped)
+    return text
 
 
 def _sync_directory(path: str) -> None:
@@ -962,9 +1002,13 @@ class HistoryWriter:
 
     def _append_locked(self, entry_id, intent, action, outcome, files, tags, metadata,
                        idempotency_key, payload_fingerprint, directory_info):
+        # The identity of each file read here goes with its text, so a replay
+        # syncs the very file whose bytes held the receipt or refuses.
+        journal_info = None
         try:
             with _open_regular(self.history_path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
                 content = fh.read()
+                journal_info = os.fstat(fh.fileno())
         except FileNotFoundError:
             content = self._render_header()
         if not content:
@@ -982,7 +1026,7 @@ class HistoryWriter:
             ).encode("utf-8")).hexdigest()
             # The local journal includes archives and interrupted rotations.
             # Synced segments are another writer's data, not this acceptance scope.
-            texts = [(self.history_path, content)]
+            texts = [(self.history_path, content, journal_info)]
             archives = _archive_names(self.archive_dir, strict=True)
             # Checked before the archives are read, so a receipt replayed from
             # one is synced in the directory that read checked.
@@ -993,12 +1037,12 @@ class HistoryWriter:
                     with _open_regular(path, root=(None if path == self.history_path + ".rotating"
                                                    else _archive_root(self.history_path, self.archive_dir)),
                                        encoding="utf-8", errors="surrogateescape", newline="") as fh:
-                        texts.append((path, fh.read()))
+                        texts.append((path, fh.read(), os.fstat(fh.fileno())))
                 except FileNotFoundError:
                     continue
             entry_id = key_digest[:12]  # Preserve the v1 Personal/Git id format.
             collision = False
-            for path, text in texts:
+            for path, text, file_info in texts:
                 entries = HistoryReader._parse(text)
                 receipts = [(entry.metadata or {}).get("_agents_write", {}) for entry in entries]
                 receipts.extend(json.loads(match) for match in _RECEIPT_RE.findall(text))
@@ -1012,7 +1056,8 @@ class HistoryWriter:
                     # sync. Establish durability again before replaying its receipt.
                     live = path in (self.history_path, self.history_path + ".rotating")
                     _sync_recorded(path, directory_info if live else archive_info,
-                                   root=None if live else _archive_root(self.history_path, self.archive_dir))
+                                   root=None if live else _archive_root(self.history_path, self.archive_dir),
+                                   expected=file_info)
                     return {**receipt["result"], "path": self.history_path}, False
             if collision:
                 raise MemoryWriteRejected("idempotency_collision")
@@ -1036,7 +1081,7 @@ class HistoryWriter:
                     # A complete different entry is not evidence of a torn append.
                     raise MemoryWriteRejected("history_entry_conflict")
             if complete_duplicate:
-                _sync_recorded(self.history_path, directory_info)
+                _sync_recorded(self.history_path, directory_info, expected=journal_info)
                 return {"status": "duplicate", "entry_id": entry_id, "path": self.history_path,
                         "state": "durably_accepted"}, False
 
@@ -1140,7 +1185,7 @@ class HistoryWriter:
             normalized = [t if t.startswith("#") else f"#{t}" for t in normalized]
             lines.append(f"**Tags:** {' '.join(normalized)}")
         if metadata:
-            lines.append(f"**Meta:** {json.dumps(metadata, ensure_ascii=False, sort_keys=True)}")
+            lines.append(f"**Meta:** {_one_line_json(metadata)}")
         lines.append("")  # trailing newline
         return "\n".join(lines) + "\n"
 
@@ -1230,17 +1275,22 @@ class HistoryWriter:
                 logger.warning("could not clear archived pending file %s: %s", pending, err)
 
     @staticmethod
-    def _archive_ends_with(archive_path: str, payload: str, *, root=None) -> bool:
+    def _archive_ends_with(archive_path: str, payload: str, *, root=None):
+        """The archive's identity when it already ends with ``payload``, else None.
+
+        A read that fails is not a mismatch: answering "not archived" for it
+        would append the payload a second time once the merge's own copy
+        succeeds, so the error propagates and the pending file waits for the
+        next attempt. The identity lets the sync that follows refuse a file
+        replaced since this read.
+        """
         data = payload.encode("utf-8", errors="surrogateescape")
-        try:
-            with _open_regular(archive_path, "rb", root=root) as fh:
-                size = fh.seek(0, os.SEEK_END)
-                if size < len(data):
-                    return False
-                fh.seek(size - len(data))
-                return fh.read() == data
-        except OSError:
-            return False
+        with _open_regular(archive_path, "rb", root=root) as fh:
+            size = fh.seek(0, os.SEEK_END)
+            if size < len(data):
+                return None
+            fh.seek(size - len(data))
+            return os.fstat(fh.fileno()) if fh.read() == data else None
 
     def _merge_pending_locked(self, pending: str) -> str:
         """Append the pending file to its month's archive, then empty it.
@@ -1277,10 +1327,12 @@ class HistoryWriter:
         else:
             existed = True
         archive_root = _archive_root(self.history_path, self.archive_dir)
-        if existed and self._archive_ends_with(archive_path, payload, root=archive_root):
+        archived = self._archive_ends_with(archive_path, payload, root=archive_root) if existed else None
+        if archived is not None:
             # A crash after the append but before the unlink: already archived.
-            # Synced in the directory checked above, as a replayed receipt is.
-            _sync_recorded(archive_path, archive_dir_info, root=archive_root)
+            # Synced in the directory checked above, as the file that read showed,
+            # as a replayed receipt is.
+            _sync_recorded(archive_path, archive_dir_info, root=archive_root, expected=archived)
             self._discard_pending(pending)
             return archive_path
         # Build the merged archive beside the real one and replace it in one

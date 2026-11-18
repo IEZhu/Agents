@@ -1802,7 +1802,8 @@ async def log_interaction(
     if idempotency_key is not None and (not isinstance(idempotency_key, str)
                                        or not 1 <= len(idempotency_key) <= 256
                                        or not idempotency_key.strip()):
-        return error_response(ValueError("invalid_idempotency_key"), request_id)
+        return error_response(ValueError("invalid_idempotency_key"), request_id,
+                              instruction="Nothing was accepted. Use a non-blank idempotency_key of at most 256 characters, or omit it.")
     # Include all caller-controlled content, not the generated correlation id,
     # server timestamp or transport label. Ownership is never a tool argument.
     payload_fingerprint = None if idempotency_key is None else hashlib.sha256(json.dumps({

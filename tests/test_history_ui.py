@@ -377,3 +377,32 @@ async def test_a_journal_registered_by_mistake_is_listed_once_and_refused_as_a_t
     response = await http.post("/ui/api/history/adopt", json={"to": mistaken, "entries": [entry["entry_id"]]}, headers=UI)
     assert response.status_code == 400 and response.json()["error"].startswith("invalid_request")
     assert entries_of(journal / "history.md") == ["kept"]
+
+
+@pytest.mark.asyncio
+async def test_a_current_journal_the_guarded_read_refuses_makes_its_workspace_unreadable(daemon, monkeypatch):
+    """A regular `history.md` passed discovery and then failed its guarded summary read.
+
+    Only that file was marked unreadable, so the workspace still answered as
+    available and the page showed no recovery notice. The current journal's
+    failure is the workspace's, as a non-regular one already was; an archive's
+    failure stays its own file's.
+    """
+    from src.memory.history_stats import FileSummaries
+
+    http, ids = daemon
+    await login(http)
+    real_answers = FileSummaries.answers
+
+    def refusing(self, path, **kwargs):
+        if os.path.basename(path) == "history.md" and os.path.basename(os.path.dirname(path)) == "project":
+            raise PermissionError("journal directory changed while opening")
+        return real_answers(self, path, **kwargs)
+
+    monkeypatch.setattr(FileSummaries, "answers", refusing)
+    response = await http.get("/ui/api/history/repos", headers=UI)
+    assert response.status_code == 200
+    repos = {repo["workspace"]: repo for repo in response.json()["repos"]}
+    assert repos[ids["project"]]["available"] is False
+    assert repos[ids["project"]]["unreadable"] is True
+    assert repos[ids["other"]]["available"] is True
