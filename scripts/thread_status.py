@@ -35,6 +35,13 @@ _IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 # than depending on CLI-side metadata writes being reflected in that store.
 DESKTOP_ENTRYPOINT = "claude-desktop"
 DESKTOP_TOOLS = ("mcp__ccd_session_mgmt__get_session", "mcp__ccd_session_mgmt__set_session_title")
+# The SDK writes the CLI session's custom title, which the desktop sidebar does not
+# show. "persisted" alone read as success to an agent in a desktop Code tab.
+CLI_HELPER_NOTE = ("Saved as the Claude Code CLI session title. A Claude desktop app sidebar does not show "
+                   f"it; there, rename the chat with {DESKTOP_TOOLS[1]} and session_id \"self\".")
+DESKTOP_HELPER_NOTE = ("This chat runs in the Claude desktop app: its sidebar title did NOT change. Rename it "
+                       f"with {DESKTOP_TOOLS[1]} and session_id \"self\"; do not report this write as the "
+                       "visible title.")
 
 
 def _known_identity(value: object) -> str | None:
@@ -66,10 +73,11 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
     if desktop:
         context += ("\nClaude desktop app (Code tab): the app owns this chat's sidebar title. Read it with "
                     f"{DESKTOP_TOOLS[0]} and rename it with {DESKTOP_TOOLS[1]}, both with "
-                    "session_id \"self\". If they are deferred, load both once with ToolSearch "
-                    "\"select:" + ",".join(DESKTOP_TOOLS) + "\". Hook sessionTitle and the SDK helper "
-                    "write CLI metadata; use the native app tools for the sidebar. If the app declines or asks "
-                    "the user to approve a rename, report that once instead of retrying.")
+                    "session_id \"self\" (not the chat identity above). If they are deferred, load both once "
+                    "with ToolSearch \"select:" + ",".join(DESKTOP_TOOLS) + "\". Hook sessionTitle and the SDK "
+                    "helper write only CLI metadata, which this sidebar does not show: the helper is for the "
+                    "Claude Code CLI. If the app declines or asks the user to approve a rename, report that "
+                    "once instead of retrying.")
     elif client == "claude":
         # The SDK resolves the existing title itself. No transcript paths are consumed.
         cwd = event.get("cwd")
@@ -261,7 +269,8 @@ def rename_claude_session(session_id: str, directory: str, status: str) -> dict:
         raise RuntimeError("Claude SDK title readback did not confirm the requested title")
     return {"client": "claude", "session_id": session_id, "status": status,
             "title": title, "changed": changed, "persisted": True,
-            "live_ui_refresh_verified": False}
+            "live_ui_refresh_verified": False, "claude_desktop_sidebar_updated": False,
+            "note": DESKTOP_HELPER_NOTE if _claude_desktop() else CLI_HELPER_NOTE}
 
 
 def main(argv: list[str] | None = None) -> int:
