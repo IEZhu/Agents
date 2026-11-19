@@ -460,8 +460,10 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    semantic search, so also page through recency listings (`limit`, `offset`,
    `since`) and match each entry's `tags` exactly. A listing previews `outcome`
    and caps `tags`, so the tag or the table row can lie past the preview: read
-   every close it lists (`#thread-close` without `#progress`) whole with
-   `read_history(entry_id=...)` before deciding. Without
+   every close it lists (`#thread-close` without `#progress`, or an intent that
+   starts with `Close thread`) and every entry whose `tags` came back truncated
+   whole with `read_history(entry_id=...)`, and classify it from the whole entry
+   before deciding. Without
    library sync both listings and `query` read only the current journal, not its
    monthly archives: scan those files directly, under the same redaction
    boundary, and state how far back the search reached.
