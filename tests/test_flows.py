@@ -536,6 +536,8 @@ def test_thread_close_dates_misses_and_keeps_the_report_entry_distinct():
 
 def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
     """Another tool's slug is one the closing record accepts; agreement is a cooperation clause."""
+    import re
+
     from src.memory.record import validate
 
     text = " ".join(FlowCatalog().load("thread-close").content.split())
@@ -548,6 +550,19 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
     refused, problems = validate({"v": 1, "kind": "report",
                                   "findings": [{**finding, "slug": "ccd-turn:wrap-up"}]})
     assert refused is None and problems
+
+    def slug(server: str, rule: str) -> str:
+        # The normalization step 4.2 describes, applied as written.
+        parts = [re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-") for part in (server, rule)]
+        return ".".join(parts)[:64].rstrip(".-")
+
+    assert ("`My_Server` and `Send Report!` give `my-server.send-report`" in text
+            and slug("My_Server", "Send Report!") == "my-server.send-report")
+    for server, rule in (("Agents-Core", "log"), ("A__B", "--x--"),
+                         ("S" * 40, "R" * 40), ("x" * 63, "y")):
+        accepted, problems = validate({"v": 1, "kind": "report",
+                                       "findings": [{**finding, "slug": slug(server, rule)}]})
+        assert accepted is not None, (server, rule, problems)
     for phrase in ("`-request` or `-agreement`, the last for intersecting work settled by messages",
                    "`-request`, `-agreement`), so repeats are counted per rule"):
         assert phrase in text, phrase

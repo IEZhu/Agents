@@ -369,7 +369,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      thread. Each becomes a row in the catalogue's form, with the slug
      `<server-or-skill>.<rule>` and the instruction's source. A dot joins the
      two parts, never a colon: the closing log's `record` (step 9) accepts only
-     lowercase letters and digits joined by single dots, dashes or underscores.
+     lowercase letters and digits joined by single dots, dashes or underscores,
+     at most 64 characters. So lowercase each part, turn every run of other
+     characters in it into one dash and trim dashes from its ends, join the
+     parts with the dot, then cut the slug to 64 characters and trim a dash or
+     dot left at its end: `My_Server` and `Send Report!` give
+     `my-server.send-report`.
    - A tool that no instruction names is `no-rule`. List it with its call count;
      it is never a finding.
 3. **What was called.** List every call of an installed tool with its turn, time,
