@@ -170,11 +170,11 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
                    "A claim taken before a push stays held until that reviewer's automatic pass "
                    "has appeared (item 6), even when another reviewer's pause is already published",
                    # A rejected push starts no pass, so its claim must not wait for one.
-                   "That wait applies only to a push the remote accepted: a push rejected by the "
-                   "lease, by branch protection or otherwise starts no pass",
-                   "once the session has confirmed the rejection (the remote head is not the commit "
-                   "it pushed, even when another push has moved it), it releases that claim",
-                   "While the outcome is unknown, it keeps the claim."):
+                   "That wait applies only to a push the remote accepted: a push that git reports "
+                   "as rejected, by the lease, by branch protection or otherwise, starts no pass of its "
+                   "own, so the session releases that claim.",
+                   "When the outcome is unclear, for example because the command ended without an "
+                   "answer, it keeps the claim until the outcome is established."):
         assert phrase in review, phrase
 
 
