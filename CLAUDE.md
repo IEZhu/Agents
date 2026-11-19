@@ -367,6 +367,11 @@ preserve them.
   the running installation/source root before creating a lock or cache. Follow
   the description's `instruction` before persisting. `read_history(...)`
   retrieves existing entries; `log_interaction(...)` records turn attribution.
+- `read_shared_memory(...)` serves what the AI clients keep in their native
+  memory on this machine (#369): `src/memory/native.py` reads the places the
+  web UI's Memory tab also shows, `src/memory/shared.py` skips secret-bearing
+  files, keeps each fact's sources and builds the semantic index in the
+  background ([docs/shared-memory.md](docs/shared-memory.md)).
 - Preserve unrelated Repository Memory sections and user instructions when
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
   for the current contracts, compatibility behavior and migration procedure.
