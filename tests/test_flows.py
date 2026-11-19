@@ -147,6 +147,37 @@ def test_pr_review_looks_for_concurrent_sessions_without_requiring_the_coordinat
         assert phrase in review, phrase
 
 
+def test_pr_review_claims_a_reviewer_allowance_before_a_push():
+    """A push into a closed review window spent an automatic pass that no claim covered."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("**Acquire before an explicit request or re-request, and before a push.**",
+                   "A push to the head of an open pull request spends the allowance of every "
+                   "reviewer that reviews its base branch automatically",
+                   "Acquire those keys before the push and publish the pass it starts as consumed",
+                   "An automatic pass cannot be held back once the push has landed, so claim the "
+                   "allowance before the push",
+                   "under the claim taken before the push (item 1)",
+                   "### Claim a reviewer's allowance before spending it",
+                   "Claim each reviewer's allowance right before that push, because the push "
+                   "starts their automatic passes",
+                   "Make the request under the claim taken before the push in item 4",
+                   # The branch update of step 1 pushes into an open pull request too.
+                   "When the pull request is already open, this push starts the reviewers' "
+                   "automatic passes, so first register the reviewer allowance keys",
+                   "just as a request does, wherever this flow makes it: updating the branch in",
+                   "or pushing a round's fixes in",
+                   # A claim taken before a push outlives another reviewer's pause.
+                   "A claim taken before a push stays held until that reviewer's automatic pass "
+                   "has appeared (item 6), even when another reviewer's pause is already published",
+                   # A rejected push starts no pass, so its claim must not wait for one.
+                   "That wait applies only to a push the remote accepted: a push that git reports "
+                   "as rejected, by the lease, by branch protection or otherwise, starts no pass of its "
+                   "own, so the session releases that claim.",
+                   "When the outcome is unclear, for example because the command ended without an "
+                   "answer, it keeps the claim until the outcome is established."):
+        assert phrase in review, phrase
+
+
 def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
     """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())
