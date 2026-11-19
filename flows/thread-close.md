@@ -450,9 +450,8 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    repository states no rule, propose the patch and leave it unapplied.
 
    **Repeats escalate.** Search `read_history` for earlier closes tagged
-   `#ac-missed-<slug>` or `#tool-missed-<slug>` (`tag="ac-missed-<slug>"` lists
-   exactly those), or naming that slug in their tool usage table or in their
-   record's `findings`. A repeat after an applied patch means the patch did not hold:
+   `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
+   usage table. A repeat after an applied patch means the patch did not hold:
    write the next layer toward automatic (memory lesson, then client
    instruction, then hook, flow step or flow persona, then Agents-Core itself),
    and name the earlier close's time.
