@@ -347,7 +347,8 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    - the servers that failed to connect, which the client reports at session
      start;
    - Agents-Core's read-only state calls `local_inference_status()`,
-     `list_flows()` and `list_user_rules()`.
+     `list_flows()` and `list_user_rules()`. Make all three in this close before
+     giving their rows a status: without them `n/a` and `unavailable` look alike.
 
    A tool that was absent, disabled, not ready or on a failed server cannot be
    missed: it is `unavailable`. Without Agents-Core MCP in the session, say so,
@@ -372,14 +373,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 3. **What was called.** List every call of an installed tool with its turn, time,
    tool and status, and for Agents-Core calls the persona descriptor. The helper
    lists no call of every tool: `logging_calls` counts the `log_interaction`
-   calls, `client_local_calls` counts by name the calls of the host's own servers
-   that the helper knows act on the client, and `unclassified_tools` counts other
-   unclassified tools by name, a host tool it does not know among them, while
-   `external_writes` and `scheduled` list only
-   write-classified and scheduling calls, with time, tool and actor but no
-   status; take the other calls and the statuses from a short script over the
-   transcript and do not reprint it. Count final answers apart from progress
-   messages, and note each context compaction.
+   calls, `client_local_calls` and `unclassified_tools` count by name (step 2),
+   and `external_writes` and
+   `scheduled` list write-classified and scheduling calls with time, tool and
+   actor but no status; take the other calls and the statuses from a short
+   script over the transcript and do not reprint it. Count final answers apart
+   from progress messages, and note each context compaction.
 4. **Where it applied.** Match the thread against every row: the catalogue and the
    rules from item 2. Every finding names its trigger: the turn, command or tool
    call where the tool applied. "It might have helped" without a trigger is not a
@@ -389,11 +388,17 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    - `misused`: called, but its protocol broken, such as a worker result used
      without `valid: true`, or an error result the thread did not handle;
    - `missed`: a trigger occurred, the tool was available, and no call followed;
-   - `unavailable`: a trigger occurred, but the tool was not available;
+   - `unavailable`: a trigger occurred, but the tool was not available, or it
+     answered that it cannot act here, such as a pane for a session open in no
+     window;
+   - `caught`: a hook blocked or reminded, and the same turn then made the call;
    - `n/a`: no trigger.
 
-   Level each `missed` and `misused` finding on the scale above: V2 when a
-   script over the transcript shows the trigger and the absent or broken call,
+   `caught`, `unavailable` and `n/a` are not findings. Give each `missed` and
+   `misused` finding its trigger time (`miss_at`): the time of the turn or call
+   where the trigger occurred, not of this close. Level each `missed` and
+   `misused` finding on the scale above: V2 when a script over the transcript
+   shows the trigger and the absent or broken call,
    V1 when you read both in the transcript, V0 when only the compacted
    conversation supports it. An absent call needs a complete transcript from the
    trigger on: when the inventory's `unreadable_lines` or `skipped_entries` may
@@ -449,12 +454,31 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    test that destination before applying it. When the tree is dirty, or the
    repository states no rule, propose the patch and leave it unapplied.
 
-   **Repeats escalate.** Search `read_history` for earlier closes tagged
-   `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
-   usage table. A repeat after an applied patch means the patch did not hold:
+   **Repeats escalate.** `read_history(tag="ac-missed-<slug>")` and
+   `read_history(tag="tool-missed-<slug>")` list exactly the entries carrying that
+   tag, archived ones included. For `cooperation`, query both the current miss's
+   own clause tag (`ac-missed-cooperation-register`, `-claim`, `-ack` or
+   `-request`) and the older unqualified `ac-missed-cooperation`: only the same
+   clause is a repeat, and an entry tagged without a clause counts only when its
+   report names that clause. Page with
+   `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
+   without `#progress`), and also match the slug in earlier records' `findings`
+   at V1 or above. A V0 finding carries no miss tag (step 9) and never counts as
+   a repeat: it rests only on the compacted conversation, too weak to escalate.
+   Take each earlier miss's `miss_at` and the patch's `applied_at` from the
+   records; for a close without a record, read it whole with
+   `read_history(entry_id=...)` and take the times from its report.
+   A repeat counts against a patch only when its `miss_at` is later
+   than the time the patch was applied: a close often audits work begun before
+   the last patch. A repeat after an applied patch means the patch did not hold:
    write the next layer toward automatic (memory lesson, then client
    instruction, then hook, flow step or flow persona, then Agents-Core itself),
-   and name the earlier close's time.
+   and name the earlier close's time and the patch's. The ladder starts at the
+   first layer that can fire at the trigger: when a hook can match it (a call, a
+   prompt, the end of a turn), skip memory and instructions, which record the
+   miss but do not fire at it. Before proposing a hook, read the client's hook
+   configuration and the scripts it names, and extend the hook that already
+   covers the trigger instead of adding another.
 8. **One list, one yes.** Check existing tracking within the confidentiality
    boundary before adding a patch, and for each proposal name its destination,
    verified visibility and whether its content is generic or private. Never
@@ -524,6 +548,7 @@ operation trigger, not just exposure to the client.
    - Unconfirmed claims keep their level, or become `?`.
    - A claim reaches V3 only if the verifier actually checked its sources.
    - Without a prepared worker and a validated result, re-check the most important claims yourself and say that no validated independent verification completed. Nothing then reaches V3 through this step.
+   - Load the tool schemas first when the client defers them, and size `max_context_chars` for the claim list and sources: a `context_budget_exceeded` error states the shortfall, so prepare again with at least that much more.
 4. **What the thread got wrong.** List each error, its effect, whether it was
    fixed, and the lesson.
 
@@ -551,10 +576,8 @@ operation trigger, not just exposure to the client.
   - Items below V2 go to a "to verify" list, each with the check that would
     verify it.
   - If the client has no durable memory, say so.
-- **Tool-usage patches.** A `missed` or `misused` finding at V2 may become a
-  memory lesson, phrased as its trigger and the call it requires. The other
-  patches from step 4 wait for the user's yes; a patch to Agents-Core itself
-  goes out as a pull request or issue.
+- **Tool-usage patches.** They follow step 4.8; a V2 memory lesson states its
+  trigger and the call it requires.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
@@ -564,9 +587,7 @@ operation trigger, not just exposure to the client.
   secrets with safe references, including in private memory and closing logs.
   Sanitize
   references and link labels as well as prose; leave out medical, financial and
-  other personal details. In both modes, log the report only when a safe
-  payload and authorized destination are established. Otherwise, report the
-  privacy skip and incomplete closing-log step as required by step 9.
+  other personal details. Step 9 says when the report may be logged.
 
 ## 8. Clean up (`apply`)
 
@@ -579,7 +600,9 @@ Remove a worktree only when all of these hold:
   branch contains it.
 - It is not the current working directory, the MCP workspace root or the
   Agents-Core installation.
-- No other session, open task or monitor uses it.
+- No other session, open task or monitor uses it: the client's session listing
+  shows none working in that path, and this thread's `background_tasks` have all
+  ended. Without such a listing the condition is uncertain.
 
 Delete a local branch only under the same branch condition. When any condition is
 uncertain, list the item instead of removing it.
@@ -592,7 +615,12 @@ Compose the report in the user's language:
    supported overall.
 2. **Artifacts:** a table of artifact, location, made by, level and evidence.
 3. **What this thread got wrong**, and any instruction of this flow that this
-   close could not execute as written or found contradicted by another.
+   close could not execute as written or found contradicted by another. Name
+   each by its step and one code: `no-check` (no direct check exists),
+   `missing` (it needs a tool or state this host lacks), `conflict` (another
+   instruction contradicts it), `ambiguous` or `other`. These items are the
+   evidence on which this flow's text is repaired or retired
+   ([Author a flow](README.md#author-a-flow)).
 4. **Tool usage:** a table of slug, status, trigger, cause, level and patch for
    every row that is not `n/a`, catalogue rows and other tools' rules alike; then
    the `uncatalogued`, `no-rule` and `unavailable` tools, the earlier closes with
@@ -656,14 +684,25 @@ In `apply` mode, also curate the call:
 - `files`: the artifact paths;
 - `tags`: `#thread-close`, `#session-<id>`, and for each `missed` or `misused`
   finding at V1 or above `#ac-missed-<slug>` (a catalogue row) or
-  `#tool-missed-<slug>` (another tool's rule).
+  `#tool-missed-<slug>` (another tool's rule), taken from the table rows, so an
+  `unavailable` or `caught` row gets none. For a row covering several rules, as
+  `cooperation` does, append the clause the thread broke in one word
+  (`#ac-missed-cooperation-register`, `-claim`, `-ack`, `-request`), so repeats
+  are counted per rule. Add `#flow-unexec-<step>-<code>` for each item of report
+  section 3.
+
+A close that spans turns, for example while the verifier runs, logs each earlier
+turn's answer as progress, tagged `#thread-close`, `#session-<id>` and
+`#progress`. Later turns of the same close, such as applying approved patches,
+tag `#session-<id>` and `#close-followup` without `#thread-close`. The report is
+then the only entry carrying `#thread-close` without `#progress`.
 
 `history.md` is append-only. Before closing a thread again, look for its earlier
 close with `read_history(tag="session-<id>", limit=500)`, which lists this
 thread's entries, archived ones included. Read every page before counting: while
 a page reports `omitted` or returns as many entries as asked, call again with
 `offset` advanced by the page's `total`. Accept an entry only when its tags contain both
-`#thread-close` and this thread's `#session-<id>`, and name that entry's time in
+`#thread-close` and this thread's `#session-<id>` but not `#progress`, and name that entry's time in
 the report. This close's `close_ordinal` is one more than the number of earlier
 closes found, whether or not they carry a record: closes from before records
 existed have none. If
