@@ -454,9 +454,14 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    test that destination before applying it. When the tree is dirty, or the
    repository states no rule, propose the patch and leave it unapplied.
 
-   **Repeats escalate.** Search `read_history` for earlier closes tagged
-   `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
-   usage table. A repeat counts against a patch only when its `miss_at` is later
+   **Repeats escalate.** Find earlier closes tagged `#ac-missed-<slug>` or
+   `#tool-missed-<slug>`, with or without a clause suffix, or naming that slug in
+   their tool usage table. `read_history` has no tag filter and its `query` is a
+   semantic search, so also page through recency listings (`limit`, `offset`,
+   `since`) and match each entry's `tags` exactly. Without library sync a recency
+   listing reads only the current journal, not its monthly archives; search those
+   by `query` or in the archive files, and state how far back the search reached.
+   A repeat counts against a patch only when its `miss_at` is later
    than the time the patch was applied: a close often audits work begun before
    the last patch. A repeat after an applied patch means the patch did not hold:
    write the next layer toward automatic (memory lesson, then client

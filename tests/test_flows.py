@@ -479,6 +479,22 @@ def test_bounded_return_gate_is_stated_once_per_client_class_and_linked():
             assert restated not in text, (name, restated)
 
 
+def test_thread_close_dates_misses_and_keeps_the_report_entry_distinct():
+    """Repeats are judged by the miss's own time, and the closing entry stays selectable."""
+    text = " ".join(FlowCatalog().load("thread-close").content.split())
+    for phrase in ("Give each `missed` and `misused` finding its trigger time (`miss_at`)",
+                   "`caught`: a hook blocked or reminded, and the same turn then made the call",
+                   "`caught`, `unavailable` and `n/a` are not findings",
+                   "A repeat counts against a patch only when its `miss_at` is later than the time the patch was applied",
+                   "match each entry's `tags` exactly",
+                   "so an `unavailable` or `caught` row gets none",
+                   "`#ac-missed-cooperation-register`",
+                   "`#flow-unexec-<step>-<code>`",
+                   "tag `#session-<id>` and `#close-followup` without `#thread-close`",
+                   "this thread's `#session-<id>` but not `#progress`"):
+        assert phrase in text, phrase
+
+
 def test_thread_close_handoff_keeps_required_obligations_unfinished():
     text = " ".join(FlowCatalog().load("thread-close").content.split())
     for phrase in ("use `finishing` (🧹) when required obligations remain",
