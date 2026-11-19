@@ -482,7 +482,13 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    prompt, the end of a turn), skip memory and instructions, which record the
    miss but do not fire at it. Before proposing a hook, read the client's hook
    configuration and the scripts it names, and extend the hook that already
-   covers the trigger instead of adding another.
+   covers the trigger instead of adding another. A hook that only reminds
+   reaches the model together with the result of the call it matched, so for an
+   irreversible call (a push to a pull request head, a review request, a merge)
+   the hook layer means a gate: it refuses the call while the required state,
+   such as a live claim, is missing, and falls back to a reminder only when that
+   state cannot be read. Where the client's hooks cannot refuse a call, say so
+   in the proposal: a reminder there records the miss but cannot prevent it.
 8. **One list, one yes.** Check existing tracking within the confidentiality
    boundary before adding a patch, and for each proposal name its destination,
    verified visibility and whether its content is generic or private. Never
@@ -517,6 +523,7 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 | `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
 | `log` | `log_interaction` | every final answer eligible for safe, authorized logging | eligible final answers outnumber calls after excluding the privacy skips that step 9 allows; a `history_last_error` or workspace error went unmentioned |
 | `history` | `read_history` | the user refers to earlier work | earlier work reconstructed from memory or asked for again |
+| `shared-memory` | `read_shared_memory` | the user asks what another AI client (Claude Code, Codex) remembers, or a fact one of them keeps in its own memory matters to the task | that memory guessed, or asked of the user, without first calling the tool with an applicable scope; `scope=all` used for a question about one project |
 | `flows` | `list_flows`, `run_flow` | the user names a flow, or asks for a task that an existing flow covers | the task done ad hoc while the flow existed |
 | `new-flow` | `save_flow` | the same multi-step procedure done twice, or one the user wants to reuse | no flow proposed |
 | `flow-library` | `get_flow`, `delete_flow`, `set_flow_persona` | the user asks to inspect, restore or delete a flow, or to change a flow's persona | flow files or personas changed by hand instead of through the tools |

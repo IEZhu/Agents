@@ -522,6 +522,19 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
         assert phrase in text, phrase
 
 
+def test_thread_close_ladder_makes_a_hook_on_an_irreversible_call_a_gate():
+    """A reminder reaches the model with the call's result, so it cannot stop an irreversible call."""
+    text = " ".join(FlowCatalog().load("thread-close").content.split())
+    for phrase in ("A hook that only reminds reaches the model together with the result of the call it matched",
+                   "for an irreversible call (a push to a pull request head, a review request, a merge) "
+                   "the hook layer means a gate",
+                   "it refuses the call while the required state, such as a live claim, is missing",
+                   "falls back to a reminder only when that state cannot be read",
+                   "Where the client's hooks cannot refuse a call, say so in the proposal: "
+                   "a reminder there records the miss but cannot prevent it"):
+        assert phrase in text, phrase
+
+
 def test_thread_close_handoff_keeps_required_obligations_unfinished():
     text = " ".join(FlowCatalog().load("thread-close").content.split())
     for phrase in ("use `finishing` (🧹) when required obligations remain",

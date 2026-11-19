@@ -21,6 +21,7 @@ also applies to AI instructions, plans, and reports.
 | Configure the server and its optional integrations | [Configuration and observability](configuration.md) | `env.example`, `src/engine/config.py`, `src/model_migration.py`, `src/engine/embedding_prompts.py`, `src/utils/langfuse_compat.py` |
 | Understand the source layout and the components behind the tools | [Architecture](architecture.md) | `src/server.py`, `src/engine/`, `src/startup.py`, `src/runtime_paths.py` |
 | Use repository description and turn history | [Repository memory](memory.md) | `src/memory/`, `src/memory/describer.py`, `src/memory/config.py`, `src/server.py` |
+| Read what Claude Code and Codex keep in their native memory, from any client | [Shared memory](shared-memory.md) | `src/memory/shared.py`, `src/memory/native.py`, `src/server.py`, `tests/test_shared_memory.py` |
 | Read the vulnerability gate and turn on debug logging | [Development reference](development.md) | `.github/workflows/vulnerability-scan.yml`, `src/utils/debug_logger.py`, `src/engine/config.py` |
 | Install the shared review configuration and review discipline in a repository | [Review configuration](review-config.md), [rollout flow](../flows/review-config-rollout.md) | `scripts/install_review_config.py`, `scripts/templates/review/`, `tests/test_install_review_config.py` |
 | Remove Agents-Core completely | [Uninstall](install.md#uninstall) | `src/uninstall.py`, `scripts/uninstall.sh`, `scripts/uninstall.ps1`, `tests/test_uninstall.py`, `.github/workflows/uninstall.yml` |

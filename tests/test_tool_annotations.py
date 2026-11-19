@@ -33,5 +33,6 @@ def test_tools_that_delete_or_replace_are_destructive_and_readers_are_read_only(
     hints = {tool.name: tool.annotations for tool in tools()}
     for name in ("delete_flow", "clear_session_cache", "write_repo_summary"):
         assert hints[name].readOnlyHint is False and hints[name].destructiveHint is True, name
-    for name in ("list_flows", "get_flow", "list_agents", "read_history", "describe_repo", "validate_subagent_result"):
+    for name in ("list_flows", "get_flow", "list_agents", "read_history", "read_shared_memory", "describe_repo",
+                 "validate_subagent_result"):
         assert hints[name].readOnlyHint is True, name
