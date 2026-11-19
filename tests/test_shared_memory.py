@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -99,13 +100,13 @@ def test_links_and_fifos_are_never_opened(world, tmp_path, monkeypatch):
     os.symlink(secret, world["own"] / "linked.md")
     os.mkfifo(world["own"] / "pipe.md")
     opened = []
-    real = native.open_regular
-    monkeypatch.setattr(native, "open_regular", lambda path, *a, **k: opened.append(Path(path)) or real(path, *a, **k))
-    shared._parsed.clear()
+    real = native.open_in_store
+    monkeypatch.setattr(native, "open_in_store", lambda store, path: opened.append(Path(path)) or real(store, path))
     collection = shared.collect(world["stores"])
     assert secret not in opened and world["own"] / "linked.md" not in opened
     assert world["own"] / "pipe.md" not in opened
     assert "linked.md" not in {source.file for fact in collection.facts.values() for source in fact.sources}
+    assert collection.skipped["refused"] == 2
 
 
 def test_a_linked_memory_directory_is_skipped(world, tmp_path):
@@ -263,7 +264,6 @@ def test_unchanged_chunks_keep_their_vectors_and_a_change_reembeds_only_itself(w
     again = make_index(tmp_path / "index", model)
     assert build(world, again)["state"] == "ready" and model.calls == first
     write(world["codex"] / "memories" / "codex_note.md", "The owner deploys by hand now.\n")
-    shared._parsed.clear()
     assert build(world, make_index(tmp_path / "index", model))["state"] == "ready"
     assert model.calls == first + 1
 
@@ -411,17 +411,21 @@ def test_a_bad_frontmatter_never_fails_the_whole_answer(world, frontmatter, tmp_
 
 
 def test_an_unreadable_directory_is_counted_not_fatal(world, monkeypatch):
-    real = native.item_names
+    real = os.scandir
 
-    def denied(store, memory):
-        if memory == world["own"]:
+    def denied(path):
+        if Path(path) == world["own"]:
             raise PermissionError(13, "denied")
-        return real(store, memory)
+        return real(path)
 
-    monkeypatch.setattr(native, "item_names", denied)
+    monkeypatch.setattr(os, "scandir", denied)
     collection = shared.collect(world["stores"])
     assert collection.skipped["unreadable"] == 1
-    assert "prefs" in by_name(collection.facts.values())
+    assert collection.skipped_at[(native.project_name(world["root"]), "unreadable")] == 1
+    assert {"prefs", "plan", "codex_note"} <= set(by_name(collection.facts.values()))
+    payload = shared.read(root=world["root"], scope="user", stores=world["stores"],
+                          index=shared.SharedMemoryIndex(str(world["root"] / "i")))
+    assert "unreadable" not in payload.get("skipped", {})  # another scope's failure is not shown
 
 
 def test_one_huge_fact_still_fits_and_paging_moves_on(world, tmp_path):
@@ -457,14 +461,16 @@ def test_a_root_spelled_in_another_case_still_finds_its_project(world, monkeypat
     assert "style" in by_name(shared.select(facts, scope="project", projects=shared.project_keys(spelled)))
 
 
-def test_a_deleted_note_leaves_the_store_on_disk(world, tmp_path):
+def test_the_index_store_never_holds_note_text(world, tmp_path):
     index = make_index(tmp_path / "index", FakeModel())
     build(world, index)
+    stored = (tmp_path / "index" / (shared.STORE_NAME + ".json")).read_text(encoding="utf-8")
+    assert "daemon update command" not in stored and "markdown links" not in stored
     (world["codex"] / "memories" / "codex_note.md").unlink()
     shared.read(root=world["root"], query="deploys", stores=world["stores"], index=index)
     index.join(30)
-    stored = (tmp_path / "index" / (shared.STORE_NAME + ".json")).read_text(encoding="utf-8")
-    assert "daemon update command" not in stored
+    documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    assert index._vectors().count() == len(documents)  # the deleted note's chunks are pruned
 
 
 def test_reloads_never_see_half_a_save(world, tmp_path):
@@ -473,14 +479,18 @@ def test_reloads_never_see_half_a_save(world, tmp_path):
     build(world, writer)
     documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
     vectors = {chunk_id: model.vector(text) for chunk_id, text in documents.items()}
-    stop, problems = threading.Event(), []
+    stop, problems, reloads = threading.Event(), [], Counter()
 
     def reload():
         reader = make_index(tmp_path / "index", model)
-        while not stop.is_set():
-            reader._store_stamp = "stale"  # force a reload from disk
-            if reader._vectors().count() != len(vectors):
-                problems.append("the store was lost")
+        try:
+            while not stop.is_set():
+                reader._store_stamp = "stale"  # force a reload from disk
+                if reader._vectors().count() != len(vectors):
+                    problems.append("the store was lost")
+                reloads[threading.get_ident()] += 1
+        except Exception as error:  # noqa: BLE001 - reported to the main thread
+            problems.append(repr(error))
 
     readers = [threading.Thread(target=reload, daemon=True) for _ in range(2)]
     for thread in readers:
@@ -493,6 +503,7 @@ def test_reloads_never_see_half_a_save(world, tmp_path):
         for thread in readers:
             thread.join(10)
     assert not problems
+    assert len(reloads) == 2 and all(count > 0 for count in reloads.values())
 
 
 def test_the_build_waits_while_a_foreground_embedding_is_queued(world, tmp_path, monkeypatch):
@@ -520,3 +531,64 @@ async def test_the_tool_turns_hybrid_once_retrieval_is_ready(served, world, monk
     second = json.loads(await server.read_shared_memory(query="markdown links"))
     assert first["facts"][0]["name"] == "style" and second["mode"] == "hybrid"
     assert second["index"]["state"] == "ready" and second["index"]["covered"] == second["index"]["total"]
+
+
+# --- review round 1 ------------------------------------------------------------------------------------
+
+def test_an_item_named_entry_that_is_no_file_is_counted_as_refused(world):
+    (world["own"] / "folder.md").mkdir()
+    collection = shared.collect(world["stores"])
+    assert collection.skipped["refused"] == 1
+
+
+@pytest.mark.skipif(not (os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY")), reason="POSIX dir_fd opens")
+def test_a_linked_parent_directory_is_refused_when_opening(world, tmp_path):
+    outside = tmp_path / "outside"
+    write(outside / "memory" / "secret.md", "outside the store\n")
+    project = world["claude"] / "projects" / "swapped"
+    try:
+        os.symlink(outside, project, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this account cannot create directory symlinks")
+    with pytest.raises(native.Refused):
+        native.open_in_store(world["stores"][0], project / "memory" / "secret.md")
+
+
+def test_a_handle_that_resolves_outside_the_store_is_refused(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(native.os, "supports_dir_fd", set())  # the Windows path: check the open handle
+    monkeypatch.setattr(native, "_final_path", lambda fd: str(tmp_path / "elsewhere" / "secret.md"))
+    with pytest.raises(native.Refused):
+        native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md")
+    monkeypatch.setattr(native, "_final_path", lambda fd: str(world["own"] / "feedback_style.md"))
+    with native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md") as stream:
+        assert b"markdown links" in stream.read()
+
+
+def test_a_same_size_rewrite_with_the_old_time_is_read_again(world):
+    path = world["own"] / "feedback_style.md"
+    first = path.read_bytes()
+    before = os.stat(path)
+    assert "markdown links" in by_name(shared.collect(world["stores"]).facts.values())["style"].text
+    path.write_bytes(first.replace(b"markdown links", b"plain-text link"))
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert "plain-text link" in by_name(shared.collect(world["stores"]).facts.values())["style"].text
+
+
+def test_a_long_description_does_not_grow_every_chunk(world):
+    write(world["own"] / "wordy.md", note("wordy", "d" * 50_000, "x " * 5_000))
+    wordy = by_name(shared.collect(world["stores"]).facts.values())["wordy"]
+    assert all(len(text) <= shared.CHUNK_CHARS + shared.TITLE_CHARS + 1 for _, text in shared.chunks(wordy))
+
+
+def test_a_failing_semantic_search_still_answers_lexically(world, tmp_path):
+    model = FakeModel()
+    index = make_index(tmp_path / "index", model)
+    build(world, index)
+
+    def broken(text):
+        raise RuntimeError("inference worker gone")
+
+    index._embed_query = broken
+    payload = shared.read(root=world["root"], query="markdown links", stores=world["stores"], index=index)
+    assert payload["mode"] == "lexical" and payload["facts"][0]["name"] == "style"
+    assert "inference worker gone" in payload["index"]["semantic_error"]

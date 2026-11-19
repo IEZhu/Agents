@@ -2336,15 +2336,17 @@ async def read_shared_memory(
     memory_type: ta.opt_str("Optional memory type to keep, such as user, feedback, project or reference.") = None,
     limit: Annotated[int, Field(description="Facts to return, 1 to 100.")] = 10,
     offset: Annotated[int, Field(description="Facts to skip first, newest or best first.")] = 0,
-    fact_id: ta.opt_str("Optional id of one fact to return whole; query, limit and offset are then ignored.") = None,
+    fact_id: ta.opt_str("Optional id of one fact to return with as much of its text as fits the result "
+                         "limit; query, limit and offset are then ignored.") = None,
     ctx: Context | None = None,
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """Read what the AI clients keep in their native memory on this machine, with each fact's source.
 
     Claude Code's memory files and Codex's memories (when its memories feature is on) are read,
-    never written; a file holding a credential, key material, a non-text or an oversized file is
-    skipped and only counted in ``skipped``. A fact is one distinct file content: the same text in
+    never written; a file in which a credential or key material is detected, a non-text or an
+    oversized file is skipped and only counted in ``skipped``. Detection is by pattern: a credential
+    in an unusual form can pass. A fact is one distinct file content: the same text in
     two places is one fact with two ``sources`` ({client, store, project, file, path}).
 
     - Without ``query``: the newest facts, each with a preview of its text.
@@ -2353,7 +2355,8 @@ async def read_shared_memory(
       ``index`` reports {state, covered, total} and until it is ready the search is partly or
       wholly lexical (``mode``: lexical or hybrid). ``similar`` lists facts of another client or
       project that say much the same, so disagreements surface instead of being merged.
-    - With ``fact_id``: that fact with its whole text.
+    - With ``fact_id``: that fact with as much of its text as stays under the result limit; a
+      longer text is cut, and its source file holds the rest.
 
     ``scope`` decides which projects' facts show: ``project`` keeps this workspace's project
     (and, for a git worktree, its main checkout's) plus user-level facts; without a resolved

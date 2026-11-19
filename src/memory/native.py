@@ -214,6 +214,99 @@ def open_regular(path: Path, link_check: Callable[[Path], bool] = is_link):
     return os.fdopen(fd, "rb")
 
 
+def open_in_store(store: Store, path: Path):
+    """``path``, a file below ``store``, opened for reading only if the file that opens lies inside it.
+
+    ``open_regular`` refuses a link in the last component only, and a directory above the file can be
+    swapped for a link between a containment check and the open. On POSIX the file is therefore
+    opened one component at a time from the store's directory, each with ``O_NOFOLLOW``; on Windows,
+    which has no ``dir_fd``, the path the open handle really names must lie inside the store."""
+    relative = Path(os.path.relpath(path, store.path))
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+        raise Refused("symlink_refused", f"{path.name} lies outside {store.label}")
+    if os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
+        return _open_by_components(store, relative)
+    stream = open_regular(path)
+    final = _final_path(stream.fileno())
+    if final is not None and not _is_below(final, store.path):
+        stream.close()
+        raise Refused("symlink_refused", f"{path.name} resolves outside {store.label}")
+    return stream
+
+
+def _open_by_components(store: Store, relative: Path):
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    directory = os.open(store.path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in relative.parts[:-1]:
+            try:
+                below = os.open(part, flags | os.O_DIRECTORY, dir_fd=directory)
+            except OSError as error:
+                if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise Refused("symlink_refused", f"{part} is a symlink") from None
+                raise
+            os.close(directory)
+            directory = below
+        try:
+            fd = os.open(relative.parts[-1], flags | getattr(os, "O_NONBLOCK", 0), dir_fd=directory)
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise Refused("symlink_refused", f"{relative.name} is a symlink") from None
+            raise
+    finally:
+        os.close(directory)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise Refused("not_a_file", f"{relative.name} is not a regular file")
+    except BaseException:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, "rb")
+
+
+def _final_path(fd: int) -> str | None:
+    """The path an open file handle names after every link and junction (Windows), else None."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    function = ctypes.windll.kernel32.GetFinalPathNameByHandleW
+    function.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+    function.restype = wintypes.DWORD
+    handle = msvcrt.get_osfhandle(fd)
+    size = 1024
+    while True:
+        buffer = ctypes.create_unicode_buffer(size)
+        length = function(handle, buffer, size, 0)
+        if length == 0:
+            return None
+        if length < size:
+            name = buffer.value
+            if name.startswith("\\\\?\\UNC\\"):
+                return "\\\\" + name[8:]
+            return name[4:] if name.startswith("\\\\?\\") else name
+        size = length + 1
+
+
+def _is_below(path: str, root: Path) -> bool:
+    # realpath resolves the root through the same final-path lookup as the handle, so a store on a
+    # mapped drive compares in the handle's own spelling.
+    folded, top = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.realpath(str(root)))
+    return folded == top or folded.startswith(top.rstrip("\\/") + os.sep)
+
+
+def refused_names(store: Store, memory: Path) -> list[str]:
+    """Item-like names in a memory directory that are no regular file (a link, a junction, a FIFO, a
+    directory): counted by a caller, never opened."""
+    try:
+        entries = list(os.scandir(memory))
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    return sorted(entry.name for entry in entries
+                  if is_item_name(store, entry.name) and not entry.is_file(follow_symlinks=False))
+
+
 def item_names(store: Store, memory: Path) -> list[str]:
     """The item files of a memory directory, sorted; Claude Code's ``MEMORY.md`` is not an item."""
     try:
@@ -224,11 +317,18 @@ def item_names(store: Store, memory: Path) -> list[str]:
                   if is_item_name(store, entry.name) and entry.is_file(follow_symlinks=False))
 
 
+UNKNOWN_PROJECT = "?"  # the project of a place that could not be listed at all
+
+
 def places(store: Store, *, names: Callable[[Store, Path], list[str]] = item_names,
-           link_check: Callable[[Path], bool] = is_link, every_dir: bool = False) -> Iterator[tuple[str, Path]]:
+           link_check: Callable[[Path], bool] = is_link, every_dir: bool = False,
+           on_error: Callable[[str], None] | None = None) -> Iterator[tuple[str, Path]]:
     """``(project, memory dir)`` of every place in ``store`` that holds an item or an index.
 
-    ``every_dir`` also yields Codex's ``memories_v2``; the Memory tab edits only ``memory_dir``."""
+    ``every_dir`` also yields Codex's ``memories_v2``; the Memory tab edits only ``memory_dir``.
+    Without ``on_error`` a directory that cannot be listed raises; with it, the place's project
+    (``UNKNOWN_PROJECT`` when ``projects/`` itself cannot be listed) is passed to it and the walk
+    goes on with the other places."""
     candidates = [""]
     projects = store.path / "projects"
     if store.client == "claude" and not link_check(projects):
@@ -237,9 +337,20 @@ def places(store: Store, *, names: Callable[[Store, Path], list[str]] = item_nam
                                  if entry.is_dir(follow_symlinks=False) and PROJECT.fullmatch(entry.name))
         except (FileNotFoundError, NotADirectoryError):
             pass
+        except OSError:
+            if on_error is None:
+                raise
+            on_error(UNKNOWN_PROJECT)
     for project in candidates:
         for memory in (store.memory_dirs(project) if every_dir else [store.memory_dir(project)]):
-            if (project and link_check(memory.parent)) or link_check(memory) or not memory.is_dir():
+            try:
+                if (project and link_check(memory.parent)) or link_check(memory) or not memory.is_dir():
+                    continue
+                found = names(store, memory) or index_file(store, memory, link_check)
+            except OSError:
+                if on_error is None:
+                    raise
+                on_error(project)
                 continue
-            if names(store, memory) or index_file(store, memory, link_check):
+            if found:
                 yield project, memory
