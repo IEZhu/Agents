@@ -373,15 +373,16 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      at most 64 characters. So lowercase each part, turn every run of
      characters other than ASCII letters and digits into one dash, and trim
      dashes from its ends. The server or skill part may hold 31 characters and
-     the rule part 32, so the dot and the rule always survive. A part that comes
-     out empty or over its limit keeps as much of its start as fits in the
-     limit less 10 characters, then a dash if anything was kept, then `h` and
+     the rule part 32, so the dot and the rule always survive. A part over its
+     limit keeps its first characters up to the limit less 10, without a dash
+     at their end, then a dash, `h` and the first 8 hex digits of the SHA-256
+     of the whole normalized part. A part that comes out empty becomes `h` and
      the first 8 hex digits of the SHA-256 of the original name in UTF-8, so
      such names stay apart. Names that differ only in case or in the
      characters between their letters and digits, such as `A_B` and `a-b`,
-     give the same part and count as one tool. Join the parts with the dot:
-     `My_Server` and `Send Report!` give `my-server.send-report`, and a server
-     named `工具` gives the part `h5ca6730d`.
+     give the same part, long or short, and count as one tool. Join the parts
+     with the dot: `My_Server` and `Send Report!` give `my-server.send-report`,
+     and a server named `工具` gives the part `h5ca6730d`.
    - A tool that no instruction names is `no-rule`. List it with its call count;
      it is never a finding.
 3. **What was called.** List every call of an installed tool with its turn, time,

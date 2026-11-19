@@ -554,11 +554,12 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
     def part(name: str, limit: int) -> str:
         # One part as step 4.2 describes it, applied as written.
         kept = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-        if kept and len(kept) <= limit:
+        if not kept:
+            return "h" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+        if len(kept) <= limit:
             return kept
-        head = kept[:limit - 10].rstrip("-")
-        digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
-        return (head + "-" if head else "") + "h" + digest
+        digest = hashlib.sha256(kept.encode("utf-8")).hexdigest()[:8]
+        return kept[:limit - 10].rstrip("-") + "-h" + digest
 
     def slug(server: str, rule: str) -> str:
         return part(server, 31) + "." + part(rule, 32)
@@ -568,12 +569,15 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
     assert ("a server named `工具` gives the part `h5ca6730d`" in text
             and slug("工具", "Send") == "h5ca6730d.send")
     names = (("Agents-Core", "log"), ("A__B", "--x--"), ("工具", "Send"), ("服务", "Send"),
-             ("!!!", "???"), ("S" * 40, "R" * 40), ("x" * 63, "a"), ("x" * 63, "b"))
+             ("!!!", "???"), ("S" * 40, "R" * 40), ("x" * 63, "a"), ("x" * 63, "b"),
+             ("a" * 20 + "-" + "b" * 11, "c"))  # the cut ends on a dash
     slugs = [slug(server, rule) for server, rule in names]
     assert len(set(slugs)) == len(slugs), slugs  # empty and long names stay apart
     # Case and separators are dropped on purpose, and the text says so.
-    assert ("such as `A_B` and `a-b`, give the same part and count as one tool" in text
-            and part("A_B", 31) == part("a-b", 31) == "a-b")
+    assert ("such as `A_B` and `a-b`, give the same part, long or short, and count as one tool" in text
+            and part("A_B", 31) == part("a-b", 31) == "a-b"
+            and part("A" * 40, 31) == part("a" * 40, 31)
+            and part("A_" * 20, 31) == part("a-" * 20, 31))
     for (server, rule), value in zip(names, slugs):
         accepted, problems = validate({"v": 1, "kind": "report",
                                        "findings": [{**finding, "slug": value}]})
