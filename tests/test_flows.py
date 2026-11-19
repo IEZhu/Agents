@@ -165,7 +165,10 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
                    "When the pull request is already open, this push starts the reviewers' "
                    "automatic passes, so first register the reviewer allowance keys",
                    "just as a request does, wherever this flow makes it: updating the branch in",
-                   "or pushing a round's fixes in"):
+                   "or pushing a round's fixes in",
+                   # A claim taken before a push outlives another reviewer's pause.
+                   "A claim taken before a push stays held until that reviewer's automatic pass "
+                   "has appeared (item 6), even when another reviewer's pause is already published"):
         assert phrase in review, phrase
 
 

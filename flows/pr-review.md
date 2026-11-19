@@ -450,10 +450,15 @@ Register those keys in the scope passed to `cooperation_register`, then:
    crashed session cannot freeze a reviewer for everyone. The reverse also holds: let
    the claim lapse while still alive and another session may spend the budget
    you were waiting on.
-5. **Publish and release when the round ends.** Record a release-ready
-   `checkpoint` and release the claims as soon as the round completes or a pause
-   is published; never hold the allowance across a wait for findings to be
-   fixed. A pause goes into `checkpoint.external_quota` as a `paused`
+5. **Publish and release when the round ends.** Release each reviewer's claim,
+   after a release-ready `checkpoint`, as soon as that reviewer's part of the
+   round is settled: its review was requested, its automatic pass was observed
+   and published as consumed, or its pause was published. A claim taken before
+   a push stays held until that reviewer's automatic pass has appeared (item 6),
+   even when another reviewer's pause is already published, because releasing
+   it earlier lets another session take the key before the pass spends it.
+   Never hold the allowance across a wait for findings to be fixed. A pause
+   goes into `checkpoint.external_quota` as a `paused`
    observation with its next free time, the verbatim evidence and whether the
    wait was `stated`, came from a `rule` or was the `default`:
 
