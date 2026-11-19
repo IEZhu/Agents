@@ -226,6 +226,7 @@ async def test_a_record_beside_the_fallback_keys_leaves_them_alone(writer, monke
 async def test_an_invalid_record_writes_nothing_and_names_the_place(writer, bad, where):
     response = await call(record=bad)
     assert response["status"] == "ERROR" and response["message"] == "invalid_record"
+    assert response["record"] == {"status": "not_written"}
     assert any(problem.startswith(where) for problem in response["record_errors"]), response
     assert response["instruction"].startswith("Nothing was logged.") and "timestamp" not in response
     assert "/Users/someone" not in json.dumps(response) and "free text" not in json.dumps(response)

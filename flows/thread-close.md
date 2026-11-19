@@ -659,8 +659,10 @@ In `apply` mode, also curate the call:
   `#tool-missed-<slug>` (another tool's rule).
 
 `history.md` is append-only. Before closing a thread again, look for its earlier
-close with `read_history(tag="session-<id>")`, which lists this thread's
-entries, archived ones included. Accept an entry only when its tags contain both
+close with `read_history(tag="session-<id>", limit=500)`, which lists this
+thread's entries, archived ones included. Read every page before counting: while
+a page reports `omitted` or returns as many entries as asked, call again with
+`offset` advanced by the page's `total`. Accept an entry only when its tags contain both
 `#thread-close` and this thread's `#session-<id>`, and name that entry's time in
 the report. This close's `close_ordinal` is one more than the number of earlier
 closes found, whether or not they carry a record: closes from before records

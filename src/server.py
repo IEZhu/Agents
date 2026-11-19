@@ -1761,8 +1761,9 @@ async def log_interaction(
       Pass ``intent``/``action``/``outcome``/``files``/``tags`` to curate the entry.
       ``record`` (#584) adds a closed, typed map under ``metadata.record``; it is
       not part of the content hash, so a duplicate keeps the first entry's record.
-      An invalid record is refused before anything is written: ``status: ERROR``
-      with ``record_errors``, and the result reports ``record: {status, bytes}``.
+      An invalid record is refused before anything is written: ``status: ERROR``,
+      ``record_errors`` and ``record: {status: not_written}``. Otherwise the
+      result reports ``record: {status, bytes}``.
 
     * **Langfuse** — generation trace recorded only when ``LANGFUSE_PUBLIC_KEY`` /
       ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
@@ -1820,6 +1821,7 @@ async def log_interaction(
                 "Nothing was logged. Correct the record as record_errors says, or omit it, and call "
                 "log_interaction once more with the same other arguments.")))
             payload["record_errors"] = problems
+            payload["record"] = {"status": "not_written"}
             return json.dumps(payload, ensure_ascii=False)
     # Include all caller-controlled content, not the generated correlation id,
     # server timestamp or transport label. Ownership is never a tool argument.
