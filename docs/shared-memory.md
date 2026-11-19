@@ -40,12 +40,12 @@ A skipped file is counted in `skipped` by reason and never shown:
 | `secret` | The file name marks key material (`id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.kdbx`, `*.keychain`), the user sync's credential scan finds a secret in the content, or the content holds a credential the way notes write one (a labelled password or token with a credential-like value, a URL with a password, a Stripe, Google, Hugging Face or npm key, a JWT, a Bearer token) |
 | `too_large` | The file is over 1 MiB |
 | `not_text` | The file contains a NUL byte or is not valid UTF-8 |
-| `refused` | An item-named entry is a symlink, a Windows junction, a directory or another non-regular file (counted without being opened), or the file that opens lies outside its store |
+| `refused` | An item-named entry is a symlink, a Windows junction, a directory or another non-regular file (counted without being opened), or the file that opens is not the listed file (a directory above it was swapped for a link) |
 | `unreadable` | The file, or a memory directory, could not be opened, listed or read; the directory's other notes and the other directories are still read |
 
 A hidden name, such as a `.env` file, is never an item: discovery does not list it, so it is neither read nor counted.
 
-The reader opens a file only if the file that opens lies inside its store: on POSIX it opens one path component at a time from the store directory without following links, so a directory swapped for a link after listing is refused; on Windows it checks the path the open handle resolves to. A file is read again on every call; only the scan's verdict is remembered, by content hash. Claude Code's `MEMORY.md` index is not an item. The scan runs before decoding, so a file with a NUL byte is `not_text` even when it holds a secret.
+The reader opens a file only if the file that opens lies inside its store: on POSIX it opens one path component at a time from the store directory without following links, so a directory swapped for a link after listing is refused; on Windows the path the open handle resolves to must be the file's own path in the store. Either way a link anywhere below the store's root is refused, also one into another project of the same store. A file is read again on every call; only the scan's verdict is remembered, by content hash. Claude Code's `MEMORY.md` index is not an item. The scan runs before decoding, so a file with a NUL byte is `not_text` even when it holds a secret.
 
 ## Scopes
 
@@ -72,7 +72,8 @@ A query never waits for the vector build itself; it can wait a moment for a save
 | `ready` | Every chunk has a current vector; `mode` is `hybrid` |
 | `building` | The build runs; `covered` of `total` chunks have vectors. Chunks without vectors are matched lexically only |
 | `building_elsewhere` | Another process holds the build lock |
-| `failed` | The build raised an error; `error` holds it and the search stays lexical |
+| `failed` | The build raised an error; `error` holds it and the search stays lexical. Reported to `scope=all` only |
+| `incomplete` | Under `scope=project` or `user`: some of the scope's chunks have no vector and no build runs (the build failed or has not started); they are matched lexically only |
 | `warming_up` | The embedding model is not ready yet; the answer is lexical |
 | `off` | Vectors were not requested |
 

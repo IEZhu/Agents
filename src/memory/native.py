@@ -231,7 +231,9 @@ def open_in_store(store: Store, path: Path):
     ``open_regular`` refuses a link in the last component only, and a directory above the file can be
     swapped for a link between a containment check and the open. On POSIX the file is therefore
     opened one component at a time from the store's directory, each with ``O_NOFOLLOW``; on Windows,
-    which has no ``dir_fd``, the path the open handle really names must lie inside the store."""
+    which has no ``dir_fd``, the path the open handle really names must be the file's own path in the
+    store. Both refuse a link anywhere below the store's root, also one into another project of the
+    same store, whose note would otherwise be attributed to this project."""
     relative = Path(os.path.relpath(path, store.path))
     if relative.is_absolute() or ".." in relative.parts or not relative.parts:
         raise Refused("symlink_refused", f"{path.name} lies outside {store.label}")
@@ -239,10 +241,10 @@ def open_in_store(store: Store, path: Path):
         return _open_by_components(store, relative)
     stream = open_regular(path)
     final = _final_path(stream.fileno())
-    if _WINDOWS and (final is None or not _is_below(final, store.path)):
+    if _WINDOWS and (final is None or not _same_path(final, store.path / relative)):
         stream.close()
         # A handle whose path cannot be read (some network shares) is not trusted either.
-        raise Refused("symlink_refused", f"{path.name} does not verifiably lie inside {store.label}")
+        raise Refused("symlink_refused", f"{path.name} is not verifiably the listed file in {store.label}")
     return stream
 
 
@@ -306,12 +308,11 @@ def _final_path(fd: int) -> str | None:
         size = length + 1
 
 
-def _is_below(path: str, root: Path) -> bool:
-    # ``root`` is the store as discovery resolved it (``client_dirs`` resolves every directory, through
-    # the same final-path lookup as the handle), never resolved again here: a root swapped for a
-    # junction after discovery would resolve to the junction's target and pass.
-    folded, top = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(str(root)))
-    return folded == top or folded.startswith(top.rstrip("\\/") + os.sep)
+def _same_path(path: str, expected: Path) -> bool:
+    # ``expected`` joins the store as discovery resolved it (``client_dirs`` resolves every directory,
+    # through the same final-path lookup as the handle) with the listed names, never resolved again
+    # here: a root or directory swapped for a junction would resolve to the junction's target and pass.
+    return os.path.normcase(os.path.normpath(path)) == os.path.normcase(os.path.normpath(str(expected)))
 
 
 def refused_names(store: Store, memory: Path) -> list[str]:

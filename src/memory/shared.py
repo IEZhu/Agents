@@ -555,11 +555,19 @@ class SharedMemoryIndex:
     def coverage(self, documents: Dict[str, str], scoped: bool = False) -> dict:
         """The build state with ``covered`` and ``total`` counted over ``documents`` only.
 
-        ``scoped``: the documents are what one scope shows, so a complete coverage reads ``ready``
-        even while the builder embeds another project's notes, which that scope must not learn of."""
+        ``scoped``: the documents are what one scope shows, and the report says only what that scope
+        can see. A complete coverage reads ``ready`` even while the builder embeds another project's
+        notes; an incomplete one reads ``building`` or ``building_elsewhere`` while a build runs and
+        ``incomplete`` otherwise, never the builder's error, which another project's note may have
+        caused."""
         state, covered = self.status(), self._covered(documents)
-        if scoped and covered == len(documents):
-            state = {"state": "ready"}
+        if scoped:
+            if covered == len(documents):
+                state = {"state": "ready"}
+            elif state.get("state") in ("building", "building_elsewhere"):
+                state = {"state": state["state"]}
+            else:
+                state = {"state": "incomplete"}
         return {**state, "covered": covered, "total": len(documents)}
 
     def _covered(self, documents: Dict[str, str]) -> int:

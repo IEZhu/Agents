@@ -474,40 +474,42 @@ def test_the_index_store_never_holds_note_text(world, tmp_path):
     assert index._vectors().count() == len(documents)  # the deleted note's chunks are pruned
 
 
-def test_reloads_never_see_half_a_save(world, tmp_path):
+def test_reloads_never_see_half_a_save(world, tmp_path, monkeypatch):
+    """A reload that starts while a save holds the save lock waits for that save and reads what it wrote."""
     model = FakeModel()
     writer = make_index(tmp_path / "index", model)
     build(world, writer)
     documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
-    vectors = {chunk_id: model.vector(text) for chunk_id, text in documents.items()}
-    stop, problems, reloads = threading.Event(), [], Counter()
+    kept = dict(sorted(documents.items())[:-1])  # this save drops one chunk, so the two saves differ
+    vectors = {chunk_id: model.vector(text) for chunk_id, text in kept.items()}
+    saving, attempting = threading.Event(), threading.Event()
+    times, seen, problems = {}, [], []
+    real_retry = shared._retry
+
+    def paused_save(save):  # called while the writer holds the save lock
+        saving.set()
+        attempting.wait(10)
+        time.sleep(0.3)  # the reader is now blocked on the lock, or, were it not, would read the old save
+        real_retry(save)
+        times["saved"] = time.monotonic()
 
     def reload():
         reader = make_index(tmp_path / "index", model)
         try:
-            while not stop.is_set():
-                reader._store_stamp = "stale"  # force a reload from disk
-                if reader._vectors().count() != len(vectors):
-                    problems.append("the store was lost")
-                reloads[threading.get_ident()] += 1
+            saving.wait(10)
+            attempting.set()
+            seen.append(reader._vectors().count())
+            times["reloaded"] = time.monotonic()
         except Exception as error:  # noqa: BLE001 - reported to the main thread
             problems.append(repr(error))
 
-    readers = [threading.Thread(target=reload, daemon=True) for _ in range(2)]
-    for thread in readers:
-        thread.start()
-    deadline = time.monotonic() + 10
-    while len(reloads) < 2 and not problems and time.monotonic() < deadline:  # both readers are reloading
-        time.sleep(0.01)
-    try:
-        for _ in range(15):
-            writer._save(vectors, documents, model.fingerprint())
-    finally:
-        stop.set()
-        for thread in readers:
-            thread.join(10)
-    assert not problems
-    assert len(reloads) == 2 and all(count > 0 for count in reloads.values())
+    monkeypatch.setattr(shared, "_retry", paused_save)
+    thread = threading.Thread(target=reload, daemon=True)
+    thread.start()
+    writer._save(vectors, kept, model.fingerprint())
+    thread.join(10)
+    assert not problems and saving.is_set() and attempting.is_set()
+    assert seen == [len(kept)] and times["reloaded"] >= times["saved"]
 
 
 def test_the_build_waits_while_a_foreground_embedding_is_queued(world, tmp_path, monkeypatch):
@@ -699,3 +701,39 @@ def test_a_store_root_swapped_after_discovery_is_refused_on_windows(world, tmp_p
     monkeypatch.setattr(native, "_final_path", lambda fd: str(target / "memory" / "user_prefs.md"))
     with pytest.raises(native.Refused):
         native.open_in_store(world["stores"][0], world["claude"] / "memory" / "user_prefs.md")
+
+
+# --- review round 4 ------------------------------------------------------------------------------------
+
+def test_a_project_directory_swapped_for_another_projects_is_refused_on_windows(world, monkeypatch):
+    monkeypatch.setattr(native, "_DIR_FD", False)
+    monkeypatch.setattr(native, "_WINDOWS", True)
+    # The project's memory directory is now a junction into another project of the same store.
+    elsewhere = world["claude"] / "projects" / native.project_name(world["other"]) / "memory" / "feedback_style.md"
+    monkeypatch.setattr(native, "_final_path", lambda fd: str(elsewhere))
+    with pytest.raises(native.Refused):
+        native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md")
+
+
+def test_a_scope_never_sees_the_error_of_a_failed_build(world, tmp_path):
+    model = FakeModel()
+
+    def fail(texts):
+        raise RuntimeError("cannot embed " + texts[0][:40])
+
+    model.embed_texts = fail
+    index = make_index(tmp_path / "index", model)
+    everything = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    mine = shared.documents_of(visible(world, "project").values())
+    index.refresh(everything)
+    index.join(30)
+    assert index.status()["state"] == "failed"
+    assert index.coverage(mine, scoped=True) == {"state": "incomplete", "covered": 0, "total": len(mine)}
+    report = index.coverage(everything)
+    assert report["state"] == "failed" and "cannot embed" in report["error"]
+    try:  # through the tool's path too: a query restarts the build, and the scoped report never carries the error
+        payload = shared.read(root=world["root"], query="markdown links", stores=world["stores"], index=index)
+        assert payload["index"]["state"] in ("building", "incomplete") and "error" not in payload["index"]
+        assert payload["mode"] == "lexical" and payload["facts"][0]["name"] == "style"
+    finally:
+        index.join(30)
