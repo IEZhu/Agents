@@ -457,6 +457,9 @@ Register those keys in the scope passed to `cooperation_register`, then:
    a push stays held until that reviewer's automatic pass has appeared (item 6),
    even when another reviewer's pause is already published, because releasing
    it earlier lets another session take the key before the pass spends it.
+   That wait applies only to a push the remote accepted: a push rejected by the
+   lease, by branch protection or otherwise starts no pass, so once the session
+   has confirmed that the remote head did not move, it releases that claim.
    Never hold the allowance across a wait for findings to be fixed. A pause
    goes into `checkpoint.external_quota` as a `paused`
    observation with its next free time, the verbatim evidence and whether the

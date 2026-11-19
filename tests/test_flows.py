@@ -168,7 +168,10 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
                    "or pushing a round's fixes in",
                    # A claim taken before a push outlives another reviewer's pause.
                    "A claim taken before a push stays held until that reviewer's automatic pass "
-                   "has appeared (item 6), even when another reviewer's pause is already published"):
+                   "has appeared (item 6), even when another reviewer's pause is already published",
+                   # A rejected push starts no pass, so its claim must not wait for one.
+                   "That wait applies only to a push the remote accepted: a push rejected by the "
+                   "lease, by branch protection or otherwise starts no pass"):
         assert phrase in review, phrase
 
 
