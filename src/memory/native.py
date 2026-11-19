@@ -40,6 +40,13 @@ SANITIZE = re.compile(r"[^A-Za-z0-9]")
 # Codex's memory directories under its home: ``memories`` for homes that had it before
 # ``memories_v2`` (the default of a fresh home) existed.
 CODEX_MEMORY_DIRS = ("memories", "memories_v2")
+# Codex documents no file names, so any visible name is an item; these characters never are.
+_UNSAFE_NAME = set("/\\:\0") | {chr(code) for code in range(32)}
+# How a file is opened inside its store: one component at a time where the platform has dir_fd
+# (POSIX), else by checking the open handle's final path (Windows). Module flags, so tests can
+# take either branch on any platform without touching the os module.
+_DIR_FD = os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY")
+_WINDOWS = os.name == "nt"
 
 
 class Refused(Exception):
@@ -103,9 +110,13 @@ def project_name(root) -> str:
 
 
 def is_item_name(store: Store, name: str) -> bool:
-    """A plain file name; Claude Code's items are Markdown files other than its index."""
-    return (isinstance(name, str) and FILE.fullmatch(name) is not None and name not in (".", "..")
-            and (store.client != "claude" or (name.endswith(".md") and not is_index_name(store, name))))
+    """A plain file name. Claude Code's items are Markdown files other than its index, with the
+    names Claude Code writes; Codex's are any visible name, since its docs name no format."""
+    if not isinstance(name, str) or name in (".", "..") or not 0 < len(name) <= 255:
+        return False
+    if store.client == "codex":
+        return not name.startswith(".") and not _UNSAFE_NAME.intersection(name)
+    return FILE.fullmatch(name) is not None and name.endswith(".md") and not is_index_name(store, name)
 
 
 def index_file(store: Store, memory: Path, link_check: Callable[[Path], bool] = is_link) -> Path | None:
@@ -224,11 +235,11 @@ def open_in_store(store: Store, path: Path):
     relative = Path(os.path.relpath(path, store.path))
     if relative.is_absolute() or ".." in relative.parts or not relative.parts:
         raise Refused("symlink_refused", f"{path.name} lies outside {store.label}")
-    if os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
+    if _DIR_FD:
         return _open_by_components(store, relative)
     stream = open_regular(path)
     final = _final_path(stream.fileno())
-    if os.name == "nt" and (final is None or not _is_below(final, store.path)):
+    if _WINDOWS and (final is None or not _is_below(final, store.path)):
         stream.close()
         # A handle whose path cannot be read (some network shares) is not trusted either.
         raise Refused("symlink_refused", f"{path.name} does not verifiably lie inside {store.label}")
@@ -272,7 +283,7 @@ def _open_by_components(store: Store, relative: Path):
 
 def _final_path(fd: int) -> str | None:
     """The path an open file handle names after every link and junction (Windows), else None."""
-    if os.name != "nt":
+    if not _WINDOWS:
         return None
     import ctypes
     import msvcrt
@@ -296,9 +307,10 @@ def _final_path(fd: int) -> str | None:
 
 
 def _is_below(path: str, root: Path) -> bool:
-    # realpath resolves the root through the same final-path lookup as the handle, so a store on a
-    # mapped drive compares in the handle's own spelling.
-    folded, top = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.realpath(str(root)))
+    # ``root`` is the store as discovery resolved it (``client_dirs`` resolves every directory, through
+    # the same final-path lookup as the handle), never resolved again here: a root swapped for a
+    # junction after discovery would resolve to the junction's target and pass.
+    folded, top = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(str(root)))
     return folded == top or folded.startswith(top.rstrip("\\/") + os.sep)
 
 

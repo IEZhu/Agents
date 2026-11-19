@@ -559,7 +559,8 @@ def test_a_linked_parent_directory_is_refused_when_opening(world, tmp_path):
 
 
 def test_a_handle_that_resolves_outside_the_store_is_refused(world, tmp_path, monkeypatch):
-    monkeypatch.setattr(native.os, "supports_dir_fd", set())  # the Windows path: check the open handle
+    monkeypatch.setattr(native, "_DIR_FD", False)  # the Windows path: check the open handle
+    monkeypatch.setattr(native, "_WINDOWS", True)
     monkeypatch.setattr(native, "_final_path", lambda fd: str(tmp_path / "elsewhere" / "secret.md"))
     with pytest.raises(native.Refused):
         native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md")
@@ -603,8 +604,8 @@ def test_a_failing_semantic_search_still_answers_lexically(world, tmp_path):
 # --- review round 2 ------------------------------------------------------------------------------------
 
 def test_a_handle_whose_path_cannot_be_read_is_refused_on_windows(world, monkeypatch):
-    monkeypatch.setattr(native.os, "supports_dir_fd", set())
-    monkeypatch.setattr(native.os, "name", "nt")
+    monkeypatch.setattr(native, "_DIR_FD", False)
+    monkeypatch.setattr(native, "_WINDOWS", True)
     monkeypatch.setattr(native, "_final_path", lambda fd: None)
     with pytest.raises(native.Refused):
         native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md")
@@ -674,3 +675,27 @@ async def test_a_fact_lookup_carries_no_search_status(served, world):
     style = visible(world, "project")["style"]
     payload = json.loads(await server.read_shared_memory(fact_id=style.id, query="ignored"))
     assert payload["mode"] == "fact" and "index" not in payload
+
+
+# --- review round 3 ------------------------------------------------------------------------------------
+
+def test_codex_notes_with_any_visible_name_are_facts(world):
+    for name in ("memory 1.txt", "память.txt", "_summary.txt"):
+        write(world["codex"] / "memories_v2" / name, f"Codex note kept as {name}\n")
+    files = {source.file for fact in shared.collect(world["stores"]).facts.values() for source in fact.sources}
+    assert {"memory 1.txt", "память.txt", "_summary.txt"} <= files
+    codex = world["stores"][1]
+    assert not any(native.is_item_name(codex, name) for name in (".hidden", "a:b", "a/b", "a\\b", ".", ".."))
+
+
+def test_a_store_root_swapped_after_discovery_is_refused_on_windows(world, tmp_path, monkeypatch):
+    target = tmp_path / "junction-target"
+    monkeypatch.setattr(native, "_DIR_FD", False)
+    monkeypatch.setattr(native, "_WINDOWS", True)
+    # The root now resolves to the junction's target, and the handle names a file there.
+    real_realpath = os.path.realpath
+    monkeypatch.setattr(native.os.path, "realpath",
+                        lambda path, **kw: str(target) if Path(path) == world["stores"][0].path else real_realpath(path, **kw))
+    monkeypatch.setattr(native, "_final_path", lambda fd: str(target / "memory" / "user_prefs.md"))
+    with pytest.raises(native.Refused):
+        native.open_in_store(world["stores"][0], world["claude"] / "memory" / "user_prefs.md")
