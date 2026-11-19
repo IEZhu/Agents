@@ -377,9 +377,11 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      out empty or over its limit keeps as much of its start as fits in the
      limit less 10 characters, then a dash if anything was kept, then `h` and
      the first 8 hex digits of the SHA-256 of the original name in UTF-8, so
-     distinct names stay distinct. Join the parts with the dot: `My_Server`
-     and `Send Report!` give `my-server.send-report`, and a server named `工具`
-     gives the part `h5ca6730d`.
+     such names stay apart. Names that differ only in case or in the
+     characters between their letters and digits, such as `A_B` and `a-b`,
+     give the same part and count as one tool. Join the parts with the dot:
+     `My_Server` and `Send Report!` give `my-server.send-report`, and a server
+     named `工具` gives the part `h5ca6730d`.
    - A tool that no instruction names is `no-rule`. List it with its call count;
      it is never a finding.
 3. **What was called.** List every call of an installed tool with its turn, time,

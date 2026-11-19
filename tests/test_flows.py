@@ -570,7 +570,10 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
     names = (("Agents-Core", "log"), ("A__B", "--x--"), ("工具", "Send"), ("服务", "Send"),
              ("!!!", "???"), ("S" * 40, "R" * 40), ("x" * 63, "a"), ("x" * 63, "b"))
     slugs = [slug(server, rule) for server, rule in names]
-    assert len(set(slugs)) == len(slugs), slugs  # distinct names stay distinct
+    assert len(set(slugs)) == len(slugs), slugs  # empty and long names stay apart
+    # Case and separators are dropped on purpose, and the text says so.
+    assert ("such as `A_B` and `a-b`, give the same part and count as one tool" in text
+            and part("A_B", 31) == part("a-b", 31) == "a-b")
     for (server, rule), value in zip(names, slugs):
         accepted, problems = validate({"v": 1, "kind": "report",
                                        "findings": [{**finding, "slug": value}]})
