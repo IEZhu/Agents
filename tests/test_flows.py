@@ -488,6 +488,7 @@ def test_thread_close_dates_misses_and_keeps_the_report_entry_distinct():
                    "A repeat counts against a patch only when its `miss_at` is later than the time the patch was applied",
                    "`read_history(tag=\"ac-missed-<slug>\")` and `read_history(tag=\"tool-missed-<slug>\")` list exactly the entries carrying that tag",
                    "only the same clause is a repeat",
+                   "and the older unqualified `ac-missed-cooperation`",
                    "also match the slug in earlier records' `findings`",
                    "Take each earlier miss's `miss_at` and the patch's `applied_at` from the records",
                    "so an `unavailable` or `caught` row gets none",

@@ -456,10 +456,11 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 
    **Repeats escalate.** `read_history(tag="ac-missed-<slug>")` and
    `read_history(tag="tool-missed-<slug>")` list exactly the entries carrying that
-   tag, archived ones included. For `cooperation`, query the current miss's own
-   clause tag (`ac-missed-cooperation-register`, `-claim`, `-ack` or `-request`):
-   only the same clause is a repeat, and an older entry tagged without a clause
-   counts only when its report names that clause. Page with
+   tag, archived ones included. For `cooperation`, query both the current miss's
+   own clause tag (`ac-missed-cooperation-register`, `-claim`, `-ack` or
+   `-request`) and the older unqualified `ac-missed-cooperation`: only the same
+   clause is a repeat, and an entry tagged without a clause counts only when its
+   report names that clause. Page with
    `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
    without `#progress`), and also match the slug in earlier records' `findings`.
    Take each earlier miss's `miss_at` and the patch's `applied_at` from the
