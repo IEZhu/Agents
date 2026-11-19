@@ -599,6 +599,19 @@ def test_the_helper_states_the_fields_it_emits(tmp_path):
     assert sorted(out) == sorted(thread_inventory.OUTPUT_FIELDS)  # every field, and no other
 
 
+def test_the_record_block_holds_the_numbers_a_turn_record_takes(tmp_path, entries):
+    from src.memory import record as turn_record
+
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([transcript])
+    assert out["record"] == {"duration_s": 360, "responses": 4, "output_tokens": 40 + 25 + 5 + 7}
+    assert turn_record.validate({"v": 1, "kind": "report", **out["record"]})[1] == []
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("{}\n", encoding="utf-8")
+    assert thread_inventory.collect([empty])["record"] == {"responses": 0, "output_tokens": 0}
+
+
 def test_cli_missing_transcript_and_latest_notes(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
     monkeypatch.setattr(thread_inventory.Path, "home", staticmethod(lambda: tmp_path / "home"))

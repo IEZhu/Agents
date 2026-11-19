@@ -213,7 +213,8 @@ Rules:
    the ones that changed anything, `sessions` and `bridge_sessions` give the
    session ids, `title` the chat's last title, `first` and `last` the span,
    `models`, `responses` and `tokens` the provenance that Verification levels
-   says is recorded and never scored, and `directories` every directory the
+   says is recorded and never scored, `record` the same numbers in the form the
+   closing log's record takes (step 9), and `directories` every directory the
    thread's calls worked in, from which `git_roots` below is derived.
 3. Work out which repositories to check: the helper's `git_roots` plus any named
    in the conversation. For each one, collect:
@@ -629,7 +630,22 @@ a second call:
   it: report the conflict and leave this closing step incomplete;
 - `response_content`: the report exactly as it will be delivered, footer
   included, but without the time line that the `answer-timestamp` rule puts
-  first once this call returns.
+  first once this call returns;
+- `record`: what this close found and cost, in the closed schema of
+  [turn records](../docs/turn-records.md): `v` 1, `kind` `report`, `session`,
+  `close_ordinal` (1 for a thread's first close), one `findings` item for each
+  tool-usage row that is not `n/a` (`slug`, `status`, `cause`, `level`, and
+  `miss_at`, the time of the trigger rather than of this close), one `patches`
+  item for each numbered patch (`id` its number, `layer`, `slug`, `state`, and
+  `applied_at` once applied), the step 5.3 verifier's counts as `verifier`,
+  `prep_failures`, one `unexecutable` item for each instruction of this flow the
+  close could not execute as written, and the inventory's `record` numbers. An
+  answer `invalid_record` wrote nothing: correct what `record_errors` names and
+  make the call once more, which is not a second call. When it is refused for
+  its size or for a list over its limit (32 `findings`, 32 `patches`, 16
+  `unexecutable`), leave out the `used` and `caught` findings first, then what
+  still exceeds the limit, and say in the report which items the record left
+  out: the report keeps every row.
 
 In `apply` mode, also curate the call:
 
@@ -643,9 +659,14 @@ In `apply` mode, also curate the call:
   `#tool-missed-<slug>` (another tool's rule).
 
 `history.md` is append-only. Before closing a thread again, look for its earlier
-close with `read_history`, which returns recent or similar entries without a
-session filter. Accept an entry only when its tags contain both `#thread-close`
-and this thread's `#session-<id>`, and name that entry's time in the report. If
+close with `read_history(tag="session-<id>", limit=500)`, which lists this
+thread's entries, archived ones included. Read every page before counting: while
+a page reports `omitted` or returns as many entries as asked, call again with
+`offset` advanced by the page's `total`. Accept an entry only when its tags contain both
+`#thread-close` and this thread's `#session-<id>`, and name that entry's time in
+the report. This close's `close_ordinal` is one more than the number of earlier
+closes found, whether or not they carry a record: closes from before records
+existed have none. If
 none matches, the report says that no earlier close was found. Without
 Agents-Core MCP, or after a privacy skip under step 9, this close creates no
 history entry; say so in the report.

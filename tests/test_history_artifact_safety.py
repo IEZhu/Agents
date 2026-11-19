@@ -592,7 +592,8 @@ def test_failed_unlink_empties_regular_pending_and_keeps_delete_usable(journals,
     result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("local", "action", "outcome")
     assert pending.stat().st_size == 0
     reader = history.HistoryReader(str(path))
-    assert reader.read_recent() == []
+    # The emptied pending file holds nothing; the archive holds the entry once (#584 reads archives).
+    assert [e.id for e in reader.read_recent()] == [result["entry_id"]]
     entry, = reader.journal_entries()
     assert entry.id == result["entry_id"]
     history.delete_entry(str(path), entry.timestamp[:7], entry.id, entry.timestamp)

@@ -141,6 +141,69 @@ class TestRecency:
         assert [e.intent for e in entries] == ["new"]
 
 
+def _block(entry_id: str, timestamp: str, tags: tuple = (), metadata: dict | None = None) -> str:
+    lines = ["", f"## {timestamp} | {entry_id}", f"**Intent:** {entry_id}", "**Action:** a", "**Outcome:** o"]
+    if tags:
+        lines.append("**Tags:** " + " ".join(tags))
+    if metadata:
+        lines.append("**Meta:** " + json.dumps(metadata))
+    return "\n".join(lines) + "\n"
+
+
+@pytest.fixture
+def months(tmp_path, history_path):
+    """A journal over three months without sync: two archives and history.md (#584)."""
+    archive = tmp_path / "history"
+    archive.mkdir()
+    (archive / "2026-08.md").write_text(
+        _block("aaaaaaaaaaa1", "2026-08-10T10:00:00+00:00", ("#thread-close",), {"record": {"v": 1, "kind": "report"}}))
+    (archive / "2026-09.md").write_text(
+        _block("bbbbbbbbbbb2", "2026-09-10T10:00:00+00:00", ("#thread-closed",))
+        + _block("ccccccccccc3", "2026-09-11T10:00:00+00:00", ("#thread-close-x", "#other")))
+    Path(history_path).write_text("---\nrepo: r\n---\n"
+                                  + _block("ddddddddddd4", "2026-10-05T10:00:00+00:00", ("#thread-close",)))
+    return HistoryReader(history_path)
+
+
+class TestArchivesAndTags:
+    def test_recency_reads_the_archives_without_sync_newest_month_first(self, months):
+        assert [e.id for e in months.read_recent(limit=10)] == [
+            "ddddddddddd4", "ccccccccccc3", "bbbbbbbbbbb2", "aaaaaaaaaaa1"]
+        assert [e.id for e in months.read_recent(limit=2)] == ["ddddddddddd4", "ccccccccccc3"]
+        assert [e.id for e in months.read_recent(limit=10, since="2026-09-11")] == ["ddddddddddd4", "ccccccccccc3"]
+
+    def test_newer_entries_that_fill_the_limit_leave_the_archives_unread(self, months, tmp_path):
+        (tmp_path / "history" / "2026-08.md").chmod(0)
+        try:
+            assert [e.id for e in months.read_recent(limit=1)] == ["ddddddddddd4"]
+        finally:
+            (tmp_path / "history" / "2026-08.md").chmod(0o644)
+
+    @pytest.mark.parametrize("tag", ["thread-close", "#thread-close", "  #thread-close "])
+    def test_a_tag_matches_exactly_and_reads_older_months_until_filled(self, months, tag):
+        found = months.read_recent(limit=5, tag=tag)
+        assert [e.id for e in found] == ["ddddddddddd4", "aaaaaaaaaaa1"]
+        assert found[1].metadata == {"record": {"v": 1, "kind": "report"}}
+        assert [e.id for e in months.read_recent(limit=1, tag=tag)] == ["ddddddddddd4"]
+
+    def test_a_tag_is_not_a_prefix_or_a_substring(self, months):
+        assert [e.id for e in months.read_recent(tag="thread-close-x")] == ["ccccccccccc3"]
+        assert months.read_recent(tag="thread") == [] and months.read_recent(tag="close") == []
+        assert len(months.read_recent(tag="  ")) == 4 and len(months.read_recent(tag="#")) == 4
+
+    def test_a_record_survives_rotation_whole(self, tmp_path, history_path):
+        record = {"v": 1, "kind": "report", "findings": [{"slug": "delegation", "status": "missed",
+                                                          "miss_at": "2026-11-19T13:00:00+00:00"}]}
+        w = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
+        archived = w.append_entry("close", "a", "o" * 2_000, tags=["thread-close"], metadata={"record": record})
+        w.append_entry("next", "a", "b")
+        assert archived["rotated_to"].endswith(".md") and "close" not in Path(history_path).read_text()
+        reader = HistoryReader(history_path)
+        found, = reader.read_recent(tag="thread-close")
+        assert found.id == archived["entry_id"] and found.metadata["record"] == record
+        assert reader.find(archived["entry_id"]).metadata["record"] == record
+
+
 class TestRotation:
     def test_triggers_when_threshold_exceeded(self, tmp_path, history_path):
         archive_dir = str(tmp_path / "history")
@@ -277,6 +340,19 @@ class TestSemanticStore:
         # Its action and outcome come back from the stored document, which stays internal (#212).
         assert (results[0]["action"], results[0]["outcome"]) == ("wired NumpyVectorStore", "search returns relevant entries")
         assert "document" not in results[0]
+
+    def test_a_tag_keeps_only_the_nearest_entries_carrying_it(self, tmp_path, writer):
+        writer.append_entry("semantic recall one", "a", "b", tags=["thread-close"])
+        writer.append_entry("semantic recall two", "a", "c", tags=["other"])
+        writer.append_entry("bake bread", "a", "d", tags=["thread-close"])
+        store = HistoryStore(history_path=writer.history_path, data_dir=str(tmp_path / "memory_data"))
+        embedder = FakeEmbedder(["semantic recall", "bake bread"])
+        results = store.search("semantic recall", limit=1, embed_query=embedder.embed_query,
+                               embed_texts=embedder.embed_texts, tag="#thread-close")
+        assert [r["intent"] for r in results] == ["semantic recall one"]
+        both = store.search("semantic recall", limit=5, embed_query=embedder.embed_query,
+                            embed_texts=embedder.embed_texts, tag="thread-close")
+        assert sorted(r["intent"] for r in both) == ["bake bread", "semantic recall one"]
 
     def test_index_rebuilds_on_file_change(self, tmp_path, writer):
         writer.append_entry("seed", "a", "b")

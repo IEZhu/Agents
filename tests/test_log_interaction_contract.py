@@ -7,6 +7,7 @@ import pytest
 
 import src.server as server
 from src.engine import config
+from src.memory import record as turn_record
 from src.memory.history import HistoryReader, HistoryWriter
 
 BASE = {"agent_name": "lawyer", "query": "q", "response_content": "r"}
@@ -189,6 +190,78 @@ async def test_without_the_fallback_journal_a_workspace_error_still_writes_nothi
     writer.assert_not_called()
 
 
+RECORD = {"v": 1, "kind": "report", "findings": [{"slug": "delegation", "status": "missed",
+                                                  "miss_at": "2026-11-19T14:00:00+01:00", "level": "V2"}]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given", [RECORD, json.dumps(RECORD)])
+async def test_a_record_is_nested_under_its_own_key(writer, given):
+    response = await call(record=given)
+    assert response["record"] == {"status": "written", "bytes": turn_record.size(turn_record.validate(RECORD)[0])}
+    metadata = entries(writer)[0].args[5]
+    assert metadata["record"]["findings"][0]["miss_at"] == "2026-11-19T13:00:00+00:00"
+    assert not set(turn_record.SCHEMA_V1.fields) & set(metadata)  # never merged at the top level
+    assert metadata["answer_timestamp"] == response["timestamp"]
+
+
+@pytest.mark.asyncio
+async def test_a_record_beside_the_fallback_keys_leaves_them_alone(writer, monkeypatch, fallback_journal):
+    monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=Refusing()))
+    await call(record={**RECORD, "kind": "status"})
+    assert server.drain_pending_logs(5)
+    metadata = writer.return_value.append_entry.call_args.args[5]
+    assert metadata["claimed_workspace"] == "/work/unregistered" and metadata["record"]["kind"] == "status"
+    assert "claimed_workspace" not in metadata["record"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad,where", [
+    ({"kind": "report"}, "record.v"),
+    ({**RECORD, "note": "free text"}, "record: 1 key(s)"),
+    ({**RECORD, "session": "/Users/someone/project"}, "record.session"),
+    ("not json", "record: a JSON object"),
+    ([RECORD], "record: a JSON object"),
+])
+async def test_an_invalid_record_writes_nothing_and_names_the_place(writer, bad, where):
+    response = await call(record=bad)
+    assert response["status"] == "ERROR" and response["message"] == "invalid_record"
+    assert response["record"] == {"status": "not_written"}
+    assert any(problem.startswith(where) for problem in response["record_errors"]), response
+    assert response["instruction"].startswith("Nothing was logged.") and "timestamp" not in response
+    assert "/Users/someone" not in json.dumps(response) and "free text" not in json.dumps(response)
+    writer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_record_lands_in_the_journal_and_reads_back_whole(workspace):
+    response = await call(record=RECORD, tags=["thread-close"])
+    assert response["record"]["status"] == "written"
+    assert server.drain_pending_logs(5)
+    text = (workspace / "history.md").read_text()
+    assert text.count("**Meta:**") == 1 and '"record": {' in text
+    listed = json.loads(await server.read_history(tag="thread-close"))
+    entry, = listed["entries"]
+    assert entry["metadata"]["record"] == turn_record.validate(RECORD)[0]
+    again = await call(record={**RECORD, "kind": "status"}, tags=["thread-close"])
+    assert again["history"]["status"] == "duplicate" and again["record"]["status"] == "duplicate"
+    assert "record was not stored" in again["instruction"]
+    assert server.drain_pending_logs(5)
+    assert [e.metadata["record"]["kind"] for e in HistoryReader(str(workspace / "history.md")).read_all()] == ["report"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history,status", [
+    ({"status": "error", "state": "unknown", "error": "history_unwritable"}, "unknown"),
+    ({"status": "error", "state": "rejected", "error": "idempotency_conflict"}, "not_written"),
+])
+async def test_a_failed_write_says_whether_its_record_may_have_landed(writer, history, status):
+    writer.return_value.append_entry.return_value = history
+    response = await call(record=RECORD)
+    assert response["record"]["status"] == status
+    assert "record was not stored" not in response["instruction"]
+
+
 FORBIDDEN = ("anyOf", "oneOf", "allOf", "$ref", "pattern", "enum", "additionalProperties",
              "minLength", "maxLength")
 
@@ -223,9 +296,12 @@ async def test_advertised_schemas_are_renderable():
         assert "required" not in spec
         assert spec["description"]
     log = schemas["log_interaction"]["properties"]
-    for prop in ("persona", "persona_action", "files", "tags"):
+    for prop in ("persona", "persona_action", "files", "tags", "record"):
         assert log[prop]["description"]
     assert log["files"]["type"] == "array" and log["tags"]["type"] == "array"
+    assert log["record"]["type"] == "object" and "required" not in log["record"]
+    assert set(log["record"]["properties"]) == set(turn_record.SCHEMA_V1.fields)
+    assert not set(FORBIDDEN) & set(_walk(log["record"]["properties"]))
     assert schemas["log_interaction"]["required"] == ["agent_name", "query", "response_content"]
     assert schemas["refresh_persona_context"]["required"] == ["query", "current_persona"]
 

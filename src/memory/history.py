@@ -903,6 +903,26 @@ def _machine_filter(machine: Optional[str], machines: Optional[MachineHistory]):
     return lambda entry: entry.machine == machine
 
 
+def _bare_tag(tag: str) -> str:
+    """A tag without its one leading ``#``: the writer adds it, a caller may or may not."""
+    return tag[1:] if tag.startswith("#") else tag
+
+
+def _tag_filter(tag: Optional[str]):
+    """A predicate for ``read_history(tag=...)``: entries carrying exactly that tag, or None for every entry."""
+    wanted = _bare_tag((tag or "").strip())
+    if not wanted:
+        return None
+    return lambda tags: any(_bare_tag(t) == wanted for t in tags or ())
+
+
+def _both(first, second):
+    """Two optional entry predicates as one, or None when neither filters."""
+    if first is None or second is None:
+        return first or second
+    return lambda entry: first(entry) and second(entry)
+
+
 # --- Writer ------------------------------------------------------------------
 
 class HistoryWriter:
@@ -1481,21 +1501,22 @@ class HistoryReader:
         limit: int = 20,
         since: Optional[str] = None,
         machine: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> List[HistoryEntry]:
         """Newest-first list, optionally filtered by ``since`` (ISO timestamp prefix).
 
-        With the user library sync set up for this repository, the list is the
-        merged history (``history.md``, ``history/*.md`` and the synced
-        segments), read newest month first until ``limit`` is filled; otherwise
-        ``history.md`` and any pending rotation. ``machine`` filters as ``_machine_filter`` says.
+        The list is this checkout's journal (``history.md``, a pending rotation and
+        ``history/*.md``) and, with the user library sync set up for this repository,
+        the synced segments too, one entry per id (see ``merge_entries``), read
+        newest month first until ``limit`` is filled. ``machine`` filters as
+        ``_machine_filter`` says, ``tag`` as ``_tag_filter``.
         """
         limit = max(1, limit) if limit > 0 else 20
         machines = _machine_history(self.history_path)
-        keep = _machine_filter(machine, machines)
-        if machines is None:
-            entries = [entry for _, _, items in self._live_files() for entry in items]
-        else:
-            entries = self._recent_merged(machines, limit, since, keep)
+        tags = _tag_filter(tag)
+        keep = _both(_machine_filter(machine, machines), tags and (lambda entry: tags(entry.tags)))
+        # Without sync, the archives alone: a record a later run looks for may have been rotated (#584).
+        entries = self._recent_merged(machines or MachineHistory(""), limit, since, keep)
         if keep is not None:
             entries = [e for e in entries if keep(e)]
         entries.sort(key=lambda e: e.timestamp, reverse=True)
@@ -1661,13 +1682,14 @@ class HistoryStore:
         embed_query=None,
         embed_texts=None,
         machine: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return top-``limit`` entries with semantic distance.
 
         ``embed_query`` / ``embed_texts`` are injectable so tests can swap in
         deterministic fakes; production callers leave them None and the
-        ONNX-backed defaults are loaded lazily. ``machine`` filters as in
-        ``HistoryReader.read_recent``.
+        ONNX-backed defaults are loaded lazily. ``machine`` and ``tag`` filter
+        as in ``HistoryReader.read_recent``.
         """
         from src.engine.embedder import model_fingerprint
         with self._index_lock:
@@ -1687,11 +1709,14 @@ class HistoryStore:
                 if store.count() == 0:
                     return []
             keep = _machine_filter(machine, machines)
-            result = store.query(vec, n_results=store.count() if keep else limit)
+            tags = _tag_filter(tag)
+            result = store.query(vec, n_results=store.count() if keep or tags else limit)
             out: List[Dict[str, Any]] = []
             for i, eid in enumerate(result.ids):
                 meta = result.metadatas[i] or {}
                 if keep is not None and not keep(HistoryEntry(eid, "", "", "", "", machine=meta.get("machine"))):
+                    continue
+                if tags is not None and not tags(meta.get("tags")):
                     continue
                 out.append({
                     "id": eid,

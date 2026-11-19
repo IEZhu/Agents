@@ -2226,7 +2226,25 @@ OUTPUT_FIELDS = (
     "unclassified_tools", "logging_calls", "client_local_calls", "background_tasks",
     "scratchpad_paths", "corrections", "skipped_entries", "subagents_with_writes",
     "subagent_transcripts", "transcripts", "unreadable_lines", "git_roots",
-    "memory_files_detected", "memory_scan_notes", "output_fields")
+    "memory_files_detected", "memory_scan_notes", "record", "output_fields")
+
+
+def record_numbers(result: dict) -> dict:
+    """The transcript-derived numbers of a close's turn record (docs/turn-records.md, #584).
+
+    ``responses`` and ``output_tokens`` count the main session and its subagents together, as
+    ``responses`` and ``tokens`` do; ``duration_s`` is left out when the span has no readable times.
+    """
+    from datetime import datetime
+
+    numbers = {"responses": result["responses"], "output_tokens": result["tokens"].get("output_tokens", 0)}
+    try:
+        span = (datetime.fromisoformat(result["last"].replace("Z", "+00:00"))
+                - datetime.fromisoformat(result["first"].replace("Z", "+00:00")))
+    except (AttributeError, TypeError, ValueError):  # no span, or one naive and one aware time
+        return numbers
+    numbers["duration_s"] = max(0, int(span.total_seconds()))
+    return numbers
 
 
 def collect(paths: list[Path]) -> dict:
@@ -2261,6 +2279,7 @@ def collect(paths: list[Path]) -> dict:
     result.update(detect_memory_files(memory_dirs, result["first"], result["last"],
                                       {item["path"] for item in result["memory_writes"]},
                                       sink["activity"], result["background_tasks"]))
+    result["record"] = record_numbers(result)
     result["output_fields"] = list(OUTPUT_FIELDS)
     return _masked(result)
 
