@@ -33,7 +33,7 @@ The record is a closed JSON object, schema v1. `v` and `kind` are required, ever
 
 Counts are integers from 0 to 100,000; `true` is not a count. The enumerated values follow the thread-close flow's vocabulary:
 
-- `status`: `used`, `misused`, `missed`, `unavailable`, `n/a`, `uncatalogued`, `no-rule`.
+- `status`: `used`, `caught` (a hook blocked or reminded, and the same turn then made the call; never a miss), `misused`, `missed`, `unavailable`, `n/a`, `uncatalogued`, `no-rule`.
 - `cause`: `not-in-context`, `ignored`, `not-loaded`, `no-trigger`, `failed`.
 - `level`: `V0` to `V4`, and `refuted`, `stale`, `contested` for ✗, ⚠ and `?`.
 - `layer`: `memory`, `user-instruction`, `client-instruction`, `client-config`, `hook`, `flow`, `flow-persona`, `flow-library`, `agents-core`, `issue`.
@@ -65,4 +65,4 @@ Semantic mode (`query`) returns no `metadata`, so a retrospective reads records 
 
 ## For a retrospective
 
-The thread-close flow writes `kind: report` once per close, which is what separates a close's own record from the patch-apply and status entries that carry the same tags. To decide whether a tool-usage patch held, compare each later finding's `miss_at` for the same `slug` with the patch's `applied_at`: a `missed` or `misused` finding after the patch was applied means it did not hold; a `used` row after it is evidence that it did.
+The thread-close flow writes `kind: report` once per close, which is what separates a close's own record from the patch-apply and status entries that carry the same tags. To decide whether a tool-usage patch held, compare each later finding's `miss_at` for the same `slug` with the patch's `applied_at`: a `missed` or `misused` finding after the patch was applied means it did not hold; a `used` row after it is evidence that it did, and a `caught` row that a hook, not the model, made the call happen.

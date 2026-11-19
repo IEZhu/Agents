@@ -10,7 +10,7 @@ FULL = {
     "v": 1, "kind": "report", "session": "local_0a1b2c3d-4e5f", "close_ordinal": 2,
     "findings": [{"slug": "delegation", "status": "missed", "cause": "ignored",
                   "miss_at": "2026-11-19T14:24:14+01:00", "level": "V2"},
-                 {"slug": "cooperation", "status": "used"}],
+                 {"slug": "cooperation", "status": "used"}, {"slug": "show-pane", "status": "caught"}],
     "patches": [{"id": "1", "layer": "hook", "slug": "delegation", "state": "applied",
                  "applied_at": "2026-11-19T13:30:00Z"}],
     "verifier": {"claims": 12, "confirmed": 9, "refuted": 1, "unconfirmed": 2, "invalid_rounds": 0},

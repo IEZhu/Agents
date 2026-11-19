@@ -39,7 +39,8 @@ _SLUG = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
 SLUG_MAX = 64
 
 KINDS = ("report", "patch-apply", "status")
-FINDING_STATUSES = ("used", "misused", "missed", "unavailable", "n/a", "uncatalogued", "no-rule")
+# caught: a hook blocked or reminded, and the same turn then made the call; never a miss.
+FINDING_STATUSES = ("used", "caught", "misused", "missed", "unavailable", "n/a", "uncatalogued", "no-rule")
 CAUSES = ("not-in-context", "ignored", "not-loaded", "no-trigger", "failed")
 LEVELS = ("V0", "V1", "V2", "V3", "V4", "refuted", "stale", "contested")
 LAYERS = ("memory", "user-instruction", "client-instruction", "client-config", "hook", "flow",
