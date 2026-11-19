@@ -213,7 +213,8 @@ Rules:
    the ones that changed anything, `sessions` and `bridge_sessions` give the
    session ids, `title` the chat's last title, `first` and `last` the span,
    `models`, `responses` and `tokens` the provenance that Verification levels
-   says is recorded and never scored, and `directories` every directory the
+   says is recorded and never scored, `record` the same numbers in the form the
+   closing log's record takes (step 9), and `directories` every directory the
    thread's calls worked in, from which `git_roots` below is derived.
 3. Work out which repositories to check: the helper's `git_roots` plus any named
    in the conversation. For each one, collect:
@@ -449,8 +450,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    repository states no rule, propose the patch and leave it unapplied.
 
    **Repeats escalate.** Search `read_history` for earlier closes tagged
-   `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
-   usage table. A repeat after an applied patch means the patch did not hold:
+   `#ac-missed-<slug>` or `#tool-missed-<slug>` (`tag="ac-missed-<slug>"` lists
+   exactly those), or naming that slug in their tool usage table or in their
+   record's `findings`. A repeat after an applied patch means the patch did not hold:
    write the next layer toward automatic (memory lesson, then client
    instruction, then hook, flow step or flow persona, then Agents-Core itself),
    and name the earlier close's time.
@@ -629,7 +631,19 @@ a second call:
   it: report the conflict and leave this closing step incomplete;
 - `response_content`: the report exactly as it will be delivered, footer
   included, but without the time line that the `answer-timestamp` rule puts
-  first once this call returns.
+  first once this call returns;
+- `record`: what this close found and cost, in the closed schema of
+  [turn records](../docs/turn-records.md): `v` 1, `kind` `report`, `session`,
+  `close_ordinal` (1 for a thread's first close), one `findings` item for each
+  tool-usage row that is not `n/a` (`slug`, `status`, `cause`, `level`, and
+  `miss_at`, the time of the trigger rather than of this close), one `patches`
+  item for each numbered patch (`id` its number, `layer`, `slug`, `state`, and
+  `applied_at` once applied), the step 5.3 verifier's counts as `verifier`,
+  `prep_failures`, one `unexecutable` item for each instruction of this flow the
+  close could not execute as written, and the inventory's `record` numbers. An
+  answer `invalid_record` wrote nothing: correct what `record_errors` names and
+  make the call once more, which is not a second call. When it is refused for
+  its size, leave out the `used` rows first.
 
 In `apply` mode, also curate the call:
 
@@ -643,9 +657,10 @@ In `apply` mode, also curate the call:
   `#tool-missed-<slug>` (another tool's rule).
 
 `history.md` is append-only. Before closing a thread again, look for its earlier
-close with `read_history`, which returns recent or similar entries without a
-session filter. Accept an entry only when its tags contain both `#thread-close`
-and this thread's `#session-<id>`, and name that entry's time in the report. If
+close with `read_history(tag="session-<id>")`, which lists this thread's
+entries, archived ones included. Accept an entry only when its tags contain both
+`#thread-close` and this thread's `#session-<id>`, and name that entry's time in
+the report; its record's `close_ordinal` plus one is this close's. If
 none matches, the report says that no earlier close was found. Without
 Agents-Core MCP, or after a privacy skip under step 9, this close creates no
 history entry; say so in the report.
