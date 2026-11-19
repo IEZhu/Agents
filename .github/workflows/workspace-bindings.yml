@@ -23,9 +23,13 @@ on:
       - tests/test_installer_instructions.py
       - tests/test_daemon_runtime_override.py
       - src/memory/history.py
+      - src/memory/history_results.py
       - src/memory/history_stats.py
       - src/memory/record.py
+      - src/schemas/tool_args.py
       - tests/test_turn_record.py
+      - tests/test_read_history_size.py
+      - tests/test_log_interaction_contract.py
       - tests/test_history.py
       - tests/test_history_ui.py
       - tests/test_usage_stats.py
@@ -100,4 +104,7 @@ jobs:
       - name: Journal reads, durable acceptance and retry recovery
         env:
           AGENTS_TEST_REQUIRE_SYMLINKS: "1"
-        run: python -B -m pytest tests/test_history.py tests/test_turn_record.py tests/test_memory_acceptance.py tests/test_history_artifact_safety.py tests/test_usage_stats.py tests/test_history_ui.py -q -rs -p no:cacheprovider
+        run: >-
+          python -B -m pytest tests/test_history.py tests/test_turn_record.py tests/test_memory_acceptance.py
+          tests/test_history_artifact_safety.py tests/test_usage_stats.py tests/test_history_ui.py
+          tests/test_read_history_size.py tests/test_log_interaction_contract.py -q -rs -p no:cacheprovider
