@@ -510,7 +510,9 @@ def test_thread_close_ladder_makes_a_hook_on_an_irreversible_call_a_gate():
                    "for an irreversible call (a push to a pull request head, a review request, a merge) "
                    "the hook layer means a gate",
                    "it refuses the call while the required state, such as a live claim, is missing",
-                   "falls back to a reminder only when that state cannot be read"):
+                   "falls back to a reminder only when that state cannot be read",
+                   "Where the client's hooks cannot refuse a call, say so in the proposal: "
+                   "a reminder there records the miss but cannot prevent it"):
         assert phrase in text, phrase
 
 
