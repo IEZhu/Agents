@@ -487,7 +487,7 @@ def test_thread_close_dates_misses_and_keeps_the_report_entry_distinct():
                    "`caught`, `unavailable` and `n/a` are not findings",
                    "A repeat counts against a patch only when its `miss_at` is later than the time the patch was applied",
                    "match each entry's `tags` exactly",
-                   "whole with `read_history(entry_id=...)` before deciding",
+                   "whole with `read_history(entry_id=...)`, and classify it from the whole entry before deciding",
                    "read every close it lists (`#thread-close` without `#progress`, or an intent that starts with `Close thread`) and every entry whose `tags` came back truncated",
                    "both listings and `query` read only the current journal",
                    "so an `unavailable` or `caught` row gets none",
