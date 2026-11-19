@@ -1,5 +1,9 @@
 # Documentation audit — 2026-10-25
 
+**Status:** recorded audit, 2026-10-25, taken before the `dev` to `main`
+promotion. It is evidence for the revisions named below; repeat the
+[documentation refresh](../flows/documentation-refresh.md) for a later one.
+
 This records a bounded source-based refresh of Agents-Core at
 `f154a39687f315ef24e51e7bc39b79bab87163b6` (`origin/dev` when fetched for this
 run, 2026-10-25), on branch `claude/docs-refresh-release`, before the `dev` →

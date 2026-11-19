@@ -177,8 +177,9 @@ debug logging.
 
 ## Development
 
-Contributors start at [AGENTS.md](AGENTS.md), which states the worktree, branch
-and review rules, and continue with the
+Contributors start at [CONTRIBUTING.md](CONTRIBUTING.md) and
+[AGENTS.md](AGENTS.md), which state the worktree, branch and review rules, and
+continue with the
 [documentation refresh flow](flows/documentation-refresh.md) for documentation
 changes. [Calendar releases](docs/releases.md) covers branches, versions and the
 `dev` → `main` promotion, [tests/README.md](tests/README.md) the suite and its

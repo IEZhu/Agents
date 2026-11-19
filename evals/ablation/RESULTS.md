@@ -1,5 +1,7 @@
 # Component ablation sweep: results (2026-09-25)
 
+**Status:** recorded experiment results, 2026-09-25, of the sweep described below.
+
 Model: Opus 5.5 (`claude-opus-5-5`) in Claude Code cloud routine sessions.
 Scope: 129 components (4 rules, 70 skills, 55 implants); the pilot covered the other 4.
 Design: 2 in-scope cases per component (ru + en), written and adversarially checked;

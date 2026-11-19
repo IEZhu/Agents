@@ -1,8 +1,9 @@
 # Instruction signing: installation, repository instructions and owner approval
 
-Status: draft implementation contract, amended 2026-10-18. Pure verification
-primitives are implemented for #235; runtime enforcement, audit and the repository
-instruction guard remain planned.
+**Status:** draft implementation contract, amended 2026-10-18, partially
+implemented. The verification primitives of #235 and the local authority of #236
+are implemented; runtime enforcement, audit and the repository instruction guard
+remain planned.
 Profile identifier: `agent-instructions/v1`; OMS v1.0 envelope unchanged.
 Tracks [#234](https://github.com/IEZhu/Agents/issues/234), part of
 [#233](https://github.com/IEZhu/Agents/issues/233).

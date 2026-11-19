@@ -1,6 +1,8 @@
 # Shared local inference and KV cache implementation handoff
 
-Status: historical specification and implementation handoff, prepared on 2026-10-14.
+**Status:** historical implementation contract and recorded base, 2026-10-14.
+Maintained operations are in
+[local inference operations](../shared-mcp-daemon.md#local-inference).
 The local-inference implementation and persistent artifacts were integrated through
 [PR #402](https://github.com/IEZhu/Agents/pull/402); cross-client MCP cooperation
 followed in [PR #407](https://github.com/IEZhu/Agents/pull/407). The

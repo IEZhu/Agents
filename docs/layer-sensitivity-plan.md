@@ -1,6 +1,6 @@
 # Layer sensitivity: calibrate each selection layer separately
 
-Status: proposal of 2026-09-22, partially implemented. The implant flags listed
+**Status:** proposal of 2026-09-22, partially implemented. The implant flags listed
 in [Rollout](#6-rollout) shipped with legacy/off defaults, and every implant
 declares `triggers`; `anti_triggers`, `SKILL_GATING`, shadow mode and the
 calibration head are not implemented. Current settings:
