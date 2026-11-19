@@ -552,10 +552,15 @@ class SharedMemoryIndex:
             self._thread.start()
             return dict(self._state)
 
-    def coverage(self, documents: Dict[str, str]) -> dict:
-        """The build state with ``covered`` and ``total`` counted over ``documents`` only."""
-        state = self.status()
-        return {**state, "covered": self._covered(documents), "total": len(documents)}
+    def coverage(self, documents: Dict[str, str], scoped: bool = False) -> dict:
+        """The build state with ``covered`` and ``total`` counted over ``documents`` only.
+
+        ``scoped``: the documents are what one scope shows, so a complete coverage reads ``ready``
+        even while the builder embeds another project's notes, which that scope must not learn of."""
+        state, covered = self.status(), self._covered(documents)
+        if scoped and covered == len(documents):
+            state = {"state": "ready"}
+        return {**state, "covered": covered, "total": len(documents)}
 
     def _covered(self, documents: Dict[str, str]) -> int:
         try:
@@ -570,27 +575,31 @@ class SharedMemoryIndex:
             thread.join(timeout)
 
     def _build(self) -> None:
+        """Builds until the wanted documents stop changing. The thread stays registered until it has
+        released the build lock, so a refresh during the hand-over is built by this thread instead of
+        by a new one that would find the lock still held."""
         from src.file_lock import file_lock
-        try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            with file_lock(self._build_lock, blocking=False):
-                while True:
-                    with self._lock:
-                        wanted = self._wanted
-                    if self._build_once(wanted):
+        while True:
+            built = None
+            try:
+                os.makedirs(self.data_dir, exist_ok=True)
+                with file_lock(self._build_lock, blocking=False):
+                    while built is None:
                         with self._lock:
-                            if self._wanted is wanted:
-                                self._thread = None  # under the lock: a refresh after this starts a new build
-                                return
-        except BlockingIOError:
+                            wanted = self._wanted
+                        if self._build_once(wanted):
+                            built = wanted
+            except BlockingIOError:
+                with self._lock:
+                    self._state = {**self._state, "state": "building_elsewhere"}
+            except Exception as error:  # noqa: BLE001 - a background thread reports instead of raising
+                logger.warning("shared memory index build failed: %s", error, exc_info=True)
+                with self._lock:
+                    self._state = {**self._state, "state": "failed", "error": f"{type(error).__name__}: {error}"}
             with self._lock:
-                self._state = {**self._state, "state": "building_elsewhere"}
-        except Exception as error:  # noqa: BLE001 - a background thread reports instead of raising
-            logger.warning("shared memory index build failed: %s", error, exc_info=True)
-            with self._lock:
-                self._state = {**self._state, "state": "failed", "error": f"{type(error).__name__}: {error}"}
-        with self._lock:
-            self._thread = None
+                if built is None or self._wanted is built:
+                    self._thread = None  # a refresh after this starts a new build
+                    return
 
     def _build_once(self, wanted: Dict[str, str]) -> bool:
         """Embeds what ``wanted`` lacks; True when done, False when ``wanted`` changed meanwhile."""
@@ -836,8 +845,13 @@ def read(*, root: Optional[Path], scope: str = "project", client: Optional[str] 
         rows = [(fact, _body(fact), {}) for fact in visible[offset:offset + limit]]
         return _listing("recency", rows, report, offset)
     if semantic:
-        index.refresh(documents_of(collection.facts.values()))  # every fact, so a scope change needs no build
-        report["index"] = index.coverage(documents_of(visible))  # counted over what this scope shows
+        try:
+            index.refresh(documents_of(collection.facts.values()))  # every fact, so a scope change needs no build
+            report["index"] = index.coverage(documents_of(visible), scoped=scope != "all")
+        except Exception as error:  # noqa: BLE001 - an index that cannot be set up leaves the search lexical
+            logger.warning("shared memory index unavailable: %s", error, exc_info=True)
+            report["index"] = {"state": "failed", "error": f"{type(error).__name__}: {error}"}
+            semantic = False
     else:
         report["index"] = {"state": "off"}
     ranked, vectors, problem = index.search(query, visible, use_vectors=semantic)

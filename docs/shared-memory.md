@@ -12,7 +12,7 @@ This page describes the current behavior of [shared.py](../src/memory/shared.py)
 4. **Index.** Facts are split into chunks. A lexical BM25 index over the chunks answers at once. Chunk vectors are built in the background (see [The background index](#the-background-index)).
 5. **Serve.** The tool ranks, filters by scope and returns JSON that stays under Claude Code's 50,000-character result limit.
 
-A call collects the facts again each time. A file that keeps its size and modification time is not read again by the same process.
+A call collects the facts again each time and reads every candidate file again; only the verdict of the credential scan and the parsed frontmatter are reused, keyed by the content's SHA-256.
 
 ## What the tool does
 
@@ -37,11 +37,13 @@ A skipped file is counted in `skipped` by reason and never shown:
 | Reason | Meaning |
 |---|---|
 | `managed` | The file is `feedback_agents_core_routing.md`, Agents-Core's own routing reminder. Every client already gets that instruction; it is not a fact |
-| `secret` | The file name marks key material (`.env*`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.kdbx`, `*.keychain`), the user sync's credential scan finds a secret in the content, or the content holds a credential the way notes write one (a labelled password or token with a credential-like value, a URL with a password, a Stripe, Google, Hugging Face or npm key, a JWT, a Bearer token) |
+| `secret` | The file name marks key material (`id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.kdbx`, `*.keychain`), the user sync's credential scan finds a secret in the content, or the content holds a credential the way notes write one (a labelled password or token with a credential-like value, a URL with a password, a Stripe, Google, Hugging Face or npm key, a JWT, a Bearer token) |
 | `too_large` | The file is over 1 MiB |
 | `not_text` | The file contains a NUL byte or is not valid UTF-8 |
 | `refused` | An item-named entry is a symlink, a Windows junction, a directory or another non-regular file (counted without being opened), or the file that opens lies outside its store |
 | `unreadable` | The file, or a memory directory, could not be opened, listed or read; the directory's other notes and the other directories are still read |
+
+A hidden name, such as a `.env` file, is never an item: discovery does not list it, so it is neither read nor counted.
 
 The reader opens a file only if the file that opens lies inside its store: on POSIX it opens one path component at a time from the store directory without following links, so a directory swapped for a link after listing is refused; on Windows it checks the path the open handle resolves to. A file is read again on every call; only the scan's verdict is remembered, by content hash. Claude Code's `MEMORY.md` index is not an item. The scan runs before decoding, so a file with a NUL byte is `not_text` even when it holds a secret.
 
@@ -61,7 +63,7 @@ User-level facts are Claude Code's top-level `<config dir>/memory/` and all of C
 
 Facts are split at Markdown headings, then into pieces of at most 1,500 characters at paragraph ends. Each chunk starts with the fact's name and description.
 
-A query never waits for the vector build. The lexical index answers at once; the vectors come from the installation's embedding model and are built by one background thread in batches of 2 chunks, stored in `shared_memory_store` under the installation data directory (`memory/`). The store keeps each chunk's vector, the SHA-256 of its text (never the text) and the fingerprint of the model that made the vector, written in the same save. The build saves progress about every 60 seconds. Unchanged chunks keep their vectors, vectors of another model are ignored and rebuilt, chunks of deleted notes are pruned, and a lock file keeps two server processes from building at once; a save holds a second lock that reloads share, so no process reads half a save. In the shared service every embedding goes through one inference worker: before each batch the build waits while another embedding (persona routing, a query) is queued, so such a call waits for at most one batch. A query's own embedding still queues behind the batch in progress. When the semantic part of a search fails, the answer is the lexical ranking and `index.semantic_error` says why.
+A query never waits for the vector build itself; it can wait a moment for a save in progress, which holds the store's save lock. The lexical index answers at once; the vectors come from the installation's embedding model and are built by one background thread in batches of 2 chunks, stored in `shared_memory_store` under the installation data directory (`memory/`). The store keeps each chunk's vector, the SHA-256 of its text (never the text) and the fingerprint of the model that made the vector, written in the same save. The build saves progress about every 60 seconds. Unchanged chunks keep their vectors, vectors of another model are ignored and rebuilt, chunks of deleted notes are pruned, and a lock file keeps two server processes from building at once; a save holds a second lock that reloads share, so no process reads half a save. In the shared service every embedding goes through one inference worker: before each batch the build waits while another embedding (persona routing, a query) is queued, so such a call waits for at most one batch. A query's own embedding still queues behind the batch in progress. When the semantic part of a search fails, the answer is the lexical ranking and `index.semantic_error` says why.
 
 `index` in a query result reports the state:
 

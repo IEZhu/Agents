@@ -228,15 +228,21 @@ def open_in_store(store: Store, path: Path):
         return _open_by_components(store, relative)
     stream = open_regular(path)
     final = _final_path(stream.fileno())
-    if final is not None and not _is_below(final, store.path):
+    if os.name == "nt" and (final is None or not _is_below(final, store.path)):
         stream.close()
-        raise Refused("symlink_refused", f"{path.name} resolves outside {store.label}")
+        # A handle whose path cannot be read (some network shares) is not trusted either.
+        raise Refused("symlink_refused", f"{path.name} does not verifiably lie inside {store.label}")
     return stream
 
 
 def _open_by_components(store: Store, relative: Path):
     flags = os.O_RDONLY | os.O_NOFOLLOW
-    directory = os.open(store.path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        directory = os.open(store.path, flags | os.O_DIRECTORY)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused("symlink_refused", f"{store.label} is a symlink") from None
+        raise
     try:
         for part in relative.parts[:-1]:
             try:

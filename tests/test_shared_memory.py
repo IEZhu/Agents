@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -495,6 +496,9 @@ def test_reloads_never_see_half_a_save(world, tmp_path):
     readers = [threading.Thread(target=reload, daemon=True) for _ in range(2)]
     for thread in readers:
         thread.start()
+    deadline = time.monotonic() + 10
+    while len(reloads) < 2 and not problems and time.monotonic() < deadline:  # both readers are reloading
+        time.sleep(0.01)
     try:
         for _ in range(15):
             writer._save(vectors, documents, model.fingerprint())
@@ -569,9 +573,11 @@ def test_a_same_size_rewrite_with_the_old_time_is_read_again(world):
     first = path.read_bytes()
     before = os.stat(path)
     assert "markdown links" in by_name(shared.collect(world["stores"]).facts.values())["style"].text
-    path.write_bytes(first.replace(b"markdown links", b"plain-text link"))
+    path.write_bytes(first.replace(b"markdown links", b"plain text URL"))
     os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
-    assert "plain-text link" in by_name(shared.collect(world["stores"]).facts.values())["style"].text
+    after = os.stat(path)
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+    assert "plain text URL" in by_name(shared.collect(world["stores"]).facts.values())["style"].text
 
 
 def test_a_long_description_does_not_grow_every_chunk(world):
@@ -592,3 +598,79 @@ def test_a_failing_semantic_search_still_answers_lexically(world, tmp_path):
     payload = shared.read(root=world["root"], query="markdown links", stores=world["stores"], index=index)
     assert payload["mode"] == "lexical" and payload["facts"][0]["name"] == "style"
     assert "inference worker gone" in payload["index"]["semantic_error"]
+
+
+# --- review round 2 ------------------------------------------------------------------------------------
+
+def test_a_handle_whose_path_cannot_be_read_is_refused_on_windows(world, monkeypatch):
+    monkeypatch.setattr(native.os, "supports_dir_fd", set())
+    monkeypatch.setattr(native.os, "name", "nt")
+    monkeypatch.setattr(native, "_final_path", lambda fd: None)
+    with pytest.raises(native.Refused):
+        native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md")
+
+
+@pytest.mark.skipif(not (os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY")), reason="POSIX dir_fd opens")
+def test_a_store_root_replaced_by_a_link_is_refused(world, tmp_path):
+    real = world["stores"][0].path
+    moved = tmp_path / "moved-claude"
+    real.rename(moved)
+    os.symlink(moved, real, target_is_directory=True)
+    with pytest.raises(native.Refused):
+        native.open_in_store(world["stores"][0], world["own"] / "feedback_style.md")
+
+
+def test_an_index_that_cannot_be_set_up_leaves_the_search_lexical(world, tmp_path):
+    blocked = write(tmp_path / "not-a-directory", "a file where the index directory should be\n")
+    index = make_index(blocked, FakeModel())
+    payload = shared.read(root=world["root"], query="markdown links", stores=world["stores"], index=index)
+    assert payload["mode"] == "lexical" and payload["facts"][0]["name"] == "style"
+    assert payload["index"]["state"] == "failed"
+
+
+def test_a_scope_never_sees_another_projects_build(world, tmp_path):
+    model = FakeModel()
+    index = make_index(tmp_path / "index", model)
+    build(world, index)
+    write(world["claude"] / "projects" / native.project_name(world["other"]) / "memory" / "new_plan.md",
+          note("new plan", "beta's next step", "Ship gamma next week."))
+    model.gate = threading.Event()
+    try:
+        mine = shared.read(root=world["root"], query="markdown links", stores=world["stores"], index=index)
+        everything = shared.read(root=world["root"], scope="all", query="markdown links", stores=world["stores"],
+                                 index=index)
+        assert mine["index"]["state"] == "ready" and mine["index"]["covered"] == mine["index"]["total"]
+        assert everything["index"]["state"] == "building"
+    finally:
+        model.gate.set()
+        index.join(30)
+
+
+def test_documents_that_change_during_a_build_are_built_by_the_same_builder(world, tmp_path):
+    model = FakeModel()
+    index = make_index(tmp_path / "index", model)
+    first = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    second = {**first, "extra:0": "a chunk that arrived while the first build ran"}
+    real = model.embed_texts
+    sent = []
+
+    def embed(texts):
+        if not sent:
+            sent.append(True)
+            index.refresh(second)
+        return real(texts)
+
+    model.embed_texts = embed
+    index._embed_texts = embed
+    index.refresh(first)
+    index.join(30)
+    assert index.status()["state"] == "ready"
+    assert index.coverage(second)["covered"] == len(second)
+
+
+@pytest.mark.asyncio
+async def test_a_fact_lookup_carries_no_search_status(served, world):
+    import src.server as server
+    style = visible(world, "project")["style"]
+    payload = json.loads(await server.read_shared_memory(fact_id=style.id, query="ignored"))
+    assert payload["mode"] == "fact" and "index" not in payload

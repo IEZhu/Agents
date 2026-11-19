@@ -2401,7 +2401,7 @@ async def read_shared_memory(
         payload = await asyncio.get_running_loop().run_in_executor(None, lambda: shared_memory.read(
             root=root, scope=scope, client=client, memory_type=memory_type, query=query, limit=limit,
             offset=offset, fact_id=fact_id, semantic=semantic))
-        if query and not semantic:
+        if query and fact_id is None and not semantic:
             payload["index"] = {"state": readiness.state()}  # warming_up, or failed: lexical only
         if unresolved is not None:
             payload["note"] = f"{payload.get('note', '')} The workspace did not resolve: {unresolved}".strip()
