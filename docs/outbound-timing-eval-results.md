@@ -1,5 +1,9 @@
 # Outbound timing rule: A/B results over three runs
 
+**Status:** recorded A/B results, November 7 to 10, 2026, of a candidate
+`rule-outbound-timing` on Opus 5. The rule was not adopted, and the runs measure a
+harness noise floor that makes their own per-group figures unusable.
+
 Date: November 7 to 10, 2026. Rule: `rules/rule-outbound-timing.mdc` on branch
 `claude/outbound-timing-trial`, two texts, each snapshotted beside the run that used it as
 `rule-as-run.mdc`: 1,009 bytes for runs 01 and 02, 1,096 bytes for run 03. Contexts built at

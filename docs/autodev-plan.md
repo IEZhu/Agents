@@ -1,6 +1,6 @@
 # Self-development: flow pipelines with contracts, execution profiles and local scheduled runs
 
-Date: 2026-10-12. Status: proposal, version 5, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Phase 0 is done and the phase 1a code is implemented (#338 to #348), the phase 1b code too (#350, the automatic mode); the acceptance runs of both wait for the owner, and the later phases are not implemented. The checklist plan is in [section 14](#14-implementation-plan); the owner's guide to what exists is [autodev.md](autodev.md).
+**Status:** proposal of 2026-10-12, version 5, partially implemented, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Phase 0 is done and the phase 1a code is implemented (#338 to #348), the phase 1b code too (#350, the automatic mode); the acceptance runs of both wait for the owner, and the later phases are not implemented. The checklist plan is in [section 14](#14-implementation-plan); the owner's guide to what exists is [autodev.md](autodev.md).
 
 Document history:
 

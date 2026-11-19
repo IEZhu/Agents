@@ -1,6 +1,6 @@
 # Reliability of delegated cooperation
 
-Status: proposal, 2026-11-06. Not implemented.
+**Status:** proposal of 2026-11-06, not implemented.
 Builds on [the task-scoped subagent contract](subagent-contract.md) (#291) and the
 peer-delegation epic #323 (`agents-core/subagent/2`, #324 to #330).
 Related: #534 (what a failed check means), #547 (a check that reuses the claim's

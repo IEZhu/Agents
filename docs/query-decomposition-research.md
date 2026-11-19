@@ -2,7 +2,7 @@
 
 # Ideas I1–I7 and a multidimensional query classifier: research evidence and its relationship to our measurements F1–F10
 
-Status: research synthesis of 2026-09-23 (branch `feat/factuality-layer`). It
+**Status:** research synthesis of 2026-09-23 (branch `feat/factuality-layer`). It
 records proposals and an experiment plan (E0–E4), not current behavior; code
 references and the "Currently in `classify_intent`" column describe that date.
 F1–F6 are the measurements recorded in the

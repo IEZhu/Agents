@@ -1,11 +1,11 @@
 # Shared MCP daemon validation
 
-Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
-
-Status: recorded validation of the initial daemon release. It does not cover
-later features such as automatic updates, alternate client configurations or the
-flow editor; current procedures and checks are in
+**Status:** recorded validation of the initial daemon release, 2026-09-21. It does
+not cover later features such as automatic updates, alternate client
+configurations or the flow editor; current procedures and checks are in
 [daemon operations](shared-mcp-daemon.md).
+
+Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
 ## Automated checks
 

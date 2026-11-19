@@ -1,5 +1,9 @@
 # Subagent implementation validation
 
+**Status:** recorded validation, 2026-10-11, of the revision named below. The
+current API is the [subagent contract](subagent-contract.md); these results do not
+establish model quality or token-cost savings.
+
 Recorded 2026-10-11 for Issue #291 on `codex/subagent-personas`, based on `e67bf32`. The implementation includes two MCP tools, strict task/result contracts, all 44 compact profiles, four worker rules, and shared instruction/documentation updates. These results do not establish model quality or token-cost savings.
 
 ## Checks

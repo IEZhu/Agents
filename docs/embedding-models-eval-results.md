@@ -1,5 +1,9 @@
 # Embedding models: retrieval and answer A/B results
 
+**Status:** recorded retrieval and answer A/B results, October 3, 2026, of the
+configurations named below; `harrier-oss-v1-270m` became the default after these
+runs (#178).
+
 Date: October 3, 2026. Code: commit `278b713` (`feat/embedding-prompts` before its
 rebase); runs and verdicts on branch `eval/embedding-models`. These results describe
 the recorded models, settings and sets only.

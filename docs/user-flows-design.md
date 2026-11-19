@@ -1,6 +1,6 @@
 # Personal flows: decision record
 
-Status: implemented on 2026-09-29. The maintained reference is the
+**Status:** implemented decision record, 2026-09-29. The maintained reference is the
 [flow guide](../flows/README.md#personal-and-repository-flows); the editor is
 described in the [daemon reference](shared-mcp-daemon.md#flow-editor).
 

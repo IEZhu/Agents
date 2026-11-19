@@ -1,5 +1,8 @@
 # English pivot rule: A/B results
 
+**Status:** recorded A/B results, October 2, 2026, of `rule-english-pivot` on the
+models and settings named below. The rule was not adopted.
+
 Date: October 2, 2026. Rule: `rules/rule-english-pivot.mdc` at `f164959`; contexts
 built at `2e9eaa2`, branch `feat/english-pivot-rule`. These results describe that
 rule text and the recorded models and settings only. The rule was not adopted; its

@@ -1,16 +1,17 @@
 # Documentation audit — 2026-10-18
 
+**Status:** recorded audit, 2026-10-18, and a historical record since 2026-10-25.
+Its documentation PR [#451](https://github.com/IEZhu/Agents/pull/451) merged into
+`dev` on 2026-10-24, and the
+[audit of 2026-10-25](documentation-audit-2026-10-25.md#before-the-promotion)
+supersedes the pre-promotion list below.
+
 This records a bounded source-based audit and refresh of Agents-Core at
 `bea70c576d0fe0f07208049ec8520dd6fc0bc432` (`origin/dev` when fetched for this
 run), on branch `codex/documentation-coverage-refresh`. It is evidence for this
 revision, not a guarantee that future source or installed clients match it.
 Repeat the [documentation refresh](../flows/documentation-refresh.md) for a later
 revision. Use the [documentation map](README.md) for current reader entry points.
-
-**Status on 2026-10-25:** historical record. Its documentation PR
-[#451](https://github.com/IEZhu/Agents/pull/451) merged into `dev` on 2026-10-24.
-The [audit of 2026-10-25](documentation-audit-2026-10-25.md#before-the-promotion)
-supersedes the pre-promotion list below.
 
 ## Method and scope
 
