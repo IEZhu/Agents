@@ -370,11 +370,16 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      `<server-or-skill>.<rule>` and the instruction's source. A dot joins the
      two parts, never a colon: the closing log's `record` (step 9) accepts only
      lowercase letters and digits joined by single dots, dashes or underscores,
-     at most 64 characters. So lowercase each part, turn every run of other
-     characters in it into one dash and trim dashes from its ends, join the
-     parts with the dot, then cut the slug to 64 characters and trim a dash or
-     dot left at its end: `My_Server` and `Send Report!` give
-     `my-server.send-report`.
+     at most 64 characters. So lowercase each part, turn every run of
+     characters other than ASCII letters and digits into one dash, and trim
+     dashes from its ends. The server or skill part may hold 31 characters and
+     the rule part 32, so the dot and the rule always survive. A part that comes
+     out empty or over its limit keeps as much of its start as fits in the
+     limit less 10 characters, then a dash if anything was kept, then `h` and
+     the first 8 hex digits of the SHA-256 of the original name in UTF-8, so
+     distinct names stay distinct. Join the parts with the dot: `My_Server`
+     and `Send Report!` give `my-server.send-report`, and a server named `工具`
+     gives the part `h5ca6730d`.
    - A tool that no instruction names is `no-rule`. List it with its call count;
      it is never a finding.
 3. **What was called.** List every call of an installed tool with its turn, time,

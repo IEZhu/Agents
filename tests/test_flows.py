@@ -551,18 +551,31 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
                                   "findings": [{**finding, "slug": "ccd-turn:wrap-up"}]})
     assert refused is None and problems
 
+    def part(name: str, limit: int) -> str:
+        # One part as step 4.2 describes it, applied as written.
+        kept = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        if kept and len(kept) <= limit:
+            return kept
+        head = kept[:limit - 10].rstrip("-")
+        digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+        return (head + "-" if head else "") + "h" + digest
+
     def slug(server: str, rule: str) -> str:
-        # The normalization step 4.2 describes, applied as written.
-        parts = [re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-") for part in (server, rule)]
-        return ".".join(parts)[:64].rstrip(".-")
+        return part(server, 31) + "." + part(rule, 32)
 
     assert ("`My_Server` and `Send Report!` give `my-server.send-report`" in text
             and slug("My_Server", "Send Report!") == "my-server.send-report")
-    for server, rule in (("Agents-Core", "log"), ("A__B", "--x--"),
-                         ("S" * 40, "R" * 40), ("x" * 63, "y")):
+    assert ("a server named `工具` gives the part `h5ca6730d`" in text
+            and slug("工具", "Send") == "h5ca6730d.send")
+    names = (("Agents-Core", "log"), ("A__B", "--x--"), ("工具", "Send"), ("服务", "Send"),
+             ("!!!", "???"), ("S" * 40, "R" * 40), ("x" * 63, "a"), ("x" * 63, "b"))
+    slugs = [slug(server, rule) for server, rule in names]
+    assert len(set(slugs)) == len(slugs), slugs  # distinct names stay distinct
+    for (server, rule), value in zip(names, slugs):
         accepted, problems = validate({"v": 1, "kind": "report",
-                                       "findings": [{**finding, "slug": slug(server, rule)}]})
-        assert accepted is not None, (server, rule, problems)
+                                       "findings": [{**finding, "slug": value}]})
+        assert accepted is not None, (server, rule, value, problems)
+        assert value.split(".")[1], value  # the rule part always survives
     for phrase in ("`-request` or `-agreement`, the last for intersecting work settled by messages",
                    "`-request`, `-agreement`), so repeats are counted per rule"):
         assert phrase in text, phrase
