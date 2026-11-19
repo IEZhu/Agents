@@ -179,9 +179,11 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
 ## Plans, research and recorded results
 
 Each of these documents opens with a **Status:** line naming its kind, its date, how
-much of it is implemented, and where current behavior is documented. They retain their
-original scope, measurements and limitations; the maintained references above are
-authoritative for current commands and behavior.
+much of it is implemented, and where current behavior is documented. The exception is
+the two generated reports at the end of the last list: a run of the script that writes
+one would overwrite such a line, so the entry notes its provenance instead. They all
+retain their original scope, measurements and limitations; the maintained references
+above are authoritative for current commands and behavior.
 
 ### Proposals and implementation contracts
 
