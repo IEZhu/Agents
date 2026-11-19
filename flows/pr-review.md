@@ -129,7 +129,12 @@ target branch can make a reviewed head unmergeable while the bots are working.
    repository forbids rewriting history or the branch is shared. Resolve each
    conflict by keeping the intent of both sides: read the merged change, adapt
    this branch to new names and interfaces, and update tests that both sides
-   touched. Run the relevant checks, then push to the source repository's remote
+   touched. Run the relevant checks. When the pull request is already open,
+   this push starts the reviewers' automatic passes, so first register the
+   reviewer allowance keys if this session has not yet (the registration later
+   in this step names them) and acquire them as
+   [Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-spending-it)
+   describes. Then push to the source repository's remote
    that step 1 verified, naming the destination and the lease explicitly:
    `git push <source remote> --force-with-lease=refs/heads/<branch>:<last seen head> HEAD:refs/heads/<branch>`
    after a rebase, or the same push without the lease after a merge. Never rely
@@ -420,10 +425,12 @@ Register those keys in the scope passed to `cooperation_register`, then:
    One `acquire` names every reviewer this round will ask, because a claim set
    is all-or-none. A push to the head of an open pull request spends the
    allowance of every reviewer that reviews its base branch automatically, just
-   as a request does, so acquire those keys before the push and publish the
-   pass it starts as consumed (item 6). Nothing else in this flow needs the
-   claim: reading check runs, waiting for a review already running and
-   resolving findings spend no allowance.
+   as a request does, wherever this flow makes it: updating the branch in
+   [step 1](#keep-the-branch-current-and-git-healthy) or pushing a round's fixes
+   in [step 4](#4-resolve-findings-and-repeat). Acquire those keys before the
+   push and publish the pass it starts as consumed (item 6). Nothing else in
+   this flow needs the claim: reading check runs, waiting for a review already
+   running and resolving findings spend no allowance.
 2. **A claim proves exclusivity, not available allowance.** After acquiring,
    and before each explicit request, read the published observations for that
    key from a `cooperation_read` snapshot and hold the request while the

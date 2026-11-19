@@ -153,14 +153,19 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
     for phrase in ("**Acquire before an explicit request or re-request, and before a push.**",
                    "A push to the head of an open pull request spends the allowance of every "
                    "reviewer that reviews its base branch automatically",
-                   "so acquire those keys before the push and publish the pass it starts as consumed",
+                   "Acquire those keys before the push and publish the pass it starts as consumed",
                    "An automatic pass cannot be held back once the push has landed, so claim the "
                    "allowance before the push",
                    "under the claim taken before the push (item 1)",
                    "### Claim a reviewer's allowance before spending it",
                    "Claim each reviewer's allowance right before that push, because the push "
                    "starts their automatic passes",
-                   "Make the request under the claim taken before the push in item 4"):
+                   "Make the request under the claim taken before the push in item 4",
+                   # The branch update of step 1 pushes into an open pull request too.
+                   "When the pull request is already open, this push starts the reviewers' "
+                   "automatic passes, so first register the reviewer allowance keys",
+                   "just as a request does, wherever this flow makes it: updating the branch in",
+                   "or pushing a round's fixes in"):
         assert phrase in review, phrase
 
 
