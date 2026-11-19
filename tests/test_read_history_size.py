@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -366,6 +367,9 @@ async def test_the_tool_description_fits_claude_codes_limit():
     import src.server as server
 
     # Claude Code cuts a tool description at 2,048 characters. Python before 3.13 keeps the
-    # docstring's four-space indent, which this bound adds back.
+    # docstring's four-space indent, so there the description is measured as served. From 3.13
+    # the compiler strips that indent, and the bound adds it back to hold a server on an older
+    # interpreter to the same limit. Adding it on 3.11 as well counted the indent twice.
     description = {tool.name: tool for tool in await server.mcp.list_tools()}["read_history"].description
-    assert len(description) + 4 * description.count("\n") < 2_048
+    stripped_indent = 4 * description.count("\n") if sys.version_info >= (3, 13) else 0
+    assert len(description) + stripped_indent < 2_048
