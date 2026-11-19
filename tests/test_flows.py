@@ -503,6 +503,25 @@ def test_thread_close_dates_misses_and_keeps_the_report_entry_distinct():
         assert phrase in text, phrase
 
 
+def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
+    """Another tool's slug is one the closing record accepts; agreement is a cooperation clause."""
+    from src.memory.record import validate
+
+    text = " ".join(FlowCatalog().load("thread-close").content.split())
+    assert "with the slug `<server-or-skill>.<rule>`" in text
+    assert "`<server-or-skill>:<rule>`" not in text
+    finding = {"status": "missed", "cause": "ignored", "level": "V2"}
+    accepted, problems = validate({"v": 1, "kind": "report",
+                                   "findings": [{**finding, "slug": "ccd-turn.wrap-up"}]})
+    assert accepted is not None, problems
+    refused, problems = validate({"v": 1, "kind": "report",
+                                  "findings": [{**finding, "slug": "ccd-turn:wrap-up"}]})
+    assert refused is None and problems
+    for phrase in ("`-request` or `-agreement`, the last for intersecting work settled by messages",
+                   "`-request`, `-agreement`), so repeats are counted per rule"):
+        assert phrase in text, phrase
+
+
 def test_thread_close_handoff_keeps_required_obligations_unfinished():
     text = " ".join(FlowCatalog().load("thread-close").content.split())
     for phrase in ("use `finishing` (🧹) when required obligations remain",
