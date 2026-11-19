@@ -131,6 +131,9 @@ def test_pr_review_looks_for_concurrent_sessions_without_requiring_the_coordinat
                    "Registration reserves nothing.",
                    "a persisted agreement through `cooperation_apply` and compatible resource claims",
                    "An informal exchange of messages does not satisfy that",
+                   # Two open pull requests from separate worktrees cannot see each other's edits.
+                   "another session's open pull request edits a file this one edits from its own worktree",
+                   "record the agreed merge order and who rebases in it, not only in session messages",
                    "answers `store_unavailable`, report the unavailable coordinator and continue",
                    # An empty roster is not an absence of peers.
                    "Never read a missing roster as evidence that nobody else is active.",
