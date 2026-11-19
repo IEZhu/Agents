@@ -489,6 +489,7 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 | `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
 | `log` | `log_interaction` | every final answer eligible for safe, authorized logging | eligible final answers outnumber calls after excluding the privacy skips that step 9 allows; a `history_last_error` or workspace error went unmentioned |
 | `history` | `read_history` | the user refers to earlier work | earlier work reconstructed from memory or asked for again |
+| `shared-memory` | `read_shared_memory` | the user asks what another AI client (Claude Code, Codex) remembers, or a fact one of them keeps in its own memory matters to the task | that memory guessed or asked for again; `scope=all` used for a question about one project |
 | `flows` | `list_flows`, `run_flow` | the user names a flow, or asks for a task that an existing flow covers | the task done ad hoc while the flow existed |
 | `new-flow` | `save_flow` | the same multi-step procedure done twice, or one the user wants to reuse | no flow proposed |
 | `flow-library` | `get_flow`, `delete_flow`, `set_flow_persona` | the user asks to inspect, restore or delete a flow, or to change a flow's persona | flow files or personas changed by hand instead of through the tools |
