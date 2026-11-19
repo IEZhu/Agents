@@ -458,8 +458,10 @@ Register those keys in the scope passed to `cooperation_register`, then:
    even when another reviewer's pause is already published, because releasing
    it earlier lets another session take the key before the pass spends it.
    That wait applies only to a push the remote accepted: a push rejected by the
-   lease, by branch protection or otherwise starts no pass, so once the session
-   has confirmed that the remote head did not move, it releases that claim.
+   lease, by branch protection or otherwise starts no pass of its own, so once
+   the session has confirmed the rejection (the remote head is not the commit it
+   pushed, even when another push has moved it), it releases that claim. While
+   the outcome is unknown, it keeps the claim.
    Never hold the allowance across a wait for findings to be fixed. A pause
    goes into `checkpoint.external_quota` as a `paused`
    observation with its next free time, the verbatim evidence and whether the

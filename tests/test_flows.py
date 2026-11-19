@@ -171,7 +171,10 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
                    "has appeared (item 6), even when another reviewer's pause is already published",
                    # A rejected push starts no pass, so its claim must not wait for one.
                    "That wait applies only to a push the remote accepted: a push rejected by the "
-                   "lease, by branch protection or otherwise starts no pass"):
+                   "lease, by branch protection or otherwise starts no pass",
+                   "once the session has confirmed the rejection (the remote head is not the commit "
+                   "it pushed, even when another push has moved it), it releases that claim",
+                   "While the outcome is unknown, it keeps the claim."):
         assert phrase in review, phrase
 
 
