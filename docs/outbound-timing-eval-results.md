@@ -2,7 +2,8 @@
 
 **Status:** recorded A/B results, November 7 to 10, 2026, of a candidate
 `rule-outbound-timing` on Opus 5. The rule was not adopted, and the runs measure a
-harness noise floor that makes their own per-group figures unusable.
+harness noise floor that makes their verdict-based per-group figures unusable; the
+answer-based counts, such as the send-now carve-out below, stand.
 
 Date: November 7 to 10, 2026. Rule: `rules/rule-outbound-timing.mdc` on branch
 `claude/outbound-timing-trial`, two texts, each snapshotted beside the run that used it as
