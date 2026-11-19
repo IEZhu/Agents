@@ -478,7 +478,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    prompt, the end of a turn), skip memory and instructions, which record the
    miss but do not fire at it. Before proposing a hook, read the client's hook
    configuration and the scripts it names, and extend the hook that already
-   covers the trigger instead of adding another.
+   covers the trigger instead of adding another. A hook that only reminds
+   reaches the model together with the result of the call it matched, so for an
+   irreversible call (a push to a pull request head, a review request, a merge)
+   the hook layer means a gate: it refuses the call while the required state,
+   such as a live claim, is missing, and falls back to a reminder only when that
+   state cannot be read.
 8. **One list, one yes.** Check existing tracking within the confidentiality
    boundary before adding a patch, and for each proposal name its destination,
    verified visibility and whether its content is generic or private. Never
