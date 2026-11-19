@@ -25,6 +25,7 @@ These links describe the published main branch. For an installed version or a de
 - [Worker contracts](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/subagent-contract.md): Prepare a bounded assignment, launch with native host tools and validate the returned result (plain text by default, or JSON).
 - [Worker model tiers](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/subagent-model-tiers.md): Complexity ratings, host launch arguments, conservative floors and escalation to a new attempt.
 - [Shared artifacts](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/shared-artifacts.md): Persistent exact inputs, pinned manifests and integrity checks.
+- [Shared memory](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/shared-memory.md): Read what Claude Code and Codex keep in their native memory, with sources, scopes and the background index.
 - [Agent cooperation](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/agent-cooperation/README.md): Optional shared-daemon coordination, claims, private messages and processing notifications.
 
 ## Operations and evidence
