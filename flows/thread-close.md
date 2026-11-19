@@ -458,9 +458,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    `#tool-missed-<slug>`, with or without a clause suffix, or naming that slug in
    their tool usage table. `read_history` has no tag filter and its `query` is a
    semantic search, so also page through recency listings (`limit`, `offset`,
-   `since`) and match each entry's `tags` exactly. Without library sync a recency
-   listing reads only the current journal, not its monthly archives; search those
-   by `query` or in the archive files, and state how far back the search reached.
+   `since`) and match each entry's `tags` exactly. A listing previews `outcome`
+   and caps `tags`, so read each candidate, and each entry whose `tags` came back
+   truncated, whole with `read_history(entry_id=...)` before deciding. Without
+   library sync both listings and `query` read only the current journal, not its
+   monthly archives: scan those files directly, under the same redaction
+   boundary, and state how far back the search reached.
    A repeat counts against a patch only when its `miss_at` is later
    than the time the patch was applied: a close often audits work begun before
    the last patch. A repeat after an applied patch means the patch did not hold:
