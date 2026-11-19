@@ -394,10 +394,11 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    - `caught`: a hook blocked or reminded, and the same turn then made the call;
    - `n/a`: no trigger.
 
-   Only `missed` and `misused` are findings. Give each its trigger time
-   (`miss_at`): the time of the turn or call where the trigger occurred, not of
-   this close. Level each `missed` and `misused` finding on the scale above: V2 when a
-   script over the transcript shows the trigger and the absent or broken call,
+   `caught`, `unavailable` and `n/a` are not findings. Give each `missed` and
+   `misused` finding its trigger time (`miss_at`): the time of the turn or call
+   where the trigger occurred, not of this close. Level each `missed` and
+   `misused` finding on the scale above: V2 when a script over the transcript
+   shows the trigger and the absent or broken call,
    V1 when you read both in the transcript, V0 when only the compacted
    conversation supports it. An absent call needs a complete transcript from the
    trigger on: when the inventory's `unreadable_lines` or `skipped_entries` may
@@ -456,13 +457,14 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    **Repeats escalate.** Search `read_history` for earlier closes tagged
    `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
    usage table. A repeat counts against a patch only when its `miss_at` is later
-   than the patch was applied: a close often audits work begun before the last
-   patch. A repeat after an applied patch means the patch did not hold: write the
-   next layer toward automatic (memory lesson, then client instruction, then
-   hook, flow step or flow persona, then Agents-Core itself), and name the
-   earlier close's time and the patch's. When a hook can match the trigger (a
-   call, a prompt, the end of a turn), start there: a memory lesson records the
-   miss but does not fire at it. Before proposing a hook, read the client's hook
+   than the time the patch was applied: a close often audits work begun before
+   the last patch. A repeat after an applied patch means the patch did not hold:
+   write the next layer toward automatic (memory lesson, then client
+   instruction, then hook, flow step or flow persona, then Agents-Core itself),
+   and name the earlier close's time and the patch's. The ladder starts at the
+   first layer that can fire at the trigger: when a hook can match it (a call, a
+   prompt, the end of a turn), skip memory and instructions, which record the
+   miss but do not fire at it. Before proposing a hook, read the client's hook
    configuration and the scripts it names, and extend the hook that already
    covers the trigger instead of adding another.
 8. **One list, one yes.** Check existing tracking within the confidentiality
@@ -562,8 +564,8 @@ operation trigger, not just exposure to the client.
   - Items below V2 go to a "to verify" list, each with the check that would
     verify it.
   - If the client has no durable memory, say so.
-- **Tool-usage patches** follow step 4.8. A V2 memory lesson states its trigger
-  and the call it requires.
+- **Tool-usage patches.** They follow step 4.8; a V2 memory lesson states its
+  trigger and the call it requires.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
@@ -603,7 +605,7 @@ Compose the report in the user's language:
 3. **What this thread got wrong**, and any instruction of this flow that this
    close could not execute as written or found contradicted by another. Name
    each by its step and one code: `no-check` (no direct check exists),
-   `unavailable` (it needs a tool or state this host lacks), `conflict` (another
+   `missing` (it needs a tool or state this host lacks), `conflict` (another
    instruction contradicts it), `ambiguous` or `other`. These items are the
    evidence on which this flow's text is repaired or retired
    ([Author a flow](README.md#author-a-flow)).
