@@ -147,6 +147,20 @@ def test_pr_review_looks_for_concurrent_sessions_without_requiring_the_coordinat
         assert phrase in review, phrase
 
 
+def test_pr_review_claims_a_reviewer_allowance_before_a_push():
+    """A push into a closed review window spent an automatic pass that no claim covered."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("**Acquire before an explicit request or re-request, and before a push.**",
+                   "A push to the head of an open pull request spends the allowance of every "
+                   "reviewer that reviews its base branch automatically",
+                   "so acquire those keys before the push and publish the pass it starts as consumed",
+                   "An automatic pass cannot be held back once the push has landed, so claim the "
+                   "allowance before the push",
+                   "under the claim taken before the push (item 1)",
+                   "Claim each reviewer's allowance before the push and the request"):
+        assert phrase in review, phrase
+
+
 def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
     """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())

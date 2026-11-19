@@ -260,8 +260,11 @@ while the request sent at 00:10:13Z was already redundant. What suppresses a
 request is a run still going or a completed review of that head, and nothing
 else: a rate-limited, paused or skipped status is a run of a kind and not a
 review, and those are exactly the states the rows above tell you to retry once
-their wait has passed. An automatic pass cannot be held back, so publish it as
-consumed allowance rather than claiming it afterwards.
+their wait has passed. An automatic pass cannot be held back once the push has
+landed, so claim the allowance before the push, as
+[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)
+says, and publish the pass as consumed allowance rather than claiming it
+afterwards.
 After each push of fixes, once the remote head updates, **explicitly
 re-request Copilot review when the integration is available and Copilot is not
 paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
@@ -413,10 +416,14 @@ read excludes no other session while the allowance is still being spent.
 
 Register those keys in the scope passed to `cooperation_register`, then:
 
-1. **Acquire before an explicit request or re-request.** One `acquire` names
-   every reviewer this round will ask, because a claim set is all-or-none.
-   Nothing else in this flow needs the claim: reading check runs, waiting for a
-   review already running and resolving findings spend no allowance.
+1. **Acquire before an explicit request or re-request, and before a push.**
+   One `acquire` names every reviewer this round will ask, because a claim set
+   is all-or-none. A push to the head of an open pull request spends the
+   allowance of every reviewer that reviews its base branch automatically, just
+   as a request does, so acquire those keys before the push and publish the
+   pass it starts as consumed (item 6). Nothing else in this flow needs the
+   claim: reading check runs, waiting for a review already running and
+   resolving findings spend no allowance.
 2. **A claim proves exclusivity, not available allowance.** After acquiring,
    and before each explicit request, read the published observations for that
    key from a `cooperation_read` snapshot and hold the request while the
@@ -454,8 +461,8 @@ Register those keys in the scope passed to `cooperation_register`, then:
 6. **Publish an automatic review as consumed.** A reviewer that runs itself on a
    push cannot be queued, and its run still spends the allowance. Publish a
    `consumed` observation (`quota.consumed_observation`), which carries no next
-   free time, with the evidence after
-   you observe it instead of claiming it after the fact.
+   free time, with the evidence after you observe it, under the claim taken
+   before the push (item 1) rather than a claim taken after the fact.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.
@@ -600,8 +607,8 @@ pushed head the bots review is a new round.
    Do not mark unresolved human approval requirements as satisfied by a reply.
 7. Re-request Copilot after every push of fixes when the integration is
    available and Copilot is not paused, using the current platform's supported
-   action. Claim each reviewer's allowance before the request and release it when
-   the round ends
+   action. Claim each reviewer's allowance before the push and the request, and
+   release it when the round ends
    ([Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)).
    Request a review from a paused bot only once its recorded next attempt
    time has passed. Check CodeRabbit's automatic review or explicit quota result.
