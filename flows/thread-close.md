@@ -367,7 +367,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      MCP server's own instructions, a skill's or plugin's description ("use
      when…"), the active persona bundle, and the user's explicit requests in the
      thread. Each becomes a row in the catalogue's form, with the slug
-     `<server-or-skill>:<rule>` and the instruction's source.
+     `<server-or-skill>.<rule>` and the instruction's source. A dot joins the
+     two parts, never a colon: the closing log's `record` (step 9) accepts only
+     lowercase letters and digits joined by single dots, dashes or underscores.
    - A tool that no instruction names is `no-rule`. List it with its call count;
      it is never a finding.
 3. **What was called.** List every call of an installed tool with its turn, time,
@@ -457,8 +459,10 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    **Repeats escalate.** `read_history(tag="ac-missed-<slug>")` and
    `read_history(tag="tool-missed-<slug>")` list exactly the entries carrying that
    tag, archived ones included. For `cooperation`, query both the current miss's
-   own clause tag (`ac-missed-cooperation-register`, `-claim`, `-ack` or
-   `-request`) and the older unqualified `ac-missed-cooperation`: only the same
+   own clause tag (`ac-missed-cooperation-register`, `-claim`, `-ack`,
+   `-request` or `-agreement`, the last for intersecting work settled by
+   messages without a committed agreement) and the older unqualified
+   `ac-missed-cooperation`: only the same
    clause is a repeat, and an entry tagged without a clause counts only when its
    report names that clause. Page with
    `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
@@ -694,8 +698,8 @@ In `apply` mode, also curate the call:
   `#tool-missed-<slug>` (another tool's rule), taken from the table rows, so an
   `unavailable` or `caught` row gets none. For a row covering several rules, as
   `cooperation` does, append the clause the thread broke in one word
-  (`#ac-missed-cooperation-register`, `-claim`, `-ack`, `-request`), so repeats
-  are counted per rule. Add `#flow-unexec-<step>-<code>` for each item of report
+  (`#ac-missed-cooperation-register`, `-claim`, `-ack`, `-request`,
+  `-agreement`), so repeats are counted per rule. Add `#flow-unexec-<step>-<code>` for each item of report
   section 3.
 
 A close that spans turns, for example while the verifier runs, logs each earlier
