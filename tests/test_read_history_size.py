@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -127,19 +128,31 @@ def test_an_entry_archived_by_rotation_is_still_found(tmp_path):
 
 
 @pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="chmod 0 does not block reads here")
-def test_an_unreadable_archive_does_not_fail_a_lookup(tmp_path, caplog):
-    history = tmp_path / "history.md"
-    writer = HistoryWriter(str(history), str(tmp_path / "history"), rotation_kb=1)
-    archived = writer.append_entry("archived", "action", "o" * 2_000)
+def test_an_unreadable_archive_fails_only_a_lookup_that_reads_it(tmp_path):
+    """A lookup that needs an archive it cannot read raises; one that ends before it does not.
+
+    ``find`` used to skip such an archive and answer "no such entry", which is the one answer
+    a fail-closed read must never give (see test_history_artifact_safety). The archive here is
+    from an old month, so the current entry's lookup ends at ``history.md`` without opening it.
+    An archive of the current month can still hold a later copy of the current entry, so that
+    lookup would open it and raise too.
+    """
+    history, archive_dir = tmp_path / "history.md", tmp_path / "history"
+    writer = HistoryWriter(str(history), str(archive_dir), rotation_kb=100_000)
     current = writer.append_entry("current", "action", "outcome")["entry_id"]
-    os.chmod(archived["rotated_to"], 0)
+    archived = "abcdef012345"
+    archive_dir.mkdir(exist_ok=True)
+    archive = archive_dir / "2020-01.md"
+    archive.write_text(block(archived, "2020-01-10T10:00:00+00:00"), encoding="utf-8")
+    reader = HistoryReader(str(history), str(archive_dir))
+    assert reader.find(archived).intent == "same intent"  # readable, the archive answers
+    os.chmod(archive, 0)
     try:
-        reader = HistoryReader(str(history), str(tmp_path / "history"))
         assert reader.find(current).intent == "current"
-        assert reader.find(archived["entry_id"]) is None
+        with pytest.raises(PermissionError):
+            reader.find(archived)
     finally:
-        os.chmod(archived["rotated_to"], 0o644)
-    assert "could not read history archive" in caplog.text
+        os.chmod(archive, 0o644)
 
 
 def block(entry_id: str, timestamp: str, machine: str | None = None) -> str:
@@ -354,6 +367,9 @@ async def test_the_tool_description_fits_claude_codes_limit():
     import src.server as server
 
     # Claude Code cuts a tool description at 2,048 characters. Python before 3.13 keeps the
-    # docstring's four-space indent, which this bound adds back.
+    # docstring's four-space indent, so there the description is measured as served. From 3.13
+    # the compiler strips that indent, and the bound adds it back to hold a server on an older
+    # interpreter to the same limit. Adding it on 3.11 as well counted the indent twice.
     description = {tool.name: tool for tool in await server.mcp.list_tools()}["read_history"].description
-    assert len(description) + 4 * description.count("\n") < 2_048
+    stripped_indent = 4 * description.count("\n") if sys.version_info >= (3, 13) else 0
+    assert len(description) + stripped_indent < 2_048

@@ -1,6 +1,7 @@
 """log_interaction through FastMCP: malformed attribution never costs the turn."""
 
 import json
+import os
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -153,8 +154,14 @@ async def test_partial_call_then_full_retry_yields_one_entry(workspace):
     assert len(HistoryReader(str(workspace / "history.md")).read_all()) == 1
 
 
+# A claim is stored only as a normalized absolute path (fallback.clean_claim). "/work/unregistered"
+# is one only on POSIX: Windows normalizes it to a backslash path before 3.13 and, from 3.13, does
+# not count it as absolute at all, so the claim is built for the platform the test runs on.
+CLAIMED = os.path.abspath(os.path.join(os.sep, "work", "unregistered"))
+
+
 class Refusing:
-    claimed = "/work/unregistered"
+    claimed = CLAIMED
     client = "codex"
 
     def require_root(self):
@@ -167,14 +174,14 @@ async def test_a_turn_without_a_project_goes_to_the_fallback_journal(writer, mon
     monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=Refusing()))
     response = await call(persona=FULL)
     assert response["timestamp"] and response["history"] == {"status": "recorded"}
-    assert response["workspace"] == {"root": None, "source": "fallback", "claimed": "/work/unregistered",
+    assert response["workspace"] == {"root": None, "source": "fallback", "claimed": CLAIMED,
                                      "reason": "workspace_required", "detail": "workspace_required: no workspace",
                                      "journal": str(fallback_journal / "history.md")}
     assert "fallback journal" in response["instruction"] and "Mention this once" in response["instruction"]
     assert server.drain_pending_logs(5)
     assert writer.call_args.args == (str(fallback_journal / "history.md"), str(fallback_journal / "history"))
     metadata = writer.return_value.append_entry.call_args.args[5]
-    assert metadata["claimed_workspace"] == "/work/unregistered" and metadata["unresolved"] == "workspace_required"
+    assert metadata["claimed_workspace"] == CLAIMED and metadata["unresolved"] == "workspace_required"
     assert metadata["client"] == "codex"
 
 
@@ -211,7 +218,7 @@ async def test_a_record_beside_the_fallback_keys_leaves_them_alone(writer, monke
     await call(record={**RECORD, "kind": "status"})
     assert server.drain_pending_logs(5)
     metadata = writer.return_value.append_entry.call_args.args[5]
-    assert metadata["claimed_workspace"] == "/work/unregistered" and metadata["record"]["kind"] == "status"
+    assert metadata["claimed_workspace"] == CLAIMED and metadata["record"]["kind"] == "status"
     assert "claimed_workspace" not in metadata["record"]
 
 
