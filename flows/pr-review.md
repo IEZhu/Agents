@@ -163,7 +163,7 @@ bounded scope with `cooperation_register`, read the roster with
 `cooperation_read` on the `repository_id` that registration returns, and read
 whether an active participant holds a file this change touches. Include the
 reviewer allowance keys of
-[step 3](#claim-a-reviewers-allowance-before-requesting) in that scope, because
+[step 3](#claim-a-reviewers-allowance-before-spending-it) in that scope, because
 a claim can only name a resource the registered scope already covers.
 
 Registration reserves nothing. Finding such a participant gates the edit only
@@ -262,14 +262,14 @@ else: a rate-limited, paused or skipped status is a run of a kind and not a
 review, and those are exactly the states the rows above tell you to retry once
 their wait has passed. An automatic pass cannot be held back once the push has
 landed, so claim the allowance before the push, as
-[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)
+[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-spending-it)
 says, and publish the pass as consumed allowance rather than claiming it
 afterwards.
 After each push of fixes, once the remote head updates, **explicitly
 re-request Copilot review when the integration is available and Copilot is not
 paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
 using the current platform's supported action. Claim its allowance first, as
-[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)
+[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-spending-it)
 describes: the budget is the account's, and other sessions are spending it. Do not assume a push requests it
 again. Confirm that a review was queued for the current head. If an earlier
 review is still running, wait for it to finish, then request again if the current
@@ -352,7 +352,7 @@ says which of them need an independent review. Unavailability is not approval.
 A reviewer's allowance is not a property of this pull request, so the rules below
 have two halves. The generic half holds for every reviewer: claim the allowance
 before spending it (see
-[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)),
+[Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-spending-it)),
 and turn whatever the reviewer answered into one next free time. The
 reviewer-specific half is the matcher below, and it is data, not logic.
 
@@ -393,7 +393,7 @@ other sessions). Request a review only for a head that needs one; batching
 fixes into one push per round, as in
 [Resolve findings](#4-resolve-findings-and-repeat), keeps those heads few.
 
-### Claim a reviewer's allowance before requesting
+### Claim a reviewer's allowance before spending it
 
 The allowance belongs to the account or installation that owns it, and every
 session in every pull request spends from the same one. Where the Agents-Core
@@ -587,6 +587,9 @@ pushed head the bots review is a new round.
    check title/description alignment.
    [Keep the branch current](#keep-the-branch-current-and-git-healthy) before
    pushing, so that one push carries the round's fixes and any branch update.
+   Claim each reviewer's allowance right before that push, because the push
+   starts their automatic passes
+   ([Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-spending-it)).
    Confirm the remote head matches the pushed commit. Do not count an
    older review or an earlier passing check as verification of the new head.
    If CI intentionally skips a check by changed-file filters, verify that its
@@ -607,9 +610,9 @@ pushed head the bots review is a new round.
    Do not mark unresolved human approval requirements as satisfied by a reply.
 7. Re-request Copilot after every push of fixes when the integration is
    available and Copilot is not paused, using the current platform's supported
-   action. Claim each reviewer's allowance before the push and the request, and
+   action. Make the request under the claim taken before the push in item 4, and
    release it when the round ends
-   ([Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-requesting)).
+   ([Claim a reviewer's allowance](#claim-a-reviewers-allowance-before-spending-it)).
    Request a review from a paused bot only once its recorded next attempt
    time has passed. Check CodeRabbit's automatic review or explicit quota result.
    Wait for the available bots to review the current head, read the new results,

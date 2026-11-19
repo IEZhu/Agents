@@ -157,7 +157,10 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
                    "An automatic pass cannot be held back once the push has landed, so claim the "
                    "allowance before the push",
                    "under the claim taken before the push (item 1)",
-                   "Claim each reviewer's allowance before the push and the request"):
+                   "### Claim a reviewer's allowance before spending it",
+                   "Claim each reviewer's allowance right before that push, because the push "
+                   "starts their automatic passes",
+                   "Make the request under the claim taken before the push in item 4"):
         assert phrase in review, phrase
 
 
