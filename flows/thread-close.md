@@ -454,19 +454,15 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    test that destination before applying it. When the tree is dirty, or the
    repository states no rule, propose the patch and leave it unapplied.
 
-   **Repeats escalate.** Find earlier closes tagged `#ac-missed-<slug>` or
-   `#tool-missed-<slug>`, with or without a clause suffix, or naming that slug in
-   their tool usage table. `read_history` has no tag filter and its `query` is a
-   semantic search, so also page through recency listings (`limit`, `offset`,
-   `since`) and match each entry's `tags` exactly. A listing previews `outcome`
-   and caps `tags`, so the tag or the table row can lie past the preview: read
-   every close it lists (`#thread-close` without `#progress`, or an intent that
-   starts with `Close thread`) and every entry whose `tags` came back truncated
-   whole with `read_history(entry_id=...)`, and classify it from the whole entry
-   before deciding. Without
-   library sync both listings and `query` read only the current journal, not its
-   monthly archives: scan those files directly, under the same redaction
-   boundary, and state how far back the search reached.
+   **Repeats escalate.** `read_history(tag="ac-missed-<slug>")` and
+   `read_history(tag="tool-missed-<slug>")` list exactly the entries carrying that
+   tag, archived ones included; for `cooperation`, query each clause tag too
+   (`ac-missed-cooperation-register`, `-claim`, `-ack`, `-request`). Page with
+   `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
+   without `#progress`), and also match the slug in earlier records' `findings`.
+   Take each earlier miss's `miss_at` and the patch's `applied_at` from the
+   records; for a close without a record, read it whole with
+   `read_history(entry_id=...)` and take the times from its report.
    A repeat counts against a patch only when its `miss_at` is later
    than the time the patch was applied: a close often audits work begun before
    the last patch. A repeat after an applied patch means the patch did not hold:
