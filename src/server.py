@@ -66,6 +66,7 @@ from src.utils.debug_logger import debug_log
 from src.utils import debug_logger
 from src.memory.describer import RepoDescriber
 from src.memory import fallback
+from src.memory import record as turn_record
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
@@ -1732,6 +1733,7 @@ async def log_interaction(
     idempotency_key: Annotated[str | None, Field(min_length=1, max_length=256,
         description="Generate a fresh UUID for each logical memory write and reuse it only for retries of that exact payload, across chats in the trusted Personal workspace. Changed payloads conflict. Retained with the journal; request_id is only correlation."),
         WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 256})] = None,
+    record: ta.record_arg(turn_record.describe()) = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
     with that exact response_content (redacted as below), then deliver the final
@@ -1757,6 +1759,10 @@ async def log_interaction(
       deduped; the persona line is not part of the hash). Defaults:
       ``intent=query``, ``action="Agent: {agent_name}"``, ``outcome=response_content``.
       Pass ``intent``/``action``/``outcome``/``files``/``tags`` to curate the entry.
+      ``record`` (#584) adds a closed, typed map under ``metadata.record``; it is
+      not part of the content hash, so a duplicate keeps the first entry's record.
+      An invalid record is refused before anything is written: ``status: ERROR``
+      with ``record_errors``, and the result reports ``record: {status, bytes}``.
 
     * **Langfuse** — generation trace recorded only when ``LANGFUSE_PUBLIC_KEY`` /
       ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
@@ -1804,15 +1810,31 @@ async def log_interaction(
                                        or not idempotency_key.strip()):
         return error_response(ValueError("invalid_idempotency_key"), request_id,
                               instruction="Nothing was accepted. Use a non-blank idempotency_key of at most 256 characters, or omit it.")
+    stored_record = None
+    if record is not None:
+        # Strict, unlike attribution: a record is for machines, and an entry written without it
+        # could not get it later, since a corrected retry of the same text is a duplicate.
+        stored_record, problems = turn_record.validate(record)
+        if problems:
+            payload = json.loads(error_response(ValueError("invalid_record"), request_id, instruction=(
+                "Nothing was logged. Correct the record as record_errors says, or omit it, and call "
+                "log_interaction once more with the same other arguments.")))
+            payload["record_errors"] = problems
+            return json.dumps(payload, ensure_ascii=False)
     # Include all caller-controlled content, not the generated correlation id,
     # server timestamp or transport label. Ownership is never a tool argument.
-    payload_fingerprint = None if idempotency_key is None else hashlib.sha256(json.dumps({
+    fingerprinted = {
         "agent_name": agent_name, "query": query, "response_content": response_content,
         "reasoning": reasoning, "intent": intent, "action": action, "outcome": outcome,
         "files": files, "tags": tags,
         "persona": persona.model_dump(mode="json") if isinstance(persona, PersonaDescriptor) else persona,
         "persona_action": persona_action,
-    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    }
+    if stored_record is not None:
+        # Only when present, so a keyed receipt written before #584 keeps its hash.
+        fingerprinted["record"] = stored_record
+    payload_fingerprint = None if idempotency_key is None else hashlib.sha256(json.dumps(
+        fingerprinted, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     if not request_id:
         request_id = str(uuid.uuid4())
     logged = parse_persona_for_logging(persona, agent_name)
@@ -1833,6 +1855,7 @@ async def log_interaction(
         "tags": tags or [],
         "persona_status": logged.status,
         "persona_action": persona_action,
+        "record": stored_record is not None,
         "warnings": warnings,
     })
     client, unresolved = None, None
@@ -1933,6 +1956,9 @@ async def log_interaction(
                 metadata["client"] = client_app
             if unresolved is not None:
                 metadata.update(unresolved.metadata())
+            if stored_record is not None:
+                # Its own key, never merged: the server's keys beside it are trusted on read.
+                metadata[turn_record.RECORD_KEY] = stored_record
             result = writer.append_entry(
                 eff_intent, eff_action, eff_outcome, files, tags,
                 metadata, dedupe_action=dedupe_action,
@@ -1973,6 +1999,13 @@ async def log_interaction(
         **workspace_report,
         **attribution,
     }
+    if stored_record is not None:
+        written = history_result.get("status")
+        payload["record"] = {
+            # A duplicate keeps the entry already written, and the record that entry has.
+            "status": "written" if written == "recorded" else "duplicate" if written == "duplicate" else "not_written",
+            "bytes": turn_record.size(stored_record),
+        }
     instructions = []
     if unresolved is not None:
         instructions.append(_fallback_instruction(unresolved))
@@ -2156,14 +2189,16 @@ async def read_history(
     entry_id: ta.opt_str("Optional id of one entry to return whole; the other arguments are then ignored.") = None,
     ctx: Context | None = None,
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+    tag: ta.opt_str("Optional tag; only entries carrying exactly this tag, with or without its leading #.") = None,
 ) -> str:
     """Read recent history entries, search them, or read one entry whole.
 
-    - Without ``query``: up to ``limit`` newest entries; ``since`` (ISO8601
-      prefix) keeps entries at or after it.
+    - Without ``query``: up to ``limit`` newest entries, archives included;
+      ``since`` (ISO8601 prefix) keeps entries at or after it.
     - With ``query``: the semantically nearest entries with cosine distance;
       the index is built on first use and rebuilt when history.md or the
       embedding configuration changes.
+    - ``tag`` keeps entries with exactly that tag, ``#`` optional.
     - ``offset`` skips that many of the newest (or nearest) entries first.
     - With ``entry_id``: that entry with its full text, also an archived one;
       the other arguments are ignored.
@@ -2185,8 +2220,9 @@ async def read_history(
     workspace_note? (a workspace argument outside the registered root was ignored),
     pid, history_last_error?}; mode is recency, semantic or entry. Entries
     (machine: null for this checkout's own):
-    - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
-    - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}.
+    - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine};
+      metadata.record is a turn's structured record (#584), whole.
+    - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}, no metadata.
     """
     client, unresolved = None, None
     try:
@@ -2211,8 +2247,9 @@ async def read_history(
         query = (query or "").strip() or None
         machine = (machine or "").strip() or None
         entry_id = (entry_id or "").strip().lower() or None
+        tag = (tag or "").strip() or None
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query, "machine": machine,
-                                           "offset": offset, "entry_id": entry_id})
+                                           "offset": offset, "entry_id": entry_id, "tag": tag})
         loop = asyncio.get_running_loop()
         reader = HistoryReader(str(root / "history.md"), str(root / "history"))
 
@@ -2228,7 +2265,7 @@ async def read_history(
                         needle is None or needle in f"{entry.intent}\n{entry.action}\n{entry.outcome}".lower())
                 scan = FALLBACK_READ_LIMIT
                 while True:
-                    batch = reader.read_recent(limit=scan, since=since, machine=machine)
+                    batch = reader.read_recent(limit=scan, since=since, machine=machine, tag=tag)
                     entries = [entry.to_dict() for entry in batch if wanted(entry)]
                     if len(entries) >= offset + limit or len(batch) < scan:
                         break
@@ -2256,12 +2293,12 @@ async def read_history(
 
             def search():
                 with _history_stores.acquire(client) as store:
-                    results = store.search(query, limit=offset + limit, machine=machine)
+                    results = store.search(query, limit=offset + limit, machine=machine, tag=tag)
                 return listing("semantic", results[offset:], workspace_report, offset)
             payload = await loop.run_in_executor(None, search)
         else:
             def recent():
-                entries = reader.read_recent(limit=offset + limit, since=since, machine=machine)
+                entries = reader.read_recent(limit=offset + limit, since=since, machine=machine, tag=tag)
                 return listing("recency", [e.to_dict() for e in entries[offset:]], workspace_report, offset)
             payload = await loop.run_in_executor(None, recent)
         debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"],

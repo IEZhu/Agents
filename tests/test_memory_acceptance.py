@@ -349,6 +349,58 @@ async def test_api_waits_for_commit_replays_timestamp_and_rejects_change(server_
     assert conflict["history"] == {"status": "error", "state": "rejected", "error": "idempotency_conflict"}
 
 
+def _receipt(path, entry_id):
+    entry = HistoryReader(str(path / "history.md")).find(entry_id)
+    return entry, entry.metadata["_agents_write"]
+
+
+@pytest.mark.asyncio
+async def test_a_keyed_call_without_a_record_keeps_the_fingerprint_it_had_before_records(server_workspace):
+    """#584: ``record`` joins the fingerprint only when present, so receipts written before it still replay."""
+    import hashlib
+
+    server, path = server_workspace
+    args = {"agent_name": "software_engineer", "query": "q", "response_content": "r", "idempotency_key": "old-1"}
+    first = json.loads(await server.log_interaction(**args))
+    _, receipt = _receipt(path, first["history"]["entry_id"])
+    before_records = {"agent_name": "software_engineer", "query": "q", "response_content": "r", "reasoning": None,
+                      "intent": None, "action": None, "outcome": None, "files": None, "tags": None,
+                      "persona": None, "persona_action": None}
+    assert receipt["payload_digest"] == hashlib.sha256(json.dumps(
+        before_records, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    with_record = json.loads(await server.log_interaction(**args, record={"v": 1, "kind": "status"}))
+    assert with_record["history"]["error"] == "idempotency_conflict"
+
+
+@pytest.mark.asyncio
+async def test_a_keyed_record_replays_and_a_changed_one_conflicts(server_workspace):
+    server, path = server_workspace
+    record = {"v": 1, "kind": "report", "patches": [{"layer": "hook", "slug": "delegation", "state": "applied",
+                                                     "applied_at": "2026-11-19T14:00:00+01:00"}]}
+    args = {"agent_name": "software_engineer", "query": "q", "response_content": "r", "idempotency_key": "rec-1"}
+    first = json.loads(await server.log_interaction(**args, record=record))
+    assert first["history"]["state"] == "durably_accepted" and first["record"]["status"] == "written"
+    # The same moment written in UTC is the same record once stored.
+    same = {**record, "patches": [{**record["patches"][0], "applied_at": "2026-11-19T13:00:00Z"}]}
+    replay = json.loads(await server.log_interaction(**args, record=same))
+    assert replay["history"] == first["history"] and replay["timestamp"] == first["timestamp"]
+    changed = json.loads(await server.log_interaction(**args, record={**record, "kind": "patch-apply"}))
+    assert changed["history"]["error"] == "idempotency_conflict"
+    entry, _ = _receipt(path, first["history"]["entry_id"])
+    assert entry.metadata["record"]["patches"][0]["applied_at"] == "2026-11-19T13:00:00+00:00"
+    assert len(HistoryReader(str(path / "history.md")).journal_entries()) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_invalid_record_is_refused_before_a_keyed_write(server_workspace):
+    server, path = server_workspace
+    result = json.loads(await server.log_interaction("software_engineer", "q", "r", idempotency_key="bad-1",
+                                                     record={"v": 1, "kind": "report", "session": "C:\\x"}))
+    assert result["status"] == "ERROR" and result["message"] == "invalid_record"
+    assert result["record_errors"][0].startswith("record.session:")
+    assert not (path / "history.md").exists()
+
+
 @pytest.mark.asyncio
 async def test_api_retry_accepts_persona_model_and_equivalent_object(server_workspace):
     from src.schemas.protocol import PersonaDescriptor

@@ -243,6 +243,22 @@ def test_the_machine_filter(shared, clock):
     assert [e.intent for e in a.read(machine="machine-b", since="2026-10-05T09:00:04")] == ["theirs"]
 
 
+def test_a_record_reaches_the_other_machine_whole_and_by_its_tag(shared, clock):
+    """#584: a record rides in the Meta line like the rest of metadata, so sharing carries it unchanged."""
+    a, b = shared
+    record = {"v": 1, "kind": "report", "session": "s-1",
+              "findings": [{"slug": "delegation", "status": "missed", "level": "V2",
+                            "miss_at": "2026-10-05T09:00:03+00:00"}]}
+    a.log("close", tags=["thread-close"], metadata={"record": record})
+    a.log("unrelated", tags=["other"])
+    for box in (a, b):
+        box.sync()
+    seen, = b.read(tag="#thread-close")
+    assert seen.intent == "close" and seen.machine == "machine-a"
+    assert seen.metadata["record"] == record
+    assert [e.intent for e in a.read(tag="thread-close")] == ["close"]
+
+
 def test_reading_without_sync_is_unchanged(tmp_path, remote, clock):
     box = Box(tmp_path, "solo", remote)
     writer = HistoryWriter(str(box.history), str(box.repo / "history"), rotation_kb=1)
@@ -252,7 +268,8 @@ def test_reading_without_sync_is_unchanged(tmp_path, remote, clock):
     plain = HistoryReader(str(box.history)).read_recent(limit=50)
     with box.active():  # installed, but sync is not set up on this machine
         assert HistoryReader(str(box.history)).read_recent(limit=50) == plain
-    assert len(plain) < 4 and all(e.machine is None for e in plain)
+    # The archives are read without sync too (#584): a record a later run looks for may be in one.
+    assert len(plain) == 4 and all(e.machine is None for e in plain)
     assert HistoryReader(str(box.history)).read_recent(machine="local") == plain
     assert HistoryReader(str(box.history)).read_recent(machine="machine-b") == []
 

@@ -8,6 +8,7 @@ import os
 import pytest
 
 from src.engine import config as engine_config
+from src.memory import record as turn_record
 from src.memory.history import HistoryReader, HistoryStore, HistoryWriter, MachineHistory, set_sync
 from src.memory.history_results import LIST_ITEMS, RESULT_BUDGET, TEXTS, listing, preview, to_json
 from src.result_size import INLINE_LIMIT, shown_size
@@ -265,6 +266,63 @@ def test_a_preview_with_its_ellipsis_stays_within_its_limit():
     assert len(preview("x" * 1_000, 600)) == 600 and preview("x" * 1_000, 600).endswith("…")
     worded = preview("word " * 200, 300)
     assert len(worded) <= 300 and worded.endswith("word…")
+
+
+def biggest_record() -> dict:
+    """A valid record as close to the byte cap as whole findings get it (#584)."""
+    findings = []
+    value = {"v": 1, "kind": "report", "session": "s" * 64, "findings": findings}
+    for n in range(32):
+        findings.append({"slug": f"tool-{n:02d}-" + "x" * 52, "status": "missed", "cause": "not-in-context",
+                         "miss_at": "2026-11-19T13:24:14+00:00", "level": "V2"})
+        if turn_record.size(value) > turn_record.MAX_BYTES:
+            findings.pop()
+            break
+    stored, problems = turn_record.validate(value)
+    assert problems == [] and turn_record.size(stored) > turn_record.MAX_BYTES - 200
+    return stored
+
+
+def test_a_record_at_its_cap_never_makes_an_entry_a_stub():
+    record = biggest_record()
+    rows = entries(40, files=LIST_ITEMS)
+    for row in rows:
+        row["metadata"] = {"answer_timestamp": "2026.11.19 13:00:00", "record": record}
+    payload = listing("recency", rows, {"pid": 1})
+    assert shown_size(to_json(payload)) <= RESULT_BUDGET
+    shown = payload["entries"]
+    assert len(shown) >= 5 and payload["total"] + payload.get("omitted", 0) == 40
+    assert all("metadata" not in entry.get("truncated", {}) for entry in shown)
+    assert all(entry["metadata"]["record"] == record for entry in shown)
+    # One entry at the shortest previews leaves most of the budget: the record alone cannot stub it.
+    alone = listing("recency", rows[:1], {"pid": 1})
+    assert shown_size(to_json(alone)) < RESULT_BUDGET // 4
+
+
+@pytest.mark.asyncio
+async def test_records_rotated_and_squeezed_are_paged_back_whole_by_tag(client_root):
+    import src.server as server
+
+    record = biggest_record()
+    writer = HistoryWriter(str(client_root / "history.md"), str(client_root / "history"), rotation_kb=40)
+    tagged = []
+    for index in range(30):
+        tagged.append(writer.append_entry(long_text(index, 1_200), "Flow: thread-close (apply)",
+                                          long_text(index, 4_000), tags=["thread-close"],
+                                          metadata={"record": record})["entry_id"])
+    for index in range(30, 60):
+        writer.append_entry(long_text(index, 1_200), "Agent: software_engineer", long_text(index, 4_000))
+    assert list((client_root / "history").glob("*.md"))  # most of the closes were rotated away
+    seen, offset = [], 0
+    while True:
+        page = json.loads(await server.read_history(tag="#thread-close", limit=30 - offset, offset=offset))
+        assert page["mode"] == "recency" and page["total"] > 0
+        seen += page["entries"]
+        offset += page["total"]
+        if not page.get("omitted"):
+            break
+    assert sorted(entry["id"] for entry in seen) == sorted(tagged)
+    assert all(entry["metadata"]["record"] == record and "truncated" in entry for entry in seen)
 
 
 def test_an_entry_too_large_even_alone_comes_as_a_stub_and_paging_moves_on():

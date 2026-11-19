@@ -96,6 +96,33 @@ def persona_arg(description: str):
         "type": "object", "properties": PERSONA_PROPERTIES, "description": description})]
 
 
+_RECORD_ITEM = {"type": "object"}
+RECORD_PROPERTIES = {
+    "v": {"type": "integer", "description": "Schema version, 1."},
+    "kind": {"type": "string", "description": "report, patch-apply or status."},
+    "session": {"type": "string", "description": "Session id as a slug."},
+    "close_ordinal": {"type": "integer", "description": "Which close of this session, from 1."},
+    "findings": {"type": "array", "items": _RECORD_ITEM,
+                 "description": "Tool-usage rows: {slug, status, cause, miss_at, level}."},
+    "patches": {"type": "array", "items": _RECORD_ITEM,
+                "description": "Patches: {id, layer, slug, state, applied_at}."},
+    "verifier": {"type": "object",
+                 "description": "Counts: claims, confirmed, refuted, unconfirmed, invalid_rounds."},
+    "prep_failures": {"type": "integer", "description": "Worker preparations that failed."},
+    "unexecutable": {"type": "array", "items": _RECORD_ITEM,
+                     "description": "Flow steps that could not run as written: {step, code}."},
+    "duration_s": {"type": "integer", "description": "Seconds from the first to the last transcript entry."},
+    "responses": {"type": "integer", "description": "Model responses, deduplicated."},
+    "output_tokens": {"type": "integer", "description": "Output tokens of those responses."},
+}
+
+
+def record_arg(description: str):
+    """A turn's structured record (``src.memory.record``); the body validates it strictly."""
+    return Annotated[Any, WithJsonSchema({
+        "type": "object", "properties": RECORD_PROPERTIES, "description": description})]
+
+
 def text_or_lines(description: str):
     """Optional history: a list of strings, or one string (the body normalizes it)."""
     return Annotated[list[str] | str | None, WithJsonSchema({**_STRS, "description": description})]
