@@ -642,7 +642,10 @@ a second call:
   close could not execute as written, and the inventory's `record` numbers. An
   answer `invalid_record` wrote nothing: correct what `record_errors` names and
   make the call once more, which is not a second call. When it is refused for
-  its size, leave out the `used` rows first.
+  its size or for a list over its limit (32 `findings`, 32 `patches`, 16
+  `unexecutable`), leave out the `used` and `caught` findings first, then what
+  still exceeds the limit, and say in the report which items the record left
+  out: the report keeps every row.
 
 In `apply` mode, also curate the call:
 
@@ -659,7 +662,9 @@ In `apply` mode, also curate the call:
 close with `read_history(tag="session-<id>")`, which lists this thread's
 entries, archived ones included. Accept an entry only when its tags contain both
 `#thread-close` and this thread's `#session-<id>`, and name that entry's time in
-the report; its record's `close_ordinal` plus one is this close's. If
+the report. This close's `close_ordinal` is one more than the number of earlier
+closes found, whether or not they carry a record: closes from before records
+existed have none. If
 none matches, the report says that no earlier close was found. Without
 Agents-Core MCP, or after a privacy skip under step 9, this close creates no
 history entry; say so in the report.

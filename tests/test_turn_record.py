@@ -28,6 +28,17 @@ def test_a_full_record_is_kept_with_its_times_in_utc():
     assert record.size(stored) <= record.MAX_BYTES
 
 
+@pytest.mark.parametrize("given,stored", [
+    ("0001-01-01T00:00:00+00:00", "0001-01-01T00:00:00+00:00"),
+    ("0001-01-01T00:00:00-01:00", "0001-01-01T01:00:00+00:00"),
+    ("9999-12-31T23:59:59+01:00", "9999-12-31T22:59:59+00:00"),
+])
+def test_times_at_the_edges_of_the_range_still_convert(given, stored):
+    record_, problems = record.validate({"v": 1, "kind": "report", "findings": [
+        {"slug": "x", "status": "missed", "miss_at": given}]})
+    assert problems == [] and record_["findings"][0]["miss_at"] == stored
+
+
 def test_the_smallest_record_is_a_version_and_a_kind():
     assert record.validate({"v": 1, "kind": "status"}) == ({"v": 1, "kind": "status"}, [])
 
@@ -45,6 +56,11 @@ def test_the_smallest_record_is_a_version_and_a_kind():
     ({"v": 1, "kind": "report", "findings": [{"status": "missed"}]}, "record.findings[0].slug"),
     ({"v": 1, "kind": "report", "findings": [{"slug": "x", "status": "missed",
                                               "miss_at": "2026-11-19T13:24:14"}]}, "record.findings[0].miss_at"),
+    # Valid ISO 8601 that leaves datetime's range once moved to UTC.
+    ({"v": 1, "kind": "report", "findings": [{"slug": "x", "status": "missed",
+                                              "miss_at": "0001-01-01T00:00:00+01:00"}]}, "record.findings[0].miss_at"),
+    ({"v": 1, "kind": "report", "patches": [{"layer": "hook", "slug": "x", "state": "applied",
+                                             "applied_at": "9999-12-31T23:59:59-01:00"}]}, "record.patches[0].applied_at"),
     ({"v": 1, "kind": "report", "patches": [{"layer": "wiki", "slug": "x", "state": "applied"}]},
      "record.patches[0].layer"),
     ({"v": 1, "kind": "report", "verifier": {"claims": -1}}, "record.verifier.claims"),

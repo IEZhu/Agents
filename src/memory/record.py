@@ -107,17 +107,19 @@ class Slug(_Rule):
 @dataclass(frozen=True)
 class Time(_Rule):
     def check(self, value, where, problems):
-        moment = None
+        stored = None
         if isinstance(value, str) and len(value) <= 40 and "T" in value:
             try:
                 moment = _dt.datetime.fromisoformat(value)
-            except ValueError:
-                moment = None
-        if moment is None or moment.tzinfo is None:
+                if moment.tzinfo is not None:
+                    # The journal's own times are UTC with an offset; stored the same way, the two
+                    # compare as text. Year 1 or 9999 with an offset leaves datetime's range here.
+                    stored = moment.astimezone(_dt.timezone.utc).replace(microsecond=0).isoformat()
+            except (ValueError, OverflowError):
+                stored = None
+        if stored is None:
             problems.append(f"{where}: {self.text()}")
-            return None
-        # The journal's own times are UTC with an offset; stored the same way, the two compare as text.
-        return moment.astimezone(_dt.timezone.utc).replace(microsecond=0).isoformat()
+        return stored
 
     def text(self):
         return "an ISO 8601 time with its UTC offset, such as 2026-11-19T13:24:14+00:00"
