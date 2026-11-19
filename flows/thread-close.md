@@ -462,7 +462,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    clause is a repeat, and an entry tagged without a clause counts only when its
    report names that clause. Page with
    `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
-   without `#progress`), and also match the slug in earlier records' `findings`.
+   without `#progress`), and also match the slug in earlier records' `findings`
+   at V1 or above. A V0 finding carries no miss tag (step 9) and never counts as
+   a repeat: it rests only on the compacted conversation, too weak to escalate.
    Take each earlier miss's `miss_at` and the patch's `applied_at` from the
    records; for a close without a record, read it whole with
    `read_history(entry_id=...)` and take the times from its report.
