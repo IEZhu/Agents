@@ -244,8 +244,21 @@ async def test_a_record_lands_in_the_journal_and_reads_back_whole(workspace):
     assert entry["metadata"]["record"] == turn_record.validate(RECORD)[0]
     again = await call(record={**RECORD, "kind": "status"}, tags=["thread-close"])
     assert again["history"]["status"] == "duplicate" and again["record"]["status"] == "duplicate"
+    assert "record was not stored" in again["instruction"]
     assert server.drain_pending_logs(5)
     assert [e.metadata["record"]["kind"] for e in HistoryReader(str(workspace / "history.md")).read_all()] == ["report"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history,status", [
+    ({"status": "error", "state": "unknown", "error": "history_unwritable"}, "unknown"),
+    ({"status": "error", "state": "rejected", "error": "idempotency_conflict"}, "not_written"),
+])
+async def test_a_failed_write_says_whether_its_record_may_have_landed(writer, history, status):
+    writer.return_value.append_entry.return_value = history
+    response = await call(record=RECORD)
+    assert response["record"]["status"] == status
+    assert "record was not stored" not in response["instruction"]
 
 
 FORBIDDEN = ("anyOf", "oneOf", "allOf", "$ref", "pattern", "enum", "additionalProperties",

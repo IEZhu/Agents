@@ -1999,14 +1999,19 @@ async def log_interaction(
         **workspace_report,
         **attribution,
     }
+    instructions = []
     if stored_record is not None:
         written = history_result.get("status")
         payload["record"] = {
-            # A duplicate keeps the entry already written, and the record that entry has.
-            "status": "written" if written == "recorded" else "duplicate" if written == "duplicate" else "not_written",
+            # An uncertain write is uncertain for its record too; a keyed retry settles both.
+            "status": ("written" if written == "recorded" else "duplicate" if written == "duplicate"
+                       else "unknown" if history_result.get("state") == "unknown" else "not_written"),
             "bytes": turn_record.size(stored_record),
         }
-    instructions = []
+        if written == "duplicate":
+            instructions.append(
+                "This text was already logged, so this call's record was not stored: the earlier entry "
+                "keeps its own record, if it has one. Do not retry to attach it.")
     if unresolved is not None:
         instructions.append(_fallback_instruction(unresolved))
     if warnings and history_result.get("status") != "error":
