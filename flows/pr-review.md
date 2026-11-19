@@ -171,7 +171,11 @@ through the repository's own cooperation requirements: a persisted agreement
 through `cooperation_apply` and compatible resource claims before conflicting
 work, with one integrator named. An informal exchange of messages does not
 satisfy that and does not make the edit safe. Where those requirements cannot be
-met, say so and leave the shared file alone rather than editing it first.
+met, say so and leave the shared file alone rather than editing it first. That
+agreement is needed as well when another session's open pull request edits a
+file this one edits from its own worktree: neither checkout shows the other's
+edits, so record the agreed merge order and who rebases in it, not only in
+session messages.
 
 The coordinator is optional, so this step must not become a prerequisite. When
 either call answers `store_unavailable`, report the unavailable coordinator and
