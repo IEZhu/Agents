@@ -508,10 +508,12 @@ Register those keys in the scope passed to `cooperation_register`, then:
    pass the reviewer refused for its allowance stays a `paused` observation,
    as item 5 says. A `consumed` observation newer than the pause both sessions
    waited for means that window is spent, although it carries no next free
-   time: treat the reviewer as unavailable for this round, as item 3 does for
-   a held key. Without a committed agreement before the window opens, nothing
-   was agreed: the window goes to whoever acquires the key first, and the
-   other finds it spent that way.
+   time, so item 2 alone would not stop a request: do not send that reviewer
+   one, release the claim without spending it and treat the reviewer as
+   unavailable for this round, as item 3 does for a held key. Without a
+   committed agreement before the window opens, nothing was agreed: the window
+   goes to whoever acquires the key first, and the other finds it spent that
+   way.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.

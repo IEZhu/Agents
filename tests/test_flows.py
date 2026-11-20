@@ -206,6 +206,8 @@ def test_pr_review_agrees_the_order_of_a_shared_review_window():
                    "a request or pass the reviewer refused for its allowance stays a `paused` observation",
                    "A `consumed` observation newer than the pause both sessions waited for means "
                    "that window is spent, although it carries no next free time",
+                   # A consumed observation has no time for item 2 to wait on.
+                   "do not send that reviewer one, release the claim without spending it",
                    # Different published times: the earliest one decides when to ask.
                    "ask before the earliest: a participant acting on it takes the window from "
                    "one waiting for a later time",
