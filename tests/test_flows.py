@@ -187,6 +187,16 @@ def test_pr_review_agrees_the_order_of_a_shared_review_window():
                    "Message that participant with `cooperation_send`, naming the key, the next "
                    "free time and both pull requests",
                    "the pull request with no review from that reviewer yet goes first",
+                   # The tie-break reads only what every snapshot exposes.
+                   "the one whose pause has the earlier `observed_at`, then the lower pull "
+                   "request number",
+                   # A proposed order binds nobody until it is accepted.
+                   "The order holds only once the other participant accepts it",
+                   # The next holder can only see a spent window that was published.
+                   "Whoever spends the window, by a request or a push, publishes a `consumed` "
+                   "observation for that key before releasing it",
+                   "A `consumed` observation newer than the pause both sessions waited for means "
+                   "that window is spent, although it carries no next free time",
                    # Different published times: the earliest one decides when to ask.
                    "ask before the earliest: a participant acting on it takes the window from "
                    "one waiting for a later time",

@@ -487,16 +487,22 @@ Register those keys in the scope passed to `cooperation_register`, then:
    settle who spends that window before it opens instead of each waiting for
    its own reading of the time. Message that participant with
    `cooperation_send`, naming the key, the next free time and both pull
-   requests. Unless the two agree otherwise, the pull request with no review
-   from that reviewer yet goes first; when that does not decide, the one
-   whose pause was published first. When the snapshot carries different
-   next free times for the key, ask before the earliest: a participant acting
-   on it takes the window from one waiting for a later time. The agreed order
+   requests, and propose an order: the pull request with no review from that
+   reviewer yet goes first; when that does not decide, the one whose pause
+   has the earlier `observed_at`, then the lower pull request number. The
+   order holds only once the other participant accepts it, or answers with
+   another order that you accept. When the snapshot carries different next
+   free times for the key, ask before the earliest: a participant acting on
+   it takes the window from one waiting for a later time. The agreed order
    changes nothing about item 1: the participant going first still acquires
-   the key before its request. Without an answer before the window opens,
-   nothing was agreed: the window goes to whoever acquires the key first, and
-   the other treats that reviewer as unavailable for this round, as item 3
-   says.
+   the key before its request. Whoever spends the window, by a request or a
+   push, publishes a `consumed` observation for that key before releasing
+   it, as item 6 does for an automatic pass. A `consumed` observation newer
+   than the pause both sessions waited for means that window is spent,
+   although it carries no next free time: treat the reviewer as unavailable
+   for this round, as item 3 does for a held key. Without an answer before
+   the window opens, nothing was agreed: the window goes to whoever acquires
+   the key first, and the other finds it spent that way.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.
