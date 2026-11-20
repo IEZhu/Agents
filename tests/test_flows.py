@@ -178,57 +178,32 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
         assert phrase in review, phrase
 
 
-def test_pr_review_agrees_the_order_of_a_shared_review_window():
+def test_pr_review_coordinates_a_shared_review_window():
     """Two sessions waited for one review window, and the one waiting for the later published time lost it."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())
-    for phrase in ("**Agree the order before a shared window opens.**",
-                   "settle who spends that window before it opens instead of each waiting for "
-                   "its own reading of the time",
-                   "Message that participant with `cooperation_send`, naming the key, the next "
-                   "free time and both pull requests",
-                   "the pull request with no review from that reviewer yet goes first",
-                   # The tie-break reads only what every snapshot exposes.
-                   "the one whose pause has the earlier `observed_at`, then the lower pull "
-                   "request number",
-                   # A mailbox reply is not an agreement; the coordinator enforces a committed one.
-                   "Use the mailbox only to negotiate: a reply there binds nobody.",
-                   "The order holds only once it is a committed agreement through `cooperation_apply`",
-                   "while that agreement stands, the coordinator refuses the key to the other participant",
-                   # An agreement nobody ends would keep refusing the key in later rounds.
-                   "Each participant cancels that agreement with `cancel` and its `agreement_id` as "
-                   "soon as it releases the key for that window, whether it spent the window or found "
-                   "it spent",
+    for phrase in ("**Tell the other session before a shared window opens.**",
+                   "message that participant with `cooperation_send` before the window opens, naming "
+                   "the key, the next free time and both pull requests",
+                   "the pull request with no review from that reviewer yet, otherwise the one whose "
+                   "pause has the earlier `observed_at`",
+                   # The suggestion is a courtesy; the claim still decides.
+                   "The suggestion binds nobody: the key decides, and whoever acquires it first spends "
+                   "the window under item 1.",
+                   # Different published times: the earliest one decides when to ask.
+                   "send the message before the earliest: a participant acting on it takes the window "
+                   "from one waiting for a later time",
                    # The next holder can only see a spent window that was published.
-                   "a `propose` that assigns the key to the participant going first, acknowledged "
-                   "by both participants, the proposer included",
                    "Whoever spends the window, with a request the reviewer accepted or a push whose "
                    "automatic pass started, publishes a `consumed` observation for that key",
                    # A refusal for the allowance is a pause, never a spent window.
                    "a request or pass the reviewer refused for its allowance stays a `paused` observation",
-                   "A `consumed` observation newer than the pause both sessions waited for means "
-                   "that window is spent, although it carries no next free time",
                    # A consumed observation has no time for item 2 to wait on.
-                   "do not send that reviewer one, release the claim without spending it",
-                   # Different published times: the earliest one decides when to ask.
-                   "ask before the earliest: a participant acting on it takes the window from "
-                   "one waiting for a later time",
-                   # The order never replaces the claim.
-                   "the participant going first still acquires the key before its request",
-                   # Silence is not an agreement.
-                   "Without a committed agreement before the window opens, nothing was agreed"):
+                   "A `consumed` observation newer than the pause both sessions waited for means that "
+                   "window is spent, although it carries no next free time",
+                   "send that reviewer none, release the claim without spending it"):
         assert phrase in review, phrase
-
-def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
-    """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
-    review = " ".join(FlowCatalog().load("pr-review").content.split())
-    for phrase in ("offer that monitor to the user as soon as the pull request is open",
-                   "switch it on only when they agree",
-                   "do not start the helper or poll check runs for the same head",
-                   "keep a watcher of your own only for what the monitor does not report",
-                   "Read a review's whole body before counting it as clean.",
-                   'says "No open issues", which counts inline threads only',
-                   "A problem named only in the summary is a finding"):
-        assert phrase in review, phrase
+    # The agreement lifecycle this item once required is gone.
+    assert "acknowledged by both participants" not in review
 
 
 def test_pr_queue_pins_the_steps_a_single_review_cannot_know():

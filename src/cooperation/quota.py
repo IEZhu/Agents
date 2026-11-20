@@ -241,10 +241,12 @@ def pause_observation(resource_key: object, pause: Pause) -> dict:
 
 
 def consumed_observation(resource_key: object, evidence: object, *, observed_at: float) -> dict:
-    """Checkpoint record for allowance spent by a review nobody requested.
+    """Checkpoint record for allowance a review has already spent.
 
     An automatic review cannot be queued, so it is published after the fact
-    rather than claimed. It carries no next free time: other sessions repeat a
+    rather than claimed; a request the reviewer accepted is published the same
+    way, so the next holder of the key does not ask again inside the window
+    it spent. It carries no next free time: other sessions repeat a
     published time in their own refusals, and a run that already happened says
     nothing about when the next one may. A response that does state a wait is
     a pause, so publish it with ``pause_observation``.

@@ -243,9 +243,10 @@ class ExternalQuotaObservation(StrictModel):
     """A published observation about a shared external allowance.
 
     ``paused`` is a limit response with the next free time derived from its own
-    evidence; ``consumed`` is allowance spent by a run nobody requested, which
-    cannot be queued and is therefore recorded after the fact. The key is
-    canonicalized so sessions reading different platform surfaces agree.
+    evidence; ``consumed`` is allowance a review has already spent: an automatic
+    run, which cannot be queued and is therefore recorded after the fact, or a
+    request the reviewer accepted. The key is canonicalized so sessions reading
+    different platform surfaces agree.
     """
 
     resource_key: QuotaKey

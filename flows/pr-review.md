@@ -481,40 +481,25 @@ Register those keys in the scope passed to `cooperation_register`, then:
    free time, with the evidence after you observe it, under the claim taken
    before the push (item 1) rather than a claim taken after the fact.
 
-7. **Agree the order before a shared window opens.** When a `cooperation_read`
-   snapshot shows another participant with a published pause on the same key,
-   so that both sessions wait for the same window, settle who spends that
-   window before it opens instead of each waiting for its own reading of the
-   time. Message that participant with `cooperation_send`, naming the key, the
-   next free time and both pull requests, and propose an order: the pull
-   request with no review from that reviewer yet goes first; when that does
-   not decide, the one whose pause has the earlier `observed_at`, then the
-   lower pull request number. Use the mailbox only to negotiate: a reply there
-   binds nobody. The order holds only once it is a committed agreement through
-   `cooperation_apply`, a `propose` that assigns the key to the participant
-   going first, acknowledged by both participants, the proposer included, as
-   step 1 records a merge order; while that agreement stands, the coordinator
-   refuses the key to the other participant. Each participant cancels that
-   agreement with `cancel` and its `agreement_id` as soon as it releases the
-   key for that window, whether it spent the window or found it spent, because
-   until one of them does, the assignment keeps the key from the other
-   participant for as long as the owner stays live; a second `cancel` is
-   refused once the agreement has ended. When the snapshot carries different
-   next free times for the key, ask before the earliest: a participant acting
-   on it takes the window from one waiting for a later time. The agreed order
-   changes nothing about item 1: the participant going first still acquires
-   the key before its request. Whoever spends the window, with a request the
-   reviewer accepted or a push whose automatic pass started, publishes a
-   `consumed` observation for that key before releasing it, as item 6 does for
-   an automatic pass; a request or pass the reviewer refused for its allowance
-   stays a `paused` observation, as item 5 says. A `consumed` observation
-   newer than the pause both sessions waited for means that window is spent,
-   although it carries no next free time, so item 2 alone would not stop a
-   request: do not send that reviewer one, release the claim without spending
-   it and treat the reviewer as unavailable for this round, as item 3 does for
-   a held key. Without a committed agreement before the window opens, nothing
-   was agreed: the window goes to whoever acquires the key first, and the
-   other finds it spent that way.
+7. **Tell the other session before a shared window opens.** When a
+   `cooperation_read` snapshot shows another participant with a published
+   pause on the same key, so that both sessions wait for the same window,
+   message that participant with `cooperation_send` before the window opens,
+   naming the key, the next free time and both pull requests, and suggest
+   which goes first: the pull request with no review from that reviewer yet,
+   otherwise the one whose pause has the earlier `observed_at`. The suggestion
+   binds nobody: the key decides, and whoever acquires it first spends the
+   window under item 1. When the snapshot carries different next free times
+   for the key, send the message before the earliest: a participant acting on
+   it takes the window from one waiting for a later time. Whoever spends the
+   window, with a request the reviewer accepted or a push whose automatic pass
+   started, publishes a `consumed` observation for that key before releasing
+   it; a request or pass the reviewer refused for its allowance stays a
+   `paused` observation, as item 5 says. A `consumed` observation newer than
+   the pause both sessions waited for means that window is spent, although it
+   carries no next free time, so item 2 alone would not stop a request: send
+   that reviewer none, release the claim without spending it and treat the
+   reviewer as unavailable for this round, as item 3 does for a held key.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.
