@@ -195,8 +195,9 @@ def test_pr_review_agrees_the_order_of_a_shared_review_window():
                    "The order holds only once it is a committed agreement through `cooperation_apply`",
                    "while that agreement stands, the coordinator refuses the key to the other participant",
                    # An agreement nobody ends would keep refusing the key in later rounds.
-                   "The participant going first cancels that agreement with `cancel` and its "
-                   "`agreement_id` right after releasing the key",
+                   "Each participant cancels that agreement with `cancel` and its `agreement_id` as "
+                   "soon as it releases the key for that window, whether it spent the window or found "
+                   "it spent",
                    # The next holder can only see a spent window that was published.
                    "a `propose` that assigns the key to the participant going first, acknowledged "
                    "by both participants, the proposer included",

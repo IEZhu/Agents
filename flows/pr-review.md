@@ -494,26 +494,27 @@ Register those keys in the scope passed to `cooperation_register`, then:
    `cooperation_apply`, a `propose` that assigns the key to the participant
    going first, acknowledged by both participants, the proposer included, as
    step 1 records a merge order; while that agreement stands, the coordinator
-   refuses the key to the other participant. The participant going first
-   cancels that agreement with `cancel` and its `agreement_id` right after
-   releasing the key, because until then the assignment keeps the key from the
-   other participant for as long as the first one stays live. When the
-   snapshot carries different next free times for the key, ask before the
-   earliest: a participant acting on it takes the window from one waiting for
-   a later time. The agreed order changes nothing about item 1: the
-   participant going first still acquires the key before its request. Whoever
-   spends the window, with a request the reviewer accepted or a push whose
-   automatic pass started, publishes a `consumed` observation for that key
-   before releasing it, as item 6 does for an automatic pass; a request or
-   pass the reviewer refused for its allowance stays a `paused` observation,
-   as item 5 says. A `consumed` observation newer than the pause both sessions
-   waited for means that window is spent, although it carries no next free
-   time, so item 2 alone would not stop a request: do not send that reviewer
-   one, release the claim without spending it and treat the reviewer as
-   unavailable for this round, as item 3 does for a held key. Without a
-   committed agreement before the window opens, nothing was agreed: the window
-   goes to whoever acquires the key first, and the other finds it spent that
-   way.
+   refuses the key to the other participant. Each participant cancels that
+   agreement with `cancel` and its `agreement_id` as soon as it releases the
+   key for that window, whether it spent the window or found it spent, because
+   until one of them does, the assignment keeps the key from the other
+   participant for as long as the owner stays live; a second `cancel` is
+   refused once the agreement has ended. When the snapshot carries different
+   next free times for the key, ask before the earliest: a participant acting
+   on it takes the window from one waiting for a later time. The agreed order
+   changes nothing about item 1: the participant going first still acquires
+   the key before its request. Whoever spends the window, with a request the
+   reviewer accepted or a push whose automatic pass started, publishes a
+   `consumed` observation for that key before releasing it, as item 6 does for
+   an automatic pass; a request or pass the reviewer refused for its allowance
+   stays a `paused` observation, as item 5 says. A `consumed` observation
+   newer than the pause both sessions waited for means that window is spent,
+   although it carries no next free time, so item 2 alone would not stop a
+   request: do not send that reviewer one, release the claim without spending
+   it and treat the reviewer as unavailable for this round, as item 3 does for
+   a held key. Without a committed agreement before the window opens, nothing
+   was agreed: the window goes to whoever acquires the key first, and the
+   other finds it spent that way.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.
