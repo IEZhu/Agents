@@ -198,9 +198,15 @@ def test_pr_review_coordinates_a_shared_review_window():
                    # A refusal for the allowance is a pause, never a spent window.
                    "a request or pass the reviewer refused for its allowance stays a `paused` observation",
                    # A consumed observation has no time for item 2 to wait on.
-                   "A `consumed` observation newer than the pause both sessions waited for means that "
+                   "a `consumed` observation newer than the pause both sessions waited for means that "
                    "window is spent, although it carries no next free time",
-                   "send that reviewer none, release the claim without spending it"):
+                   "send no request to that reviewer, release the claim without spending it",
+                   # The consumed observation must exist before the key is free again.
+                   "keeps the key after an explicit request until the reviewer's own check run on "
+                   "the head shows the request accepted or refused",
+                   # The suppression lasts one round, not for good.
+                   "In the same round, a `consumed` observation newer than the pause",
+                   "The next round asks again as items 2 and 5 say"):
         assert phrase in review, phrase
     # The agreement lifecycle this item once required is gone.
     assert "acknowledged by both participants" not in review
