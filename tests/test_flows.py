@@ -195,8 +195,12 @@ def test_pr_review_agrees_the_order_of_a_shared_review_window():
                    "The order holds only once it is a committed agreement through `cooperation_apply`",
                    "while that agreement stands, the coordinator refuses the key to the other participant",
                    # The next holder can only see a spent window that was published.
-                   "Whoever spends the window, by a request or a push, publishes a `consumed` "
-                   "observation for that key before releasing it",
+                   "a `propose` that assigns the key to the participant going first, acknowledged "
+                   "by both participants, the proposer included",
+                   "Whoever spends the window, with a request the reviewer accepted or a push whose "
+                   "automatic pass started, publishes a `consumed` observation for that key",
+                   # A refusal for the allowance is a pause, never a spent window.
+                   "a request or pass the reviewer refused for its allowance stays a `paused` observation",
                    "A `consumed` observation newer than the pause both sessions waited for means "
                    "that window is spent, although it carries no next free time",
                    # Different published times: the earliest one decides when to ask.
