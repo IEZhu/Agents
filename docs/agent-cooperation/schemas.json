@@ -1071,7 +1071,7 @@
         },
         "ExternalQuotaObservation": {
           "additionalProperties": false,
-          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance a review has already spent: an automatic\nrun, which cannot be queued and is therefore recorded after the fact, or a\nrequest the reviewer accepted. The key is canonicalized so sessions reading\ndifferent platform surfaces agree.",
           "properties": {
             "resource_key": {
               "maxLength": 512,
@@ -2585,7 +2585,7 @@
         },
         "ExternalQuotaObservation": {
           "additionalProperties": false,
-          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance a review has already spent: an automatic\nrun, which cannot be queued and is therefore recorded after the fact, or a\nrequest the reviewer accepted. The key is canonicalized so sessions reading\ndifferent platform surfaces agree.",
           "properties": {
             "resource_key": {
               "maxLength": 512,
@@ -6543,7 +6543,7 @@
         },
         "ExternalQuotaObservation": {
           "additionalProperties": false,
-          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance a review has already spent: an automatic\nrun, which cannot be queued and is therefore recorded after the fact, or a\nrequest the reviewer accepted. The key is canonicalized so sessions reading\ndifferent platform surfaces agree.",
           "properties": {
             "resource_key": {
               "maxLength": 512,
@@ -9948,7 +9948,7 @@
         },
         "ExternalQuotaObservation": {
           "additionalProperties": false,
-          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance a review has already spent: an automatic\nrun, which cannot be queued and is therefore recorded after the fact, or a\nrequest the reviewer accepted. The key is canonicalized so sessions reading\ndifferent platform surfaces agree.",
           "properties": {
             "resource_key": {
               "maxLength": 512,
@@ -14697,7 +14697,7 @@
         },
         "ExternalQuotaObservation": {
           "additionalProperties": false,
-          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance spent by a run nobody requested, which\ncannot be queued and is therefore recorded after the fact. The key is\ncanonicalized so sessions reading different platform surfaces agree.",
+          "description": "A published observation about a shared external allowance.\n\n``paused`` is a limit response with the next free time derived from its own\nevidence; ``consumed`` is allowance a review has already spent: an automatic\nrun, which cannot be queued and is therefore recorded after the fact, or a\nrequest the reviewer accepted. The key is canonicalized so sessions reading\ndifferent platform surfaces agree.",
           "properties": {
             "resource_key": {
               "maxLength": 512,

@@ -178,6 +178,45 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
         assert phrase in review, phrase
 
 
+def test_pr_review_coordinates_a_shared_review_window():
+    """Two sessions waited for one review window, and the one waiting for the later published time lost it."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("**Tell the other session before a shared window opens.**",
+                   "message that participant with `cooperation_send` before the window opens, naming "
+                   "the key, the next free time and both pull requests",
+                   "the pull request with no review from that reviewer yet, otherwise the one whose "
+                   "pause has the earlier `observed_at`",
+                   # The suggestion is a courtesy; the claim still decides.
+                   "The suggestion binds nobody: the key decides, and whoever acquires it first spends "
+                   "the window under item 1.",
+                   # Different published times: the earliest one decides when to ask.
+                   "send the message before the earliest: a participant acting on it takes the window "
+                   "from one waiting for a later time",
+                   # The next holder can only see a spent window that was published.
+                   "Whoever spends the window, with a request the reviewer accepted or a push whose "
+                   "automatic pass started, publishes a `consumed` observation for that key",
+                   # A refusal for the allowance is a pause, never a spent window.
+                   "a request or pass the reviewer refused for its allowance stays a `paused` observation",
+                   # A consumed observation has no time for item 2 to wait on.
+                   "a `consumed` observation newer than the pause both sessions waited for means that "
+                   "window is spent, although it carries no next free time",
+                   "send no request to that reviewer, release the claim without spending it",
+                   # The consumed observation must exist before the key is free again.
+                   "publishes a `consumed` observation for that key before releasing it at the "
+                   "point item 5 names",
+                   # Item 5 holds an explicit request's claim until the reviewer answered it,
+                   # read from each reviewer's own evidence rather than a check run alone.
+                   "its explicit request was answered, accepted or refused, as the reviewer's own "
+                   "response shows when read as the matcher above reads that reviewer",
+                   "for Copilot the review request the `requestCopilotCodeReview` mutation returns",
+                   # The suppression lasts one round, not for good.
+                   "In the same round, a `consumed` observation newer than the pause",
+                   "The next round asks again as items 2 and 5 say"):
+        assert phrase in review, phrase
+    # The agreement lifecycle this item once required is gone.
+    assert "acknowledged by both participants" not in review
+
+
 def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
     """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())

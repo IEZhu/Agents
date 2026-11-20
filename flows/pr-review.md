@@ -452,16 +452,21 @@ Register those keys in the scope passed to `cooperation_register`, then:
    you were waiting on.
 5. **Publish and release when the round ends.** Release each reviewer's claim,
    after a release-ready `checkpoint`, as soon as that reviewer's part of the
-   round is settled: its review was requested, its automatic pass was observed
-   and published as consumed, or its pause was published. A claim taken before
-   a push stays held until that reviewer's automatic pass has appeared (item 6),
-   even when another reviewer's pause is already published, because releasing
-   it earlier lets another session take the key before the pass spends it.
-   That wait applies only to a push the remote accepted: a push that git reports
-   as rejected, by the lease, by branch protection or otherwise, starts no pass
-   of its own, so the session releases that claim. When the outcome is unclear,
-   for example because the command ended without an answer, it keeps the claim
-   until the outcome is established.
+   round is settled: its explicit request was answered, accepted or refused,
+   as the reviewer's own response shows when read as the matcher above reads
+   that reviewer (for CodeRabbit its reply to the request or its check run on
+   the head, for Copilot the review request the `requestCopilotCodeReview`
+   mutation returns or a quota response in its review body), its automatic
+   pass was observed and published as consumed, or its pause was published. A
+   claim taken before a push stays held until that reviewer's automatic pass
+   has appeared (item 6), even when another reviewer's pause is already
+   published, because releasing it earlier lets another session take the key
+   before the pass spends it. That wait applies only to a push the remote
+   accepted: a push that git reports as rejected, by the lease, by branch
+   protection or otherwise, starts no pass of its own, so the session releases
+   that claim. When the outcome is unclear, for example because the command
+   ended without an answer, it keeps the claim until the outcome is
+   established.
    Never hold the allowance across a wait for findings to be fixed. A pause
    goes into `checkpoint.external_quota` as a `paused`
    observation with its next free time, the verbatim evidence and whether the
@@ -480,6 +485,28 @@ Register those keys in the scope passed to `cooperation_register`, then:
    `consumed` observation (`quota.consumed_observation`), which carries no next
    free time, with the evidence after you observe it, under the claim taken
    before the push (item 1) rather than a claim taken after the fact.
+
+7. **Tell the other session before a shared window opens.** When a
+   `cooperation_read` snapshot shows another participant with a published
+   pause on the same key, so that both sessions wait for the same window,
+   message that participant with `cooperation_send` before the window opens,
+   naming the key, the next free time and both pull requests, and suggest
+   which goes first: the pull request with no review from that reviewer yet,
+   otherwise the one whose pause has the earlier `observed_at`. The suggestion
+   binds nobody: the key decides, and whoever acquires it first spends the
+   window under item 1. When the snapshot carries different next free times
+   for the key, send the message before the earliest: a participant acting on
+   it takes the window from one waiting for a later time. Whoever spends the
+   window, with a request the reviewer accepted or a push whose automatic pass
+   started, publishes a `consumed` observation for that key before releasing
+   it at the point item 5 names; a request or pass the reviewer refused for
+   its allowance stays a `paused` observation, as item 5 says. In the same
+   round, a `consumed` observation newer than the pause both sessions waited
+   for means that window is spent, although it carries no next free time, so
+   item 2 alone would not stop a request: send no request to that reviewer,
+   release the claim without spending it and treat the reviewer as unavailable
+   for this round, as item 3 does for a held key. The next round asks again as
+   items 2 and 5 say, and a refusal then publishes the new pause.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.
