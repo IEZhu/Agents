@@ -481,26 +481,29 @@ Register those keys in the scope passed to `cooperation_register`, then:
    free time, with the evidence after you observe it, under the claim taken
    before the push (item 1) rather than a claim taken after the fact.
 
-7. **Agree the order before a shared window opens.** When a
-   `cooperation_read` snapshot shows another participant with a published
-   pause on the same key, so that both sessions wait for the same window,
-   settle who spends that window before it opens instead of each waiting for
-   its own reading of the time. Message that participant with
-   `cooperation_send`, naming the key, the next free time and both pull
-   requests, and propose an order: the pull request with no review from that
-   reviewer yet goes first; when that does not decide, the one whose pause
-   has the earlier `observed_at`, then the lower pull request number. The
-   order holds only once the other participant accepts it, or answers with
-   another order that you accept. When the snapshot carries different next
-   free times for the key, ask before the earliest: a participant acting on
-   it takes the window from one waiting for a later time. The agreed order
+7. **Agree the order before a shared window opens.** When a `cooperation_read`
+   snapshot shows another participant with a published pause on the same key,
+   so that both sessions wait for the same window, settle who spends that
+   window before it opens instead of each waiting for its own reading of the
+   time. Message that participant with `cooperation_send`, naming the key, the
+   next free time and both pull requests, and propose an order: the pull
+   request with no review from that reviewer yet goes first; when that does
+   not decide, the one whose pause has the earlier `observed_at`, then the
+   lower pull request number. Use the mailbox only to negotiate: a reply there
+   binds nobody. The order holds only once it is a committed agreement through
+   `cooperation_apply`, a `propose` that assigns the key to the participant
+   going first and the other participant's `acknowledge`, as step 1 records a
+   merge order; while that agreement stands, the coordinator refuses the key
+   to the other participant. When the snapshot carries different next free
+   times for the key, ask before the earliest: a participant acting on it
+   takes the window from one waiting for a later time. The agreed order
    changes nothing about item 1: the participant going first still acquires
    the key before its request. Whoever spends the window, by a request or a
-   push, publishes a `consumed` observation for that key before releasing
-   it, as item 6 does for an automatic pass. A `consumed` observation newer
-   than the pause both sessions waited for means that window is spent,
-   although it carries no next free time: treat the reviewer as unavailable
-   for this round, as item 3 does for a held key. Without an answer before
+   push, publishes a `consumed` observation for that key before releasing it,
+   as item 6 does for an automatic pass. A `consumed` observation newer than
+   the pause both sessions waited for means that window is spent, although it
+   carries no next free time: treat the reviewer as unavailable for this
+   round, as item 3 does for a held key. Without a committed agreement before
    the window opens, nothing was agreed: the window goes to whoever acquires
    the key first, and the other finds it spent that way.
 

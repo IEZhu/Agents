@@ -190,8 +190,10 @@ def test_pr_review_agrees_the_order_of_a_shared_review_window():
                    # The tie-break reads only what every snapshot exposes.
                    "the one whose pause has the earlier `observed_at`, then the lower pull "
                    "request number",
-                   # A proposed order binds nobody until it is accepted.
-                   "The order holds only once the other participant accepts it",
+                   # A mailbox reply is not an agreement; the coordinator enforces a committed one.
+                   "Use the mailbox only to negotiate: a reply there binds nobody.",
+                   "The order holds only once it is a committed agreement through `cooperation_apply`",
+                   "while that agreement stands, the coordinator refuses the key to the other participant",
                    # The next holder can only see a spent window that was published.
                    "Whoever spends the window, by a request or a push, publishes a `consumed` "
                    "observation for that key before releasing it",
@@ -203,7 +205,7 @@ def test_pr_review_agrees_the_order_of_a_shared_review_window():
                    # The order never replaces the claim.
                    "the participant going first still acquires the key before its request",
                    # Silence is not an agreement.
-                   "Without an answer before the window opens, nothing was agreed"):
+                   "Without a committed agreement before the window opens, nothing was agreed"):
         assert phrase in review, phrase
 
 def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
