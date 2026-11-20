@@ -482,14 +482,14 @@ Register those keys in the scope passed to `cooperation_register`, then:
    before the push (item 1) rather than a claim taken after the fact.
 
 7. **Agree the order before a shared window opens.** When a
-   `cooperation_read` snapshot shows another participant waiting on the same
-   key for the same window, from a published pause or a claim it released
-   with one, settle who spends that window before it opens instead of each
-   waiting for its own reading of the time. Message that participant with
+   `cooperation_read` snapshot shows another participant with a published
+   pause on the same key, so that both sessions wait for the same window,
+   settle who spends that window before it opens instead of each waiting for
+   its own reading of the time. Message that participant with
    `cooperation_send`, naming the key, the next free time and both pull
    requests. Unless the two agree otherwise, the pull request with no review
-   from that reviewer yet goes first, and between two such pull requests the
-   one whose pause was published first. When the snapshot carries different
+   from that reviewer yet goes first; when that does not decide, the one
+   whose pause was published first. When the snapshot carries different
    next free times for the key, ask before the earliest: a participant acting
    on it takes the window from one waiting for a later time. The agreed order
    changes nothing about item 1: the participant going first still acquires
