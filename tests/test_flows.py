@@ -202,8 +202,10 @@ def test_pr_review_coordinates_a_shared_review_window():
                    "window is spent, although it carries no next free time",
                    "send no request to that reviewer, release the claim without spending it",
                    # The consumed observation must exist before the key is free again.
-                   "keeps the key after an explicit request until the reviewer's own check run on "
-                   "the head shows the request accepted or refused",
+                   "keeps the key after an explicit request until the reviewer's own response shows "
+                   "the request accepted or refused, read as the matcher above reads that reviewer",
+                   # A check run is CodeRabbit's evidence, not every reviewer's.
+                   "for Copilot the review request the `requestCopilotCodeReview` mutation returns",
                    # The suppression lasts one round, not for good.
                    "In the same round, a `consumed` observation newer than the pause",
                    "The next round asks again as items 2 and 5 say"):

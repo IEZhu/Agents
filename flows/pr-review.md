@@ -495,15 +495,18 @@ Register those keys in the scope passed to `cooperation_register`, then:
    window, with a request the reviewer accepted or a push whose automatic pass
    started, publishes a `consumed` observation for that key before releasing
    it, and so keeps the key after an explicit request until the reviewer's own
-   check run on the head shows the request accepted or refused; a request or
-   pass the reviewer refused for its allowance stays a `paused` observation,
-   as item 5 says. In the same round, a `consumed` observation newer than the
-   pause both sessions waited for means that window is spent, although it
-   carries no next free time, so item 2 alone would not stop a request: send
-   no request to that reviewer, release the claim without spending it and
-   treat the reviewer as unavailable for this round, as item 3 does for a held
-   key. The next round asks again as items 2 and 5 say, and a refusal then
-   publishes the new pause.
+   response shows the request accepted or refused, read as the matcher above
+   reads that reviewer: for CodeRabbit its reply to the request or its check
+   run on the head, for Copilot the review request the
+   `requestCopilotCodeReview` mutation returns or a quota response in its
+   review body; a request or pass the reviewer refused for its allowance stays
+   a `paused` observation, as item 5 says. In the same round, a `consumed`
+   observation newer than the pause both sessions waited for means that window
+   is spent, although it carries no next free time, so item 2 alone would not
+   stop a request: send no request to that reviewer, release the claim without
+   spending it and treat the reviewer as unavailable for this round, as item 3
+   does for a held key. The next round asks again as items 2 and 5 say, and a
+   refusal then publishes the new pause.
 
 Two reviewers on one pull request are separate allowances and are claimed
 separately; the same reviewer in another pull request is the same allowance.
