@@ -178,6 +178,24 @@ def test_pr_review_claims_a_reviewer_allowance_before_a_push():
         assert phrase in review, phrase
 
 
+def test_pr_review_agrees_the_order_of_a_shared_review_window():
+    """Two sessions waited for one review window, and the one waiting for the later published time lost it."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("**Agree the order before a shared window opens.**",
+                   "settle who spends that window before it opens instead of each waiting for "
+                   "its own reading of the time",
+                   "Message that participant with `cooperation_send`, naming the key, the next "
+                   "free time and both pull requests",
+                   "the pull request with no review from that reviewer yet goes first",
+                   # Different published times: the earliest one decides when to ask.
+                   "ask before the earliest: a participant acting on it takes the window from "
+                   "one waiting for a later time",
+                   # The order never replaces the claim.
+                   "the participant going first still acquires the key before its request",
+                   # Silence is not an agreement.
+                   "Without an answer before the window opens, nothing was agreed"):
+        assert phrase in review, phrase
+
 def test_pr_review_hands_ci_to_the_host_monitor_and_reads_the_review_summary():
     """#614: CI was polled by hand beside an unoffered host monitor, and a clean list hid a race."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())
