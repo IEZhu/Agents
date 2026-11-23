@@ -1,6 +1,6 @@
 # Reliability of delegated cooperation
 
-**Status:** proposal of 2026-11-06, not implemented.
+**Status:** proposal of 2026-11-06. Layer 7's store is implemented ahead of the order of work, with the thread-close verification levels standing in for layer 2's routes and with prior, unmeasured route accuracies; current behavior is in [validated claims](validated-claims.md). The other layers are not implemented.
 Builds on [the task-scoped subagent contract](subagent-contract.md) (#291) and the
 peer-delegation epic #323 (`agents-core/subagent/2`, #324 to #330).
 Related: #534 (what a failed check means), #547 (a check that reuses the claim's

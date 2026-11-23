@@ -49,6 +49,7 @@ and the host's own worker tools.
 | [Worker model tiers](subagent-model-tiers.md#model-resolution) | Simple delegated tasks on a lighter model, moved up one tier at a time when a result falls short | ✅ | ❌ | ✅ | 🟡 ⁶ | ❌ | ❌ |
 | [Repository memory](memory.md) | A short description of each project, returned when work starts | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Shared memory](shared-memory.md) | What Claude Code and Codex keep in their own memory files, searchable from any client with each fact's source | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
+| [Validated claims](validated-claims.md) | Facts checked once stay checked: each claim's verdicts filtered into a confidence that goes stale on its own and flags a contradiction | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Turn log and history](shared-mcp-daemon.md#memory-and-errors) | Every answer recorded with its persona, and earlier turns of a project to read or search | ✅ | 🟡 ⁷ | ✅ | ✅ | ✅ | 🟡 ⁷ |
 | [Shared artifacts](shared-artifacts.md#native-worker-workflow) | The same exact inputs for several workers, pinned by hash instead of pasted into every prompt | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Agent cooperation](agent-cooperation/runtime.md#enablement-and-authority) | Overlapping sessions, even in different clients, that message each other and claim work instead of colliding | ✅ ⁸ | 🟡 ³ ⁸ | ✅ ⁸ | ✅ ⁸ | ✅ ⁸ | 🟡 ³ ⁸ |

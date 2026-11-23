@@ -217,7 +217,11 @@ annotated as not read-only because it writes the exchange files
 
 `scripts/subagent_tiers_report.py` summarizes the ledger per client, tier and
 model: prepared packages, validations, the share accepted without escalation, and
-escalations by target tier. Token counts are not visible to the server; an A/B
+escalations by target tier. Next to those all-time counts, the `recent` column
+(`recent_acceptance` in `--json`) is the acceptance rate with old outcomes fading
+at a 14-day half-life, with a 95 % band, so a model or client change shows up
+instead of being averaged away; see [validated claims](validated-claims.md#other-uses-of-the-filter).
+It only reports: floors and escalation do not read it. Token counts are not visible to the server; an A/B
 evaluation that runs the same assignments per tier is separate work.
 
 ## Protocol text

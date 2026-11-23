@@ -426,7 +426,10 @@ Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
 declares a persona, and the `ask` and per-agent prompts. Past the cap, persona tools return `ERROR` (for `run_flow`, in `persona_activation`) whose message starts with
 `warming_up` (the bundle was not applied; retry in a few seconds), `load_implants`
 and `read_history` return a `warming_up` text or status, and prompts embed the
-same error in their message. A failed initialization is stored and reported by
+same error in their message. Once this installation has completed a warmup, the
+hint adds how long starts usually take here, how long this one has run and when to
+retry ([warmup time](validated-claims.md#other-uses-of-the-filter)); it never changes
+the cap. A failed initialization is stored and reported by
 every gated call instead of hanging (`ERROR` from persona tools and prompts, an
 error text from `load_implants`, `status: "error"` from `read_history`); the stdio process then needs a
 restart once the cause is fixed. `list_agents`, `list_flows`,
