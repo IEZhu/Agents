@@ -127,7 +127,9 @@ shows how much the Gaussian approximation costs under it, not external validity.
 ## Storage
 
 One JSON line per verdict in `data/claims/claims.jsonl` under the workspace root
-(directory mode 0700, file mode 0600), appended under a sidecar lock. Nothing is
+(directory mode 0700, file mode 0600). On POSIX a writer locks the store file itself,
+through the descriptor it opened from the claims directory, so writers serialize on
+the file they append to; Windows locks a sidecar file beside it. Nothing is
 rewritten or deleted; a later verdict supersedes earlier ones by being filtered
 after them, and the earlier ones stay readable. The claim's key is the first 16
 hexadecimal characters of the SHA-256 of its normalised subject and statement

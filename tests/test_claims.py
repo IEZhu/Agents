@@ -359,6 +359,42 @@ def test_a_directory_swapped_for_a_link_after_the_checks_does_not_redirect_the_w
     assert len((moved / module.STORE_FILE).read_text(encoding="utf-8").splitlines()) == 2
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX locks the store file itself")
+def test_writers_lock_the_store_file_itself_not_a_path_beside_it(store, monkeypatch):
+    import src.claims.store as module
+
+    def no_path_lock(*_args, **_kwargs):
+        raise AssertionError("a writer resolved a lock by path after anchoring the directory")
+
+    monkeypatch.setattr(module, "file_lock", no_path_lock)
+    record(store)
+    assert not store.path.with_name(store.path.name + ".lock").exists()
+
+
+def test_concurrent_writers_never_lose_or_tear_a_verdict(tmp_path):
+    import threading
+
+    stores = [ClaimStore(tmp_path) for _ in range(4)]
+    errors = []
+
+    def write(store, worker):
+        try:
+            for index in range(25):
+                store.record(subject=f"w{worker}", claim=f"c{index}", verdict="confirmed", level="V2")
+        except Exception as error:  # surfaced below
+            errors.append(error)
+
+    threads = [threading.Thread(target=write, args=(store, worker)) for worker, store in enumerate(stores)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    lines = stores[0].path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 100 and all(json.loads(line)["v"] == 1 for line in lines)
+    assert len(stores[0].claims()) == 100
+
+
 def test_a_torn_last_line_does_not_swallow_the_next_verdict(store):
     first = record(store, subject="a", claim="x")["claim"]["key"]
     with store.path.open("a", encoding="utf-8") as handle:

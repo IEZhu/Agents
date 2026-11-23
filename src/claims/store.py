@@ -1,9 +1,10 @@
 """Append-only per-workspace storage of claim verdicts, and the views the tools return.
 
 One JSON line per verdict in ``<workspace>/data/claims/claims.jsonl`` (directory
-0700, file 0600), written under a sidecar lock. Nothing is rewritten or deleted: a
-new verdict supersedes the earlier ones by being filtered after them, and the
-earlier ones stay readable, which is what makes a contradiction over time visible.
+0700, file 0600), appended while the writer holds an exclusive lock on the file.
+Nothing is rewritten or deleted: a new verdict supersedes the earlier ones by being
+filtered after them, and the earlier ones stay readable, which is what makes a
+contradiction over time visible.
 
 A claim is identified by a key derived from its normalised subject and text, so the
 same statement recorded twice lands on the same claim. The filtered state is not
@@ -30,6 +31,11 @@ import uuid
 
 from src.claims import model
 from src.file_lock import file_lock
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
 
 FORMAT_VERSION = 1
 SUBJECT_MAX = 200
@@ -308,6 +314,23 @@ def _store_directory(root: Path, *, create: bool, private: bool):
             os.close(descriptor)
 
 
+# Attempts at a creating open. macOS answers a creating open with ENOENT now and then while
+# another thread creates the same name in the same directory (measured: hundreds of times in
+# 200 rounds of 8 threads, with plain flags too), so a creating open is retried.
+_CREATE_ATTEMPTS = 20
+
+
+def _open_relative(directory: int, flags: int) -> int:
+    for attempt in range(_CREATE_ATTEMPTS):
+        try:
+            return os.open(STORE_FILE, flags | _NO_FOLLOW, 0o600, dir_fd=directory)
+        except FileNotFoundError:
+            if not flags & os.O_CREAT or attempt == _CREATE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.001 * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
 @contextlib.contextmanager
 def _store_file(directory, flags: int, mode: str, *, private: bool):
     """Yield the store file inside ``directory`` (from ``_store_directory``), or None when missing."""
@@ -319,7 +342,7 @@ def _store_file(directory, flags: int, mode: str, *, private: bool):
             return
     else:
         try:
-            descriptor = os.open(STORE_FILE, flags | _NO_FOLLOW, 0o600, dir_fd=directory)
+            descriptor = _open_relative(directory, flags)
         except FileNotFoundError:
             yield None
             return
@@ -415,7 +438,9 @@ class ClaimStore:
         with _store_file(directory, os.O_RDONLY, "rb", private=False) as handle:
             if handle is None:
                 return []
-            raw = handle.read(MAX_STORE_BYTES + 1)
+            return self._parse(handle.read(MAX_STORE_BYTES + 1))
+
+    def _parse(self, raw: bytes) -> list[dict]:
         if len(raw) > MAX_STORE_BYTES:
             raise _UnsafeStore(f"{self.path} is larger than {MAX_STORE_BYTES} bytes; archive it by hand")
         events = []
@@ -427,6 +452,21 @@ class ClaimStore:
             if _well_formed(event):
                 events.append(event)
         return events
+
+    @contextlib.contextmanager
+    def _exclusive(self, handle):
+        """Serialize writers. POSIX locks the store file itself through the descriptor opened
+        from the anchored directory, so no path is resolved again; Windows, which opened the
+        store by name anyway, locks a sidecar file beside it."""
+        if fcntl is not None and _ANCHORED:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            return
+        with file_lock(self.path.with_name(self.path.name + ".lock")):
+            yield
 
     @staticmethod
     def _group(events: list[dict]) -> dict[str, "Claim"]:
@@ -488,8 +528,10 @@ class ClaimStore:
         attestation = _attestation(contract_revision, result_sha256)
         key = claim_key(subject, claim)
         with _store_directory(self.root, create=True, private=True) as directory, \
-                file_lock(self.path.with_name(self.path.name + ".lock")):
-            existing = self._group(self._read(directory)).get(key)
+                _store_file(directory, os.O_RDWR | os.O_CREAT | os.O_APPEND, "r+b", private=True) as handle, \
+                self._exclusive(handle):
+            handle.seek(0)
+            existing = self._group(self._parse(handle.read(MAX_STORE_BYTES + 1))).get(key)
             # Never earlier than the newest verdict, so the filter's time only moves forward.
             now = self.clock()
             if existing is not None:
@@ -500,14 +542,16 @@ class ClaimStore:
                      "importance": importance, "volatility": volatility, "evidence": evidence,
                      "attestation": attestation}
             line = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-            with _store_file(directory, os.O_RDWR | os.O_CREAT | os.O_APPEND, "r+b", private=True) as handle:
-                size = os.fstat(handle.fileno()).st_size
-                if size and (handle.seek(size - 1), handle.read(1))[1] != b"\n":
+            size = os.fstat(handle.fileno()).st_size
+            if size:
+                handle.seek(size - 1)
+                if handle.read(1) != b"\n":
                     line = b"\n" + line  # an earlier write was torn: never glue a verdict onto it
-                if size + len(line) > MAX_STORE_BYTES:
-                    raise ClaimError("store_full", f"{self.path} would exceed {MAX_STORE_BYTES} bytes; "
-                                                   "archive it by hand to start a new store")
-                handle.write(line)
+            if size + len(line) > MAX_STORE_BYTES:
+                raise ClaimError("store_full", f"{self.path} would exceed {MAX_STORE_BYTES} bytes; "
+                                               "archive it by hand to start a new store")
+            handle.write(line)
+            handle.flush()
             updated = Claim(key, (existing.events if existing else ()) + (event,))
         after = updated.assess(_seconds(event["at"]))
         return {
