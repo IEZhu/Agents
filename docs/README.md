@@ -192,7 +192,8 @@ above are authoritative for current commands and behavior.
 ### Proposals and implementation contracts
 
 - [MCP proxy plan](mcp-proxy-plan.md)
-- [Delegation reliability plan](delegation-reliability-plan.md)
+- [Delegation reliability plan](delegation-reliability-plan.md), with its
+  [verifier accuracy measurement](verifier-accuracy-measurement.md) for validated claims
 - [Autodev plan](autodev-plan.md), with its [review appendix](autodev-plan-review.md)
 - [Instruction signing specification](instruction-signing-spec.md)
 - [Layer sensitivity proposal](layer-sensitivity-plan.md)
