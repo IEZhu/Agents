@@ -648,16 +648,20 @@ def test_thread_close_names_each_rule_by_one_slug():
                    "`rule.<name>`, with the name its source gives it",
                    "Reuse the `rule.` slug an earlier close's record gives the same rule",
                    "The instruction's source (`claude-md`, `agents-md`, `memory`, a hook's file) never enters a slug",
-                   "a catalogue slug holds no dot and every other slug exactly one",
+                   "a catalogue row's slug and a cooperation clause's slug hold no dot "
+                   "and every other slug exactly one",
                    # The record, the patch and the tag carry one spelling.
                    "`slug`, the row's slug as step 4.2 names it",
                    "for a patch of a finding that finding's slug unchanged",
                    "one tag whose `<slug>` is that finding's `slug` in `record`, character for character",
                    "no finding gets a second tag under another spelling",
                    # Repeats still reach the closes written before the rule.
-                   "as `mark-chapter` and `claude-md.mark-chapter` name `ccd-session.mark-chapter`",
-                   "Query the tag for the second part alone too",
-                   "such an entry counts only when its report names the same rule",
+                   "as `mark-chapter`, `claude-md.mark-chapter` and `ccd-session.chapter-before-close` "
+                   "could each name `ccd-session.mark-chapter`",
+                   "also query both `ac-missed-<part>` and `tool-missed-<part>` for the second part alone",
+                   "read the earlier closes themselves with `read_history(tag=\"thread-close\")`, paged the same way",
+                   "and one worded otherwise only after reading its report",
+                   "any such entry counts only when its report names the same rule",
                    "where a bare `cooperation` counts as an entry tagged without a clause does"):
         assert phrase in text, phrase
 

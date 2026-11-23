@@ -403,8 +403,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 
      The instruction's source (`claude-md`, `agents-md`, `memory`, a hook's
      file) never enters a slug, and a two-part slug never loses its first part:
-     a catalogue slug holds no dot and every other slug exactly one, so a
-     record, which has no `ac-` or `tool-` prefix, still tells them apart. A dot
+     a catalogue row's slug and a cooperation clause's slug hold no dot and
+     every other slug exactly one, so a record, which has no `ac-` or `tool-`
+     prefix, still tells them apart. A dot
      joins the two parts, never a colon: the closing log's `record` (step 9)
      accepts only lowercase letters and digits joined by single dots, dashes or
      underscores, at most 64 characters. So lowercase each part, turn every run
@@ -516,11 +517,16 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    without `#progress`), and also match the slug in earlier records' `findings`
    at V1 or above, where a bare `cooperation` counts as an entry tagged without
    a clause does. Closes written before item 2's **One rule, one slug** may name
-   a two-part slug's rule by its second part alone or after its instruction's
-   source, as `mark-chapter` and `claude-md.mark-chapter` name
-   `ccd-session.mark-chapter`. Query the tag for the second part alone too, and
-   match a record slug that equals that part or ends in a dot and that part;
-   such an entry counts only when its report names the same rule. A V0 finding
+   a two-part slug's rule by its second part alone, after its instruction's
+   source or in other words, as `mark-chapter`, `claude-md.mark-chapter` and
+   `ccd-session.chapter-before-close` could each name
+   `ccd-session.mark-chapter`. So also query both `ac-missed-<part>` and
+   `tool-missed-<part>` for the second part alone, and read the earlier closes
+   themselves with `read_history(tag="thread-close")`, paged the same way,
+   because a close tagged only `#tool-missed-claude-md.mark-chapter` matches no
+   query above. In their records, match a slug that equals that part or ends in
+   a dot and that part, and one worded otherwise only after reading its report;
+   any such entry counts only when its report names the same rule. A V0 finding
    carries no miss tag (step 9) and never counts as
    a repeat: it rests only on the compacted conversation, too weak to escalate.
    Take each earlier miss's `miss_at` and the patch's `applied_at` from the
