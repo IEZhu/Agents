@@ -92,7 +92,7 @@ under rule 4, as 20 items must:
 Specificity was 0.94 (V3) and 0.93 (V2), and sensitivity 1.0 for both; neither
 difference band excludes zero. No V3 and V2 failure coincided, against 0.13 expected
 under independence. The coverage simulation held at a floor of 1 under `D`, for this
-set's structure.
+set's structure, under the first coverage test (finding 7).
 
 ## What proved unworkable, and what changed
 
@@ -136,19 +136,36 @@ set's structure.
 7. **Raising `D` until every band holds is not monotone near the boundary.** At `b` =
    0.995 the band's upper edge is the 0.99375 quantile of the marginal posterior. A
    flatter posterior moves that edge below 0.995, so a set of 6 items holds at no
-   floor. For the pilot's 20 items, and for the planned 240 and 200 items in clusters
-   of two, the bands hold at a floor of 1. With clusters of three, 200 simulated sets
-   raised the floor to 1.56, which is Monte Carlo noise of the coverage test; the
-   full run's calibration needs about 1000 sets. The measured `D` also sits above 1
-   for independent items: a ratio of two noisy variances, floored at 1 and maxed
-   over `c` and `b`, averaged 1.16 in simulation. With the posterior's own shape, that
-   makes the bands about 13 % wider than the design's planning figures: ±0.033 against
-   ±0.029 for `c_model` at 240 items, in 20 simulated sets.
-8. **Earlier-commit perturbations are rare.** Few constants and pins changed within
+   floor. The pilot ran under the first version of the coverage test, which accepted
+   a band unless its simulated coverage was shown to fall short; at 200 simulated sets
+   that held at a floor of 1 for the pilot and for the planned design. Review showed
+   that this accepts undercoverage (30 of 30 sets pass it), so a band now holds only
+   when the lower 95 % bound of its coverage over 1000 simulated sets reaches the
+   nominal 98.75 %. Under that test the planned 240 and 200 items, in clusters of two
+   or of three, need a floor of 1.95 under `D`: at a floor of 1 they covered about
+   98.5 %, and the test needs about 99.3 % observed.
+8. **The planned design does not reach ±0.03.** The measured `D` sits above 1 even for
+   independent items: a ratio of two noisy variances, floored at 1 and maxed over `c`
+   and `b`, averaged 1.16 in simulation. In 40 simulated sets at the priors, the mean
+   half-widths of the simultaneous bands were these:
+
+   | Parameter | Design's plan | Floor 1 | Floor 1.95 |
+   |---|---|---|---|
+   | `c_model` (240 items) | ±0.029 | ±0.031 | ±0.043 |
+   | `b_V3` (240 items) | ±0.020 | ±0.021 | ±0.029 |
+   | `c_execution` (200 items) | ±0.028 | ±0.032 | ±0.044 |
+   | `b_V2` (200 items) | ±0.029 | ±0.032 | ±0.042 |
+
+   Even at a floor of 1, `c_model`, `c_execution` and `b_V2` miss the replacement
+   rule's ±0.03. At the floor the coverage test sets, only `b_V3` is narrow. The full
+   run as designed could then refute a prior (rule 3) but could not confirm or lower
+   one (rules 1 and 2) for the other three parameters. Narrowing them to ±0.03 at a
+   floor of 1.95 would take about twice the items, near 1800 runs.
+9. **Earlier-commit perturbations are rare.** Few constants and pins changed within
    the last 30 commits that touched their file: 3 of 30 facts in a sample had an
    earlier value, and the pilot drew none. The full set's perturbations will lean on
    the other kinds.
-9. **No recorded claims exist yet**, so subjects come from the snapshot. The builder
+10. **No recorded claims exist yet**, so subjects come from the snapshot. The builder
    gives the files that a claim store names priority when one is passed.
 
 ## Not done here
