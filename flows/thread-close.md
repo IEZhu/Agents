@@ -502,6 +502,18 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    such as a live claim, is missing, and falls back to a reminder only when that
    state cannot be read. Where the client's hooks cannot refuse a call, say so
    in the proposal: a reminder there records the miss but cannot prevent it.
+   A rule's recent miss rate is context for the proposal, never a repeat. Run
+   `python "$AGENTS_CORE_ROOT/scripts/thread_close_miss_rate.py" --workspace <root>`
+   under Python 3.11 or later, such as the installation's own interpreter, with
+   `AGENTS_CORE_ROOT` derived as **Finding the helper from another repository**
+   describes and `<root>` the `workspace.root` that `read_history` answered
+   with. Per slug it prints the closes whose records gave an outcome,
+   the recent miss rate with its 95 % band and the all-time misses
+   ([turn records](../docs/turn-records.md#a-rules-recent-miss-rate)). Quote the
+   slug's row beside the proposal as evidence. The report decides nothing: a
+   repeat after an applied patch escalates however low the rate reads, a high
+   rate without such a repeat escalates nothing, and an escalation joins step
+   8's list like any other patch.
 8. **One list, one yes.** Check existing tracking within the confidentiality
    boundary before adding a patch, and for each proposal name its destination,
    verified visibility and whether its content is generic or private. Never
