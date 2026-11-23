@@ -121,6 +121,17 @@ WARMING_UP_HINT = (
 )
 
 
+def _warming_up_hint() -> str:
+    """The plain hint plus, once this installation has started before, how long starts take."""
+    try:
+        from src.engine import warmup_estimate
+        sentence = warmup_estimate.retry_hint(readiness.elapsed())
+    except Exception as error:  # the estimate is advice; the plain hint always works
+        logger.warning("Warmup estimate unavailable: %s", error)
+        sentence = None
+    return f"{WARMING_UP_HINT} {sentence}" if sentence else WARMING_UP_HINT
+
+
 async def _readiness_problem(tool: str) -> Optional[str]:
     """None when retrieval is ready, else ``warming_up`` or the init failure text.
 
@@ -136,7 +147,8 @@ async def _readiness_problem(tool: str) -> Optional[str]:
 def _persona_not_ready(problem: str) -> str:
     """Structured ERROR for persona tools; the bundle was not applied."""
     if problem == "warming_up":
-        return error_response(f"warming_up: {WARMING_UP_HINT}", instruction=WARMING_UP_HINT)
+        hint = _warming_up_hint()
+        return error_response(f"warming_up: {hint}", instruction=hint)
     return error_response(problem)
 
 
@@ -1564,7 +1576,7 @@ async def load_implants(
     }
 
     if (problem := await _readiness_problem("load_implants")) is not None:
-        return f"warming_up: {WARMING_UP_HINT}" if problem == "warming_up" else f"Error loading implants: {problem}"
+        return f"warming_up: {_warming_up_hint()}" if problem == "warming_up" else f"Error loading implants: {problem}"
 
     loop = asyncio.get_running_loop()
     debug_log("load_implants", "req", {"query": query, "task_type": task_type, "limit": limit})
@@ -2302,7 +2314,7 @@ async def read_history(
         elif query:
             if (problem := await _readiness_problem("read_history")) is not None:
                 status = "warming_up" if problem == "warming_up" else "error"
-                return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT,
+                return json.dumps({"status": status, "error": problem if status == "error" else _warming_up_hint(),
                                    **workspace_report}, ensure_ascii=False)
 
             def search():

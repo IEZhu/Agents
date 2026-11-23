@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _future: "concurrent.futures.Future[dict]" = concurrent.futures.Future()
 _started = False
+_started_at: Optional[float] = None
 _thread: Optional[threading.Thread] = None
 
 
@@ -84,7 +85,13 @@ def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futur
         logger.error("Readiness failed after %.2fs: %s", time.monotonic() - started, error, exc_info=True)
         future.set_exception(error if isinstance(error, Exception) else RuntimeError(str(error)))
         return
-    durations["total"] = round(time.monotonic() - started, 3)
+    total = time.monotonic() - started
+    durations["total"] = round(total, 3)
+    try:
+        from src.engine import warmup_estimate
+        warmup_estimate.record(total)
+    except Exception as error:  # the estimate only phrases a hint: never fail readiness for it
+        logger.warning("Warmup estimate not updated: %s", error)
     try:
         from src.version import agents_core_version
         revision = agents_core_version()
@@ -99,11 +106,12 @@ def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futur
 
 def start(phases: Optional[list[tuple[str, Callable[[], None]]]] = None) -> bool:
     """Start the initializer once; later calls return False and change nothing."""
-    global _started, _thread
+    global _started, _started_at, _thread
     with _lock:
         if _started:
             return False
         _started = True
+        _started_at = time.monotonic()
         _thread = threading.Thread(
             target=_run, args=(phases if phases is not None else _default_phases(), _future),
             name="readiness", daemon=True,
@@ -123,10 +131,12 @@ def join(timeout: float) -> bool:
 
 def run_blocking() -> dict:
     """Run the phases in the calling thread (HTTP daemon loader); start-once."""
-    global _started
+    global _started, _started_at
     with _lock:
         first = not _started
         _started = True
+        if first:
+            _started_at = time.monotonic()
     if first:
         _run(_default_phases(strict=True), _future)
     return _future.result()
@@ -144,6 +154,14 @@ def is_ready() -> bool:
 def is_warming() -> bool:
     """True while a started initializer has not finished."""
     return _started and not _future.done()
+
+
+def elapsed() -> Optional[float]:
+    """Seconds since the initializer started while it is still running, else None."""
+    started_at = _started_at
+    if started_at is None or _future.done():
+        return None
+    return time.monotonic() - started_at
 
 
 def state() -> str:
@@ -175,8 +193,9 @@ async def wait(timeout: Optional[float] = None) -> Optional[str]:
 
 
 def reset_for_tests() -> None:
-    global _future, _started, _thread
+    global _future, _started, _started_at, _thread
     with _lock:
         _future = concurrent.futures.Future()
         _started = False
+        _started_at = None
         _thread = None
