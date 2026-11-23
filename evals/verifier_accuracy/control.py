@@ -45,6 +45,10 @@ OUTCOMES = ("TP", "FN", "TN", "FP")
 # execution, and "unsupported" for a V3-arm verdict without a recorded snapshot read.
 LEVELS = ("V3", "V2", "V1", "unsupported")
 FAMILIES = ("model", "execution")
+ARM_LEVELS = {"V3": ("V3", "unsupported"), "V2": ("V2", "V1")}
+LEVEL_FAMILY = {"V3": "model", "unsupported": "model", "V1": "model", "V2": "execution"}
+# Unfinished rows written for a slot that never ran: a resumed run schedules the slot again.
+PLACEHOLDER_REASONS = ("probe_failed", "runner_stopped", "budget")
 # Every line carries these keys; values may be null where the attempt never got that far.
 RECORD_KEYS = ("at", "event", "set", "item", "stratum", "truth", "arm", "slot", "status", "task",
                "attempt_id", "contract_revision", "client", "tier", "model", "reasoning_effort",
@@ -119,6 +123,10 @@ def read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def set_version(control: Path) -> str:
     """The first 16 hexadecimal characters of the statement file's SHA-256."""
     return hashlib.sha256((control / STATEMENTS).read_bytes()).hexdigest()[:VERSION_CHARS]
@@ -146,12 +154,22 @@ def check_record(record: dict) -> None:
     if record["status"] not in STATUSES:
         raise ValueError(f"unknown status {record['status']!r}")
     if record["status"] == "verdict":
-        if record.get("level") not in LEVELS or record.get("family") not in FAMILIES:
-            raise ValueError("a verdict line needs a level and a family")
-        if record.get("verdict") not in VERDICTS or record.get("outcome") not in OUTCOMES:
-            raise ValueError("a verdict line needs a verdict and an outcome")
+        if record.get("level") not in ARM_LEVELS[record["arm"]]:
+            raise ValueError(f"a {record['arm']}-arm verdict cannot have level {record.get('level')!r}")
+        if record.get("family") != LEVEL_FAMILY[record["level"]]:
+            raise ValueError(f"level {record['level']} belongs to family {LEVEL_FAMILY[record['level']]}")
+        if record.get("verdict") not in VERDICTS:
+            raise ValueError("a verdict line needs a verdict")
+        if record.get("outcome") != outcome(record["truth"], record["verdict"]):
+            raise ValueError("the outcome must follow from the truth and the verdict")
     elif any(key in record for key in VERDICT_KEYS):
         raise ValueError("only verdict lines carry level, family, verdict and outcome")
+
+
+def is_placeholder(row: dict) -> bool:
+    """A row for a slot that never ran, which a later attempt of the same slot supersedes."""
+    reason = str(row.get("reason") or "")
+    return row.get("status") == "unfinished" and (reason in PLACEHOLDER_REASONS or reason.startswith("runner_error"))
 
 
 def outcome(truth: bool, verdict: str) -> str:

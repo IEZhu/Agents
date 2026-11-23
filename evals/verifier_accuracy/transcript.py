@@ -14,6 +14,7 @@ import glob
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 
 READ_TOOLS = frozenset({"Read", "Grep", "Glob"})
@@ -109,26 +110,41 @@ def _inside(path: str | None, root: str, cwd: str | None) -> bool:
 _SHELL_OPERATORS = frozenset({"|", "||", "&&", ";", "&", ">", ">>", "<", "2>", "2>&1"})
 
 
-def names_snapshot_path(command: str, cwd: str | None, snapshot: Path) -> bool:
-    """Whether a shell command names an existing file or directory of the snapshot as an operand.
+# A file-like path inside quoted code, as in python3 -c "print(open('src/x.py').read())".
+_FILE_FRAGMENT = re.compile(r"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z0-9]+")
 
-    The command is only read, never run. A working directory alone, or ``pwd``, names
-    nothing; the directory a ``cd`` enters is not read by entering it.
+
+def names_snapshot_path(command: str, cwd: str | None, snapshot: Path) -> bool:
+    """Whether a shell command names an existing file or directory of the snapshot.
+
+    The command is only read, never run, so this is a lexical check: an operand, or a
+    file-like path inside quoted code, resolved against the working directory and every
+    directory a ``cd`` in the command enters. A working directory alone, ``pwd`` or the
+    directory a ``cd`` enters names nothing by itself.
     """
     try:
         tokens = shlex.split(command, comments=True)
     except ValueError:
         tokens = command.split()
     root = str(snapshot)
+    directories = [cwd or root]
+    candidates, entered = [], set()
     previous = None
     for token in tokens:
         operand = token.split("=", 1)[1] if token.startswith("--") and "=" in token else token
-        if previous != "cd" and operand not in _SHELL_OPERATORS and not operand.startswith("-"):
-            path = operand if os.path.isabs(operand) else os.path.join(cwd or root, operand)
-            matches = glob.glob(path) if any(mark in operand for mark in "*?[") else [path]
-            if any(_inside(match, root, cwd) and os.path.exists(match) for match in matches):
-                return True
+        if previous == "cd":
+            entered.add(token)
+            directories.append(os.path.normpath(token if os.path.isabs(token) else os.path.join(directories[-1], token)))
+        elif operand not in _SHELL_OPERATORS and not operand.startswith("-"):
+            candidates.append(operand)
         previous = token
+    candidates += [fragment for fragment in _FILE_FRAGMENT.findall(command) if fragment not in entered]
+    for candidate in candidates:
+        for base in directories:
+            path = candidate if os.path.isabs(candidate) else os.path.join(base, candidate)
+            matches = glob.glob(path) if any(mark in candidate for mark in "*?[") else [path]
+            if any(_inside(match, root, None) and os.path.exists(match) for match in matches):
+                return True
     return False
 
 

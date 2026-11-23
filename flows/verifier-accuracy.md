@@ -111,7 +111,10 @@ python -m evals.scripts.verifier_accuracy --installation <path> run --concurrenc
 Run it in the background; wait for it to finish instead of polling. A probe
 precedes each batch, and a failed probe stops the run with every remaining
 attempt recorded `unfinished` (`probe_failed`). A failed attempt record stops it
-too. Running the command again resumes: recorded attempts are skipped. Cap the
+too. Running the command again resumes: a slot whose attempt ran is skipped, and a
+slot whose only record is a placeholder for a stop (`probe_failed`,
+`runner_stopped`, `budget`) runs again; the analysis counts each slot once, by
+its latest record, and the budget starts from what the set already spent. Cap the
 pilot at $30 and the full run at the pilot's mean cost per run times the runs,
 times 1.5.
 

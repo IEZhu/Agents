@@ -317,8 +317,18 @@ def strata_rates(rows: list[dict]) -> dict:
     return out
 
 
+def effective(rows: list[dict]) -> list[dict]:
+    """One row per scheduled slot: its latest. A resumed run reschedules only a slot whose rows are
+    placeholders (it never ran), so the latest row is the attempt that ran, or the last stop."""
+    latest: dict[tuple, dict] = {}
+    for row in rows:
+        latest[(row["item"], row["arm"], row["slot"])] = row
+    return list(latest.values())
+
+
 def tally(rows: list[dict]) -> dict:
-    """Statuses per arm and class, the levels assigned, and what was set aside and why."""
+    """Statuses per arm and class, the levels assigned, and what was set aside and why; each slot once."""
+    superseded = len(rows) - len(rows := effective(rows))
     statuses = {arm: {name: Counter() for name in ("true", "false")} for arm in ("V3", "V2")}
     levels = {arm: Counter() for arm in ("V3", "V2")}
     reasons, set_aside = Counter(), Counter()
@@ -331,7 +341,7 @@ def tally(rows: list[dict]) -> dict:
         for key in ("discarded", "excluded"):
             if row.get(key):
                 set_aside[f"{key}:{row[key]}"] += 1
-    return {"attempts": len(rows),
+    return {"attempts": len(rows), "superseded_placeholders": superseded,
             "statuses": {arm: {name: dict(counter) for name, counter in by_class.items()}
                          for arm, by_class in statuses.items()},
             "levels": {arm: dict(counter) for arm, counter in levels.items()},
@@ -363,7 +373,7 @@ def analyze(rows: list[dict], statements: dict[str, dict], *, look: str = "final
     rng = np.random.default_rng(seed)
     grid, coarse = grid or Grid(), coarse or Grid(100, 200)
     clusters = {item: row["cluster"] for item, row in statements.items()}
-    fitted = usable(rows)
+    fitted = usable(effective(rows))
     configurations = []
     mixed = {}
     findings = []

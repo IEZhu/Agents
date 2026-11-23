@@ -92,10 +92,13 @@ def export_snapshot(repo: Path, commit: str, snapshots: Path) -> Path:
     target.mkdir(mode=0o700)
     archive = _git(repo, "archive", "--format=tar", commit, binary=True)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        # No links: the worker may read only what the commit holds, and a link could point at
+        # any file of the machine, the service-state directory included.
+        members = [member for member in tar.getmembers() if not (member.issym() or member.islnk())]
         if hasattr(tarfile, "data_filter"):  # Python 3.11.4 and later
-            tar.extractall(target, filter="data")
+            tar.extractall(target, members=members, filter="data")
         else:  # the archive is git's own export of a local commit
-            tar.extractall(target)
+            tar.extractall(target, members=members)
     _make_read_only(target)
     marker.write_text(commit + "\n", encoding="utf-8")
     return target
@@ -334,6 +337,7 @@ def build(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: 
         "perturbations": dict(Counter(item.kind for item in chosen if not item.truth)),
         "command_checkable": by_class("command_checkable"), "v2": by_class("v2"),
         "skipped": dict(selector.skipped), "owner_review": len(selector.owner),
+        "labels_sha256": control.file_digest(control_dir / control.LABELS),
     }
     control.write_private(control_dir / control.MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest

@@ -111,7 +111,7 @@ def run(arguments) -> int:
                                   batch_size=arguments.batch_size, timeout=arguments.timeout,
                                   max_total_usd=arguments.max_total_usd, seed=arguments.seed,
                                   log=lambda line: print(line, flush=True))
-    _print(worker_runner.run(probe_model=arguments.model))
+    _print(worker_runner.run())
     return 0
 
 
@@ -185,7 +185,8 @@ def parser() -> argparse.ArgumentParser:
     for name, handler in (("probe", probe), ("run", run)):
         command = commands.add_parser(name)
         command.add_argument("--claude", help="The Claude Code executable; found on PATH by default.")
-        command.add_argument("--model", help="Probe model; the verifier package's model by default.")
+        if name == "probe":  # run always probes on the verifier package's own model
+            command.add_argument("--model", help="Probe model; the verifier package's model by default.")
         command.add_argument("--timeout", type=float, default=900.0, help="Seconds before a worker is unfinished.")
         command.add_argument("--max-run-usd", type=float, default=2.0, help="Budget of one worker run.")
         command.set_defaults(handler=handler)

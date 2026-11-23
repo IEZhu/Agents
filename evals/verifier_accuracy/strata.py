@@ -127,7 +127,28 @@ def _bound(node) -> list[str]:
         return [node.name]
     if isinstance(node, ast.ExceptHandler) and node.name:
         return [node.name]
+    if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+        return [node.name]  # a case capture
+    if isinstance(node, ast.MatchMapping) and node.rest:
+        return [node.rest]
     return []
+
+
+def _definition_time(node) -> list:
+    """The parts of a def, class or lambda that run in the enclosing scope when it is defined."""
+    parts = list(getattr(node, "decorator_list", []))
+    arguments = getattr(node, "args", None)
+    if isinstance(arguments, ast.arguments):
+        parts += [*arguments.defaults, *(default for default in arguments.kw_defaults if default is not None)]
+        if not isinstance(node, ast.Lambda):
+            parts += [argument.annotation for argument in (*arguments.posonlyargs, *arguments.args,
+                                                           *arguments.kwonlyargs, arguments.vararg, arguments.kwarg)
+                      if argument is not None and argument.annotation is not None]
+    if getattr(node, "returns", None) is not None:
+        parts.append(node.returns)
+    if isinstance(node, ast.ClassDef):
+        parts += [*node.bases, *(keyword.value for keyword in node.keywords)]
+    return parts
 
 
 def _module_scope(tree: ast.Module):
@@ -136,7 +157,9 @@ def _module_scope(tree: ast.Module):
     while stack:
         node = stack.pop()
         yield node
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            stack.extend(_definition_time(node))  # defaults, decorators, annotations, bases: module scope
+        else:
             stack.extend(ast.iter_child_nodes(node))
 
 

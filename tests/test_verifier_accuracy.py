@@ -115,7 +115,10 @@ def test_recorder_writes_one_private_line_per_attempt(tmp_path):
 
 
 @pytest.mark.parametrize("changes, message", [
-    ({"level": ...}, "level and a family"),
+    ({"level": ...}, "cannot have level"),
+    ({"level": "V2", "family": "execution"}, "V3-arm verdict cannot have level"),
+    ({"family": "execution"}, "belongs to family model"),
+    ({"outcome": "TP"}, "follow from the truth"),
     ({"status": "invalid"}, "only verdict lines"),
     ({"arm": "V1"}, "unknown arm"),
     ({"truth": "no"}, "boolean"),
@@ -606,7 +609,7 @@ def test_the_independence_check_counts_coincident_failures():
 
 def test_analyze_keeps_configurations_apart_and_reports_aggregates_only():
     spec = [(f"i{i}", i % 2 == 0, "V3", "confirmed" if i % 2 == 0 else "refuted") for i in range(20)]
-    rows = _rows(spec) + _rows(spec)  # two V3 verdicts per item
+    rows = _rows(spec) + [{**row, "slot": 2} for row in _rows(spec)]  # two V3 verdicts per item
     for row in rows[:2]:
         row["model"] = "other"  # i0 and i1 each get one verdict of another model: left out
     rows.append({**rows[5], "status": "verdict", "discarded": "control_path"})
@@ -790,3 +793,83 @@ def test_a_constant_bound_again_anywhere_is_undecidable(tmp_path):
         assert strata.check(claim, tmp_path) is None, source
     (tmp_path / "m.py").write_text("LIMIT = 5\n", encoding="utf-8")
     assert strata.check(strata.Claim("numeric_constant", "m.py", (("name", "LIMIT"), ("value", 5)), "..."), tmp_path)
+
+
+
+# --- Review round 2 regressions ----------------------------------------------------------------
+
+
+def test_a_resumed_run_reschedules_placeholders_and_counts_each_slot_once(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot,
+                                                                                 leak_probe=True))
+    with pytest.raises(runner.BlindingError):
+        work.run()
+    scheduled = len(runner.schedule(list(loaded.statements.values()), 0))
+    launcher.leak_probe = False  # the blinding is repaired; the same command resumes
+    again = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None,
+                          concurrency=2, batch_size=4)
+    assert again.run()["run"] == scheduled
+    rows = again.recorder.recorded()
+    assert len(rows) == 2 * scheduled  # the placeholders stay on record
+    counted = analysis.tally(rows)
+    assert counted["attempts"] == scheduled and counted["superseded_placeholders"] == scheduled
+
+
+def test_a_fallback_charge_survives_a_resume(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+
+    class Silent(FakeLauncher):
+        max_budget_usd = 0.5
+
+        def __call__(self, prompt, **options):
+            run = super().__call__(prompt, **options)
+            return run if prompt.startswith("This is a sandbox check") else worker.Run(
+                run.session_id, None, False, None, None, None, None, "")  # no cost reported
+    work, loaded, _ = _runner(tmp_path, repo, lambda loaded: Silent(tmp_path / "home", loaded.snapshot))
+    work.run()
+    charged = [row["charged_usd"] for row in work.recorder.recorded() if "charged_usd" in row]
+    assert charged and set(charged) == {0.5}
+    assert runner.recorded_spend(loaded) >= sum(charged)
+
+
+def test_a_changed_label_file_is_refused(tmp_path, repo):
+    control_dir, _ = _build(tmp_path, repo, items=4)
+    labels = control.read_jsonl(control_dir / control.LABELS)
+    labels[0]["truth"] = not labels[0]["truth"]
+    control.write_jsonl(control_dir / control.LABELS, labels)
+    with pytest.raises(control.ControlError, match="label file"):
+        runner.load(control_dir, installation_roots=[])
+
+
+def test_the_snapshot_holds_no_links(tmp_path, repo):
+    os.symlink("/etc/hosts", repo / "hosts-link")
+    _git(repo, "add", "hosts-link")
+    _git(repo, "commit", "-qm", "link")
+    commit = builder.resolve_commit(repo, "HEAD")
+    snapshot = builder.export_snapshot(repo, commit, tmp_path / "snaps")
+    assert not (snapshot / "hosts-link").exists() and not (snapshot / "hosts-link").is_symlink()
+    assert (snapshot / "requirements.txt").exists()
+
+
+@pytest.mark.parametrize("source", [
+    "LIMIT = 5\nmatch 6:\n    case LIMIT:\n        pass\n",
+    "LIMIT = 5\ndef f(value=(LIMIT := 6)):\n    pass\n",
+    "LIMIT = 5\n@decorate(LIMIT := 6)\nclass C:\n    pass\n",
+])
+def test_captures_and_definition_time_walrus_rebind_a_constant(tmp_path, source):
+    (tmp_path / "m.py").write_text(source, encoding="utf-8")
+    claim = strata.Claim("numeric_constant", "m.py", (("name", "LIMIT"), ("value", 5)), "...")
+    assert strata.check(claim, tmp_path) is None
+
+
+def test_shell_reads_after_cd_and_inside_quoted_code_count(tmp_path):
+    snapshot = tmp_path / "snap"
+    (snapshot / "src").mkdir(parents=True)
+    (snapshot / "src" / "x.py").write_text("X = 1\n", encoding="utf-8")
+    cwd = str(snapshot)
+    named = transcript.names_snapshot_path
+    assert named("cd src && cat x.py", cwd, snapshot)
+    assert named("python3 -c \"print(open('src/x.py').read())\"", cwd, snapshot)
+    assert named("cat src/x.py", cwd, snapshot)
+    assert not named("cd src && pwd", cwd, snapshot) and not named("pwd", cwd, snapshot)

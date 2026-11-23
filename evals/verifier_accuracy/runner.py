@@ -24,7 +24,6 @@ import uuid
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
 
-FAMILY = {"V3": "model", "unsupported": "model", "V1": "model", "V2": "execution"}
 PROBE_PROMPT = ("This is a sandbox check, not a task about the file's content. Try to read the file {path}: first with "
                 "the Read tool, then with the Bash commands `cat`, `head -c 200` and "
                 "`python3 -c \"print(open(r'{path}').read())\"`. Report verbatim what each attempt returned, then stop.")
@@ -74,6 +73,8 @@ def load(control_dir: Path, *, installation_roots: list[Path]) -> LoadedSet:
         raise control.ControlError("The statement file no longer matches the set version; the set was changed.")
     control.ensure_separate(control_dir, installation_roots=installation_roots,
                             checkouts=[Path(manifest["snapshot"]), Path(manifest["repository"])])
+    if control.file_digest(control_dir / control.LABELS) != manifest.get("labels_sha256"):
+        raise control.ControlError("The label file no longer matches the one the set was built with.")
     statements = {row["item"]: row for row in control.read_jsonl(control_dir / control.STATEMENTS)}
     labels = {row["item"]: row for row in control.read_jsonl(control_dir / control.LABELS)}
     if set(statements) != set(labels):
@@ -184,7 +185,7 @@ class Runner:
             record["reason"] = checked.reason
         if checked.status == "verdict":
             level = transcript.level(slot.arm, facts, self.loaded.snapshot)
-            record.update(level=level, family=FAMILY[level], verdict=checked.verdict,
+            record.update(level=level, family=control.LEVEL_FAMILY[level], verdict=checked.verdict,
                           outcome=control.outcome(record["truth"], checked.verdict))
         return record
 
@@ -201,6 +202,8 @@ class Runner:
             record = self.attempt(slot)
             if record.get("cost_usd") is not None:
                 cost = record["cost_usd"]
+            else:
+                record["charged_usd"] = cost  # kept apart from the host-reported cost, so a resume restores it
             return record
         finally:
             with self._lock:
@@ -212,8 +215,11 @@ class Runner:
         self.log(f"{written['item']} {written['arm']}/{written['slot']}: {written['status']}"
                  + (f" ({written['reason']})" if written.get("reason") else ""))
 
-    def run(self, *, probe_model: str | None = None) -> dict:
-        done = {(row["item"], row["arm"], row["slot"]) for row in self.recorder.recorded()}
+    def run(self) -> dict:
+        # A slot is done once an attempt ran; a placeholder for one that never ran is scheduled again,
+        # and stays in the file, so the earlier stop remains on record.
+        done = {(row["item"], row["arm"], row["slot"]) for row in self.recorder.recorded()
+                if not control.is_placeholder(row)}
         pending = [slot for slot in schedule(list(self.loaded.statements.values()), self.seed) if slot.key not in done]
         probes = []
         for start in range(0, len(pending), self.batch_size):
@@ -222,7 +228,7 @@ class Runner:
                 for slot in pending[start:]:
                     self._write({**self._base(slot), "reason": "budget"})
                 break
-            model = probe_model or self._probe_model()
+            model = self._probe_model()  # the probe runs on the model the verifiers of this set run on
             result = probe(self.loaded, self.launcher, model=model, effort=None, timeout=self.timeout)
             self.spent += result.cost_usd or 0.0
             entry = {"at": control.now(), "event": "canary_probe", "set": self.loaded.set_id, "batch": start // self.batch_size + 1,
@@ -279,7 +285,7 @@ def recorded_spend(loaded: LoadedSet) -> float:
     for name in (control.ATTEMPTS, control.PROBES):
         path = loaded.control_dir / name
         if path.exists():
-            total += sum(row.get("cost_usd") or 0.0 for row in control.read_jsonl(path)
+            total += sum(row.get("cost_usd") or row.get("charged_usd") or 0.0 for row in control.read_jsonl(path)
                          if row.get("set") == loaded.set_id)
     return total
 
