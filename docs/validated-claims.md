@@ -55,7 +55,9 @@ accuracy of any route.** Step 8 of the plan's
 [order of work](delegation-reliability-plan.md#order-of-work) measures per-route
 sensitivity and specificity on a known-answer control set, the measurement its layer 6
 describes, and [Measuring verifier accuracy](verifier-accuracy-measurement.md) designs
-it for `FAMILIES` and `ROUTES` in [model.py](../src/claims/model.py). `VOLATILITY` is
+it for the model and execution entries of `FAMILIES` and the V2 and V3 entries of
+`ROUTES` in [model.py](../src/claims/model.py); the owner family, V1 and V4 keep their
+priors. `VOLATILITY` is
 a property of claims, not of verifiers, so that set cannot measure it: it needs
 re-checks of stored claims at random ages. Because the store keeps verdicts and
 recomputes every state on read, a changed parameter re-reads the whole history, so a

@@ -113,7 +113,9 @@ transcript; a run whose transcript does not name it is excluded and counted, nev
 filed under the tier's alias, because an alias such as `sonnet` moves between
 snapshots. The first run measures the `claude` client at the tiers verification uses
 today: 240 items × 2 V3 runs + 200 items × 2 V2 runs = **880 runs**, plus about 80 for
-the pilot.
+the pilot. These runs measure one configuration; every further configuration the
+routes use, another tier or client, needs its own full run, and until it has one its
+verdicts keep the priors.
 
 ## Recording path
 
@@ -159,8 +161,14 @@ configurations is left out of the fit; the report gives that count and the items
 remaining per configuration.
 
 **Bands.** One construction gives every band the rule uses. For each family, the
-posterior of `c` and `b` is computed on a grid from model.py's likelihood, with uniform
-priors over (0.5, 1) and the log-likelihood divided by the design effect `D`. A
+posterior of `c` and `b` is computed on a grid from model.py's likelihood, with the
+log-likelihood divided by the design effect `D` and uniform priors: over (0.5, 1) for
+`c`, which settles the model's symmetry between `(c, b)` and `(1 − c, 1 − b)`, and over
+(0, 1) for `b`. With both above 1/2, a single verdict's accuracy
+`1/2 + 2·(c − 1/2)·(b − 1/2)` could never fall below 1/2, so a route worse than chance
+could not show; with `b` free it shows as `b` below 1/2. A route whose band for `b`
+lies wholly below 1/2 is reported as a finding (the plan's finding 3: below chance,
+more verdicts make things worse) and never proposed as a value. A
 parameter's band runs between two quantiles of its marginal posterior: 0.00625 and
 0.99375 at the final look, Bonferroni over the four parameters the rule acts on
 (`c_model`, `b_V3`, `c_execution`, `b_V2`), and 0.0005 and 0.9995 at the interim

@@ -36,9 +36,10 @@ simulated claims the Brier score was 0.0109 for this filter, 0.0136 for a Kalman
 filter on the indicator scale and 0.025 to 0.047 for one on log-odds readings.
 
 Every number below is a prior chosen for this design, not a measured accuracy;
-docs/verifier-accuracy-measurement.md designs the measurement that would replace
-FAMILIES and ROUTES (step 8 of the reliability plan's order of work). VOLATILITY is
-a property of claims, not of verifiers, and needs a different measurement.
+docs/verifier-accuracy-measurement.md designs the measurement that would replace the
+model and execution entries of FAMILIES and the V2 and V3 entries of ROUTES (step 8 of
+the reliability plan's order of work); the owner family, V1 and V4 keep their priors.
+VOLATILITY is a property of claims, not of verifiers, and needs a different measurement.
 """
 from __future__ import annotations
 
