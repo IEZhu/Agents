@@ -325,19 +325,38 @@ def test_an_existing_permissive_store_is_made_private_on_write(store):
 def test_a_directory_created_by_another_process_first_is_accepted(store, monkeypatch):
     import src.claims.store as module
 
-    real_lstat = module.os.lstat
-    raced = {"done": False}
+    real_mkdir = module.os.mkdir
 
-    def lstat(path, *args, **kwargs):
-        # The first look finds nothing; by the time mkdir runs, a concurrent writer created it.
-        if Path(path) == store.directory and not raced["done"]:
-            raced["done"] = True
-            store.directory.mkdir(parents=True, mode=0o700)
-            raise FileNotFoundError(path)
-        return real_lstat(path, *args, **kwargs)
+    def mkdir(path, *args, **kwargs):
+        # A concurrent writer creates the directory just before this one does.
+        real_mkdir(path, *args, **kwargs)
+        raise FileExistsError(path)
 
-    monkeypatch.setattr(module.os, "lstat", lstat)
+    monkeypatch.setattr(module.os, "mkdir", mkdir)
     assert record(store)["status"] == "recorded"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX descriptor-relative opens")
+def test_a_directory_swapped_for_a_link_after_the_checks_does_not_redirect_the_write(store, tmp_path,
+                                                                                      monkeypatch):
+    import src.claims.store as module
+
+    record(store, subject="first", claim="one")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    moved = store.directory.with_name("claims-moved")
+    real_open = module.os.open
+
+    def open_after_swap(path, flags, *args, **kwargs):
+        if path == module.STORE_FILE and not moved.exists():
+            store.directory.rename(moved)  # the directory the store already holds open
+            store.directory.symlink_to(elsewhere, target_is_directory=True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", open_after_swap)
+    record(store, subject="second", claim="two")
+    assert list(elsewhere.iterdir()) == []
+    assert len((moved / module.STORE_FILE).read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_a_torn_last_line_does_not_swallow_the_next_verdict(store):

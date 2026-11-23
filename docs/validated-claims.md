@@ -14,7 +14,7 @@ warmup time.
 
 | Tool | What it does |
 |---|---|
-| `claim_record` | Append one verdict: `subject`, `claim`, `verdict` (`confirmed` or `refuted`), `level` (`V1`..`V4`; `V0` is refused), and optionally `importance`, `volatility`, `evidence` and the `contract_revision` and `result_sha256` of the validated worker result it came from. Returns the claim's new state, its state before, the verdict's predictive probability and `contradiction` |
+| `claim_record` | Append one verdict: `subject`, `claim`, `verdict` (`confirmed` or `refuted`), `level` (`V1`..`V4`; `V0` is refused), and optionally `importance`, `volatility`, `evidence` and the `contract_revision` and `result_sha256` of the validated worker result it came from. Returns the claim's new state, its state before, the verdict's predictive probability and `contradiction`. A `workspace` argument outside the registered root is refused with `workspace_mismatch`, and nothing is written |
 | `claim_lookup` | Read one claim with its newest verdicts, by `key` or by `subject` with `claim`, or list claims narrowed by `query` text and `state`. A `state` listing is sorted by due date, so `state="stale"` reads as a work queue |
 
 Record a verdict after a check has established it, and look a claim up before
@@ -137,7 +137,12 @@ statement, the verdict, level, importance, volatility, up to ten evidence
 references and the optional worker attestation. The store refuses new verdicts past
 20 MiB. It never follows a symbolic link: a linked `data`, `data/claims` or
 `claims.jsonl` (a cloned repository can carry one) answers `unsafe_store` instead of
-writing to or reading from the link's target. A line it cannot use, such as a hand
+writing to or reading from the link's target. On POSIX each component is opened from
+its parent's descriptor, so a directory swapped for a link after a check cannot
+redirect a read or an append; Windows has no descriptor-relative open and checks each
+component by name, which leaves that window. The writer requires the claims directory
+and file to belong to the user and removes group and other permissions from them,
+also when they already existed. A line it cannot use, such as a hand
 edit or a write cut short by a full disk, is skipped rather than failing every read,
 and the next verdict starts on a fresh line. Claim text is project content and, like `read_shared_memory`, the two tools
 are not traced to Langfuse.

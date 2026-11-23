@@ -2453,9 +2453,14 @@ def _fit_claims(payload: dict, field: str) -> dict:
     return payload
 
 
-async def _claim_store(ctx: Context | None, workspace: Optional[str]) -> tuple[ClaimStore, dict]:
+async def _claim_store(ctx: Context | None, workspace: Optional[str], *,
+                       writing: bool = False) -> tuple[ClaimStore, dict]:
     client = await resolve_client_context(ctx, workspace)
     root = client.require_root()
+    if writing:
+        # A verdict checked in another repository must not land in this one's store (#576):
+        # the writer refuses where the reader only notes.
+        client.require_workspace_match()
     return ClaimStore(root), _workspace_report(client, root)
 
 
@@ -2501,16 +2506,18 @@ async def claim_record(
 
     The store is append-only and local to the workspace (``data/claims/claims.jsonl``).
     It is for the parent session: give a worker a stored fact only as a pinned artifact.
-    A ``workspace`` argument outside the registered root is not followed: the result's
-    ``workspace`` names the root used and ``workspace_note`` says what was ignored.
+    A ``workspace`` argument outside the registered root is refused with
+    ``workspace_mismatch`` and both roots, and nothing is written: a verdict checked in one
+    repository never lands in another's store.
 
     Returns JSON: {status: recorded, event_id, contradiction, predictive (the verdict's
     probability before it arrived), previous: {state, confidence} | null, claim,
     workspace}. ``claim`` is the state claim_lookup returns.
-    Errors: {status: error, code (invalid_request, store_full, unsafe_store, workspace), error}.
+    Errors: {status: error, code (invalid_request, store_full, unsafe_store, workspace,
+    workspace_mismatch), error}.
     """
     try:
-        store, workspace_report = await _claim_store(ctx, workspace)
+        store, workspace_report = await _claim_store(ctx, workspace, writing=True)
         debug_log("claim_record", "req", {"verdict": verdict, "level": level, "importance": importance,
                                           "volatility": volatility})
         result = await asyncio.get_running_loop().run_in_executor(None, lambda: store.record(

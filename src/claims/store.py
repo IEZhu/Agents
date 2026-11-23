@@ -13,8 +13,10 @@ history consistently instead of mixing two calibrations.
 """
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import errno
 import hashlib
 import json
 import os
@@ -42,6 +44,15 @@ KEY = re.compile(r"[0-9a-f]{16}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 # Opening flags that refuse a symbolic link and never block on a FIFO, where the platform has them.
 _NO_FOLLOW = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+# POSIX opens every component from its parent's descriptor, so neither a link nor a directory
+# swapped in between a check and an open can redirect the store. Windows has no dir_fd and checks
+# each component with lstat instead, which leaves that swap window open.
+_ANCHORED = (hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
+             and os.open in os.supports_dir_fd and os.mkdir in os.supports_dir_fd)
+# What opening a link with O_NOFOLLOW, or a non-directory with O_DIRECTORY, answers.
+_REFUSED_KINDS = {errno.ELOOP, errno.ENOTDIR, errno.EISDIR, getattr(errno, "EMLINK", errno.ELOOP),
+                  getattr(errno, "EFTYPE", errno.ELOOP)}
+STORE_FILE = "claims.jsonl"
 STATES = ("supported", "stale", "contested", "uncertain", "refuted")
 
 
@@ -228,6 +239,107 @@ def _open_store(path: Path, flags: int, *, private: bool = False) -> int:
     return descriptor
 
 
+def _not_plain(path: Path) -> _UnsafeStore:
+    return _UnsafeStore(f"{path} is not a plain directory or file; the claims store does not follow links")
+
+
+def _private_descriptor(descriptor: int, path: Path, mode: int) -> None:
+    """The open object belongs to this user and loses group and other permissions."""
+    info = os.fstat(descriptor)
+    if not _owned_by_caller(info):
+        raise _UnsafeStore(f"{path} belongs to another user; the claims store keeps only its own files")
+    if info.st_mode & 0o077:
+        os.fchmod(descriptor, mode)
+
+
+@contextlib.contextmanager
+def _store_directory(root: Path, *, create: bool, private: bool):
+    """Yield ``<root>/data/claims``: a descriptor on POSIX, the path on Windows, None when missing.
+
+    On POSIX each component is opened from its parent's descriptor with ``O_NOFOLLOW``; the
+    workspace root itself is trusted. With ``create`` missing components are made (0700);
+    with ``private`` the claims directory must be this user's and loses group and other
+    permissions, which ``mkdir``'s mode does not do for a directory that already exists.
+    """
+    directory = root / "data" / "claims"
+    if not _ANCHORED:
+        for path, keep_private in ((root / "data", False), (directory, private)):
+            if create:
+                _real_directory(path, private=keep_private)
+            else:
+                try:
+                    if not stat.S_ISDIR(os.lstat(path).st_mode):
+                        raise _not_plain(path)
+                except FileNotFoundError:
+                    yield None
+                    return
+        yield directory
+        return
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    opened: list[int] = []
+    try:
+        current = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        opened.append(current)
+        for name, keep_private in (("data", False), ("claims", private)):
+            try:
+                current = os.open(name, flags, dir_fd=current)
+            except FileNotFoundError:
+                if not create:
+                    yield None
+                    return
+                with contextlib.suppress(FileExistsError):  # another process may create it first
+                    os.mkdir(name, 0o700, dir_fd=current)
+                try:
+                    current = os.open(name, flags, dir_fd=current)
+                except OSError as error:
+                    if error.errno in _REFUSED_KINDS:
+                        raise _not_plain(root / "data" / name) from None
+                    raise
+            except OSError as error:
+                if error.errno in _REFUSED_KINDS:
+                    raise _not_plain(root / "data" / name if name == "claims" else root / name) from None
+                raise
+            opened.append(current)
+            if keep_private:
+                _private_descriptor(current, directory, 0o700)
+        yield current
+    finally:
+        for descriptor in reversed(opened):
+            os.close(descriptor)
+
+
+@contextlib.contextmanager
+def _store_file(directory, flags: int, mode: str, *, private: bool):
+    """Yield the store file inside ``directory`` (from ``_store_directory``), or None when missing."""
+    if isinstance(directory, Path):
+        try:
+            descriptor = _open_store(directory / STORE_FILE, flags, private=private)
+        except FileNotFoundError:
+            yield None
+            return
+    else:
+        try:
+            descriptor = os.open(STORE_FILE, flags | _NO_FOLLOW, 0o600, dir_fd=directory)
+        except FileNotFoundError:
+            yield None
+            return
+        except OSError as error:
+            if error.errno in _REFUSED_KINDS:
+                raise _UnsafeStore(f"{STORE_FILE} is not a regular file; the claims store does not "
+                                   "follow links") from None
+            raise
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise _UnsafeStore(f"{STORE_FILE} is not a regular file; the claims store does not follow links")
+            if private:
+                _private_descriptor(descriptor, Path(STORE_FILE), 0o600)
+        except BaseException:
+            os.close(descriptor)
+            raise
+    with os.fdopen(descriptor, mode) as handle:
+        yield handle
+
+
 @dataclass(frozen=True)
 class Claim:
     """Every verdict recorded for one key, oldest first."""
@@ -286,24 +398,23 @@ class ClaimStore:
     """The verdicts of one workspace."""
 
     def __init__(self, root: Path | str, *, clock: Callable[[], float] = time.time):
-        self.directory = Path(root) / "data" / "claims"
-        self.path = self.directory / "claims.jsonl"
+        self.root = Path(root)
+        self.directory = self.root / "data" / "claims"
+        self.path = self.directory / STORE_FILE
         self.clock = clock
 
     # --- reading -------------------------------------------------------------------
 
     def _events(self) -> list[dict]:
-        for directory in (self.directory.parent, self.directory):
-            try:
-                if not stat.S_ISDIR(os.lstat(directory).st_mode):
-                    raise _UnsafeStore(f"{directory} is not a plain directory; the claims store does not follow links")
-            except FileNotFoundError:
+        with _store_directory(self.root, create=False, private=False) as directory:
+            if directory is None:
                 return []
-        try:
-            descriptor = _open_store(self.path, os.O_RDONLY)
-        except FileNotFoundError:
-            return []
-        with os.fdopen(descriptor, "rb") as handle:
+            return self._read(directory)
+
+    def _read(self, directory) -> list[dict]:
+        with _store_file(directory, os.O_RDONLY, "rb", private=False) as handle:
+            if handle is None:
+                return []
             raw = handle.read(MAX_STORE_BYTES + 1)
         if len(raw) > MAX_STORE_BYTES:
             raise _UnsafeStore(f"{self.path} is larger than {MAX_STORE_BYTES} bytes; archive it by hand")
@@ -317,11 +428,15 @@ class ClaimStore:
                 events.append(event)
         return events
 
-    def claims(self) -> dict[str, Claim]:
+    @staticmethod
+    def _group(events: list[dict]) -> dict[str, "Claim"]:
         grouped: dict[str, list[dict]] = {}
-        for event in self._events():
+        for event in events:
             grouped.setdefault(event["key"], []).append(event)
-        return {key: Claim(key, tuple(events)) for key, events in grouped.items()}
+        return {key: Claim(key, tuple(items)) for key, items in grouped.items()}
+
+    def claims(self) -> dict[str, Claim]:
+        return self._group(self._events())
 
     def get(self, key: str) -> Claim | None:
         if not KEY.fullmatch(key):
@@ -372,10 +487,9 @@ class ClaimStore:
         evidence = _evidence(evidence)
         attestation = _attestation(contract_revision, result_sha256)
         key = claim_key(subject, claim)
-        _real_directory(self.directory.parent)
-        _real_directory(self.directory, private=True)
-        with file_lock(self.path.with_name(self.path.name + ".lock")):
-            existing = self.claims().get(key)
+        with _store_directory(self.root, create=True, private=True) as directory, \
+                file_lock(self.path.with_name(self.path.name + ".lock")):
+            existing = self._group(self._read(directory)).get(key)
             # Never earlier than the newest verdict, so the filter's time only moves forward.
             now = self.clock()
             if existing is not None:
@@ -386,8 +500,7 @@ class ClaimStore:
                      "importance": importance, "volatility": volatility, "evidence": evidence,
                      "attestation": attestation}
             line = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-            descriptor = _open_store(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, private=True)
-            with os.fdopen(descriptor, "r+b") as handle:
+            with _store_file(directory, os.O_RDWR | os.O_CREAT | os.O_APPEND, "r+b", private=True) as handle:
                 size = os.fstat(handle.fileno()).st_size
                 if size and (handle.seek(size - 1), handle.read(1))[1] != b"\n":
                     line = b"\n" + line  # an earlier write was torn: never glue a verdict onto it

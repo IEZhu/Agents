@@ -12,6 +12,8 @@ on:
       - scripts/_helpers/**
       - scripts/init_repo.*
       - tests/test_workspace_auto.py
+      - tests/test_workspace_mismatch.py
+      - src/claims/**
       - tests/test_standalone_workspace*.py
       - tests/test_python*.py
       - tests/test_config_client_root.py
@@ -98,7 +100,7 @@ jobs:
           tests/test_server_flows.py tests/test_installer_instructions.py
           tests/test_daemon_runtime_override.py tests/test_python_stdio_bridge.py
           tests/test_python_workspace_hook.py tests/test_standalone_workspace.py
-          tests/test_standalone_workspace_mcp.py -q -p no:cacheprovider
+          tests/test_standalone_workspace_mcp.py tests/test_workspace_mismatch.py -q -p no:cacheprovider
       - name: Node bridge session isolation and authenticated hooks
         run: node --test bridge/test.mjs
       - name: Journal reads, durable acceptance and retry recovery

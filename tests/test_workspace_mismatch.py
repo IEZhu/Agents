@@ -371,6 +371,22 @@ async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_
 
 
 @pytest.mark.asyncio
+async def test_claim_record_refuses_another_workspace_and_writes_nothing(repositories):
+    """A verdict checked in repository B must not be stored as if it belonged to A (#576)."""
+    registered, other, inside = repositories
+    ctx = http_context(registered)
+    refused = json.loads(await server.claim_record(subject="s", claim="c", verdict="confirmed", level="V2",
+                                                   ctx=ctx, workspace=str(other)))
+    assert refused["status"] == "error" and refused["code"] == "workspace_mismatch"
+    assert refused["registered_workspace"] == str(registered)
+    assert not (registered / "data" / "claims").exists() and not (other / "data" / "claims").exists()
+    for named in (str(registered), str(inside), None):
+        recorded = json.loads(await server.claim_record(subject="s", claim="c", verdict="confirmed",
+                                                        level="V2", ctx=ctx, workspace=named))
+        assert recorded["status"] == "recorded" and recorded["workspace"]["root"] == str(registered)
+
+
+@pytest.mark.asyncio
 async def test_the_workspace_note_leaves_the_history_it_writes_in_the_registered_root(repositories):
     registered, other, _ = repositories
     ctx = http_context(registered)
@@ -390,7 +406,10 @@ REPOSITORY_TOOLS = frozenset({"describe_repo", "write_repo_summary", "run_flow",
 FLOW_TOOLS = frozenset({"get_flow", "save_flow", "delete_flow", "set_flow_persona"})
 ACTIVATION_TOOLS = frozenset({"route_and_load", "get_agent_context"})
 HISTORY_TOOLS = frozenset({"log_interaction", "read_history"})
-CLAIM_TOOLS = frozenset({"claim_record", "claim_lookup"})
+# The writer refuses a workspace the grant does not cover; the reader notes it like history.
+CLAIM_WRITE_TOOLS = frozenset({"claim_record"})
+CLAIM_READ_TOOLS = frozenset({"claim_lookup"})
+CLAIM_TOOLS = CLAIM_WRITE_TOOLS | CLAIM_READ_TOOLS
 # Takes the shared parameter, and its docstring does not yet say what an argument outside the
 # grant does; pinned here so the set stays exact.
 SHARED_MEMORY_TOOLS = frozenset({"read_shared_memory"})
@@ -420,11 +439,11 @@ async def test_the_workspace_parameter_is_true_for_every_tool_that_shares_it():
         assert "never followed" not in description, name
     for name in COOPERATION_TOOLS:
         assert "checkout grant" in docstrings[name], name
-    for name in REPOSITORY_TOOLS | FLOW_TOOLS:
+    for name in REPOSITORY_TOOLS | FLOW_TOOLS | CLAIM_WRITE_TOOLS:
         assert "workspace_mismatch" in docstrings[name], name
     for name in ACTIVATION_TOOLS:
         assert "repo_context" in docstrings[name], name
-    for name in HISTORY_TOOLS | CLAIM_TOOLS:
+    for name in HISTORY_TOOLS | CLAIM_READ_TOOLS:
         assert "workspace_note" in docstrings[name], name
 
 
