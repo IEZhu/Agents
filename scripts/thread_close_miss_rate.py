@@ -8,8 +8,8 @@ from other machines. Each close whose
 - a miss: a ``missed`` or ``misused`` finding at V1 or above;
 - held: a ``used`` or ``caught`` row;
 - none: every other row, among them a miss at V0, without a level or at ``refuted``,
-  ``stale`` or ``contested``, and the ``unavailable``, ``n/a``, ``uncatalogued`` and
-  ``no-rule`` rows.
+  ``stale`` or ``contested``, the ``unavailable``, ``n/a``, ``uncatalogued`` and
+  ``no-rule`` rows, and any row the record schema refuses.
 
 Each slug's outcomes are filtered in close order with fading memory
 (``src/estimation/rate.py``), at the close's own time, and carried to now. Printed per
@@ -34,6 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.estimation import rate  # noqa: E402
+from src.memory import record as turn_record  # noqa: E402
 from src.memory.history import HistoryEntry, HistoryReader, merge_entries  # noqa: E402
 
 JOURNAL = "history.md"
@@ -69,6 +70,17 @@ def report_record(entry: HistoryEntry) -> dict | None:
     return record if isinstance(record, dict) and record.get("kind") == REPORT_KIND else None
 
 
+def is_valid_finding(finding) -> bool:
+    """Whether ``log_interaction`` would accept the row: the record schema's own finding rule.
+
+    A stored record passed that rule when it was written, so a row failing it now was edited
+    or damaged afterwards, and it gives no outcome.
+    """
+    problems: list[str] = []
+    turn_record.FINDING.check(finding, "finding", problems)
+    return not problems
+
+
 def outcomes(record: dict) -> dict[str, bool]:
     """Each slug the record gives an outcome: True for a miss, False for held.
 
@@ -77,12 +89,9 @@ def outcomes(record: dict) -> dict[str, bool]:
     findings = record.get("findings")
     out: dict[str, bool] = {}
     for finding in findings if isinstance(findings, list) else ():
-        if not isinstance(finding, dict) or not isinstance(finding.get("slug"), str):
+        if not is_valid_finding(finding):
             continue
-        slug, status, level = finding["slug"], finding.get("status"), finding.get("level")
-        # A held row may omit its level; a present level that is not a string marks a broken row.
-        if not isinstance(status, str) or not isinstance(level, (str, type(None))):
-            continue
+        slug, status, level = finding["slug"], finding["status"], finding.get("level")
         if status in MISS_STATUSES and level in COUNTED_LEVELS:
             out[slug] = True
         elif status in HELD_STATUSES:

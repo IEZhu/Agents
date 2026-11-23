@@ -83,8 +83,10 @@ class TestOutcomes:
         {"slug": "x", "status": [], "level": "V2"}, {"slug": "x", "status": {"s": 1}},
         {"slug": "x", "status": "missed", "level": ["V2"]}, {"slug": "x", "status": "missed", "level": {}},
         {"slug": "x", "status": "used", "level": []}, {"slug": "x", "status": "caught", "level": 2},
+        {"slug": "x", "status": "used", "level": None}, {"slug": "x", "status": "missed", "level": "V9"},
+        {"slug": "Not A Slug", "status": "used"}, {"slug": "x", "status": "used", "note": "free text"},
     ])
-    def test_an_unhashable_status_or_level_is_skipped_not_raised(self, finding):
+    def test_a_row_the_record_schema_refuses_is_skipped_not_raised(self, finding):
         assert report.outcomes(_report(finding, {"slug": "y", "status": "used"})) == {"y": False}
 
 
