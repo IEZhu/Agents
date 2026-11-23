@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import time
 from typing import Callable, Iterable
 import unicodedata
@@ -36,8 +37,10 @@ EVIDENCE_ITEM_MAX = 500
 # Above this size the store refuses new verdicts rather than growing without bound;
 # at a few hundred bytes a verdict that is tens of thousands of them.
 MAX_STORE_BYTES = 20 * 1024 * 1024
-KEY = re.compile(r"^[0-9a-f]{16}$")
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
+KEY = re.compile(r"[0-9a-f]{16}")
+HEX64 = re.compile(r"[0-9a-f]{64}")
+# Opening flags that refuse a symbolic link and never block on a FIFO, where the platform has them.
+_NO_FOLLOW = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
 STATES = ("supported", "stale", "contested", "uncertain", "refuted")
 
 
@@ -69,10 +72,18 @@ def _seconds(value: str) -> float:
     return datetime.fromisoformat(text).timestamp()
 
 
+def _encodable(name: str, value: str) -> str:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ClaimError("invalid_request", f"{name} holds a character UTF-8 cannot encode") from None
+    return value
+
+
 def _text(name: str, value: object, limit: int) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ClaimError("invalid_request", f"{name} is required text")
-    value = " ".join(value.split())
+    value = _encodable(name, " ".join(value.split()))
     if len(value) > limit:
         raise ClaimError("invalid_request", f"{name} is {len(value)} characters; at most {limit}")
     return value
@@ -96,7 +107,7 @@ def _evidence(items: object) -> list[str]:
     for item in items:
         if not isinstance(item, str) or not item.strip():
             raise ClaimError("invalid_request", "every evidence item is nonempty text")
-        item = " ".join(item.split())
+        item = _encodable("evidence", " ".join(item.split()))
         if len(item) > EVIDENCE_ITEM_MAX:
             raise ClaimError("invalid_request", f"an evidence item is at most {EVIDENCE_ITEM_MAX} characters")
         cleaned.append(item)
@@ -107,25 +118,66 @@ def _attestation(contract_revision: object, result_sha256: object) -> dict | Non
     if contract_revision is None and result_sha256 is None:
         return None
     for name, value in (("contract_revision", contract_revision), ("result_sha256", result_sha256)):
-        if value is not None and (not isinstance(value, str) or not HEX64.match(value)):
+        if value is not None and (not isinstance(value, str) or not HEX64.fullmatch(value)):
             raise ClaimError("invalid_request", f"{name} is 64 lowercase hexadecimal characters")
     return {"contract_revision": contract_revision, "result_sha256": result_sha256}
 
 
 def _well_formed(event: object) -> bool:
-    """A line the filter can use; anything else (a hand edit, a torn write) is skipped, not fatal."""
-    if not isinstance(event, dict) or event.get("v") != FORMAT_VERSION:
+    """A line the filter and the views can use; anything else (a hand edit, a torn write) is skipped."""
+    if not isinstance(event, dict) or event.get("v") != FORMAT_VERSION or not isinstance(event.get("at"), str):
         return False
     try:
         _seconds(event["at"])
-    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+    except (ValueError, OverflowError, OSError):
         return False
-    return (isinstance(event.get("key"), str) and bool(KEY.match(event["key"]))
+    evidence = event.get("evidence")
+    attestation = event.get("attestation")
+    return (isinstance(event.get("key"), str) and bool(KEY.fullmatch(event["key"]))
+            and isinstance(event.get("id"), str)
             and isinstance(event.get("subject"), str) and isinstance(event.get("claim"), str)
             and event.get("verdict") in model.VERDICTS and event.get("level") in model.LEVEL_ORDER
             and event.get("importance") in model.IMPORTANCE_ORDER
             and event.get("volatility") in model.VOLATILITY_ORDER
-            and isinstance(event.get("evidence", []), list))
+            and isinstance(evidence, list) and all(isinstance(item, str) for item in evidence)
+            and "attestation" in event and (attestation is None or isinstance(attestation, dict)))
+
+
+class _UnsafeStore(ClaimError):
+    def __init__(self, message: str):
+        super().__init__("unsafe_store", message)
+
+
+def _real_directory(path: Path) -> None:
+    """``path`` exists as a directory and is not a symbolic link."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        path.mkdir(mode=0o700)
+        info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode):
+        raise _UnsafeStore(f"{path} is not a plain directory; the claims store does not follow links")
+
+
+def _open_store(path: Path, flags: int) -> int:
+    """Open the store file itself, never through a link, and only as a regular file."""
+    try:
+        before = os.lstat(path)
+    except FileNotFoundError:
+        before = None
+        if not flags & os.O_CREAT:
+            raise
+    if before is not None and not stat.S_ISREG(before.st_mode):
+        raise _UnsafeStore(f"{path} is not a regular file; the claims store does not follow links")
+    descriptor = os.open(path, flags | _NO_FOLLOW, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or (before is not None and not os.path.samestat(before, opened)):
+            raise _UnsafeStore(f"{path} changed while it was opened")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
 
 
 @dataclass(frozen=True)
@@ -193,15 +245,25 @@ class ClaimStore:
     # --- reading -------------------------------------------------------------------
 
     def _events(self) -> list[dict]:
+        for directory in (self.directory.parent, self.directory):
+            try:
+                if not stat.S_ISDIR(os.lstat(directory).st_mode):
+                    raise _UnsafeStore(f"{directory} is not a plain directory; the claims store does not follow links")
+            except FileNotFoundError:
+                return []
         try:
-            text = self.path.read_text(encoding="utf-8")
+            descriptor = _open_store(self.path, os.O_RDONLY)
         except FileNotFoundError:
             return []
+        with os.fdopen(descriptor, "rb") as handle:
+            raw = handle.read(MAX_STORE_BYTES + 1)
+        if len(raw) > MAX_STORE_BYTES:
+            raise _UnsafeStore(f"{self.path} is larger than {MAX_STORE_BYTES} bytes; archive it by hand")
         events = []
-        for line in text.splitlines():
+        for line in raw.decode("utf-8", errors="replace").splitlines():
             try:
                 event = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):
                 continue
             if _well_formed(event):
                 events.append(event)
@@ -214,7 +276,7 @@ class ClaimStore:
         return {key: Claim(key, tuple(events)) for key, events in grouped.items()}
 
     def get(self, key: str) -> Claim | None:
-        if not KEY.match(key):
+        if not KEY.fullmatch(key):
             raise ClaimError("invalid_request", "key is 16 lowercase hexadecimal characters")
         return self.claims().get(key)
 
@@ -262,7 +324,8 @@ class ClaimStore:
         evidence = _evidence(evidence)
         attestation = _attestation(contract_revision, result_sha256)
         key = claim_key(subject, claim)
-        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _real_directory(self.directory.parent)
+        _real_directory(self.directory)
         with file_lock(self.path.with_name(self.path.name + ".lock")):
             existing = self.claims().get(key)
             # Never earlier than the newest verdict, so the filter's time only moves forward.
@@ -274,13 +337,15 @@ class ClaimStore:
                      "subject": subject, "claim": claim, "verdict": verdict, "level": level,
                      "importance": importance, "volatility": volatility, "evidence": evidence,
                      "attestation": attestation}
-            line = json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
-            size = self.path.stat().st_size if self.path.exists() else 0
-            if size + len(line.encode("utf-8")) > MAX_STORE_BYTES:
-                raise ClaimError("store_full", f"{self.path} would exceed {MAX_STORE_BYTES} bytes; "
-                                               "archive it by hand to start a new store")
-            descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            line = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+            descriptor = _open_store(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND)
+            with os.fdopen(descriptor, "r+b") as handle:
+                size = os.fstat(handle.fileno()).st_size
+                if size and (handle.seek(size - 1), handle.read(1))[1] != b"\n":
+                    line = b"\n" + line  # an earlier write was torn: never glue a verdict onto it
+                if size + len(line) > MAX_STORE_BYTES:
+                    raise ClaimError("store_full", f"{self.path} would exceed {MAX_STORE_BYTES} bytes; "
+                                                   "archive it by hand to start a new store")
                 handle.write(line)
             updated = Claim(key, (existing.events if existing else ()) + (event,))
         after = updated.assess(_seconds(event["at"]))

@@ -26,6 +26,8 @@ _lock = threading.Lock()
 _future: "concurrent.futures.Future[dict]" = concurrent.futures.Future()
 _started = False
 _started_at: Optional[float] = None
+# Phases that failed but were tolerated in this start (stdio); such a start is not a typical one.
+_tolerated: list[str] = []
 _thread: Optional[threading.Thread] = None
 
 
@@ -57,6 +59,7 @@ def _tolerant(step: Callable[[], None], label: str) -> Callable[[], None]:
         try:
             step()
         except Exception as error:
+            _tolerated.append(label)
             logger.warning("%s warmup failed: %s", label, error, exc_info=True)
     return run
 
@@ -76,6 +79,7 @@ def _default_phases(strict: bool = False) -> list[tuple[str, Callable[[], None]]
 def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futures.Future[dict]") -> None:
     started = time.monotonic()
     durations: dict[str, float] = {}
+    _tolerated.clear()
     try:
         for name, step in phases:
             phase_started = time.monotonic()
@@ -88,11 +92,6 @@ def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futur
     total = time.monotonic() - started
     durations["total"] = round(total, 3)
     try:
-        from src.engine import warmup_estimate
-        warmup_estimate.record(total)
-    except Exception as error:  # the estimate only phrases a hint: never fail readiness for it
-        logger.warning("Warmup estimate not updated: %s", error)
-    try:
         from src.version import agents_core_version
         revision = agents_core_version()
         logger.info(
@@ -102,6 +101,14 @@ def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futur
     except Exception as error:  # diagnostics only: never leave the future unresolved
         logger.warning("Readiness complete; diagnostic line failed: %s", error)
     future.set_result(durations)
+    # After the result is set, so a slow or locked estimate file never delays readiness, and only
+    # for a start whose phases all ran: a tolerated failure ends early and is not typical.
+    if not _tolerated:
+        try:
+            from src.engine import warmup_estimate
+            warmup_estimate.record(total)
+        except Exception as error:  # the estimate only phrases a hint: never fail readiness for it
+            logger.warning("Warmup estimate not updated: %s", error)
 
 
 def start(phases: Optional[list[tuple[str, Callable[[], None]]]] = None) -> bool:
@@ -199,3 +206,4 @@ def reset_for_tests() -> None:
         _started = False
         _started_at = None
         _thread = None
+        _tolerated.clear()

@@ -72,6 +72,36 @@ def test_an_unreadable_state_file_means_no_hint(estimate_file):
     assert json.loads(estimate_file.read_text(encoding="utf-8"))["starts"] == 1
 
 
+@pytest.mark.parametrize("content", ["[]", '"x"', '{"v": 1, "estimate": {"mean": 1, "variance": 1, "at": 0}, '
+                                     '"starts": Infinity}', '{"v": 1, "estimate": [], "starts": 1}'])
+def test_any_unreadable_state_is_replaced_by_the_next_start(estimate_file, content):
+    estimate_file.parent.mkdir(parents=True)
+    estimate_file.write_text(content, encoding="utf-8")
+    assert warmup_estimate.retry_hint(1.0) is None
+    warmup_estimate.record(5.0)
+    assert json.loads(estimate_file.read_text(encoding="utf-8"))["starts"] == 1
+
+
+def test_a_held_lock_skips_the_reading_instead_of_waiting(estimate_file):
+    from src.file_lock import file_lock
+
+    estimate_file.parent.mkdir(parents=True)
+    with file_lock(estimate_file.with_name(estimate_file.name + ".lock")):
+        warmup_estimate.record(5.0)
+    assert not estimate_file.exists()
+
+
+def test_a_start_with_a_tolerated_failure_is_not_recorded(estimate_file):
+    readiness.reset_for_tests()
+    try:
+        failing = readiness._tolerant(lambda: (_ for _ in ()).throw(RuntimeError("no model")), "Embedding model")
+        readiness.start([("embedding_model", failing)])
+        assert readiness.join(10) and readiness.state() == "ready"
+        assert not estimate_file.exists()
+    finally:
+        readiness.reset_for_tests()
+
+
 def test_readiness_records_each_successful_start(estimate_file):
     readiness.reset_for_tests()
     try:

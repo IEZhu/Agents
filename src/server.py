@@ -2476,8 +2476,9 @@ async def claim_record(
                            "0.75, 0.85 or 0.95.") = None,
     volatility: ta.opt_str("How fast it can change: stable (a year), normal (weeks, the default) or "
                            "volatile (days).") = None,
-    evidence: ta.strict_str_list("Optional references the check rests on, at most 10, each at most 500 "
-                                 "characters: a file:line, a command and its output, a URL.") = None,
+    evidence: ta.whole_str_list("Optional references the check rests on, at most 10, each at most 500 "
+                                "characters: a file:line, a command and its output, a URL. A plain string "
+                                "is one item.") = None,
     contract_revision: ta.opt_str("Optional contract_revision of the validated worker result the "
                                   "verdict comes from.") = None,
     result_sha256: ta.opt_str("Optional result_sha256 that validate_subagent_result returned for it.") = None,
@@ -2504,7 +2505,7 @@ async def claim_record(
     Returns JSON: {status: recorded, event_id, contradiction, predictive (the verdict's
     probability before it arrived), previous: {state, confidence} | null, claim,
     workspace}. ``claim`` is the state claim_lookup returns.
-    Errors: {status: error, code (invalid_request, store_full, workspace), error}.
+    Errors: {status: error, code (invalid_request, store_full, unsafe_store, workspace), error}.
     """
     try:
         store, workspace_report = await _claim_store(ctx, workspace)
@@ -2537,10 +2538,11 @@ async def claim_record(
 
 @mcp.tool(**TOOL_HINTS["claim_lookup"])
 async def claim_lookup(
-    subject: ta.opt_str("With claim: the subject of one claim to read.") = None,
-    claim: ta.opt_str("With subject: the statement of one claim to read.") = None,
+    subject: Annotated[str, Field(description="With claim: the subject of one claim to read.")] = "",
+    claim: Annotated[str, Field(description="With subject: the statement of one claim to read.")] = "",
     key: ta.opt_str("Optional key of one claim, 16 hexadecimal characters, as claim_record returned it.") = None,
-    query: ta.opt_str("Optional text that the subject or statement contains, case-insensitively.") = None,
+    query: Annotated[str, Field(description="Optional text that the subject or statement contains, "
+                                            "case-insensitively.")] = "",
     state: ta.opt_str("Optional state to keep: supported, stale, contested, uncertain or refuted. "
                       "Sorted by revalidation time, so state=stale reads as a work queue.") = None,
     limit: Annotated[int, Field(description="Claims to return in a listing, 1 to 20.")] = 10,
@@ -2568,7 +2570,8 @@ async def claim_lookup(
     contradiction), uncertain.
 
     Returns JSON: {mode (claim or listing), total, claims, verdicts? (claim mode, newest
-    first), omitted?, workspace}. Errors: {status: error, code, error}.
+    first), omitted?, workspace}. Errors: {status: error, code (invalid_request, unsafe_store,
+    workspace), error}.
     """
     try:
         store, workspace_report = await _claim_store(ctx, workspace)

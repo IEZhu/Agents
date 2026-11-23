@@ -90,6 +90,23 @@ def strict_str_list(description: str):
                      WithJsonSchema({**_STRS, "description": description})]
 
 
+def _whole_items(value: Any) -> Any:
+    """A list of strings, or one string kept whole as a single item: never split on commas."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    raise ValueError("expected a string or a JSON array of strings")
+
+
+def whole_str_list(description: str):
+    """Like ``strict_str_list``, but a plain string is one item: for text such as command output."""
+    return Annotated[Any, BeforeValidator(_whole_items),
+                     WithJsonSchema({**_STRS, "description": description})]
+
+
 def persona_arg(description: str):
     """A persona descriptor object; the body validates it (strictly or leniently)."""
     return Annotated[Any, WithJsonSchema({

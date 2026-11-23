@@ -280,6 +280,62 @@ def test_malformed_lines_are_skipped(store):
     assert store.get(key).assess(START).state == "supported"
 
 
+def test_lines_that_could_break_every_read_are_skipped(store):
+    key = record(store)["claim"]["key"]
+    good = json.loads(store.path.read_text(encoding="utf-8"))
+    hostile = [{**good, "at": 123}, {**good, "at": None}, {**good, "at": ["x"]},
+               {k: v for k, v in good.items() if k != "id"}, {k: v for k, v in good.items() if k != "attestation"},
+               {**good, "attestation": "x"}, {**good, "evidence": [1]}, {**good, "key": good["key"] + "\n"}]
+    with store.path.open("a", encoding="utf-8") as handle:
+        handle.write("[" * 200_000 + "\n")
+        for event in hostile:
+            handle.write(json.dumps(event) + "\n")
+    assert list(store.claims()) == [key] and len(store.get(key).events) == 1
+    assert [found.key for found, _ in store.search()] == [key]
+    record(store)  # and the store still takes verdicts
+
+
+def test_a_torn_last_line_does_not_swallow_the_next_verdict(store):
+    first = record(store, subject="a", claim="x")["claim"]["key"]
+    with store.path.open("a", encoding="utf-8") as handle:
+        handle.write('{"v": 1, "key": "torn')  # a write cut short, without its newline
+    second = record(store, subject="b", claim="y")["claim"]["key"]
+    assert set(store.claims()) == {first, second}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symbolic links")
+def test_a_linked_store_file_is_refused_and_its_target_untouched(store, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep\n", encoding="utf-8")
+    store.directory.mkdir(parents=True)
+    store.path.symlink_to(outside)
+    with pytest.raises(ClaimError) as raised:
+        record(store)
+    assert raised.value.code == "unsafe_store"
+    with pytest.raises(ClaimError):
+        store.claims()
+    assert outside.read_text(encoding="utf-8") == "keep\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symbolic links")
+def test_a_linked_store_directory_is_refused(store, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    store.directory.parent.mkdir(parents=True)
+    store.directory.symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(ClaimError) as raised:
+        record(store)
+    assert raised.value.code == "unsafe_store"
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_text_that_utf8_cannot_encode_is_an_invalid_request(store):
+    for change in ({"subject": "bad \ud800"}, {"evidence": ["bad \ud800"]}):
+        with pytest.raises(ClaimError) as raised:
+            record(store, **change)
+        assert raised.value.code == "invalid_request"
+
+
 def test_search_filters_by_text_and_state_and_orders_a_state_as_a_queue(store, clock):
     record(store, subject="alpha", claim="one", volatility="normal")
     record(store, subject="beta", claim="two", volatility="volatile")
@@ -337,6 +393,25 @@ async def test_the_tools_record_and_look_up_a_claim(served):
 async def test_the_lookup_tool_refuses_bad_arguments(served, arguments):
     payload = json.loads(await server.claim_lookup(**arguments))
     assert payload["status"] == "error" and payload["code"] == "invalid_request"
+
+
+@pytest.mark.asyncio
+async def test_json_looking_text_is_looked_up_as_it_was_recorded(served):
+    recorded = json.loads(await server.claim_record(subject="config", claim='{"timeout":30}',
+                                                    verdict="confirmed", level="V2"))
+    found = json.loads(await server.claim_lookup(subject="config", claim='{"timeout":30}'))
+    assert found["total"] == 1 and found["claims"][0]["key"] == recorded["claim"]["key"]
+    listed = json.loads(await server.claim_lookup(query='{"timeout":30}'))
+    assert listed["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_plain_evidence_string_stays_one_item(served):
+    output = "ran pytest: 3 passed, 1 skipped, 0 failed"
+    recorded = json.loads(await server.claim_record(subject="s", claim="c", verdict="confirmed", level="V2",
+                                                    evidence=output))
+    found = json.loads(await server.claim_lookup(key=recorded["claim"]["key"]))
+    assert found["verdicts"][0]["evidence"] == [output]
 
 
 @pytest.mark.asyncio

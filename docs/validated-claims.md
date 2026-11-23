@@ -135,7 +135,11 @@ hexadecimal characters of the SHA-256 of its normalised subject and statement
 the same statement recorded twice is the same claim. A line holds the subject, the
 statement, the verdict, level, importance, volatility, up to ten evidence
 references and the optional worker attestation. The store refuses new verdicts past
-20 MiB. Claim text is project content and, like `read_shared_memory`, the two tools
+20 MiB. It never follows a symbolic link: a linked `data`, `data/claims` or
+`claims.jsonl` (a cloned repository can carry one) answers `unsafe_store` instead of
+writing to or reading from the link's target. A line it cannot use, such as a hand
+edit or a write cut short by a full disk, is skipped rather than failing every read,
+and the next verdict starts on a fresh line. Claim text is project content and, like `read_shared_memory`, the two tools
 are not traced to Langfuse.
 
 What the store does not give: a hash of the content is integrity, not authenticity.

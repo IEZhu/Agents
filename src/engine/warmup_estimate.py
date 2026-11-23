@@ -48,12 +48,16 @@ def state_path() -> Path:
 def _load(path: Path) -> tuple[kalman.Estimate, int] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("v") != FORMAT_VERSION:
+        if not isinstance(data, dict) or data.get("v") != FORMAT_VERSION or not isinstance(data.get("estimate"), dict):
             return None
-        return kalman.Estimate.from_dict(data["estimate"]), int(data["starts"])
+        starts = data["starts"]
+        if not isinstance(starts, int) or starts < 0:
+            return None
+        return kalman.Estimate.from_dict(data["estimate"]), starts
     except FileNotFoundError:
         return None
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as error:
+        # Unreadable state is replaced by the next start, never kept: record starts over.
         logger.warning("Warmup estimate unreadable at %s: %s", path, error)
         return None
 
@@ -66,7 +70,9 @@ def record(total_seconds: float, now: float | None = None) -> None:
     path = state_path()
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with file_lock(path.with_name(path.name + ".lock")):
+        # Never wait for another process holding the lock: this start's duration is advice, and
+        # skipping it costs one reading where waiting could stall the caller.
+        with file_lock(path.with_name(path.name + ".lock"), blocking=False):
             loaded = _load(path)
             estimate, starts = loaded if loaded else (kalman.Estimate(PRIOR_MEAN, PRIOR_VARIANCE, now), 0)
             prior = kalman.predict(estimate, now, DRIFT_PER_DAY)
@@ -79,6 +85,8 @@ def record(total_seconds: float, now: float | None = None) -> None:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle)
             os.replace(temporary, path)
+    except BlockingIOError:
+        logger.info("Warmup estimate busy at %s; this start is not recorded", path)
     except OSError as error:
         logger.warning("Warmup estimate not saved at %s: %s", path, error)
 
