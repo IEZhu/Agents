@@ -34,6 +34,7 @@ SUBJECT_MAX = 200
 CLAIM_MAX = 1_000
 EVIDENCE_MAX_ITEMS = 10
 EVIDENCE_ITEM_MAX = 500
+ID_MAX = 32
 # Above this size the store refuses new verdicts rather than growing without bound;
 # at a few hundred bytes a verdict that is tens of thousands of them.
 MAX_STORE_BYTES = 20 * 1024 * 1024
@@ -131,16 +132,33 @@ def _well_formed(event: object) -> bool:
         _seconds(event["at"])
     except (ValueError, OverflowError, OSError):
         return False
-    evidence = event.get("evidence")
-    attestation = event.get("attestation")
-    return (isinstance(event.get("key"), str) and bool(KEY.fullmatch(event["key"]))
-            and isinstance(event.get("id"), str)
-            and isinstance(event.get("subject"), str) and isinstance(event.get("claim"), str)
-            and event.get("verdict") in model.VERDICTS and event.get("level") in model.LEVEL_ORDER
+    subject, claim, evidence = event.get("subject"), event.get("claim"), event.get("evidence")
+    if not (isinstance(subject, str) and 0 < len(subject) <= SUBJECT_MAX
+            and isinstance(claim, str) and 0 < len(claim) <= CLAIM_MAX
+            and isinstance(event.get("key"), str) and isinstance(event.get("id"), str)
+            and 0 < len(event["id"]) <= ID_MAX):
+        return False
+    try:
+        # The key is derived, never trusted: a line whose key does not match its own text would
+        # attach a verdict to another claim.
+        if event["key"] != claim_key(subject, claim):
+            return False
+    except UnicodeEncodeError:
+        return False
+    return (event.get("verdict") in model.VERDICTS and event.get("level") in model.LEVEL_ORDER
             and event.get("importance") in model.IMPORTANCE_ORDER
             and event.get("volatility") in model.VOLATILITY_ORDER
-            and isinstance(evidence, list) and all(isinstance(item, str) for item in evidence)
-            and "attestation" in event and (attestation is None or isinstance(attestation, dict)))
+            and isinstance(evidence, list) and len(evidence) <= EVIDENCE_MAX_ITEMS
+            and all(isinstance(item, str) and len(item) <= EVIDENCE_ITEM_MAX for item in evidence)
+            and "attestation" in event and _well_formed_attestation(event["attestation"]))
+
+
+def _well_formed_attestation(attestation: object) -> bool:
+    if attestation is None:
+        return True
+    return (isinstance(attestation, dict) and set(attestation) == {"contract_revision", "result_sha256"}
+            and all(value is None or (isinstance(value, str) and bool(HEX64.fullmatch(value)))
+                    for value in attestation.values()))
 
 
 class _UnsafeStore(ClaimError):
@@ -148,19 +166,44 @@ class _UnsafeStore(ClaimError):
         super().__init__("unsafe_store", message)
 
 
-def _real_directory(path: Path) -> None:
-    """``path`` exists as a directory and is not a symbolic link."""
+def _owned_by_caller(info: os.stat_result) -> bool:
+    """POSIX: the file belongs to this process's user. Windows reports no owner here."""
+    return os.name == "nt" or info.st_uid == os.geteuid()
+
+
+def _real_directory(path: Path, *, private: bool = False) -> None:
+    """``path`` exists as a directory and is not a symbolic link.
+
+    With ``private`` it must also belong to this user, and group and other permissions
+    are removed: ``mkdir``'s mode does nothing for a directory that already exists.
+    """
     try:
         info = os.lstat(path)
     except FileNotFoundError:
-        path.mkdir(mode=0o700)
+        path.mkdir(mode=0o700, exist_ok=True)  # another process may create it first; checked below
         info = os.lstat(path)
     if not stat.S_ISDIR(info.st_mode):
         raise _UnsafeStore(f"{path} is not a plain directory; the claims store does not follow links")
+    if not private or os.name == "nt":
+        return
+    if not _owned_by_caller(info):
+        raise _UnsafeStore(f"{path} belongs to another user; the claims store keeps only its own files")
+    if info.st_mode & 0o077:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _NO_FOLLOW)
+        try:
+            if not os.path.samestat(info, os.fstat(descriptor)):
+                raise _UnsafeStore(f"{path} changed while it was opened")
+            os.fchmod(descriptor, 0o700)
+        finally:
+            os.close(descriptor)
 
 
-def _open_store(path: Path, flags: int) -> int:
-    """Open the store file itself, never through a link, and only as a regular file."""
+def _open_store(path: Path, flags: int, *, private: bool = False) -> int:
+    """Open the store file itself, never through a link, and only as a regular file.
+
+    With ``private`` (the writer) the file must belong to this user and loses group and
+    other permissions; the mode passed to ``open`` applies only to a file it creates.
+    """
     try:
         before = os.lstat(path)
     except FileNotFoundError:
@@ -174,6 +217,11 @@ def _open_store(path: Path, flags: int) -> int:
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or (before is not None and not os.path.samestat(before, opened)):
             raise _UnsafeStore(f"{path} changed while it was opened")
+        if private and os.name != "nt":
+            if not _owned_by_caller(opened):
+                raise _UnsafeStore(f"{path} belongs to another user; the claims store keeps only its own files")
+            if opened.st_mode & 0o077:
+                os.fchmod(descriptor, 0o600)
     except BaseException:
         os.close(descriptor)
         raise
@@ -325,7 +373,7 @@ class ClaimStore:
         attestation = _attestation(contract_revision, result_sha256)
         key = claim_key(subject, claim)
         _real_directory(self.directory.parent)
-        _real_directory(self.directory)
+        _real_directory(self.directory, private=True)
         with file_lock(self.path.with_name(self.path.name + ".lock")):
             existing = self.claims().get(key)
             # Never earlier than the newest verdict, so the filter's time only moves forward.
@@ -338,7 +386,7 @@ class ClaimStore:
                      "importance": importance, "volatility": volatility, "evidence": evidence,
                      "attestation": attestation}
             line = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-            descriptor = _open_store(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND)
+            descriptor = _open_store(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, private=True)
             with os.fdopen(descriptor, "r+b") as handle:
                 size = os.fstat(handle.fileno()).st_size
                 if size and (handle.seek(size - 1), handle.read(1))[1] != b"\n":

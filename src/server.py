@@ -2598,7 +2598,7 @@ async def claim_lookup(
             if found is None:
                 payload = {"mode": "claim", "total": 0, "claims": [], "verdicts": [], **workspace_report}
             else:
-                assessment = found.assess(store.clock())
+                assessment = await loop.run_in_executor(None, found.assess, store.clock())
                 payload = _fit_claims({"mode": "claim", "total": 1, "claims": [claim_view(found, assessment)],
                                        "verdicts": claim_history_view(found, CLAIM_HISTORY_MAX),
                                        **workspace_report}, "verdicts")

@@ -1,6 +1,7 @@
 """The validated-claims store: the filter's states, contradictions, decay, storage and the two tools."""
 import json
 import os
+from pathlib import Path
 import stat
 import sys
 
@@ -293,6 +294,50 @@ def test_lines_that_could_break_every_read_are_skipped(store):
     assert list(store.claims()) == [key] and len(store.get(key).events) == 1
     assert [found.key for found, _ in store.search()] == [key]
     record(store)  # and the store still takes verdicts
+
+
+def test_a_line_whose_key_or_size_does_not_fit_its_text_is_skipped(store):
+    key = record(store)["claim"]["key"]
+    good = json.loads(store.path.read_text(encoding="utf-8"))
+    other = claim_key("another", "claim")
+    forged = [{**good, "key": other},  # a verdict reattached to another claim
+              {**good, "claim": "x" * (CLAIM_MAX + 1), "key": claim_key(good["subject"], "x" * (CLAIM_MAX + 1))},
+              {**good, "evidence": ["e"] * (EVIDENCE_MAX_ITEMS + 1)},
+              {**good, "attestation": {"contract_revision": "nope", "result_sha256": None}},
+              {**good, "attestation": {"extra": None}}]
+    with store.path.open("a", encoding="utf-8") as handle:
+        for event in forged:
+            handle.write(json.dumps(event) + "\n")
+    assert list(store.claims()) == [key] and len(store.get(key).events) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_an_existing_permissive_store_is_made_private_on_write(store):
+    store.directory.mkdir(parents=True, mode=0o755)
+    os.chmod(store.directory, 0o755)
+    store.path.write_text("", encoding="utf-8")
+    os.chmod(store.path, 0o644)
+    record(store)
+    assert stat.S_IMODE(os.stat(store.directory).st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(store.path).st_mode) == 0o600
+
+
+def test_a_directory_created_by_another_process_first_is_accepted(store, monkeypatch):
+    import src.claims.store as module
+
+    real_lstat = module.os.lstat
+    raced = {"done": False}
+
+    def lstat(path, *args, **kwargs):
+        # The first look finds nothing; by the time mkdir runs, a concurrent writer created it.
+        if Path(path) == store.directory and not raced["done"]:
+            raced["done"] = True
+            store.directory.mkdir(parents=True, mode=0o700)
+            raise FileNotFoundError(path)
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "lstat", lstat)
+    assert record(store)["status"] == "recorded"
 
 
 def test_a_torn_last_line_does_not_swallow_the_next_verdict(store):
