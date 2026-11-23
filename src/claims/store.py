@@ -141,6 +141,17 @@ def _attestation(contract_revision: object, result_sha256: object) -> dict | Non
     return {"contract_revision": contract_revision, "result_sha256": result_sha256}
 
 
+def _stored_text(value: object, limit: int) -> bool:
+    """Text the writer could have written: nonblank, within ``limit``, encodable as UTF-8."""
+    if not isinstance(value, str) or not value.strip() or len(value) > limit:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _well_formed(event: object) -> bool:
     """A line the filter and the views can use; anything else (a hand edit, a torn write) is skipped."""
     if not isinstance(event, dict) or event.get("v") != FORMAT_VERSION or not isinstance(event.get("at"), str):
@@ -150,23 +161,18 @@ def _well_formed(event: object) -> bool:
     except (ValueError, OverflowError, OSError):
         return False
     subject, claim, evidence = event.get("subject"), event.get("claim"), event.get("evidence")
-    if not (isinstance(subject, str) and 0 < len(subject) <= SUBJECT_MAX
-            and isinstance(claim, str) and 0 < len(claim) <= CLAIM_MAX
-            and isinstance(event.get("key"), str) and isinstance(event.get("id"), str)
-            and 0 < len(event["id"]) <= ID_MAX):
+    if not (_stored_text(subject, SUBJECT_MAX) and _stored_text(claim, CLAIM_MAX)
+            and isinstance(event.get("key"), str) and _stored_text(event.get("id"), ID_MAX)):
         return False
-    try:
-        # The key is derived, never trusted: a line whose key does not match its own text would
-        # attach a verdict to another claim.
-        if event["key"] != claim_key(subject, claim):
-            return False
-    except UnicodeEncodeError:
+    # The key is derived, never trusted: a line whose key does not match its own text would
+    # attach a verdict to another claim. The text is known to encode, so deriving cannot fail.
+    if event["key"] != claim_key(subject, claim):
         return False
     return (event.get("verdict") in model.VERDICTS and event.get("level") in model.LEVEL_ORDER
             and event.get("importance") in model.IMPORTANCE_ORDER
             and event.get("volatility") in model.VOLATILITY_ORDER
             and isinstance(evidence, list) and len(evidence) <= EVIDENCE_MAX_ITEMS
-            and all(isinstance(item, str) and len(item) <= EVIDENCE_ITEM_MAX for item in evidence)
+            and all(_stored_text(item, EVIDENCE_ITEM_MAX) for item in evidence)
             and "attestation" in event and _well_formed_attestation(event["attestation"]))
 
 

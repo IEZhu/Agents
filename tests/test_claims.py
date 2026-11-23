@@ -304,7 +304,10 @@ def test_a_line_whose_key_or_size_does_not_fit_its_text_is_skipped(store):
               {**good, "claim": "x" * (CLAIM_MAX + 1), "key": claim_key(good["subject"], "x" * (CLAIM_MAX + 1))},
               {**good, "evidence": ["e"] * (EVIDENCE_MAX_ITEMS + 1)},
               {**good, "attestation": {"contract_revision": "nope", "result_sha256": None}},
-              {**good, "attestation": {"extra": None}}]
+              {**good, "attestation": {"extra": None}},
+              # Text the writer refuses: blank or not encodable as UTF-8.
+              {**good, "evidence": [""]}, {**good, "evidence": ["   "]}, {**good, "evidence": ["\ud800x"]},
+              {**good, "id": " "}]
     with store.path.open("a", encoding="utf-8") as handle:
         for event in forged:
             handle.write(json.dumps(event) + "\n")
