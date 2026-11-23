@@ -239,6 +239,14 @@ def test_build_skips_statements_that_change_the_bundle(tmp_path, repo):
     assert manifest["skipped"]["bundle_change"] >= 1
 
 
+def test_build_refuses_a_set_mostly_decided_by_reading(tmp_path, repo):
+    with pytest.raises(builder.BuildError, match="command-checkable"):
+        builder.build(repo=repo, commit="HEAD", control_dir=tmp_path / "state" / control.DIRECTORY_NAME,
+                      snapshots=tmp_path / "snaps", name="t", items=4, seed=1, v2_per_class=None,
+                      installation_roots=[],
+                      same_bundle=lambda snapshot: lambda statement: "contains the following sentence" in statement)
+
+
 def test_build_refuses_a_control_dir_inside_the_repository(tmp_path, repo):
     with pytest.raises(control.ControlError):
         builder.build(repo=repo, commit="HEAD", control_dir=repo / "claims-control", snapshots=tmp_path / "s",
@@ -283,7 +291,13 @@ def test_levels_come_from_recorded_tool_calls(tmp_path):
     shell = _transcript(tmp_path / "d.jsonl", cwd=elsewhere, calls=[("Bash", {"command": "exit 1"}, False)])
     assert transcript.level("V3", transcript.read(read_in), snapshot) == "V3"
     assert transcript.level("V3", transcript.read(read_out), snapshot) == transcript.UNSUPPORTED
-    assert transcript.level("V3", transcript.read(failed), snapshot) == transcript.UNSUPPORTED
+    # A recorded read counts whatever its result: grep without a match exits 1 (the pilot's three).
+    assert transcript.level("V3", transcript.read(failed), snapshot) == "V3"
+    unanswered = tmp_path / "e.jsonl"
+    unanswered.write_text(json.dumps({"type": "assistant", "cwd": str(snapshot), "message": {
+        "id": "m", "model": "claude-x", "content": [{"type": "tool_use", "id": "t", "name": "Read",
+                                                      "input": {"file_path": "x"}}]}}) + "\n", encoding="utf-8")
+    assert transcript.level("V3", transcript.read(unanswered), snapshot) == transcript.UNSUPPORTED
     assert transcript.level("V2", transcript.read(read_in), snapshot) == "V1"
     assert transcript.level("V2", transcript.read(shell), snapshot) == "V2"  # a non-zero exit still executed
     assert transcript.resolved_model(transcript.read(read_in)) == "claude-x"  # <synthetic> is not a model
@@ -324,6 +338,14 @@ def test_validation_and_the_verdict_of_a_result(tmp_path, conclusion, status, ex
     result.write_text(_result(prepared, conclusion, status), encoding="utf-8")
     checked = worker.validate(prepared.revision, result)
     assert (checked.status, checked.verdict) == expected
+
+
+def test_a_marker_in_the_summary_counts_and_conflicting_markers_do_not():
+    conclusion = type("C", (), {"claim": "The statement is false."})()
+    assert worker.verdict_of([conclusion], "VERDICT: REFUTED — it is elsewhere.") == "REFUTED"
+    marked = type("C", (), {"claim": "VERDICT: CONFIRMED"})()
+    assert worker.verdict_of([marked], "VERDICT: REFUTED") is None
+    assert worker.verdict_of([conclusion], "The statement is false.") is None
 
 
 def test_an_invalid_result_is_invalid(tmp_path):

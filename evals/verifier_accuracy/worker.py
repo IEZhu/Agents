@@ -63,7 +63,11 @@ def request(*, statement: str, arm: str, snapshot: Path, task_id: str, attempt_i
                         "and record that command and its output as evidence.")
     return {
         "agent_name": VERIFIER_AGENT,
-        "task": f"Is this statement about the repository snapshot in {snapshot} true or false?\n\n{statement}",
+        # The marker is in the task as well as the criteria: in the pilot, 9 of 74 valid results
+        # gave the verdict in prose ("The statement is false: ...") without it.
+        "task": (f"Is this statement about the repository snapshot in {snapshot} true or false?\n\n{statement}\n\n"
+                 "Begin your one conclusion, and your summary, with VERDICT: CONFIRMED, VERDICT: REFUTED or "
+                 "VERDICT: UNCONFIRMED."),
         "acceptance_criteria": criteria,
         "task_id": task_id, "attempt_id": attempt_id,
         "context": ["The snapshot directory is a read-only export of one commit of this repository, without "
@@ -271,9 +275,13 @@ class Validated:
     reason: str | None
 
 
-def verdict_of(conclusions) -> str | None:
-    found = {match.group(1).upper() for conclusion in conclusions
-             if (match := _VERDICT.match(conclusion.claim))}
+def verdict_of(conclusions, summary: str = "") -> str | None:
+    """The one verdict marker opening a conclusion or the summary; ``None`` when absent or conflicting.
+
+    Only the marker is read, never the prose around it.
+    """
+    texts = [conclusion.claim for conclusion in conclusions] + [summary]
+    found = {match.group(1).upper() for text in texts if (match := _VERDICT.match(text))}
     return next(iter(found)) if len(found) == 1 else None
 
 
@@ -290,9 +298,10 @@ def validate(revision: str, transcript: Path) -> Validated:
     expected = TaskContract.model_validate(contract)
     value, _, _ = parse_result(text, expected)
     report = RESULT_MODELS[RESULT_TYPE].model_validate(value)
-    marked = verdict_of(report.result.conclusions)
+    marked = verdict_of(report.result.conclusions, report.result.summary)
     if marked is None:
-        return Validated("invalid", None, "no_single_verdict")
+        # Structurally valid, but without a readable verdict: counted as invalid with its own reason.
+        return Validated("invalid", None, "no_verdict_marker")
     if report.status != "completed" or marked == "UNCONFIRMED":
         return Validated("abstained", None, report.status if report.status != "completed" else "unconfirmed")
     return Validated("verdict", "confirmed" if marked == "CONFIRMED" else "refuted", None)

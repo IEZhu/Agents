@@ -101,10 +101,16 @@ def _inside(path: str | None, root: str, cwd: str | None) -> bool:
 
 
 def snapshot_reads(facts: Facts, snapshot: Path) -> int:
-    """Successful reads in the snapshot: a file tool aimed inside it, or a shell command run there."""
+    """Recorded reads in the snapshot: a file tool aimed inside it, or a shell command run there.
+
+    A read counts once the host recorded its result, whatever the result was: ``grep`` that
+    finds nothing exits 1, which the host marks as an error, and a ``Read`` of a missing path
+    is a look in the snapshot too. The pilot counted only successful calls, and three
+    verdicts that rested on a ``grep`` without a match were filed as unsupported.
+    """
     root, count = str(snapshot), 0
     for call in facts.calls:
-        if call.ok is not True:
+        if call.ok is None:
             continue
         if call.name == "Read" and _inside(call.input.get("file_path"), root, call.cwd):
             count += 1
