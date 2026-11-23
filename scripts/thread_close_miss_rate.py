@@ -80,9 +80,10 @@ def outcomes(record: dict) -> dict[str, bool]:
         if not isinstance(finding, dict) or not isinstance(finding.get("slug"), str):
             continue
         slug, status, level = finding["slug"], finding.get("status"), finding.get("level")
-        if not isinstance(status, str):
+        # A held row may omit its level; a present level that is not a string marks a broken row.
+        if not isinstance(status, str) or not isinstance(level, (str, type(None))):
             continue
-        if status in MISS_STATUSES and isinstance(level, str) and level in COUNTED_LEVELS:
+        if status in MISS_STATUSES and level in COUNTED_LEVELS:
             out[slug] = True
         elif status in HELD_STATUSES:
             out.setdefault(slug, False)

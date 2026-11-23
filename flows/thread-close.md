@@ -511,8 +511,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    the recent miss rate with its 95 % band and the all-time misses
    ([turn records](../docs/turn-records.md#a-rules-recent-miss-rate)). Quote the
    slug's row beside the proposal as evidence. When it prints no row for the
-   slug, because no earlier close in this checkout's journal recorded an
-   outcome for it (synced segments from other machines are not read), or stops with
+   slug, because no earlier close in this checkout's journal recorded a
+   qualifying outcome for it (a miss at V1 or above, or a `used` or `caught`
+   row; synced segments from other machines are not read), or stops with
    `no journal`, state that beside the proposal instead. The report decides nothing: a
    repeat after an applied patch escalates however low the rate reads, a high
    rate without such a repeat escalates nothing, and an escalation joins step

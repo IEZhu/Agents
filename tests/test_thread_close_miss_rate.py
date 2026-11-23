@@ -82,6 +82,7 @@ class TestOutcomes:
     @pytest.mark.parametrize("finding", [
         {"slug": "x", "status": [], "level": "V2"}, {"slug": "x", "status": {"s": 1}},
         {"slug": "x", "status": "missed", "level": ["V2"]}, {"slug": "x", "status": "missed", "level": {}},
+        {"slug": "x", "status": "used", "level": []}, {"slug": "x", "status": "caught", "level": 2},
     ])
     def test_an_unhashable_status_or_level_is_skipped_not_raised(self, finding):
         assert report.outcomes(_report(finding, {"slug": "y", "status": "used"})) == {"y": False}
