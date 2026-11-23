@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from scripts import thread_close_miss_rate as report
+from src.memory import history
 
 SCRIPT = Path(report.__file__).resolve()
 NOW = dt.datetime(2026, 11, 23, tzinfo=dt.timezone.utc).timestamp()
@@ -78,6 +79,13 @@ class TestOutcomes:
         assert report.outcomes({"findings": {"slug": "x"}}) == {}
         assert report.outcomes({"findings": ["x", {"status": "missed", "level": "V2"}, {"slug": 3}]}) == {}
 
+    @pytest.mark.parametrize("finding", [
+        {"slug": "x", "status": [], "level": "V2"}, {"slug": "x", "status": {"s": 1}},
+        {"slug": "x", "status": "missed", "level": ["V2"]}, {"slug": "x", "status": "missed", "level": {}},
+    ])
+    def test_an_unhashable_status_or_level_is_skipped_not_raised(self, finding):
+        assert report.outcomes(_report(finding, {"slug": "y", "status": "used"})) == {"y": False}
+
 
 class TestSummary:
     def test_only_close_reports_count_and_archives_are_read(self, workspace):
@@ -112,6 +120,37 @@ class TestSummary:
         assert (row["closes"], row["misses"], row["recent"]["rate"]) == (3, 2, 0.6)
 
 
+class TestJournalScope:
+    def test_an_entry_in_both_a_pending_rotation_and_history_md_counts_once(self, tmp_path):
+        close = _block("aaaaaaaaaaa1", "2026-11-20T10:00:00+00:00", ("#thread-close",), _report(_miss("x")))
+        (tmp_path / report.PENDING_ROTATION).write_text(close, encoding="utf-8")
+        (tmp_path / report.JOURNAL).write_text(close, encoding="utf-8")
+        summary = report.summarize(report.read_entries(tmp_path), now=NOW)
+        assert (summary["closes"], summary["rules"][0]["closes"]) == (1, 1)
+
+    def test_a_synced_segment_stays_out_even_with_the_sync_installed(self, workspace, tmp_path):
+        segment = tmp_path / "segment-2026-11.md"
+        segment.write_text(_block("99999999999a", "2026-11-14T10:00:00+00:00", ("#thread-close",),
+                                  _report(_miss("synced-only"))) + "**Machine:** machine-b\n", encoding="utf-8")
+
+        class Sync:
+            def machines(self, history_path):
+                return history.MachineHistory("this-mac", (("machine-b", str(segment)),))
+
+            def appended(self, history_path, entry_id):
+                pass
+
+        previous = history.set_sync(Sync())
+        try:
+            # The merged read does see the segment, so the exclusion below is not vacuous.
+            merged = history.HistoryReader(str(workspace / report.JOURNAL)).read_recent(limit=50)
+            assert "99999999999a" in {entry.id for entry in merged}
+            rows = report.summarize(report.read_entries(workspace), now=NOW)["rules"]
+        finally:
+            history.set_sync(previous)
+        assert "synced-only" not in {row["slug"] for row in rows}
+
+
 class TestCommandLine:
     def test_json_names_the_workspace_and_every_row(self, workspace, capsys):
         assert report.main(["--workspace", str(workspace), "--json"]) == 0
@@ -127,6 +166,13 @@ class TestCommandLine:
         assert lines[1].split() == ["slug", "closes", "recent", "95%", "band", "misses"]
         assert lines[2].split()[:3] == ["flows", "1", "67%"]
         assert lines[-1].startswith("Evidence only:") and "Repeats escalate" in lines[-1]
+
+    def test_a_pending_rotation_alone_is_a_journal(self, tmp_path, capsys):
+        (tmp_path / report.PENDING_ROTATION).write_text(
+            _block("aaaaaaaaaaa1", "2026-11-20T10:00:00+00:00", ("#thread-close",), _report(_miss("x"))),
+            encoding="utf-8")
+        assert report.main(["--workspace", str(tmp_path), "--json"]) == 0
+        assert json.loads(capsys.readouterr().out)["with_record"] == 1
 
     def test_a_workspace_without_a_journal_is_an_error_not_an_empty_report(self, tmp_path, capsys):
         with pytest.raises(SystemExit) as stopped:

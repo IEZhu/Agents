@@ -1,8 +1,8 @@
 """Report each rule's recent miss rate over the thread-close flow's recorded closes.
 
 Reads the ``#thread-close`` reports in one workspace's journal: ``history.md``, a pending
-rotation and the ``history/`` archives, as ``read_history`` reads them without library
-sync, so the segments other machines share are not read. Each close whose
+rotation and the ``history/`` archives, never the segments the user library sync shares
+from other machines. Each close whose
 ``metadata.record`` has ``kind: report`` gives every finding slug at most one outcome:
 
 - a miss: a ``missed`` or ``misused`` finding at V1 or above;
@@ -34,8 +34,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.estimation import rate  # noqa: E402
-from src.memory.history import HistoryEntry, HistoryReader  # noqa: E402
+from src.memory.history import HistoryEntry, HistoryReader, merge_entries  # noqa: E402
 
+JOURNAL = "history.md"
+# Where an interrupted rotation leaves history.md; the reader reads it as the live journal.
+PENDING_ROTATION = JOURNAL + ".rotating"
+ARCHIVES = "history"
 CLOSE_TAG = "thread-close"
 PROGRESS_TAG = "progress"
 REPORT_KIND = "report"
@@ -75,8 +79,10 @@ def outcomes(record: dict) -> dict[str, bool]:
     for finding in findings if isinstance(findings, list) else ():
         if not isinstance(finding, dict) or not isinstance(finding.get("slug"), str):
             continue
-        slug, status = finding["slug"], finding.get("status")
-        if status in MISS_STATUSES and finding.get("level") in COUNTED_LEVELS:
+        slug, status, level = finding["slug"], finding.get("status"), finding.get("level")
+        if not isinstance(status, str):
+            continue
+        if status in MISS_STATUSES and isinstance(level, str) and level in COUNTED_LEVELS:
             out[slug] = True
         elif status in HELD_STATUSES:
             out.setdefault(slug, False)
@@ -130,8 +136,18 @@ def summarize(entries: list[HistoryEntry], now: float | None = None) -> dict:
 
 
 def read_entries(workspace: Path) -> list[HistoryEntry]:
-    """The workspace journal's ``#thread-close`` entries, archives included, newest first."""
-    return HistoryReader(str(workspace / "history.md")).read_recent(limit=sys.maxsize, tag=CLOSE_TAG)
+    """This checkout's journal, a pending rotation and the archives included, one entry per id.
+
+    The journal alone: the segments the user library sync adds to ``read_history`` stay out
+    even in a process that has the sync installed.
+    """
+    reader = HistoryReader(str(workspace / JOURNAL))
+    return merge_entries([(None, reader.journal_entries())])
+
+
+def has_journal(workspace: Path) -> bool:
+    return ((workspace / JOURNAL).is_file() or (workspace / PENDING_ROTATION).is_file()
+            or (workspace / ARCHIVES).is_dir())
 
 
 def _cells(recent: dict | None) -> tuple[str, str]:
@@ -159,8 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
-    if not ((workspace / "history.md").is_file() or (workspace / "history").is_dir()):
-        parser.error(f"no journal in {workspace}: neither history.md nor history/ exists")
+    if not has_journal(workspace):
+        parser.error(f"no journal in {workspace}: none of {JOURNAL}, {PENDING_ROTATION} or {ARCHIVES}/ exists")
     summary = summarize(read_entries(workspace))
     print(json.dumps({"workspace": str(workspace), **summary}, indent=2) if args.json else format_table(summary))
     return 0
