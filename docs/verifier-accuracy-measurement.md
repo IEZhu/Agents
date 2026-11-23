@@ -92,7 +92,9 @@ evidence is narration, so the runner assigns each level from what the host recor
 in the spirit of the [thread-close](../flows/thread-close.md) table, and never re-runs
 anything a worker wrote:
 
-- **V3** is every verdict of the V3 arm, which is fresh and blinded by construction.
+- **V3** is a verdict of the V3 arm, fresh and blinded by construction, whose
+  transcript records at least one read of a file in the snapshot worktree. A V3-arm
+  verdict without one is counted and reported as unsupported, never fitted.
 - **V2** is a verdict of the V2 arm whose transcript records at least one shell or tool
   execution by the worker. A V2-arm verdict without one is counted and reported as V1,
   never fitted.
