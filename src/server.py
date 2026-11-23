@@ -70,7 +70,9 @@ from src.memory import record as turn_record
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
 from src.memory.history_results import listing, to_json
 from src.memory import shared as shared_memory
-from src.result_size import RESULT_SIZE_CEILING
+from src.claims.store import (ClaimError, ClaimStore, claim_key, history_view as claim_history_view,
+                               view as claim_view)
+from src.result_size import INLINE_LIMIT, RESULT_SIZE_CEILING, shown_size
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
                                    WorkspaceError, WorkspaceMismatch, HistoryStores, calling_app)
 from src import flow_persona
@@ -558,6 +560,9 @@ TOOL_HINTS = {
                                      idempotent=False),
     "read_history": tool_hints("Read history", read_only=True),
     "read_shared_memory": tool_hints("Read the AI clients' shared memory", read_only=True),
+    # Appends a verdict to the workspace's claims store; nothing is overwritten or deleted.
+    "claim_record": tool_hints("Record a claim verdict", read_only=False, destructive=False, idempotent=False),
+    "claim_lookup": tool_hints("Look up validated claims", read_only=True),
     "local_inference_status": tool_hints("Read local inference status", read_only=True, idempotent=True),
     "local_context_create": tool_hints("Capture local inference context", read_only=False, destructive=False, idempotent=False),
     "local_context_grant": tool_hints("Grant local context access", read_only=False, destructive=False, idempotent=False),
@@ -2415,6 +2420,184 @@ async def read_shared_memory(
         debug_log("read_shared_memory", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
 
+
+
+# Claim text is project content: like read_shared_memory these are not traced (no @observe), so it
+# never leaves the machine through the optional Langfuse traces.
+CLAIM_LOOKUP_MAX = 20
+CLAIM_HISTORY_MAX = 10
+# Results stay well under Claude Code's inline limit; entries past it are dropped and counted.
+CLAIM_RESULT_BUDGET = INLINE_LIMIT - 5_000
+
+
+def _fit_claims(payload: dict, field: str) -> dict:
+    """Drop the last entries of ``payload[field]`` until the JSON fits the result budget."""
+    omitted = 0
+    while payload[field] and shown_size(to_json(payload)) > CLAIM_RESULT_BUDGET:
+        payload[field].pop()
+        omitted += 1
+    if omitted:
+        payload["omitted"] = omitted
+    return payload
+
+
+async def _claim_store(ctx: Context | None, workspace: Optional[str]) -> tuple[ClaimStore, dict]:
+    client = await resolve_client_context(ctx, workspace)
+    root = client.require_root()
+    return ClaimStore(root), _workspace_report(client, root)
+
+
+@mcp.tool(**TOOL_HINTS["claim_record"])
+async def claim_record(
+    subject: Annotated[str, Field(description="What the claim is about, at most 200 characters: a file, "
+                                              "an API, a tool, a service, e.g. 'src/result_size.py'.")],
+    claim: Annotated[str, Field(description="The statement, at most 1000 characters, e.g. 'INLINE_LIMIT "
+                                            "is 50000'. The same subject and statement always land on "
+                                            "the same claim.")],
+    verdict: Annotated[str, Field(description="confirmed or refuted: what this check found.")],
+    level: Annotated[str, Field(description="The check's verification level: V1 a source was read, V2 a "
+                                            "command, test or call produced it, V3 an independent "
+                                            "fresh-context reviewer checked it, V4 the owner accepted it "
+                                            "and it held. V0 is refused.")],
+    importance: ta.opt_str("What the claim is used for: routine, load_bearing (default) or critical. "
+                           "Reuse at an importance needs at least V1, V2 or V3 respectively.") = None,
+    volatility: ta.opt_str("How fast it can go stale: stable (months), normal (weeks, the default) or "
+                           "volatile (days).") = None,
+    evidence: ta.strict_str_list("Optional references the check rests on, at most 10, each at most 500 "
+                                 "characters: a file:line, a command and its output, a URL.") = None,
+    contract_revision: ta.opt_str("Optional contract_revision of the validated worker result the "
+                                  "verdict comes from.") = None,
+    result_sha256: ta.opt_str("Optional result_sha256 that validate_subagent_result returned for it.") = None,
+    ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+) -> str:
+    """Record one verdict about a factual claim in this workspace's validated-claims store.
+
+    Record what a check actually established, after the check: a verdict is a reading
+    of the claim, and the store filters every reading of it (a scalar Kalman filter on
+    the log-odds) into a confidence with a band that narrows with agreeing checks and
+    widens while nobody checks. Agreeing checks of one kind do not compound past what
+    that kind supports, because verifiers built on similar models fail together.
+
+    A verdict far from what the store believed trips its gate: the result says
+    ``contradiction: true`` and the claim is ``contested`` until a later verdict
+    agrees. That is a reason to validate again, not a ruling on which verdict is right.
+
+    The store is append-only and local to the workspace (``data/claims/claims.jsonl``).
+    It is for the parent session: give a worker a stored fact only as a pinned artifact.
+
+    Returns JSON: {status: recorded, event_id, contradiction, nis, previous: {state,
+    confidence} | null, claim, workspace}. ``claim`` is the state claim_lookup returns.
+    Errors: {status: error, code (invalid_request, store_full, workspace), error}.
+    """
+    try:
+        store, workspace_report = await _claim_store(ctx, workspace)
+        debug_log("claim_record", "req", {"verdict": verdict, "level": level, "importance": importance,
+                                          "volatility": volatility})
+        result = await asyncio.get_running_loop().run_in_executor(None, lambda: store.record(
+            subject=subject, claim=claim, verdict=verdict, level=level,
+            importance=(importance or "load_bearing").strip(), volatility=(volatility or "normal").strip(),
+            evidence=evidence, contract_revision=(contract_revision or "").strip() or None,
+            result_sha256=(result_sha256 or "").strip() or None))
+        result.update(workspace_report)
+        debug_log("claim_record", "res", {"key": result["claim"]["key"], "state": result["claim"]["state"],
+                                          "contradiction": result["contradiction"]})
+        return to_json(result)
+    except ClaimError as error:
+        payload = {"status": "error", "code": error.code, "error": str(error)}
+        debug_log("claim_record", "error", payload)
+        return to_json(payload)
+    except WorkspaceError as error:
+        payload = {"status": "error", "code": "workspace", "error": str(error),
+                   **_workspace_error_details(workspace_inputs(ctx), error)}
+        debug_log("claim_record", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as error:
+        logger.error("claim_record failed: %s", error, exc_info=True)
+        payload = {"status": "error", "code": "internal", "error": str(error)}
+        debug_log("claim_record", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+@mcp.tool(**TOOL_HINTS["claim_lookup"])
+async def claim_lookup(
+    subject: ta.opt_str("With claim: the subject of one claim to read.") = None,
+    claim: ta.opt_str("With subject: the statement of one claim to read.") = None,
+    key: ta.opt_str("Optional key of one claim, 16 hexadecimal characters, as claim_record returned it.") = None,
+    query: ta.opt_str("Optional text that the subject or statement contains, case-insensitively.") = None,
+    state: ta.opt_str("Optional state to keep: supported, stale, contested, uncertain or refuted. "
+                      "Sorted by revalidation time, so state=stale reads as a work queue.") = None,
+    limit: Annotated[int, Field(description="Claims to return in a listing, 1 to 20.")] = 10,
+    offset: Annotated[int, Field(description="Claims to skip first.")] = 0,
+    ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+) -> str:
+    """Read the validated-claims store: one claim with its verdicts, or a filtered listing.
+
+    Look a claim up before checking it again: a ``supported`` claim whose ``usable_for``
+    includes the importance you need can be reused as it stands; anything else needs a
+    fresh check, recorded with claim_record. Confidence is computed at read time, so a
+    claim nobody re-checks drifts to ``stale`` on its own.
+
+    - ``key``, or ``subject`` with ``claim``: that claim plus its newest verdicts.
+    - Otherwise a listing, newest verdict first, narrowed by ``query`` and ``state``.
+
+    A claim: {key, subject, claim, state, confidence, band [lower, upper], level (the
+    strongest confirming level since the last refutation), importance (the highest it
+    was recorded for), usable_for, revalidate_at, checks, confirmed, refuted,
+    last_verdict, last_checked, log_odds {mean, variance}}. States: supported (the band's
+    lower edge clears the routine bar), stale (it did after its last check, and time
+    alone pushed it below), contested (the last verdict tripped the contradiction
+    gate), refuted, uncertain.
+
+    Returns JSON: {mode (claim or listing), total, claims, verdicts? (claim mode, newest
+    first), omitted?, workspace}. Errors: {status: error, code, error}.
+    """
+    try:
+        store, workspace_report = await _claim_store(ctx, workspace)
+        key = (key or "").strip().lower() or None
+        state = (state or "").strip().lower() or None
+        query = (query or "").strip() or None
+        subject = (subject or "").strip() or None
+        claim = (claim or "").strip() or None
+        if (subject is None) != (claim is None):
+            raise ClaimError("invalid_request", "subject and claim name one claim together; pass both or neither")
+        limit = max(1, min(limit, CLAIM_LOOKUP_MAX))
+        offset = max(0, offset)
+        debug_log("claim_lookup", "req", {"key": key, "state": state, "query": query, "limit": limit,
+                                          "offset": offset, "by_text": subject is not None})
+        loop = asyncio.get_running_loop()
+        if key is not None or subject is not None:
+            wanted = key or claim_key(subject, claim)
+            found = await loop.run_in_executor(None, store.get, wanted)
+            if found is None:
+                payload = {"mode": "claim", "total": 0, "claims": [], "verdicts": [], **workspace_report}
+            else:
+                assessment = found.assess(store.clock())
+                payload = _fit_claims({"mode": "claim", "total": 1, "claims": [claim_view(found, assessment)],
+                                       "verdicts": claim_history_view(found, CLAIM_HISTORY_MAX),
+                                       **workspace_report}, "verdicts")
+        else:
+            matches = await loop.run_in_executor(None, lambda: store.search(query=query, state=state))
+            page = [claim_view(found, assessment) for found, assessment in matches[offset:offset + limit]]
+            payload = _fit_claims({"mode": "listing", "total": len(matches), "claims": page,
+                                   **workspace_report}, "claims")
+        debug_log("claim_lookup", "res", {"mode": payload["mode"], "total": payload["total"]})
+        return to_json(payload)
+    except ClaimError as error:
+        payload = {"status": "error", "code": error.code, "error": str(error)}
+        debug_log("claim_lookup", "error", payload)
+        return to_json(payload)
+    except WorkspaceError as error:
+        payload = {"status": "error", "code": "workspace", "error": str(error),
+                   **_workspace_error_details(workspace_inputs(ctx), error)}
+        debug_log("claim_lookup", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as error:
+        logger.error("claim_lookup failed: %s", error, exc_info=True)
+        payload = {"status": "error", "code": "internal", "error": str(error)}
+        debug_log("claim_lookup", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
 
 # --- MCP Prompts (slash commands for Claude Desktop) ---
 
