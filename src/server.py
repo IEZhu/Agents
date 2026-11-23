@@ -2501,6 +2501,8 @@ async def claim_record(
 
     The store is append-only and local to the workspace (``data/claims/claims.jsonl``).
     It is for the parent session: give a worker a stored fact only as a pinned artifact.
+    A ``workspace`` argument outside the registered root is not followed: the result's
+    ``workspace`` names the root used and ``workspace_note`` says what was ignored.
 
     Returns JSON: {status: recorded, event_id, contradiction, predictive (the verdict's
     probability before it arrived), previous: {state, confidence} | null, claim,
@@ -2559,6 +2561,9 @@ async def claim_lookup(
 
     - ``key``, or ``subject`` with ``claim``: that claim plus its newest verdicts.
     - Otherwise a listing, newest verdict first, narrowed by ``query`` and ``state``.
+
+    It reads the workspace this session is registered for; a ``workspace`` argument
+    outside it is not followed, and ``workspace_note`` says so.
 
     A claim: {key, subject, claim, state, confidence (probability it holds now),
     confidence_at_last_check, level (the strongest confirming level since the last

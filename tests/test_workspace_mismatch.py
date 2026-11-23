@@ -342,7 +342,7 @@ def test_the_fallback_journal_remedy_is_narrow_too():
 
 @pytest.mark.asyncio
 async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_argument(repositories):
-    """log_interaction and read_history never refuse (#576): the note says what was not followed."""
+    """log_interaction, read_history and claim_lookup never refuse (#576): the note says what was not followed."""
     registered, other, inside = repositories
     ctx = http_context(registered)
 
@@ -353,7 +353,10 @@ async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_
     async def read(named):
         return json.loads(await server.read_history(ctx=ctx, workspace=named))
 
-    for call in (log, read):
+    async def lookup(named):
+        return json.loads(await server.claim_lookup(ctx=ctx, workspace=named))
+
+    for call in (log, read, lookup):
         ignored = await call(str(other))
         # The workspace actually used is the registered one, exactly as without a note.
         assert ignored["workspace"]["root"] == str(registered)
@@ -387,8 +390,12 @@ REPOSITORY_TOOLS = frozenset({"describe_repo", "write_repo_summary", "run_flow",
 FLOW_TOOLS = frozenset({"get_flow", "save_flow", "delete_flow", "set_flow_persona"})
 ACTIVATION_TOOLS = frozenset({"route_and_load", "get_agent_context"})
 HISTORY_TOOLS = frozenset({"log_interaction", "read_history"})
+CLAIM_TOOLS = frozenset({"claim_record", "claim_lookup"})
+# Takes the shared parameter, and its docstring does not yet say what an argument outside the
+# grant does; pinned here so the set stays exact.
+SHARED_MEMORY_TOOLS = frozenset({"read_shared_memory"})
 WORKSPACE_TOOLS = (COOPERATION_TOOLS | REPOSITORY_TOOLS | FLOW_TOOLS | ACTIVATION_TOOLS
-                   | HISTORY_TOOLS)
+                   | HISTORY_TOOLS | CLAIM_TOOLS | SHARED_MEMORY_TOOLS)
 
 
 @pytest.mark.asyncio
@@ -417,7 +424,7 @@ async def test_the_workspace_parameter_is_true_for_every_tool_that_shares_it():
         assert "workspace_mismatch" in docstrings[name], name
     for name in ACTIVATION_TOOLS:
         assert "repo_context" in docstrings[name], name
-    for name in HISTORY_TOOLS:
+    for name in HISTORY_TOOLS | CLAIM_TOOLS:
         assert "workspace_note" in docstrings[name], name
 
 
