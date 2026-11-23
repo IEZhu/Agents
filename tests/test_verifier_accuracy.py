@@ -413,7 +413,9 @@ class FakeLauncher:
         if prompt.startswith("This is a sandbox check"):
             canary = prompt.split("Try to read the file ")[1].split(":")[0]
             token = Path(canary).read_text().split()[-1] if self.leak_probe else "denied"
-            _transcript(path, cwd=str(cwd), calls=[("Read", {"file_path": canary}, self.leak_probe)], final=token)
+            accesses = [("Read", {"file_path": canary}, self.leak_probe)] + [
+                ("Bash", {"command": f"{tool} {canary}"}, self.leak_probe) for tool in ("cat", "head -c 200", "python3")]
+            _transcript(path, cwd=str(cwd), calls=accesses, final=token)
         else:
             target = str(self.touch_control) if self.touch_control else "README.md"
             _transcript(path, cwd=str(cwd), calls=[("Read", {"file_path": target}, True),
@@ -626,7 +628,7 @@ def test_the_coverage_simulation_holds_at_the_priors():
     planned = analysis.scenarios([2] * 15, [2] * 10)
     assert {(scenario["family"], scenario["b"]) for scenario in planned} == {
         ("model", 0.97), ("model", 0.995), ("execution", 0.95), ("execution", 0.995)}
-    result = analysis.calibrate(planned[:2], sets=30, resamples=30, grid=GRID, coarse=COARSE)
+    result = analysis.calibrate(planned[:1], sets=400, resamples=20, grid=GRID, coarse=COARSE)
     assert result["held"] and result["d_floor"] >= 1.0
     assert all(set(scenario["coverage"]) == {"c", "b"} for scenario in result["scenarios"])
 
@@ -873,3 +875,59 @@ def test_shell_reads_after_cd_and_inside_quoted_code_count(tmp_path):
     assert named("python3 -c \"print(open('src/x.py').read())\"", cwd, snapshot)
     assert named("cat src/x.py", cwd, snapshot)
     assert not named("cd src && pwd", cwd, snapshot) and not named("pwd", cwd, snapshot)
+
+
+
+# --- Review round 3 regressions ----------------------------------------------------------------
+
+
+def test_coverage_must_be_shown_not_merely_unrefuted():
+    assert not analysis.holds_level(30, 30, 0.9875)  # 30 of 30 cannot show 98.75 %
+    assert analysis.holds_level(400, 400, 0.9875) and not analysis.holds_level(990, 1000, 0.9875)
+
+
+def test_a_probe_that_skipped_an_access_is_not_blind(tmp_path, repo):
+    control_dir, _ = _build(tmp_path, repo, items=4)
+    loaded = runner.load(control_dir, installation_roots=[])
+
+    class ReadOnly(FakeLauncher):
+        def __call__(self, prompt, **options):
+            path = self.home / ".claude" / "projects" / "p" / f"{options['session_id']}.jsonl"
+            canary = prompt.split("Try to read the file ")[1].split(":")[0]
+            _transcript(path, cwd="/", calls=[("Read", {"file_path": canary}, False)], final="denied")
+            return worker.Run(options["session_id"], 0, False, 0.01, 1, 1, False, "")
+
+    result = runner.probe(loaded, ReadOnly(tmp_path / "home", loaded.snapshot), model="m", effort=None, timeout=1)
+    assert not result.blind and result.reason == "incomplete_denial"
+
+
+def test_an_error_after_launch_is_a_paid_attempt_never_rescheduled(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+
+    def broken(revision, path):
+        raise RuntimeError("transcript processing failed")
+    work, loaded, _ = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
+                              validate=broken)
+    work.run()
+    rows = work.recorder.recorded()
+    assert {row["reason"] for row in rows} == {"post_launch_error:RuntimeError"}
+    assert all(row["cost_usd"] == 0.01 for row in rows) and not any(control.is_placeholder(row) for row in rows)
+    assert work.run()["run"] == 0
+
+
+def test_a_shell_comment_names_no_file(tmp_path):
+    snapshot = tmp_path / "snap"
+    (snapshot / "src").mkdir(parents=True)
+    (snapshot / "src" / "x.py").write_text("X = 1\n", encoding="utf-8")
+    assert not transcript.names_snapshot_path("true # src/x.py", str(snapshot), snapshot)
+
+
+def test_run_refuses_an_interim_simulation_and_probe_cost_is_recorded(tmp_path, repo):
+    from evals.scripts import verifier_accuracy as cli
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    (control_dir / control.SIMULATION).write_text(json.dumps({"set": manifest["set"], "held": True, "look": "interim"}),
+                                                  encoding="utf-8")
+    assert cli.main(["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir), "run"]) == 1
+    loaded = runner.load(control_dir, installation_roots=[])
+    runner.record_probe(loaded, runner.ProbeResult(True, 4, "denied", 0.25), model="m", batch=None)
+    assert runner.recorded_spend(loaded) == pytest.approx(0.25)

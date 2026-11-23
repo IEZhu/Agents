@@ -91,6 +91,7 @@ def probe(arguments) -> int:
     launcher = _launcher(arguments, loaded)
     model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
     result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
+    runner.record_probe(loaded, result, model=model, batch=None)  # its cost counts towards the set's spend
     _print({"model": model, **result.__dict__})
     return 0 if result.blind else 2
 
@@ -102,6 +103,9 @@ def run(arguments) -> int:
     simulation = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if simulation.get("set") != loaded.set_id:
         print("Run `simulate` for this set first: the run needs its floor under D.", file=sys.stderr)
+        return 1
+    if simulation.get("look") != "final":
+        print("The run needs the final look's simulation; this one is for the interim quantiles.", file=sys.stderr)
         return 1
     if not simulation.get("held") and not arguments.pipeline_check:
         print("The coverage simulation did not hold for this set; its bands would not hold their level.",
@@ -173,7 +177,8 @@ def parser() -> argparse.ArgumentParser:
     making.set_defaults(handler=build)
 
     simulating = commands.add_parser("simulate")
-    simulating.add_argument("--sets", type=int, default=200)
+    simulating.add_argument("--sets", type=int, default=1000,
+                            help="Simulated sets per scenario; the lower coverage bound needs several hundred.")
     simulating.add_argument("--resamples", type=int, default=200)
     simulating.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
     simulating.add_argument("--seed", type=int, default=0)

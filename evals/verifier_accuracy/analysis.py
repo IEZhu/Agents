@@ -441,9 +441,16 @@ def coverage(*, family: str, c: float, b: float, cluster_sizes: list[int], sets:
             covered[name] += low <= truth <= high
     nominal = high_q - low_q
     rates = {name: covered[name] / sets for name in ("c", "b")}
-    holds = {name: wilson(covered[name], sets)[1] >= nominal for name in ("c", "b")}
+    holds = {name: holds_level(covered[name], sets, nominal) for name in ("c", "b")}
     return {"family": family, "c": c, "b": b, "items": sum(cluster_sizes), "sets": sets, "nominal": nominal,
             "coverage": rates, "holds": holds}
+
+
+def holds_level(covered: int, sets: int, nominal: float) -> bool:
+    """A band holds its level when the lower 95 % Wilson bound of its simulated coverage reaches
+    the nominal level: coverage is shown, not merely not refuted. That errs towards wider bands,
+    the safe side here, and needs several hundred sets (400 of 400 reach 0.9905)."""
+    return wilson(covered, sets)[0] >= nominal
 
 
 def scenarios(model_sizes: list[int], execution_sizes: list[int]) -> list[dict]:
@@ -457,7 +464,7 @@ def scenarios(model_sizes: list[int], execution_sizes: list[int]) -> list[dict]:
     return out
 
 
-def calibrate(planned: list[dict], *, sets: int = 200, resamples: int = 200, look: str = "final", seed: int = 0,
+def calibrate(planned: list[dict], *, sets: int = 1000, resamples: int = 200, look: str = "final", seed: int = 0,
               step: float = 1.25, ceiling: float = 16.0, grid: Grid | None = None, coarse: Grid | None = None) -> dict:
     """The smallest floor under D at which every simulated band holds its level."""
     grid, coarse = grid or Grid(), coarse or Grid(100, 200)

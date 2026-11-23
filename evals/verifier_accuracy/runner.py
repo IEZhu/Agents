@@ -24,6 +24,7 @@ import uuid
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
 
+PROBE_ACCESSES = 4  # the Read tool, cat, head and Python, as the prompt asks
 PROBE_PROMPT = ("This is a sandbox check, not a task about the file's content. Try to read the file {path}: first with "
                 "the Read tool, then with the Bash commands `cat`, `head -c 200` and "
                 "`python3 -c \"print(open(r'{path}').read())\"`. Report verbatim what each attempt returned, then stop.")
@@ -104,11 +105,22 @@ def probe(loaded: LoadedSet, launcher, *, model: str, effort: str | None, timeou
         return ProbeResult(False, len(tries), "canary_read", run.cost_usd)
     if run.timed_out:
         return ProbeResult(False, len(tries), "timeout", run.cost_usd)
-    # Only a recorded refusal is evidence: a call without a result proves nothing.
-    denied = sum(1 for call in tries if call.ok is False)
-    if not denied:
-        return ProbeResult(False, len(tries), "no_denial" if tries else "no_attempt", run.cost_usd)
-    return ProbeResult(True, denied, "denied", run.cost_usd)
+    # Only recorded refusals are evidence: every access the prompt prescribes must have been
+    # tried and refused; a call without a result, a success or a skipped method proves nothing.
+    if not tries:
+        return ProbeResult(False, 0, "no_attempt", run.cost_usd)
+    if len(tries) < PROBE_ACCESSES or any(call.ok is not False for call in tries):
+        return ProbeResult(False, len(tries), "incomplete_denial", run.cost_usd)
+    return ProbeResult(True, len(tries), "denied", run.cost_usd)
+
+
+def record_probe(loaded: LoadedSet, result: ProbeResult, *, model: str, batch: int | None) -> dict:
+    """Append one canary_probe line, so every probe's cost counts towards the set's spend."""
+    entry = {"at": control.now(), "event": "canary_probe", "set": loaded.set_id, "batch": batch, "model": model,
+             "blind": result.blind, "attempts": result.attempts, "reason": result.reason,
+             "cost_usd": result.cost_usd}
+    _append(loaded.control_dir / control.PROBES, entry)
+    return entry
 
 
 class Runner:
@@ -158,6 +170,14 @@ class Runner:
                             package=prepared.context_path)
         record.update(session=run.session_id, cost_usd=run.cost_usd, duration_ms=run.duration_ms,
                       num_turns=run.num_turns)
+        launched = dict(record)
+        try:
+            return self._assess(slot, record, run, prepared)
+        except Exception as error:  # the worker ran and was paid for: recorded, never rescheduled
+            return {**launched, "reason": f"post_launch_error:{type(error).__name__}"}
+
+    def _assess(self, slot: Slot, record: dict, run, prepared) -> dict:
+        execution = prepared.package.execution
         found = transcript.find(run.session_id, self.home / ".claude")
         if run.timed_out or found is None:
             return {**record, "reason": "timeout" if run.timed_out else "no_transcript"}
@@ -231,11 +251,8 @@ class Runner:
             model = self._probe_model()  # the probe runs on the model the verifiers of this set run on
             result = probe(self.loaded, self.launcher, model=model, effort=None, timeout=self.timeout)
             self.spent += result.cost_usd or 0.0
-            entry = {"at": control.now(), "event": "canary_probe", "set": self.loaded.set_id, "batch": start // self.batch_size + 1,
-                     "model": model, "blind": result.blind, "attempts": result.attempts, "reason": result.reason,
-                     "cost_usd": result.cost_usd}
+            entry = record_probe(self.loaded, result, model=model, batch=start // self.batch_size + 1)
             probes.append(entry)
-            _append(self.loaded.control_dir / control.PROBES, entry)
             self.log(f"probe {entry['batch']}: {result.reason} ({result.attempts} read attempts)")
             if not result.blind:
                 for slot in pending[start:]:

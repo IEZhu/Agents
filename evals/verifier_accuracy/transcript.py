@@ -138,7 +138,8 @@ def names_snapshot_path(command: str, cwd: str | None, snapshot: Path) -> bool:
         elif operand not in _SHELL_OPERATORS and not operand.startswith("-"):
             candidates.append(operand)
         previous = token
-    candidates += [fragment for fragment in _FILE_FRAGMENT.findall(command) if fragment not in entered]
+    # Fragments come from the parsed tokens, which keep quoted code and drop shell comments.
+    candidates += [fragment for fragment in _FILE_FRAGMENT.findall(" ".join(tokens)) if fragment not in entered]
     for candidate in candidates:
         for base in directories:
             path = candidate if os.path.isabs(candidate) else os.path.join(base, candidate)

@@ -89,7 +89,10 @@ python -m evals.scripts.verifier_accuracy --installation <path> simulate
 ```
 
 It simulates the analysis at the priors and at `b` = 0.995 on the set's own
-cluster structure and raises the floor under `D` until every band holds its level.
+cluster structure and raises the floor under `D` until every band holds its level:
+the lower 95 % bound of its simulated coverage reaches the nominal level, which
+takes the default 1000 simulated sets. `run` accepts only a simulation of the
+final look.
 It writes `simulation.json`, which `run` requires. Exit status 1 means no floor up
 to 16 held: stop and report.
 
@@ -153,7 +156,8 @@ python -m evals.scripts.verifier_accuracy --installation <path> discard
 
 - The probe before every batch was blind, or the run stopped at the first one
   that was not.
-- Every scheduled attempt has exactly one record.
+- Every scheduled slot has exactly one current record, its latest; the placeholders
+  a resume superseded stay in the file as the record of the stop.
 - The report states cost, blinding, statuses and findings, and nothing in it
   names a statement or a label.
 - The next stage waits for the owner.
