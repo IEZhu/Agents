@@ -174,11 +174,22 @@ class TestCommandLine:
         assert report.main(["--workspace", str(tmp_path), "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["with_record"] == 1
 
-    def test_a_workspace_without_a_journal_is_an_error_not_an_empty_report(self, tmp_path, capsys):
+    @pytest.mark.parametrize("unrelated", [(), ("notes.md", "2026-11-draft.md")])
+    def test_a_workspace_without_a_journal_is_an_error_not_an_empty_report(self, tmp_path, capsys, unrelated):
+        if unrelated:
+            # Another project's own history/ folder, holding no journal archive.
+            (tmp_path / report.ARCHIVES).mkdir()
+            for name in unrelated:
+                (tmp_path / report.ARCHIVES / name).write_text("# not a journal\n", encoding="utf-8")
         with pytest.raises(SystemExit) as stopped:
             report.main(["--workspace", str(tmp_path)])
         assert stopped.value.code == 2
         assert "no journal" in capsys.readouterr().err
+
+    def test_an_empty_live_journal_is_a_journal(self, tmp_path, capsys):
+        (tmp_path / report.JOURNAL).write_text("---\nrepo: r\n---\n", encoding="utf-8")
+        assert report.main(["--workspace", str(tmp_path), "--json"]) == 0
+        assert json.loads(capsys.readouterr().out)["closes"] == 0
 
     def test_the_script_runs_from_another_directory(self, workspace, tmp_path):
         done = subprocess.run([sys.executable, str(SCRIPT), "--workspace", str(workspace), "--json"],

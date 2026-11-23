@@ -145,9 +145,12 @@ def read_entries(workspace: Path) -> list[HistoryEntry]:
     return merge_entries([(None, reader.journal_entries())])
 
 
-def has_journal(workspace: Path) -> bool:
-    return ((workspace / JOURNAL).is_file() or (workspace / PENDING_ROTATION).is_file()
-            or (workspace / ARCHIVES).is_dir())
+def has_journal(workspace: Path, entries: list[HistoryEntry]) -> bool:
+    """A live journal file, even an empty one, or archives the reader found entries in.
+
+    A ``history/`` directory alone proves nothing: other projects use that name too.
+    """
+    return bool(entries) or (workspace / JOURNAL).is_file() or (workspace / PENDING_ROTATION).is_file()
 
 
 def _cells(recent: dict | None) -> tuple[str, str]:
@@ -175,9 +178,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
-    if not has_journal(workspace):
-        parser.error(f"no journal in {workspace}: none of {JOURNAL}, {PENDING_ROTATION} or {ARCHIVES}/ exists")
-    summary = summarize(read_entries(workspace))
+    entries = read_entries(workspace)
+    if not has_journal(workspace, entries):
+        parser.error(f"no journal in {workspace}: no {JOURNAL}, no {PENDING_ROTATION} and no entry under {ARCHIVES}/")
+    summary = summarize(entries)
     print(json.dumps({"workspace": str(workspace), **summary}, indent=2) if args.json else format_table(summary))
     return 0
 
