@@ -110,7 +110,8 @@ def test_recorder_writes_one_private_line_per_attempt(tmp_path):
     rows = recorder.recorded()
     assert [row["status"] for row in rows] == ["verdict", "abstained"]
     assert rows[0]["event"] == "control_attempt" and rows[0]["at"]
-    assert stat.S_IMODE((tmp_path / control.ATTEMPTS).stat().st_mode) == 0o600
+    if os.name == "posix":  # Windows protects the directory with an owner-only ACL instead
+        assert stat.S_IMODE((tmp_path / control.ATTEMPTS).stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize("changes, message", [
@@ -204,9 +205,10 @@ def test_a_statement_the_snapshot_cannot_settle_is_undecided(tmp_path):
 
 def test_build_writes_a_balanced_private_set_with_labels_apart(tmp_path, repo):
     control_dir, manifest = _build(tmp_path, repo, items=12)
-    assert stat.S_IMODE(control_dir.stat().st_mode) == 0o700
-    for name in (control.STATEMENTS, control.LABELS, control.OWNER_REVIEW, control.CANARY, control.MANIFEST):
-        assert stat.S_IMODE((control_dir / name).stat().st_mode) == 0o600, name
+    if os.name == "posix":  # Windows protects the directory with an owner-only ACL instead
+        assert stat.S_IMODE(control_dir.stat().st_mode) == 0o700
+        for name in (control.STATEMENTS, control.LABELS, control.OWNER_REVIEW, control.CANARY, control.MANIFEST):
+            assert stat.S_IMODE((control_dir / name).stat().st_mode) == 0o600, name
     statements = control.read_jsonl(control_dir / control.STATEMENTS)
     labels = {row["item"]: row for row in control.read_jsonl(control_dir / control.LABELS)}
     assert all("truth" not in row and "source" not in row for row in statements)  # labels live apart
@@ -465,6 +467,37 @@ def test_a_run_that_touched_the_control_directory_is_discarded(tmp_path, repo, m
         tmp_path / "home", loaded.snapshot, touch_control=loaded.control_dir / control.LABELS))
     work.run()
     assert {row.get("discarded") for row in work.recorder.recorded()} == {"control_path"}
+
+
+def test_the_directory_name_in_read_output_does_not_discard_a_run(tmp_path, repo, monkeypatch):
+    """Once this code is in the repository, files a worker reads name the directory."""
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+
+    class Reader(FakeLauncher):
+        def __call__(self, prompt, **options):
+            run = super().__call__(prompt, **options)
+            path = self.home / ".claude" / "projects" / "p" / f"{options['session_id']}.jsonl"
+            if not prompt.startswith("This is a sandbox check"):
+                with open(path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps({"type": "user", "message": {"content": [{
+                        "type": "tool_result", "tool_use_id": "t0", "content": f"{control.DIRECTORY_NAME} is ..."}]}}) + "\n")
+            return run
+
+    work, _, _ = _runner(tmp_path, repo, lambda loaded: Reader(tmp_path / "home", loaded.snapshot))
+    work.run()
+    assert not any(row.get("discarded") for row in work.recorder.recorded())
+
+
+def test_a_failed_record_stops_the_run_before_further_workers(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, _, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+
+    def broken(record):
+        raise control.RecorderError("disk full")
+    monkeypatch.setattr(work.recorder, "write", broken)
+    with pytest.raises(control.RecorderError):
+        work.run()
+    assert len([call for call in launcher.calls if call == "launch"]) <= 4  # one batch at most, never the next
 
 
 def test_the_budget_leaves_the_rest_unfinished(tmp_path, repo, monkeypatch):

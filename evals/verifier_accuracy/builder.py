@@ -91,7 +91,10 @@ def export_snapshot(repo: Path, commit: str, snapshots: Path) -> Path:
     target.mkdir(mode=0o700)
     archive = _git(repo, "archive", "--format=tar", commit, binary=True)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-        tar.extractall(target, filter="data")
+        if hasattr(tarfile, "data_filter"):  # Python 3.11.4 and later
+            tar.extractall(target, filter="data")
+        else:  # the archive is git's own export of a local commit
+            tar.extractall(target)
     _make_read_only(target)
     marker.write_text(commit + "\n", encoding="utf-8")
     return target
@@ -148,8 +151,10 @@ def _eligible(path: str, snapshot: Path) -> str | None:
 
 
 def _risky(claim: strata.Claim) -> bool:
+    """A statement that would raise the worker's tier, or name the control directory a verifier
+    must never be sent towards (its runs would be discarded)."""
     folded = claim.statement.casefold()
-    return any(pattern.search(folded) for pattern in RISKS.values())
+    return control.DIRECTORY_NAME in folded or any(pattern.search(folded) for pattern in RISKS.values())
 
 
 def _ordered(files: list[str], first: set[str], rng: random.Random) -> list[str]:

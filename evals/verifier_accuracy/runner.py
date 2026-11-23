@@ -162,8 +162,11 @@ class Runner:
         record["reasoning_effort"] = transcript.resolved_effort(facts) or execution.reasoning_effort
         if record["model"] is None:
             record["excluded"] = "no_model"
-        if facts.mentions(str(self.loaded.control_dir)) or facts.mentions(control.DIRECTORY_NAME):
-            record["discarded"] = "control_path"  # the note's second check: any trace of the path discards
+        # The note's second check. The full path anywhere discards; the bare directory name only in
+        # what the worker sent, since files of the repository itself name it once this code is in it.
+        if facts.mentions(str(self.loaded.control_dir)) or any(
+                control.DIRECTORY_NAME in json.dumps(call.input) for call in facts.calls):
+            record["discarded"] = "control_path"
         if any(str(self.home / ".claude" / "projects") in json.dumps(call.input) for call in facts.calls):
             # The sandbox denies other runs' records, so an attempt leaked nothing; it is counted.
             record["probed"] = "session_records"
@@ -220,12 +223,16 @@ class Runner:
         failed: list[tuple[Slot, BaseException]] = []
         with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
             futures = {pool.submit(self._guarded, slot): slot for slot in batch}
-            for future in as_completed(futures):
-                error = future.exception()
-                if error is not None:
-                    failed.append((futures[future], error))
-                    continue
-                self._write(future.result())  # a RecorderError propagates and stops the run
+            try:
+                for future in as_completed(futures):
+                    error = future.exception()
+                    if error is not None:
+                        failed.append((futures[future], error))
+                        continue
+                    self._write(future.result())
+            except control.RecorderError:
+                pool.shutdown(wait=True, cancel_futures=True)  # start no further worker; then stop the run
+                raise
         for slot, error in failed:
             self._write({**self._base(slot), "reason": f"runner_error:{type(error).__name__}"})
         if failed:
