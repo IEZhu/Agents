@@ -67,13 +67,19 @@ belief is a distribution over the 16 combinations of `θ` and the three readings
 and the filter is the exact forward recursion of that hidden Markov model:
 
 ```
-predict over Δ days:  flip = (1 − e^(−2λΔ)) / 2
-  w(θ, z) ← w(θ, z)·(1 − flip) + q_θ(z)·P(the other state)·flip
-  where q_θ(z) = Π_f c_f^[z_f = θ] · (1 − c_f)^[z_f ≠ θ]   (fresh readings after a change)
+predict over Δ days: the truth switches at λ per day either way; every switch redraws the readings
+  none = e^(−λΔ)                      no switch: the combination is kept as it is
+  odd  = (1 − e^(−2λΔ)) / 2           an odd number of switches: the other truth, fresh readings
+  even = 1 − odd − none               an even number, at least two: the same truth, fresh readings
+  w(θ, z) ← w(θ, z)·none + q_θ(z)·(P(θ)·even + P(not θ)·odd)
+  where q_θ(z) = Π_f c_f^[z_f = θ] · (1 − c_f)^[z_f ≠ θ]
 update on verdict y from a route of family f with accuracy b:
   w(θ, z) ← w(θ, z)·(b if y agrees with z_f else 1 − b), then normalise
 confidence = Σ_z w(1, z)
 ```
+
+The kernel is exact for any split of time, so two predicts of seven days equal one
+of fourteen, and after a long quiet spell nothing of an old family reading remains.
 
 Between verdicts the confidence relaxes towards one half,
 `p(t) = 1/2 + (p − 1/2)·e^(−2λt)`, in either direction: an old confirmation and an

@@ -191,6 +191,36 @@ def test_the_filter_matches_the_exact_hidden_markov_model_on_a_simulated_stream(
         model.FAMILIES.update(original_families)
 
 
+def test_predict_does_not_depend_on_how_time_is_split():
+    belief, _ = model.update(model.prior_belief(), True, "V3")
+    once = model.predict(belief, 14, model.VOLATILITY["volatile"])
+    twice = model.predict(model.predict(belief, 7, model.VOLATILITY["volatile"]), 7, model.VOLATILITY["volatile"])
+    assert max(abs(once[cell] - twice[cell]) for cell in once) < 1e-12
+    assert sum(once.values()) == pytest.approx(1.0)
+
+
+def test_a_long_gap_forgets_the_old_family_reading():
+    # After many switches nothing of the first verdict remains: a same-family refutation then reads
+    # as one verdict alone. The readings are redrawn at every switch, not only on a net change.
+    rate = model.VOLATILITY["volatile"]
+    verdicts = [model.Verdict(START, "confirmed", "V3", "volatile", "routine"),
+                model.Verdict(START + 120 * DAY, "refuted", "V3", "volatile", "routine")]
+    assert model.assess(verdicts, START + 120 * DAY).settled == pytest.approx(1 - model.route_accuracy("V3"),
+                                                                             abs=1e-6)
+    assert rate * 120 > 15
+
+
+def test_days_until_below_never_reaches_a_bound_at_or_below_one_half():
+    assert model.days_until_below(0.9, 0.5, 0.01) is None
+    assert model.days_until_below(0.9, 0.4, 0.01) is None
+
+
+def test_assess_orders_its_verdicts_by_time():
+    first = model.Verdict(START, "confirmed", "V2", "normal", "routine")
+    second = model.Verdict(START + DAY, "confirmed", "V3", "normal", "routine")
+    assert model.assess([second, first], START + DAY) == model.assess([first, second], START + DAY)
+
+
 def test_assess_needs_a_verdict():
     with pytest.raises(ValueError):
         model.assess([], START)

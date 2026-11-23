@@ -10,10 +10,12 @@ its own accuracy ``b``; the family reads the truth with its common-mode accuracy
 ``theta`` and the readings, and the filter is the forward recursion of that hidden
 Markov model:
 
-* predict: over ``dt`` days the truth flips with probability
-  ``(1 - exp(-2 * lambda * dt)) / 2`` in either direction (``lambda`` is the claim's
-  volatility); readings persist while the truth does, and are drawn afresh, each
-  correct with probability ``c``, when it flips;
+* predict: the truth switches at ``lambda`` per day in either direction (the
+  claim's volatility), and at every switch the readings are drawn afresh, each
+  correct with probability ``c``. Over ``dt`` days a combination keeps its readings
+  only if no switch happened, ``exp(-lambda * dt)``; otherwise the readings are
+  fresh for whichever truth the switches ended on. The kernel is exact for any
+  split of time: two predicts of seven days equal one of fourteen;
 * update: a verdict multiplies every combination by ``b`` when it agrees with its
   family's reading and by ``1 - b`` when it does not, then the belief is normalised.
 
@@ -139,17 +141,27 @@ def truth(belief: dict[Cell, float]) -> float:
 
 
 def predict(belief: dict[Cell, float], days: float, rate: float) -> dict[Cell, float]:
-    """Carry the belief ``days`` forward; the truth switches at ``rate`` per day either way."""
+    """Carry the belief ``days`` forward; the truth switches at ``rate`` per day either way.
+
+    With ``k`` switches in the interval a Poisson count: none keeps the combination as
+    it is (``exp(-rate * days)``); an odd number ends on the other truth, an even
+    number of at least two on the same one, and either way with fresh readings.
+    """
     if days <= 0:
         return dict(belief)
-    flip = 0.5 * (1.0 - math.exp(-2.0 * rate * days))
+    none = math.exp(-rate * days)
+    odd = 0.5 * (1.0 - math.exp(-2.0 * rate * days))
+    even_after_switching = 1.0 - odd - none
     true_mass = truth(belief)
     false_mass = 1.0 - true_mass
     fresh_true, fresh_false = _fresh(1), _fresh(0)
     carried = {}
     for cell, weight in belief.items():
-        arriving = fresh_true[cell] * false_mass if cell[0] == 1 else fresh_false[cell] * true_mass
-        carried[cell] = weight * (1.0 - flip) + arriving * flip
+        if cell[0] == 1:
+            arriving = fresh_true[cell] * (true_mass * even_after_switching + false_mass * odd)
+        else:
+            arriving = fresh_false[cell] * (false_mass * even_after_switching + true_mass * odd)
+        carried[cell] = weight * none + arriving
     return carried
 
 
@@ -178,8 +190,8 @@ def days_until_below(p: float, threshold: float, rate: float) -> float | None:
     """
     if p <= threshold:
         return 0.0
-    if rate <= 0:
-        return None
+    if rate <= 0 or threshold <= 0.5:
+        return None  # it only approaches 1/2, so a bound at or below 1/2 is never crossed
     return math.log((p - 0.5) / (threshold - 0.5)) / (2.0 * rate)
 
 
@@ -224,6 +236,7 @@ def assess(verdicts: list[Verdict], now: float) -> Assessment:
     """Filter ``verdicts`` (oldest first) and carry the result to ``now``."""
     if not verdicts:
         raise ValueError("a claim has at least one verdict")
+    verdicts = sorted(verdicts, key=lambda verdict: verdict.at)  # stable: same-time verdicts keep their order
     belief = prior_belief()
     at = verdicts[0].at
     volatility = verdicts[0].volatility
