@@ -87,20 +87,21 @@ worktree at the snapshot, never the answer, and a run sees exactly one item.
 - **V2 arm:** two independent verifiers per item of the execution subset, required to
   show the command and its output.
 
-`validate_subagent_result` checks structure only, so the runner assigns each verdict's
-level itself, following the [thread-close](../flows/thread-close.md) table, from the
-evidence in the validated result and never from the level the worker claims:
+`validate_subagent_result` checks structure only, and a worker's account of its own
+evidence is narration, so the runner assigns each level from what the host recorded,
+in the spirit of the [thread-close](../flows/thread-close.md) table, and never re-runs
+anything a worker wrote:
 
-- **V2** needs a command and its reported output. The runner runs the command again in
-  a throwaway copy of the snapshot; the verdict is V2 when the command exits as
-  reported and its output contains the reported lines.
-- **V3** needs a run of the V3 arm, fresh and blinded by construction, and at least one
-  `path:line` reference that exists at the snapshot.
-- Anything else is V1 when it cites a source that exists at the snapshot, and
-  unsupported otherwise.
+- **V3** is every verdict of the V3 arm, which is fresh and blinded by construction.
+- **V2** is a verdict of the V2 arm whose transcript records at least one shell or tool
+  execution by the worker. A V2-arm verdict without one is counted and reported as V1,
+  never fitted.
 
-The fit uses only verdicts whose adjudicated level matches their arm; V1 and
-unsupported verdicts are counted and reported, never fitted. Accuracy is
+Whether a verdict's evidence actually supports it is not adjudicated, because that is
+what accuracy measures: a verdict resting on an unrelated command is scored by whether
+it is right, just as production weights a V2 verdict that the parent accepted on the
+same evidence. Filtering such verdicts out would make the routes look better than they
+are in use. Accuracy is
 conditional on a verdict, as in production, where only `confirmed` and `refuted` reach
 the store; abstention, invalid and unfinished rates are reported per class.
 
@@ -133,7 +134,7 @@ attempt would bias the completed set.
 ```
 
 - `arm` and `slot` are the scheduled run (`V3` or `V2`, slot 1 or 2), independent of
-  `level`, the runner's adjudicated level, so a missing planned verdict and outcomes by
+  `level`, the level the runner assigned, so a missing planned verdict and outcomes by
   arm can be read off the file.
 - `status` is `verdict`, `abstained` (the verifier could not tell), `invalid` (the
   result failed validation) or `unfinished` (no result within the runner's time limit,
@@ -155,25 +156,27 @@ separately on true and false items. An item whose two verdicts name different
 configurations is left out of the fit; the report gives that count and the items
 remaining per configuration.
 
-**Bands.** The replacement rule acts on four parameters (`c_model`, `b_V3`,
-`c_execution`, `b_V2`), so their bands are simultaneous by Bonferroni: each runs
-between the 0.00625 and 0.99375 quantiles of that parameter's marginal posterior
-(0.0005 and 0.9995 at the interim look).
+**Bands.** One construction gives every band the rule uses. For each family, the
+posterior of `c` and `b` is computed on a grid from model.py's likelihood, with uniform
+priors over (0.5, 1) and the log-likelihood divided by the design effect `D`. A
+parameter's band runs between two quantiles of its marginal posterior: 0.00625 and
+0.99375 at the final look, Bonferroni over the four parameters the rule acts on
+(`c_model`, `b_V3`, `c_execution`, `b_V2`), and 0.0005 and 0.9995 at the interim
+look, which uses the first half's data only. The posterior keeps a band at the
+boundary: when every verdict agrees, its upper edge is 1 and its lower edge lies below
+it, which is the edge a raise uses.
 
-- **The posterior** is computed on a grid from model.py's likelihood, per family, with
-  uniform priors on `c` and `b` over (0.5, 1). An estimate at the boundary still gets a
-  band: when every verdict agrees, the upper edge is 1 and the lower edge lies below
-  it, and the lower edge is what the rule uses for a raise. A percentile bootstrap
-  would return the band `[1, 1]` there.
-- **Clusters.** The log-likelihood is divided by the design effect `D`: the
-  cluster-bootstrap variance of the point estimates, resampling source clusters,
-  over their item-bootstrap variance, never below 1.
-- **Coverage** is checked before the run by simulating the analysis at the priors and
-  at `b` = 0.995; a band that misses its level is widened until it holds.
+`D` is the variance of the point estimates when source clusters are resampled, over
+their variance when items are resampled, and never below 1. When either variance is
+zero, as when every verdict agrees, `D` is the mean cluster size, the case in which a
+cluster's items fail together; the band then stays wide and the prior stays under
+rule 4.
 
-The sample sizes below plan with the normal approximation of the same bands, z = 2.50
-(3.29 at the interim). The two checks below and the per-stratum estimates produce
-findings for the owner, not replacements, and use plain 95 % bands.
+Before the run, the runner simulates this whole analysis at the priors and at
+`b` = 0.995 and raises `D` until every band holds its level. The sample sizes below
+plan with the normal approximation of these bands, z = 2.50 (3.29 at the interim). The
+two checks below and the per-stratum estimates produce findings for the owner, not
+replacements, and use plain 95 % bands.
 
 Two checks can return a finding instead of a number, and each finding needs a code
 change with its own approval:
