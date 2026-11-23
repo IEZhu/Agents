@@ -30,6 +30,9 @@ on:
       - src/memory/record.py
       - src/schemas/tool_args.py
       - tests/test_turn_record.py
+      - scripts/thread_close_miss_rate.py
+      - tests/test_thread_close_miss_rate.py
+      - src/estimation/rate.py
       - tests/test_read_history_size.py
       - tests/test_log_interaction_contract.py
       - tests/test_history.py
@@ -109,4 +112,5 @@ jobs:
         run: >-
           python -B -m pytest tests/test_history.py tests/test_turn_record.py tests/test_memory_acceptance.py
           tests/test_history_artifact_safety.py tests/test_usage_stats.py tests/test_history_ui.py
-          tests/test_read_history_size.py tests/test_log_interaction_contract.py -q -rs -p no:cacheprovider
+          tests/test_read_history_size.py tests/test_log_interaction_contract.py tests/test_thread_close_miss_rate.py
+          -q -rs -p no:cacheprovider
