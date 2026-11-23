@@ -99,8 +99,13 @@ def run(arguments) -> int:
     control_dir = _control(arguments)
     loaded = runner.load(control_dir, installation_roots=_roots(arguments))
     path = control_dir / control.SIMULATION
-    if not path.exists() or json.loads(path.read_text(encoding="utf-8")).get("set") != loaded.set_id:
+    simulation = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if simulation.get("set") != loaded.set_id:
         print("Run `simulate` for this set first: the run needs its floor under D.", file=sys.stderr)
+        return 1
+    if not simulation.get("held") and not arguments.pipeline_check:
+        print("The coverage simulation did not hold for this set; its bands would not hold their level.",
+              file=sys.stderr)
         return 1
     worker_runner = runner.Runner(loaded, _launcher(arguments, loaded), concurrency=arguments.concurrency,
                                   batch_size=arguments.batch_size, timeout=arguments.timeout,
@@ -189,6 +194,9 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--batch-size", type=int, default=20)
             command.add_argument("--max-total-usd", type=float, default=40.0)
             command.add_argument("--seed", type=int, default=0)
+            command.add_argument("--pipeline-check", action="store_true",
+                                 help="Run although the coverage simulation did not hold: a check of the "
+                                      "runner whose bands are not a measurement.")
 
     analyzing = commands.add_parser("analyze")
     analyzing.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")

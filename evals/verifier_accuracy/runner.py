@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -124,6 +125,7 @@ class Runner:
         self.spent = 0.0
         self._lock = threading.Lock()
         self.home = getattr(launcher, "home", Path.home())
+        self.user_instructions = user_instructions(self.home, loaded.snapshot)
 
     def _base(self, slot: Slot) -> dict:
         label = self.loaded.labels[slot.item]
@@ -151,6 +153,11 @@ class Runner:
         if run.timed_out or found is None:
             return {**record, "reason": "timeout" if run.timed_out else "no_transcript"}
         facts = transcript.read(found)
+        # Host context the configuration key does not name: the CLI version, and whether the
+        # user's own instructions reached the worker (Claude Code loads ~/.claude/CLAUDE.md for
+        # a working directory under the home directory, whatever --setting-sources says).
+        record["cli_version"] = facts.versions[0] if len(facts.versions) == 1 else None
+        record["user_instructions"] = self.user_instructions
         record["model"] = transcript.resolved_model(facts)
         record["reasoning_effort"] = transcript.resolved_effort(facts) or execution.reasoning_effort
         if record["model"] is None:
@@ -231,6 +238,16 @@ class Runner:
                                                   snapshot=self.loaded.snapshot,
                                                   task_id=f"vacc-probe-{uuid.uuid4().hex[:8]}"))
         return package.execution.model
+
+
+def user_instructions(home: Path, snapshot: Path) -> str | None:
+    """The first 16 hexadecimal characters of the SHA-256 of ``~/.claude/CLAUDE.md`` when the worker
+    loads it, which it does for a snapshot under the home directory; ``None`` otherwise."""
+    file = home / ".claude" / "CLAUDE.md"
+    under_home = os.path.realpath(snapshot).startswith(os.path.realpath(home).rstrip(os.sep) + os.sep)
+    if not under_home or not file.is_file():
+        return None
+    return hashlib.sha256(file.read_bytes()).hexdigest()[:16]
 
 
 def _append(path: Path, entry: dict) -> None:

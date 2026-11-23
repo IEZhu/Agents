@@ -30,6 +30,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 | [Thread close](thread-close.md) | Close a conversation: inventory what it produced, verify each result against the current state with evidence levels (V0 claimed to V4 accepted), audit the thread for its own errors and for how it used every installed tool, with a patch for each miss, check disclosure boundaries before external lookup, writes and patch proposals, and secure unsaved work | A report with per-artifact levels and a patch list; in apply mode memory updates at V2 or above, plus one `#thread-close` history entry only when safe logging is authorized (otherwise the logging step remains incomplete) |
 | [A/B eval](ab-eval.md) | Evaluate a change (rule, skill, implant, prompt, setting or embedding model) on hosted models and Opus with blind judging and statistics | A recorded result, a recommendation and an unmerged pull request |
+| [Verifier accuracy](verifier-accuracy.md) | Build a known-answer control set, run verifiers on it through the worker exchange with the answers sandboxed out of their reach, and fit `c` and `b` per family; the pilot first, the full run only on the owner's go-ahead | A report of cost, blinding, statuses and bands, with nothing applied to the claim filter |
 | [Autodev](autodev.md) | The self-development pipeline: gate, selection, implementation with reviews and a pre-mortem, then a pull request in `pr-review`'s autodev mode; describes the runner's stages and an interactive run | One pull request left for the owner, `autodev:blocked`, or a dry-run decision |
 | [Autodev gate](autodev-gate.md) | The gate rules of the runner's code in words: select, resume or wait | A decision with its reason |
 | [Autodev selection](autodev-select.md) | Pick the most useful issue the owner labelled `autodev:ready` or `autodev:next`: admission filters, readiness and WSJF, read-only | The stage's structured output: decision, issue, slice and the top-five scores |
@@ -44,7 +45,8 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 Built-in flows declare their persona: `documentation-refresh` and
 `consistency-audit` run as `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
 `software_engineer`, `pr-review` as `code_reviewer`, `thread-close` as
-`investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `autodev-select`
+`investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `verifier-accuracy`
+as `data_analyst`, `autodev-select`
 as `product_manager`, `autodev-implement` as `software_engineer`,
 `code-review-pass` as `code_reviewer`, `change-premortem` as `sysadmin`,
 `autodev-retro` as `engineering_manager`, `review-config-rollout` as

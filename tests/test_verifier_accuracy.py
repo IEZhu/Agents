@@ -304,6 +304,15 @@ def test_levels_come_from_recorded_tool_calls(tmp_path):
     assert transcript.resolved_effort(transcript.read(read_in)) == "medium"
 
 
+def test_user_instructions_are_recorded_only_where_the_worker_loads_them(tmp_path):
+    import hashlib
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "CLAUDE.md").write_text("rules", encoding="utf-8")
+    assert runner.user_instructions(home, home / "state" / "snap") == hashlib.sha256(b"rules").hexdigest()[:16]
+    assert runner.user_instructions(home, tmp_path / "elsewhere") is None
+
+
 def test_a_run_without_exactly_one_model_has_none(tmp_path):
     none = _transcript(tmp_path / "a.jsonl", cwd="/", calls=[], models=())
     two = _transcript(tmp_path / "b.jsonl", cwd="/", calls=[("Read", {"file_path": "/x"}, True)], models=("m1", "m2"))

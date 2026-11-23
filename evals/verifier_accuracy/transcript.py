@@ -34,6 +34,7 @@ class Facts:
     efforts: tuple[str, ...]
     calls: tuple[ToolCall, ...]
     strings: tuple[str, ...]  # every string the transcript holds, for the path searches
+    versions: tuple[str, ...] = ()  # the Claude Code versions that wrote the records
 
     def mentions(self, needle: str) -> bool:
         return any(needle in text for text in self.strings)
@@ -52,7 +53,7 @@ def _strings(value, out: list[str]) -> None:
 
 def read(path: Path) -> Facts:
     """The assistant tool calls with their results, the models and every string of a transcript."""
-    models, efforts, strings, calls, results = [], [], [], [], {}
+    models, efforts, strings, calls, results, versions = [], [], [], [], {}, []
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             try:
@@ -62,6 +63,9 @@ def read(path: Path) -> Facts:
             if not isinstance(record, dict):
                 continue
             _strings(record, strings)
+            version = record.get("version")
+            if isinstance(version, str) and version and version not in versions:
+                versions.append(version)
             message = record.get("message")
             if not isinstance(message, dict):
                 continue
@@ -82,7 +86,7 @@ def read(path: Path) -> Facts:
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
                         results[block.get("tool_use_id")] = block.get("is_error") is not True
-    return Facts(models=tuple(models), efforts=tuple(efforts), strings=tuple(strings),
+    return Facts(models=tuple(models), efforts=tuple(efforts), strings=tuple(strings), versions=tuple(versions),
                  calls=tuple(ToolCall(name, arguments, cwd, results.get(identifier))
                              for identifier, name, arguments, cwd in calls))
 
