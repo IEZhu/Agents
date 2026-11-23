@@ -1,4 +1,5 @@
 """Tier ledger: routing facts without task text, rotation, failure isolation, the report."""
+import datetime as dt
 import json
 import stat
 import subprocess
@@ -108,14 +109,55 @@ def test_summary_per_client_tier_and_model():
     ])
     assert rows == [
         {"client": "codex", "tier": "light", "model": "gpt-6-luna", "prepared": 2, "validated": 3,
-         "accepted": 1, "invalid": 1, "escalations": {"standard": 2}},
+         "accepted": 1, "invalid": 1, "escalations": {"standard": 2}, "recent_acceptance": None},
         {"client": "codex", "tier": "standard", "model": "gpt-6.1-sol", "prepared": 1, "validated": 1,
-         "accepted": 1, "invalid": 0, "escalations": {}},
+         "accepted": 1, "invalid": 0, "escalations": {}, "recent_acceptance": None},
         {"client": "unknown", "tier": "inherit", "model": "inherit", "prepared": 1, "validated": 0,
-         "accepted": 0, "invalid": 0, "escalations": {}},
+         "accepted": 0, "invalid": 0, "escalations": {}, "recent_acceptance": None},
     ]
     table = subagent_ledger.format_table(rows)
     assert "gpt-6-luna" in table and "standard=2" in table and table.count("\n") == 3
+
+
+def timed(day, accepted, **extra):
+    at = (dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(days=day)).isoformat()
+    outcome = {"valid": True, "status": "completed", "escalation": None} if accepted else \
+        {"valid": True, "status": "failed", "escalation": "standard"}
+    return entry("validated", at=at, **outcome, **extra)
+
+
+def day_seconds(day):
+    return (dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(days=day)).timestamp()
+
+
+def test_recent_acceptance_follows_a_change_that_the_all_time_share_hides():
+    # Forty days of nearly all accepted, then two weeks of mostly escalated after a model change.
+    entries = [timed(day, accepted=day % 10 != 0) for day in range(40)]
+    entries += [timed(40 + day / 2, accepted=day % 4 == 0) for day in range(28)]
+    [row] = subagent_ledger.summarize(entries, now=day_seconds(54))
+    all_time = row["accepted"] / row["validated"]
+    recent = row["recent_acceptance"]
+    assert all_time > 0.6
+    assert recent["rate"] < 0.45 < all_time
+    assert recent["low"] <= recent["rate"] <= recent["high"]
+    assert "%" in subagent_ledger.format_table([row])
+
+
+def test_recent_acceptance_widens_while_no_outcome_arrives():
+    entries = [timed(day, accepted=True) for day in range(30)]
+    [fresh] = subagent_ledger.summarize(entries, now=day_seconds(30))
+    [quiet] = subagent_ledger.summarize(entries, now=day_seconds(120))
+    assert quiet["recent_acceptance"]["rate"] == fresh["recent_acceptance"]["rate"]
+    width = lambda row: row["recent_acceptance"]["high"] - row["recent_acceptance"]["low"]
+    assert width(quiet) > width(fresh)
+
+
+def test_an_untimed_validation_counts_but_does_not_move_the_rate():
+    entries = [timed(0, accepted=True), entry("validated", valid=True, status="failed", escalation="standard")]
+    [row] = subagent_ledger.summarize(entries, now=day_seconds(0))
+    assert row["validated"] == 2
+    [alone] = subagent_ledger.summarize(entries[:1], now=day_seconds(0))
+    assert row["recent_acceptance"] == alone["recent_acceptance"]
 
 
 def test_report_script_prints_json(ledger):
