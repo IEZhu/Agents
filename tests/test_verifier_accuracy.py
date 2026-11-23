@@ -931,3 +931,31 @@ def test_run_refuses_an_interim_simulation_and_probe_cost_is_recorded(tmp_path, 
     loaded = runner.load(control_dir, installation_roots=[])
     runner.record_probe(loaded, runner.ProbeResult(True, 4, "denied", 0.25), model="m", batch=None)
     assert runner.recorded_spend(loaded) == pytest.approx(0.25)
+
+
+
+# --- Review round 4 regressions ----------------------------------------------------------------
+
+
+def test_four_refused_reads_do_not_stand_for_the_shell_methods(tmp_path, repo):
+    control_dir, _ = _build(tmp_path, repo, items=4)
+    loaded = runner.load(control_dir, installation_roots=[])
+
+    class ReadsOnly(FakeLauncher):
+        def __call__(self, prompt, **options):
+            path = self.home / ".claude" / "projects" / "p" / f"{options['session_id']}.jsonl"
+            canary = prompt.split("Try to read the file ")[1].split(":")[0]
+            _transcript(path, cwd="/", calls=[("Read", {"file_path": canary}, False)] * 4, final="denied")
+            return worker.Run(options["session_id"], 0, False, 0.01, 1, 1, False, "")
+
+    result = runner.probe(loaded, ReadsOnly(tmp_path / "home", loaded.snapshot), model="m", effort=None, timeout=1)
+    assert not result.blind and result.reason == "incomplete_denial"
+    blind = runner.probe(loaded, FakeLauncher(tmp_path / "home", loaded.snapshot), model="m", effort=None, timeout=1)
+    assert blind.blind and blind.reason == "denied"  # the four methods, each refused
+
+
+def test_each_look_simulates_enough_sets_to_show_its_level():
+    assert analysis.minimum_sets("final") < 1000 <= analysis.default_sets("final")
+    assert analysis.default_sets("interim") >= analysis.minimum_sets("interim") > 1000
+    with pytest.raises(ValueError, match="cannot show the interim"):
+        analysis.calibrate([], sets=1000, look="interim")

@@ -453,6 +453,20 @@ def holds_level(covered: int, sets: int, nominal: float) -> bool:
     return wilson(covered, sets)[0] >= nominal
 
 
+def minimum_sets(look: str) -> int:
+    """The fewest simulated sets whose perfect coverage can show the look's nominal level at all."""
+    low_q, high_q = QUANTILES[look]
+    sets = 1
+    while not holds_level(sets, sets, high_q - low_q):
+        sets += 1
+    return sets
+
+
+def default_sets(look: str) -> int:
+    """Twice the minimum, and never fewer than 1000: 1000 for the final look, 8080 for the interim one."""
+    return max(1000, 2 * minimum_sets(look))
+
+
 def scenarios(model_sizes: list[int], execution_sizes: list[int]) -> list[dict]:
     """The priors, and each family at b = 0.995, as the note asks."""
     out = []
@@ -464,9 +478,14 @@ def scenarios(model_sizes: list[int], execution_sizes: list[int]) -> list[dict]:
     return out
 
 
-def calibrate(planned: list[dict], *, sets: int = 1000, resamples: int = 200, look: str = "final", seed: int = 0,
-              step: float = 1.25, ceiling: float = 16.0, grid: Grid | None = None, coarse: Grid | None = None) -> dict:
+def calibrate(planned: list[dict], *, sets: int | None = None, resamples: int = 200, look: str = "final",
+              seed: int = 0, step: float = 1.25, ceiling: float = 16.0, grid: Grid | None = None,
+              coarse: Grid | None = None) -> dict:
     """The smallest floor under D at which every simulated band holds its level."""
+    sets = default_sets(look) if sets is None else sets
+    if sets < minimum_sets(look):
+        raise ValueError(f"{sets} simulated sets cannot show the {look} look's coverage; "
+                         f"it needs at least {minimum_sets(look)}.")
     grid, coarse = grid or Grid(), coarse or Grid(100, 200)
     floor = 1.0
     while True:

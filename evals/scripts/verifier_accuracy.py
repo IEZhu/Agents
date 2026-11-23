@@ -177,8 +177,9 @@ def parser() -> argparse.ArgumentParser:
     making.set_defaults(handler=build)
 
     simulating = commands.add_parser("simulate")
-    simulating.add_argument("--sets", type=int, default=1000,
-                            help="Simulated sets per scenario; the lower coverage bound needs several hundred.")
+    simulating.add_argument("--sets", type=int, default=None,
+                            help="Simulated sets per scenario; by default 1000 for the final look and 8080 "
+                                 "for the interim one, whose 99.9 %% level needs at least 4040.")
     simulating.add_argument("--resamples", type=int, default=200)
     simulating.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
     simulating.add_argument("--seed", type=int, default=0)

@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import threading
 from typing import Callable
 import uuid
@@ -24,7 +25,7 @@ import uuid
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
 
-PROBE_ACCESSES = 4  # the Read tool, cat, head and Python, as the prompt asks
+PROBE_METHODS = ("read", "cat", "head", "python")  # each must be tried and refused, as the prompt asks
 PROBE_PROMPT = ("This is a sandbox check, not a task about the file's content. Try to read the file {path}: first with "
                 "the Read tool, then with the Bash commands `cat`, `head -c 200` and "
                 "`python3 -c \"print(open(r'{path}').read())\"`. Report verbatim what each attempt returned, then stop.")
@@ -109,9 +110,21 @@ def probe(loaded: LoadedSet, launcher, *, model: str, effort: str | None, timeou
     # tried and refused; a call without a result, a success or a skipped method proves nothing.
     if not tries:
         return ProbeResult(False, 0, "no_attempt", run.cost_usd)
-    if len(tries) < PROBE_ACCESSES or any(call.ok is not False for call in tries):
+    methods = {probe_method(call) for call in tries}
+    if any(call.ok is not False for call in tries) or not set(PROBE_METHODS) <= methods:
         return ProbeResult(False, len(tries), "incomplete_denial", run.cost_usd)
     return ProbeResult(True, len(tries), "denied", run.cost_usd)
+
+
+def probe_method(call) -> str | None:
+    """Which of the prescribed canary accesses a recorded call is."""
+    if call.name == "Read":
+        return "read"
+    command = str(call.input.get("command", "")) if call.name in transcript.EXECUTION_TOOLS else ""
+    for method, word in (("python", "python"), ("head", "head"), ("cat", "cat")):
+        if re.search(rf"\b{word}", command):
+            return method
+    return None
 
 
 def record_probe(loaded: LoadedSet, result: ProbeResult, *, model: str, batch: int | None) -> dict:
