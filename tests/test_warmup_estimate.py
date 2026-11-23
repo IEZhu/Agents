@@ -2,6 +2,7 @@
 import asyncio
 import json
 import math
+import time
 
 import pytest
 
@@ -105,7 +106,9 @@ def test_a_start_with_a_tolerated_failure_is_not_recorded(estimate_file):
 def test_readiness_records_each_successful_start(estimate_file):
     readiness.reset_for_tests()
     try:
-        readiness.start([("noop", lambda: None)])
+        # A phase that takes measurable time: Windows' monotonic clock ticks in about 16 ms, and a
+        # start measured at zero seconds is not recorded.
+        readiness.start([("short", lambda: time.sleep(0.05))])
         assert readiness.join(10)
         assert json.loads(estimate_file.read_text(encoding="utf-8"))["starts"] == 1
         assert readiness.elapsed() is None  # finished

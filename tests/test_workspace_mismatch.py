@@ -9,6 +9,7 @@ the argument is checked against the client's own MCP roots, is untouched.
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -544,6 +545,11 @@ async def test_a_registered_root_named_under_another_spelling_is_noted_not_refus
     registered = registered.resolve()
     if not _case_insensitive(registered):
         pytest.skip("this filesystem holds the two spellings apart")
+    if sys.platform == "win32":
+        # Seen in CI: there the respelled name resolves to the registered root itself, so it is
+        # neither a mismatch nor a respelling and no note is due; the refusal this test guards
+        # against cannot arise.
+        pytest.skip("Path.resolve() returns the directory's own spelling on Windows")
     respelled = str(registered.with_name(registered.name.lower()))
     assert respelled != str(registered) and Path(respelled).samefile(registered)
     ctx = http_context(registered)
