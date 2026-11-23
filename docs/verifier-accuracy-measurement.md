@@ -37,9 +37,11 @@ this is one reason a raise waits for that audit.
 
 ## The control set
 
-- **120 pairs** at one pinned commit of this repository, each a true statement and a
-  false counterpart that differs by one perturbation. At least 100 pairs are decidable
-  by running something (the V2 subset).
+- **240 items** at one pinned commit of this repository, each from a different source
+  file: 120 true statements and 120 false ones. A false item is one perturbation of a
+  true statement that is not itself in the set, so no two items share a source and the
+  items are independent for the analysis. At least 200 items are decidable by running
+  something (the V2 subset).
 - **Strata** are the `no-fabrication` claim types a repository snapshot can decide:
   names and signatures, CLI flags, configuration keys and defaults, paths, numeric
   constants, quoted documentation text, pinned versions. Estimates are reported per
@@ -53,16 +55,22 @@ this is one reason a raise waits for that audit.
   label changes after verdicts are seen. An item found defective later is reported, and
   the analysis is shown with and without it: relabelling only where verifiers
   disagreed with the label would bias accuracy upward.
-- **Storage** is a `claims-control/` directory (0700/0600) under the service-state
-  directory (`state_dir()` in [state.py](../src/daemon/state.py)), outside every
-  checkout. The installation's `data/` directory would not do: it sits inside the
-  installation tree. The first 16 hexadecimal characters of the item file's SHA-256
-  name the set version. The set enters no prompt, rule, skill, eval example or claim
-  store: the plan's "keep one unused channel".
-- **Blinding is checked, not assumed.** Each worker's read scope is the snapshot
-  worktree, and the runner searches each worker transcript for any path under the
-  control directory; a run that touched it is discarded and counted.
-- **A 10-pair pilot**, discarded afterwards, checks the runner, the blinding and the
+- **Storage** is a control directory (0700/0600) under the service-state directory
+  (`state_dir()` in [state.py](../src/daemon/state.py)), holding the statements, the
+  labels and the attempt records in separate files. The installation's `data/`
+  directory would not do: it sits inside the installation tree. Because
+  `AGENTS_SERVICE_DIR` can point anywhere, the runner refuses to start when the
+  resolved directory lies inside the installation root or inside any checkout a worker
+  is given. The first 16 hexadecimal characters of the statement file's SHA-256 name
+  the set version. The set enters no prompt, rule, skill, eval example or claim store:
+  the plan's "keep one unused channel".
+- **Blinding is enforced and tested.** A package's `scope` is an instruction, not a
+  sandbox, so the runner launches every worker with the control directory denied at
+  the host or operating-system level, for file tools and shell alike. Before each
+  batch a probe worker tries to read a canary file in that directory; if the read
+  succeeds, the run stops. Searching each worker transcript for the directory's path
+  is kept as a second check, and a run that touched it is discarded and counted.
+- **A 20-item pilot**, discarded afterwards, checks the runner, the blinding and the
   cost of a run.
 
 ## The runs
@@ -70,7 +78,7 @@ this is one reason a raise waits for that audit.
 Each run is one item, one route and one fresh worker through the normal exchange:
 `get_subagent_context`, a native worker, `validate_subagent_result`. The package looks
 like a production verification package and holds the statement and a read-only
-worktree at the snapshot, never the answer. The two members of a pair never share a run.
+worktree at the snapshot, never the answer, and a run sees exactly one item.
 
 - **V3 arm:** two independent blinded verifiers per item, given the statement as a
   neutral question.
@@ -81,9 +89,8 @@ A verdict's level is the one its validated evidence earns under the
 [thread-close](../flows/thread-close.md) table, not the arm's name: a V2 run that only
 read a file is a V1 verdict, recorded with its arm. The fit uses only verdicts whose
 earned level matches their arm; the others are counted and reported. Accuracy is
-conditional on a
-verdict, as in production, where only `confirmed` and `refuted` reach the store;
-abstention, invalid and unfinished rates are reported per class.
+conditional on a verdict, as in production, where only `confirmed` and `refuted` reach
+the store; abstention, invalid and unfinished rates are reported per class.
 
 The configuration is the client, tier, resolved model, reasoning effort and package
 `bundle_revision`. The resolved model is the provider's model ID read from the worker
@@ -95,16 +102,17 @@ the pilot.
 
 ## Recording path
 
-The runner, which alone holds the answers, appends one line per scheduled attempt
-through `src/engine/subagent_ledger.py`, under its opt-in and privacy shape (no
-statement text, hashed task IDs), but to its own file
-`data/subagent-tiers/control.jsonl`. The main ledger rotates past 5 MiB by replacing
-`ledger.jsonl.1`, so a second rotation would lose control lines; a full run is under
-1 MB and its file is not rotated.
+The runner, which alone holds the labels, writes one line per scheduled attempt to
+`attempts.jsonl` in the control directory through a recorder of its own. It keeps the
+subagent ledger's privacy shape (no statement text, opaque item IDs, hashed task IDs)
+but not its opt-in: the ledger drops lines while `AGENTS_SUBAGENT_LEDGER` is unset and
+lives in the installation's `data/`. The control recorder always writes, never falls
+back to the ledger's path, and stops the run on a failed write, because a missing
+attempt would bias the completed set.
 
 ```json
 {"at": "2026-12-01T10:00:00+00:00", "event": "control_attempt",
- "set": "<set id>@<16 hex>", "pair": "p017", "item": "p017f", "stratum": "config_default",
+ "set": "<set id>@<16 hex>", "item": "i117", "stratum": "config_default",
  "truth": false, "arm": "V3", "slot": 2, "status": "verdict",
  "level": "V3", "family": "model", "verdict": "confirmed", "outcome": "FN",
  "task": "<hashed task id>", "attempt_id": "a1", "contract_revision": "<64 hex>",
@@ -130,14 +138,18 @@ is false". `TP` is a false item refuted, `FN` a false item confirmed (a false ac
 
 `c` and `b` are fitted by maximum likelihood of model.py's own model: per item the
 family reading is right with probability `c`, and each verdict agrees with the reading
-with probability `b`. The fit runs on all items and separately on true and false items.
-Bands are percentile bootstraps over pairs (2000 resamples), which keeps both the
-within-item correlation the model is about and the source a pair shares.
+with probability `b`. The fit runs separately for each configuration, on all items and
+separately on true and false items. An item whose two verdicts name different
+configurations is left out of the fit; the report gives that count and the items
+remaining per configuration.
 
-**Simultaneous bands.** The replacement rule acts on four parameters (`c_model`,
-`b_V3`, `c_execution`, `b_V2`), so their bands are simultaneous: each at
-1 − 0.05/4, z = 2.50, for 95 % jointly. The two checks below and the per-stratum
-estimates produce findings for the owner, not replacements, and use plain 95 % bands.
+**Bands.** The replacement rule acts on four parameters (`c_model`, `b_V3`,
+`c_execution`, `b_V2`), so their bands are simultaneous by Bonferroni: percentile
+bootstrap bands over items, 40000 resamples, between the 0.00625 and 0.99375
+quantiles of each parameter (0.0005 and 0.9995 at the interim look). The sample sizes
+below plan with the normal approximation of the same bands, z = 2.50 (3.29 at the
+interim). The two checks below and the per-stratum estimates produce findings for the
+owner, not replacements, and use plain 95 % bands.
 
 Two checks can return a finding instead of a number, and each finding needs a code
 change with its own approval:
@@ -161,7 +173,10 @@ pooled one is reported as a finding about transport.
 The numbers come from the Fisher information of model.py's likelihood at the priors,
 checked by simulating 300 sets of 200 items (standard deviation of the fitted
 `c_model` 0.0131 simulated against 0.0126 predicted, for a design with one more
-verdict per item than this one).
+verdict per item than this one). The Fisher information counts independent items,
+which is why each item has its own source: a true and a false item from one source
+would share their difficulty, and with a within-source correlation ρ each such pair
+would carry the information of only 2 / (1 + ρ) items.
 
 **Items, not runs, are the bottleneck.** Even with every item's family reading known
 exactly, `c_model` at 0.97 is a binomial that needs 202 items for a simultaneous band
@@ -178,8 +193,8 @@ Half-widths of the simultaneous bands, at the priors and at lower true values
 | `c_execution` | the execution family's cap | 200 | ±0.028 | ±0.049 |
 | `b_V2` | one V2 against `load_bearing` 0.85 (`a` = 0.932) | 200 | ±0.029 | ±0.042 |
 
-Meeting a width of ±0.03 at the priors takes 111 pairs for the model family and 92
-command-checkable pairs; 120 and 100 leave a small margin. When the true values are
+Meeting a width of ±0.03 at the priors takes 222 items for the model family and 184
+command-checkable items; 240 and 200 leave a small margin. When the true values are
 lower, the bands widen and stay above ±0.03: the rule then keeps a prior unless the
 band lies wholly below it.
 
@@ -192,39 +207,45 @@ items the simultaneous band excludes 0.95 only for an estimate below about 0.89 
 above about 0.98, and settling 0.97 against 0.95 would take several hundred more items.
 In between the prior stays and the report says the question is open.
 
-The set runs in two halves of 60 pairs. The look after the first half applies only
-rule 3 below, at z = 3.29 (p < 0.001) per parameter, so the final look keeps the joint
-level close to 95 %.
+The set runs in two halves of 120 items. The look after the first half applies only
+rule 3 below, at its stricter quantiles, so the final look keeps the joint level close
+to 95 %.
 
 ## Replacement rule
 
-Two preconditions come first. Each stored verdict must name the configuration that
-produced it, a new optional field of `claim_record`: a measured value then applies
-only to verdicts recorded under the configuration it was measured on, and every other
-verdict, including all verdicts recorded before the field existed, keeps the priors.
-And the bands are the simultaneous ones above.
+This note's approval covers measuring and reporting. Applying a value to the store is
+a separate code change with its own approval, because today `Claim.verdicts()` builds
+each verdict without metadata and `assess()` reads one global `FAMILIES` and
+`ROUTES`. That change has to meet three requirements:
+
+- **Per-verdict configuration.** A new optional `claim_record` field names the
+  configuration that produced a verdict. A verdict uses its configuration's measured
+  `b` where one exists and the prior otherwise, and every verdict recorded before the
+  field existed keeps the priors. A family reading uses the lowest `c` among the
+  configurations of that family's verdicts on the claim, with the prior standing in
+  for a verdict that has no measured configuration.
+- **A safety diff.** Before the commit, every stored claim is assessed under the old
+  and the new values, and every claim whose `usable_for` grows is listed in the results
+  document; the change waits for the owner to accept that list. A lower value does not
+  guarantee a tighter result: with mixed verdicts, a weaker refutation can leave a
+  claim more confident, so no direction of change is safe by itself.
+- **The value proposed** for each parameter follows the four rules below.
 
 A parameter is **narrow** when its simultaneous band's half-width is at most 0.03.
 Per parameter, with prior `θ0`, estimate `θ̂` and band `[L, U]`:
 
-1. Narrow and `θ̂ ≤ θ0`: use `θ̂`.
+1. Narrow and `θ̂ ≤ θ0`: propose `θ̂`.
 2. Narrow and `θ̂ > θ0`: keep `θ0` until the random production audit agrees with the
-   control set for that route; then use `max(θ0, L)`. A raise goes only as far as the
-   evidence guarantees, the rule validated-claims.md already states: an adaptive
+   control set for that route; then propose `max(θ0, L)`. A raise goes only as far as
+   the evidence guarantees, the rule validated-claims.md already states: an adaptive
    estimate must never loosen a safety bound. This note does not design the audit.
-3. Not narrow, but `U < θ0`: the prior is refuted; use `U`, the smallest tightening the
-   data forces.
+3. Not narrow, but `U < θ0`: the prior is refuted; propose `U`, the smallest
+   tightening the data forces.
 4. Otherwise keep `θ0` and report the parameter as unmeasured at this precision.
 
-Lowering a value is not safe in every history: with mixed verdicts, a weaker
-refutation can leave a claim more confident than before. That is why even rules 1 and
-3 apply only to verdicts of the measured configuration.
-
-Values change by a reviewed commit to model.py that carries a results document: each
-value with its band, the set version, the configuration, the counts and, for a raise,
-the audit result. Nothing reads the control file at run time. Because the store
-recomputes every state on read, the new values re-read every stored verdict of the
-measured configuration.
+The results document carries each value with its band, the set version, the
+configuration, the counts, the safety diff and, for a raise, the audit result. Nothing
+reads the control directory at run time.
 
 ## After the first run: configurations and drift
 
@@ -238,7 +259,7 @@ per-configuration estimates.
 
 Fading memory has one job. The Claude tiers name aliases (`haiku`, `sonnet` in
 [model_tiers.py](../src/engine/model_tiers.py)), so a route's model can change without
-a recorded event. A 20-pair sentinel, quarterly and on every verifier package change,
+a recorded event. A 40-item sentinel, quarterly and on every verifier package change,
 feeds [rate.py](../src/estimation/rate.py) per route and class with a 180-day
 half-life, which accumulates evidence across sentinels as an EWMA chart does; a band
 wholly below the configuration's estimate triggers a full run. One sentinel catches a
@@ -259,10 +280,10 @@ These are the author's predictions, recorded so that the run can falsify them:
 
 ## What approval covers
 
-Building the set (130 pairs with the pilot, and the owner's review of labels no
+Building the set (260 items with the pilot, and the owner's review of labels no
 deterministic check decides), a runner (a flow and a script under `evals/`, with no
-answers in the repository), the `control.jsonl` recording, about 960 worker runs, the
-configuration field on `claim_record`, a results document, and a later commit that
-applies the replacement rule. Not covered: the production audit that a raise needs,
-asymmetric accuracies or a dependence term if the checks call for them, `VOLATILITY`,
-V1, V4, and bot and human V3.
+labels in the repository) with its blinding enforcement and canary probe, the control
+recorder, about 960 worker runs and a results document. Not covered: the change that
+applies values to the store (per-verdict configuration, the lookup and the safety
+diff), the production audit that a raise needs, asymmetric accuracies or a dependence
+term if the checks call for them, `VOLATILITY`, V1, V4, and bot and human V3.
