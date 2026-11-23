@@ -39,9 +39,11 @@ this is one reason a raise waits for that audit.
 
 - **240 items** at one pinned commit of this repository, each from a different source
   file: 120 true statements and 120 false ones. A false item is one perturbation of a
-  true statement that is not itself in the set, so no two items share a source and the
-  items are independent for the analysis. At least 200 items are decidable by running
-  something (the V2 subset).
+  true statement that is not itself in the set. At least 100 items of each class are
+  decidable by running something (the V2 subset). Different files are not independent
+  sources, since files share conventions and a verifier can repeat one mistake across
+  them, so the analysis treats each source directory two levels deep (for example
+  `src/engine`) as a cluster.
 - **Strata** are the `no-fabrication` claim types a repository snapshot can decide:
   names and signatures, CLI flags, configuration keys and defaults, paths, numeric
   constants, quoted documentation text, pinned versions. Estimates are reported per
@@ -85,10 +87,20 @@ worktree at the snapshot, never the answer, and a run sees exactly one item.
 - **V2 arm:** two independent verifiers per item of the execution subset, required to
   show the command and its output.
 
-A verdict's level is the one its validated evidence earns under the
-[thread-close](../flows/thread-close.md) table, not the arm's name: a V2 run that only
-read a file is a V1 verdict, recorded with its arm. The fit uses only verdicts whose
-earned level matches their arm; the others are counted and reported. Accuracy is
+`validate_subagent_result` checks structure only, so the runner assigns each verdict's
+level itself, following the [thread-close](../flows/thread-close.md) table, from the
+evidence in the validated result and never from the level the worker claims:
+
+- **V2** needs a command and its reported output. The runner runs the command again in
+  a throwaway copy of the snapshot; the verdict is V2 when the command exits as
+  reported and its output contains the reported lines.
+- **V3** needs a run of the V3 arm, fresh and blinded by construction, and at least one
+  `path:line` reference that exists at the snapshot.
+- Anything else is V1 when it cites a source that exists at the snapshot, and
+  unsupported otherwise.
+
+The fit uses only verdicts whose adjudicated level matches their arm; V1 and
+unsupported verdicts are counted and reported, never fitted. Accuracy is
 conditional on a verdict, as in production, where only `confirmed` and `refuted` reach
 the store; abstention, invalid and unfinished rates are reported per class.
 
@@ -121,8 +133,8 @@ attempt would bias the completed set.
 ```
 
 - `arm` and `slot` are the scheduled run (`V3` or `V2`, slot 1 or 2), independent of
-  the `level` the evidence earned, so a missing planned verdict and outcomes by arm can
-  be read off the file.
+  `level`, the runner's adjudicated level, so a missing planned verdict and outcomes by
+  arm can be read off the file.
 - `status` is `verdict`, `abstained` (the verifier could not tell), `invalid` (the
   result failed validation) or `unfinished` (no result within the runner's time limit,
   written when the runner gives up). Only `verdict` lines carry `level`, `verdict` and
@@ -144,12 +156,24 @@ configurations is left out of the fit; the report gives that count and the items
 remaining per configuration.
 
 **Bands.** The replacement rule acts on four parameters (`c_model`, `b_V3`,
-`c_execution`, `b_V2`), so their bands are simultaneous by Bonferroni: percentile
-bootstrap bands over items, 40000 resamples, between the 0.00625 and 0.99375
-quantiles of each parameter (0.0005 and 0.9995 at the interim look). The sample sizes
-below plan with the normal approximation of the same bands, z = 2.50 (3.29 at the
-interim). The two checks below and the per-stratum estimates produce findings for the
-owner, not replacements, and use plain 95 % bands.
+`c_execution`, `b_V2`), so their bands are simultaneous by Bonferroni: each runs
+between the 0.00625 and 0.99375 quantiles of that parameter's marginal posterior
+(0.0005 and 0.9995 at the interim look).
+
+- **The posterior** is computed on a grid from model.py's likelihood, per family, with
+  uniform priors on `c` and `b` over (0.5, 1). An estimate at the boundary still gets a
+  band: when every verdict agrees, the upper edge is 1 and the lower edge lies below
+  it, and the lower edge is what the rule uses for a raise. A percentile bootstrap
+  would return the band `[1, 1]` there.
+- **Clusters.** The log-likelihood is divided by the design effect `D`: the
+  cluster-bootstrap variance of the point estimates, resampling source clusters,
+  over their item-bootstrap variance, never below 1.
+- **Coverage** is checked before the run by simulating the analysis at the priors and
+  at `b` = 0.995; a band that misses its level is widened until it holds.
+
+The sample sizes below plan with the normal approximation of the same bands, z = 2.50
+(3.29 at the interim). The two checks below and the per-stratum estimates produce
+findings for the owner, not replacements, and use plain 95 % bands.
 
 Two checks can return a finding instead of a number, and each finding needs a code
 change with its own approval:
@@ -173,10 +197,10 @@ pooled one is reported as a finding about transport.
 The numbers come from the Fisher information of model.py's likelihood at the priors,
 checked by simulating 300 sets of 200 items (standard deviation of the fitted
 `c_model` 0.0131 simulated against 0.0126 predicted, for a design with one more
-verdict per item than this one). The Fisher information counts independent items,
-which is why each item has its own source: a true and a false item from one source
-would share their difficulty, and with a within-source correlation ρ each such pair
-would carry the information of only 2 / (1 + ρ) items.
+verdict per item than this one). The Fisher information counts independent items.
+With a design effect `D` the set carries the information of 240 / `D` items and every
+width below grows by √`D`. The figures assume `D` = 1; the report states the measured
+`D`, and a band it leaves wider than ±0.03 keeps its prior under rule 4.
 
 **Items, not runs, are the bottleneck.** Even with every item's family reading known
 exactly, `c_model` at 0.97 is a binomial that needs 202 items for a simultaneous band
@@ -194,7 +218,8 @@ Half-widths of the simultaneous bands, at the priors and at lower true values
 | `b_V2` | one V2 against `load_bearing` 0.85 (`a` = 0.932) | 200 | ±0.029 | ±0.042 |
 
 Meeting a width of ±0.03 at the priors takes 222 items for the model family and 184
-command-checkable items; 240 and 200 leave a small margin. When the true values are
+command-checkable items; 240 and 200 (100 of each class) leave a small margin at
+`D` = 1. When the true values are
 lower, the bands widen and stay above ±0.03: the rule then keeps a prior unless the
 band lies wholly below it.
 
