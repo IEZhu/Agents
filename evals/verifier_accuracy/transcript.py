@@ -10,9 +10,11 @@ the provider's model ID on the worker's assistant messages; a run without one is
 from __future__ import annotations
 
 from dataclasses import dataclass
+import glob
 import json
 import os
 from pathlib import Path
+import shlex
 
 READ_TOOLS = frozenset({"Read", "Grep", "Glob"})
 EXECUTION_TOOLS = frozenset({"Bash"})
@@ -104,13 +106,40 @@ def _inside(path: str | None, root: str, cwd: str | None) -> bool:
     return real == base or real.startswith(base.rstrip(os.sep) + os.sep)
 
 
+_SHELL_OPERATORS = frozenset({"|", "||", "&&", ";", "&", ">", ">>", "<", "2>", "2>&1"})
+
+
+def names_snapshot_path(command: str, cwd: str | None, snapshot: Path) -> bool:
+    """Whether a shell command names an existing file or directory of the snapshot as an operand.
+
+    The command is only read, never run. A working directory alone, or ``pwd``, names
+    nothing; the directory a ``cd`` enters is not read by entering it.
+    """
+    try:
+        tokens = shlex.split(command, comments=True)
+    except ValueError:
+        tokens = command.split()
+    root = str(snapshot)
+    previous = None
+    for token in tokens:
+        operand = token.split("=", 1)[1] if token.startswith("--") and "=" in token else token
+        if previous != "cd" and operand not in _SHELL_OPERATORS and not operand.startswith("-"):
+            path = operand if os.path.isabs(operand) else os.path.join(cwd or root, operand)
+            matches = glob.glob(path) if any(mark in operand for mark in "*?[") else [path]
+            if any(_inside(match, root, cwd) and os.path.exists(match) for match in matches):
+                return True
+        previous = token
+    return False
+
+
 def snapshot_reads(facts: Facts, snapshot: Path) -> int:
-    """Recorded reads in the snapshot: a file tool aimed inside it, or a shell command run there.
+    """Recorded reads in the snapshot: a file tool aimed inside it, or a shell command naming its files.
 
     A read counts once the host recorded its result, whatever the result was: ``grep`` that
     finds nothing exits 1, which the host marks as an error, and a ``Read`` of a missing path
     is a look in the snapshot too. The pilot counted only successful calls, and three
-    verdicts that rested on a ``grep`` without a match were filed as unsupported.
+    verdicts that rested on a ``grep`` without a match were filed as unsupported. A shell
+    command counts only when it names a snapshot file or directory (`names_snapshot_path`).
     """
     root, count = str(snapshot), 0
     for call in facts.calls:
@@ -120,8 +149,8 @@ def snapshot_reads(facts: Facts, snapshot: Path) -> int:
             count += 1
         elif call.name in ("Grep", "Glob") and _inside(call.input.get("path"), root, call.cwd):
             count += 1
-        elif call.name in EXECUTION_TOOLS and (_inside(None, root, call.cwd)
-                                               or root in str(call.input.get("command", ""))):
+        elif call.name in EXECUTION_TOOLS and names_snapshot_path(str(call.input.get("command", "")),
+                                                                   call.cwd, snapshot):
             count += 1
     return count
 

@@ -150,10 +150,14 @@ def fit(units: list[Unit], *, family: str, look: str, grid: Grid, coarse: Grid, 
                             "median": round(quantile(edges[name], marginal[name], 0.5), 4),
                             "band": [round(low, 4), round(high, 4)], "half_width": round((high - low) / 2, 4),
                             "prior": prior, **_rule(look, prior, estimate[name], low, high)}
+    below_chance = parameters["b"]["band"][1] < 0.5
+    if below_chance:  # a finding, never a value: more verdicts of such a route make things worse
+        parameters["b"] = {key: value for key, value in parameters["b"].items() if key != "after_audit"}
+        parameters["b"].update(rule=None, proposed=None)
     return {"items": len(units), "verdicts": int(sum(unit.n for unit in units)),
             "categories": {f"{n}/{r}": int(vector[index]) for index, (n, r) in enumerate(CATEGORIES)},
             "design_effect": {**effect, "used": used, "floor": d_floor},
-            "parameters": parameters, "below_chance": parameters["b"]["band"][1] < 0.5}
+            "parameters": parameters, "below_chance": below_chance}
 
 
 def configuration(row: dict) -> tuple:
@@ -215,7 +219,10 @@ def _cluster_resamples(rows: list[dict], clusters: dict[str, str], rng, resample
     names = sorted(groups)
     for _ in range(resamples):
         drawn = rng.integers(0, len(names), size=len(names))
-        yield [row for index in drawn for row in groups[names[index]]]
+        # A cluster drawn twice contributes two separate copies: its items get distinct IDs, so
+        # per-item statistics do not merge the copies into one item with doubled verdicts.
+        yield [{**row, "item": f"{row['item']}#{copy}"} for copy, index in enumerate(drawn)
+               for row in groups[names[index]]]
 
 
 def verdict_rates(rows: list[dict], clusters: dict[str, str], rng, resamples: int) -> dict:
@@ -374,7 +381,8 @@ def analyze(rows: list[dict], statements: dict[str, dict], *, look: str = "final
         levels = {level: verdict_rates([row for row in rows_here if row["level"] == level], clusters, rng, resamples)
                   for level in ("V3", "V2")}
         entry = {"configuration": dict(zip(CONFIG_KEYS, key)), "families": by_configuration[key], "levels": levels,
-                 "independence": independence(rows_here, clusters, rng, resamples)}
+                 "independence": independence(rows_here, clusters, rng, resamples),
+                 "strata": strata_rates(rows_here)}  # within one configuration: a mix of them is no stratum effect
         configurations.append(entry)
         for family, subsets in entry["families"].items():
             overall = subsets["all"]
@@ -388,14 +396,13 @@ def analyze(rows: list[dict], statements: dict[str, dict], *, look: str = "final
                 findings.append(f"{level}: specificity minus sensitivity excludes zero (symmetry check)")
         if entry["independence"].get("dependent"):
             findings.append("V3 and V2 fail together more often than independence predicts")
-    strata = strata_rates(fitted)
-    for level, section in strata.items():
-        for stratum, values in section["strata"].items():
-            if values["below_pooled"]:
-                findings.append(f"{level} {stratum}: band wholly below the pooled one (transport)")
+        model_name = entry["configuration"]["model"]
+        for level, section in entry["strata"].items():
+            for stratum, values in section["strata"].items():
+                if values["below_pooled"]:
+                    findings.append(f"{model_name} {level} {stratum}: band wholly below the pooled one (transport)")
     return {"look": look, "d_floor": d_floor, "tally": tally(rows), "mixed_configuration_items": mixed,
-            "configurations": configurations, "strata": strata, "cost": cost(rows, probes or []),
-            "findings": findings}
+            "configurations": configurations, "cost": cost(rows, probes or []), "findings": findings}
 
 
 # --- Coverage simulation ----------------------------------------------------------------------

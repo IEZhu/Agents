@@ -29,9 +29,9 @@ import time
 from evals.verifier_accuracy import control
 from src.engine import subagent_exchange
 from src.engine.subagent import prepare_subagent
-from src.engine.subagent_text import parse_result
-from src.engine.subagent_validation import ContractError, assess_result
-from src.schemas.subagent import RESULT_MODELS, PreparedPackage, TaskContract
+from src.engine.subagent_text import is_text_result, parse_result
+from src.engine.subagent_validation import ContractError, assess_result, bounded_object
+from src.schemas.subagent import MAX_RESULT_CHARS, RESULT_MODELS, PreparedPackage, TaskContract
 
 VERIFIER_AGENT = "code_reviewer"
 CLIENT = "claude"
@@ -40,9 +40,14 @@ RESULT_TYPE = "research"
 WORKER_TOOLS = ("Read", "Grep", "Glob", "Bash")
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 _VERDICT = re.compile(r"^\s*\**\s*VERDICT\s*:\s*\**\s*(CONFIRMED|REFUTED|UNCONFIRMED)\b", re.IGNORECASE)
-# Writable for the worker: Claude Code's own state and caches; the system temporary
+# Writable for the worker under the home directory: the state and caches a headless Claude Code
+# run writes (observed on 2.1.311), and nothing of the user's own configuration, such as
+# CLAUDE.md, settings, hooks, skills or memory, which a worker could otherwise rewrite for
+# later runs. The run's own transcript is allowed separately. The system temporary
 # directories lie outside the home directory and stay writable.
-WRITABLE_HOME = (".claude", "Library/Caches")
+WRITABLE_HOME = tuple(f".claude/{name}" for name in (
+    "session-env", "sessions", "shell-snapshots", "backups", "cache", "plugins/store", "statsig", "todos",
+    "debug", "file-history", "state", "telemetry")) + ("Library/Caches",)
 
 
 class WorkerError(RuntimeError):
@@ -147,12 +152,15 @@ def sandbox_profile(*, home: Path, control_dir: Path, snapshot: Path, session_id
                     exchange: Path | None = None, package: Path | None = None) -> str:
     """The worker's sandbox; in Seatbelt the later of two matching rules wins.
 
-    Writes under home are denied except Claude Code's own state, and the snapshot is
-    unwritable. Other runs stay invisible, so the two verdicts of an item stay independent and
-    a run sees one item: the host's session records (other transcripts, auto-memory) and the
-    prompt history are unreadable and unwritable except the run's own session, and the
-    exchange directory is unreadable except the run's own package. Last, the control
-    directory is denied outright.
+    Writes under home are denied except the state and caches a run writes (`WRITABLE_HOME`),
+    and the snapshot is unwritable. Other runs stay invisible, so the two verdicts of an item
+    stay independent and a run sees one item: the host's session records (other transcripts,
+    auto-memory) and the prompt history are unreadable and unwritable except the run's own
+    session, and the exchange directory is unwritable and unreadable except the run's own
+    package, so no run can read or rewrite another's package or contract. Last, the control
+    directory is denied outright. One rule's filters are alternatives: a path matching any of
+    them matches the rule (checked by hand: both a foreign transcript and the history file
+    were refused under the rule that names them together).
     """
     claude = home / ".claude"
     projects = claude / "projects"
@@ -173,7 +181,7 @@ def sandbox_profile(*, home: Path, control_dir: Path, snapshot: Path, session_id
         rules.append(f"(allow file-read-data file-write* (regex {own}))")
         rules.append(f"(allow file-write* (regex {directory}))")  # creating the project directory, not listing it
     if exchange is not None:
-        rules.append(f"(deny file-read-data (subpath {_quoted(exchange)}))")
+        rules.append(f"(deny file-read-data file-write* (subpath {_quoted(exchange)}))")
         if package is not None:
             rules.append(f"(allow file-read-data (literal {_quoted(package)}))")
     rules += [f"(deny file-read* file-write* (subpath {_quoted(control_dir)}))", ""]
@@ -295,8 +303,12 @@ def validate(revision: str, transcript: Path) -> Validated:
     response, _ = assess_result(contract, text)
     if not response.valid:
         return Validated("invalid", None, response.errors[0].code if response.errors else "invalid")
-    expected = TaskContract.model_validate(contract)
-    value, _, _ = parse_result(text, expected)
+    # Read the valid result with the parser that matches its format, as validation did: a JSON
+    # object is accepted on a text contract, and the text parser would fail on it.
+    if is_text_result(text):
+        value, _, _ = parse_result(text, TaskContract.model_validate(contract))
+    else:
+        value = bounded_object(text, max_chars=MAX_RESULT_CHARS, allow_json=True)
     report = RESULT_MODELS[RESULT_TYPE].model_validate(value)
     marked = verdict_of(report.result.conclusions, report.result.summary)
     if marked is None:

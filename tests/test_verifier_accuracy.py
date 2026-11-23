@@ -627,3 +627,166 @@ def test_the_coverage_simulation_holds_at_the_priors():
     assert result["held"] and result["d_floor"] >= 1.0
     assert all(set(scenario["coverage"]) == {"c", "b"} for scenario in result["scenarios"])
 
+
+
+# --- Review round 1 regressions ----------------------------------------------------------------
+
+
+def test_a_shell_command_counts_as_a_read_only_when_it_names_a_snapshot_file(tmp_path):
+    snapshot = tmp_path / "snap"
+    (snapshot / "src").mkdir(parents=True)
+    (snapshot / "src" / "x.py").write_text("X = 1\n", encoding="utf-8")
+    cwd = str(snapshot)
+    named = transcript.names_snapshot_path
+    assert named("grep -n X src/x.py", cwd, snapshot) and named(f"cat '{snapshot}/src/x.py'", "/", snapshot)
+    assert named("grep -rn NOPE .", cwd, snapshot) and named("ls src/*.py", cwd, snapshot)
+    assert not named("pwd", cwd, snapshot) and not named("true", cwd, snapshot)
+    assert not named(f"cd {snapshot} && pwd", "/", snapshot)
+    assert not named("cat /etc/hosts", cwd, snapshot) and not named("grep -n X src/missing.py", cwd, snapshot)
+    only_pwd = _transcript(tmp_path / "p.jsonl", cwd=cwd, calls=[("Bash", {"command": "pwd"}, True)])
+    grep_miss = _transcript(tmp_path / "g.jsonl", cwd=cwd, calls=[("Bash", {"command": "grep -n NOPE src/x.py"}, False)])
+    assert transcript.level("V3", transcript.read(only_pwd), snapshot) == transcript.UNSUPPORTED
+    assert transcript.level("V3", transcript.read(grep_miss), snapshot) == "V3"
+
+
+def test_the_profile_keeps_user_configuration_and_the_exchange_unwritable(tmp_path):
+    home = tmp_path / "home"
+    profile = worker.sandbox_profile(home=home, control_dir=tmp_path / "ctl", snapshot=tmp_path / "snap",
+                                     session_id=str(uuid.uuid4()), exchange=tmp_path / "ex",
+                                     package=tmp_path / "ex" / "p.md")
+    assert f'(subpath "{os.path.realpath(home / ".claude")}")' not in profile  # not the whole Claude home
+    assert f'(subpath "{os.path.realpath(home / ".claude" / "session-env")}")' in profile
+    assert f'(deny file-read-data file-write* (subpath "{os.path.realpath(tmp_path / "ex")}"))' in profile
+
+
+def test_a_json_result_is_read_as_json(tmp_path):
+    prepared = worker.prepare(worker.request(statement="The repository contains a file at the path `README.md`.",
+                                             arm="V3", snapshot=tmp_path, task_id="vacc-json"))
+    contract = subagent_exchange.load_contract(prepared.revision)
+    result = {"protocol": "agents-core/subagent/1", "task_id": contract["task_id"],
+              "attempt_id": contract["attempt_id"], "bundle_revision": contract["bundle_revision"],
+              "contract_revision": prepared.revision, "status": "completed",
+              "evidence": [{"id": "e1", "reference": "README.md:1", "description": "present"}], "artifacts": [],
+              "checks": [], "limitations": [], "remaining_work": [], "question": None,
+              "result": {"summary": "Checked.", "conclusions": [{"claim": "VERDICT: CONFIRMED.", "evidence_ids": ["e1"]}]}}
+    path = tmp_path / "result.txt"
+    path.write_text(json.dumps(result), encoding="utf-8")
+    assert worker.validate(prepared.revision, path) == worker.Validated("verdict", "confirmed", None)
+
+
+def test_a_probe_without_a_recorded_refusal_is_not_blind(tmp_path, repo):
+    control_dir, _ = _build(tmp_path, repo, items=4)
+    loaded = runner.load(control_dir, installation_roots=[])
+
+    class Unanswered(FakeLauncher):
+        def __call__(self, prompt, **options):
+            path = self.home / ".claude" / "projects" / "p" / f"{options['session_id']}.jsonl"
+            canary = prompt.split("Try to read the file ")[1].split(":")[0]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"type": "assistant", "cwd": "/", "message": {"id": "m", "model": "x", "content": [
+                {"type": "tool_use", "id": "t", "name": "Read", "input": {"file_path": canary}}]}}) + "\n",
+                encoding="utf-8")
+            return worker.Run(options["session_id"], None, True, None, 1, None, None, "")
+
+    result = runner.probe(loaded, Unanswered(tmp_path / "home", loaded.snapshot), model="m", effort=None, timeout=1)
+    assert not result.blind and result.reason == "timeout"
+
+
+def test_concurrent_attempts_reserve_their_budget(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    launcher_home = tmp_path / "home"
+
+    class Capped(FakeLauncher):
+        max_budget_usd = 1.0
+
+        def __call__(self, prompt, **options):
+            run = super().__call__(prompt, **options)
+            return run if prompt.startswith("This is a sandbox check") else worker.Run(
+                run.session_id, 0, False, 1.0, 1000, 3, False, "")  # each verifier run costs its whole cap
+
+    work, _, launcher = _runner(tmp_path, repo, lambda loaded: Capped(launcher_home, loaded.snapshot), max_total_usd=2.5)
+    work.run()
+    rows = work.recorder.recorded()
+    started = [row for row in rows if row.get("reason") != "budget"]
+    # 2.5 dollars hold two reservations of 1: two concurrent workers start, and none after them.
+    # Checking only the spend so far, both would pass again once they finished, overshooting the cap.
+    assert len(started) == 2 and work.spent <= 2.5
+
+
+def test_a_resumed_run_starts_from_the_recorded_spend(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+    work.run()
+    again = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None)
+    assert again.spent == pytest.approx(runner.recorded_spend(loaded)) and again.spent > 0
+
+
+def test_a_runner_error_records_the_later_batches_too(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+
+    def failing(arguments):
+        raise worker.WorkerError("preparation failed")
+    work, loaded, _ = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+    work.prepare = failing
+    with pytest.raises(worker.WorkerError):
+        work.run()
+    rows = work.recorder.recorded()
+    assert len(rows) == len(runner.schedule(list(loaded.statements.values()), 0))
+    assert {row["reason"] for row in rows} == {"runner_error:WorkerError", "runner_stopped"}
+
+
+def test_a_below_chance_route_gets_no_proposed_value():
+    rng = np.random.default_rng(8)
+    units = analysis._simulated_units(0.95, 0.2, [1] * 800, rng)
+    result = analysis.fit(units, family="execution", look="final", grid=GRID, coarse=COARSE, rng=rng, resamples=50)
+    assert result["below_chance"]
+    assert result["parameters"]["b"]["rule"] is None and result["parameters"]["b"]["proposed"] is None
+
+
+def test_a_cluster_drawn_twice_stays_two_copies():
+    rows = _rows([("a", False, "V3", "confirmed"), ("a", False, "V2", "confirmed"),
+                  ("b", False, "V3", "refuted"), ("b", False, "V2", "refuted")])
+    clusters = {"a": "A", "b": "B"}
+
+    class Fixed:
+        def integers(self, low, high, size):
+            return np.array([0, 0])  # cluster A twice
+    (sample,) = list(analysis._cluster_resamples(rows, clusters, Fixed(), 1))
+    assert analysis._independence_once(sample)[2] == 2  # two copies, one V3-V2 pair each, not four pairs
+
+
+def test_strata_are_compared_within_one_configuration():
+    spec = [(f"p{i}", True, "V3", "confirmed") for i in range(100)] + [(f"d{i}", True, "V3", "confirmed") for i in range(10)]
+    other = [(f"q{i}", True, "V3", "refuted") for i in range(10)] + [(f"e{i}", True, "V3", "refuted") for i in range(100)]
+    rows = _rows(spec) + _rows(other)
+    for row in rows[:110]:
+        row["stratum"] = "path" if row["item"].startswith("p") else "doc_quote"
+    for row in rows[110:]:
+        row["stratum"] = "path" if row["item"].startswith("q") else "doc_quote"
+        row["model"] = "other"
+    statements = {row["item"]: {"cluster": row["item"], "stratum": row["stratum"]} for row in rows}
+    report = analysis.analyze(rows, statements, resamples=20, grid=GRID, coarse=COARSE)
+    assert not [finding for finding in report["findings"] if "transport" in finding]
+
+
+def test_discarding_twice_never_overwrites_earlier_records(tmp_path, repo):
+    control_dir, _ = _build(tmp_path, repo, items=4)
+    first = builder.discard(control_dir)
+    _build(tmp_path, repo, items=4)
+    second = builder.discard(control_dir)
+    assert first != second and (first / control.LABELS).exists() and (second / control.LABELS).exists()
+    assert first.name.split("-")[0] == second.name.split("-")[0]  # the same set version, two targets
+    (control_dir / control.LABELS).write_text("{}\n", encoding="utf-8")  # a build that stopped before statements
+    assert builder.discard(control_dir).name.startswith("incomplete-")
+
+
+def test_a_constant_bound_again_anywhere_is_undecidable(tmp_path):
+    for source in ("LIMIT = 5\nif X:\n    LIMIT = 10\n", "LIMIT = 5\nLIMIT += 1\n", "LIMIT = 5\na, LIMIT = 1, 2\n",
+                   "LIMIT = 5\ndef f():\n    global LIMIT\n    LIMIT = 6\n", "LIMIT = 5\nfor LIMIT in range(3):\n    pass\n"):
+        (tmp_path / "m.py").write_text(source, encoding="utf-8")
+        assert not _facts("m.py", source).get("numeric_constant") or all(
+            fact.claim.subject_dict()["name"] != "LIMIT" for fact in _facts("m.py", source)["numeric_constant"])
+        claim = strata.Claim("numeric_constant", "m.py", (("name", "LIMIT"), ("value", 5)), "...")
+        assert strata.check(claim, tmp_path) is None, source
+    (tmp_path / "m.py").write_text("LIMIT = 5\n", encoding="utf-8")
+    assert strata.check(strata.Claim("numeric_constant", "m.py", (("name", "LIMIT"), ("value", 5)), "..."), tmp_path)

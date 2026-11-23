@@ -98,12 +98,16 @@ def probe(loaded: LoadedSet, launcher, *, model: str, effort: str | None, timeou
     if found is None:
         return ProbeResult(False, 0, "no_transcript", run.cost_usd)
     facts = transcript.read(found)
-    attempts = sum(1 for call in facts.calls if str(canary_path) in json.dumps(call.input))
+    tries = [call for call in facts.calls if str(canary_path) in json.dumps(call.input)]
     if facts.mentions(token) or token in run.output:
-        return ProbeResult(False, attempts, "canary_read", run.cost_usd)
-    if not attempts:
-        return ProbeResult(False, 0, "no_attempt", run.cost_usd)
-    return ProbeResult(True, attempts, "denied", run.cost_usd)
+        return ProbeResult(False, len(tries), "canary_read", run.cost_usd)
+    if run.timed_out:
+        return ProbeResult(False, len(tries), "timeout", run.cost_usd)
+    # Only a recorded refusal is evidence: a call without a result proves nothing.
+    denied = sum(1 for call in tries if call.ok is False)
+    if not denied:
+        return ProbeResult(False, len(tries), "no_denial" if tries else "no_attempt", run.cost_usd)
+    return ProbeResult(True, denied, "denied", run.cost_usd)
 
 
 class Runner:
@@ -122,7 +126,11 @@ class Runner:
         self.validate = validate
         self.log = log
         self.recorder = control.AttemptRecorder(loaded.control_dir / control.ATTEMPTS)
-        self.spent = 0.0
+        # A run reserves the per-run budget the CLI enforces before it starts, so concurrent
+        # attempts cannot overshoot the total; a resumed run starts from what the set spent.
+        self.run_reserve_usd = getattr(launcher, "max_budget_usd", 2.0)
+        self.spent = recorded_spend(loaded)
+        self.reserved = 0.0
         self._lock = threading.Lock()
         self.home = getattr(launcher, "home", Path.home())
         self.user_instructions = user_instructions(self.home, loaded.snapshot)
@@ -180,15 +188,24 @@ class Runner:
                           outcome=control.outcome(record["truth"], checked.verdict))
         return record
 
+    def _affordable(self) -> bool:
+        return self.spent + self.reserved + self.run_reserve_usd <= self.max_total_usd
+
     def _guarded(self, slot: Slot) -> dict:
         with self._lock:
-            over = self.spent >= self.max_total_usd
-        if over:
-            return {**self._base(slot), "reason": "budget"}
-        record = self.attempt(slot)
-        with self._lock:
-            self.spent += record.get("cost_usd") or 0.0
-        return record
+            if not self._affordable():
+                return {**self._base(slot), "reason": "budget"}
+            self.reserved += self.run_reserve_usd
+        cost = self.run_reserve_usd  # a run that reports no cost (killed at the timeout) is charged its cap
+        try:
+            record = self.attempt(slot)
+            if record.get("cost_usd") is not None:
+                cost = record["cost_usd"]
+            return record
+        finally:
+            with self._lock:
+                self.reserved -= self.run_reserve_usd
+                self.spent += cost
 
     def _write(self, record: dict) -> None:
         written = self.recorder.write(record)
@@ -201,6 +218,10 @@ class Runner:
         probes = []
         for start in range(0, len(pending), self.batch_size):
             batch = pending[start:start + self.batch_size]
+            if not self._affordable():  # no paid probe for a batch the budget cannot run
+                for slot in pending[start:]:
+                    self._write({**self._base(slot), "reason": "budget"})
+                break
             model = probe_model or self._probe_model()
             result = probe(self.loaded, self.launcher, model=model, effort=None, timeout=self.timeout)
             self.spent += result.cost_usd or 0.0
@@ -214,7 +235,12 @@ class Runner:
                 for slot in pending[start:]:
                     self._write({**self._base(slot), "reason": "probe_failed"})
                 raise BlindingError(f"The canary probe before batch {entry['batch']} returned {result.reason}.")
-            self._run_batch(batch)
+            try:
+                self._run_batch(batch)
+            except worker.WorkerError:
+                for slot in pending[start + self.batch_size:]:  # every scheduled attempt keeps a record
+                    self._write({**self._base(slot), "reason": "runner_stopped"})
+                raise
         return {"scheduled": len(done) + len(pending), "run": len(pending), "probes": probes,
                 "spent_usd": round(self.spent, 4)}
 
@@ -245,6 +271,17 @@ class Runner:
                                                   snapshot=self.loaded.snapshot,
                                                   task_id=f"vacc-probe-{uuid.uuid4().hex[:8]}"))
         return package.execution.model
+
+
+def recorded_spend(loaded: LoadedSet) -> float:
+    """What this set's recorded attempts and probes already cost."""
+    total = 0.0
+    for name in (control.ATTEMPTS, control.PROBES):
+        path = loaded.control_dir / name
+        if path.exists():
+            total += sum(row.get("cost_usd") or 0.0 for row in control.read_jsonl(path)
+                         if row.get("set") == loaded.set_id)
+    return total
 
 
 def user_instructions(home: Path, snapshot: Path) -> str | None:

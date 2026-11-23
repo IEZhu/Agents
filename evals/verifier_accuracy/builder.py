@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import datetime as dt
 import io
 import json
 import math
@@ -339,9 +340,18 @@ def build(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: 
 
 
 def discard(control_dir: Path) -> Path:
-    """Move the current set aside, inside the control directory, so workers stay denied it."""
-    manifest = json.loads((control_dir / control.MANIFEST).read_text(encoding="utf-8"))
-    target = control_dir / control.DISCARDED / manifest["version"]
+    """Move the current set aside, inside the control directory, so workers stay denied it.
+
+    The target is new every time: the set version from the statement file (or ``incomplete``
+    when a build stopped before writing it) and the time of the discard, so a rebuilt set
+    with the same version never overwrites the records of an earlier one.
+    """
+    version = (control.set_version(control_dir) if (control_dir / control.STATEMENTS).exists()
+               else "incomplete")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = control_dir / control.DISCARDED / f"{version}-{stamp}"
+    if target.exists():
+        raise BuildError(f"{target} already exists")
     control.open_private(control_dir / control.DISCARDED)
     control.open_private(target)
     for name in (control.STATEMENTS, control.LABELS, control.ATTEMPTS, control.PROBES, control.OWNER_REVIEW,

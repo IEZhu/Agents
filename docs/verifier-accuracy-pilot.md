@@ -72,9 +72,9 @@ $0.112 per run in the post-fix check). At 4 workers it takes about 45 minutes.
 - **Levels.** Of the 33 V3-arm verdicts, 30 got level V3 and 3 were unsupported
   (finding 6). All 31 V2-arm verdicts got level V2; none fell back to V1.
 - **Invalid results.** Nine were valid envelopes whose conclusion gave the verdict in
-  prose without the `VERDICT:` marker, recorded `invalid` with reason
-  `no_single_verdict` (finding 5). One started with narration before its header
-  (`invalid_header`).
+  prose without the `VERDICT:` marker, recorded `invalid` with the reason the pilot's
+  runner wrote, `no_single_verdict`; the runner now writes `no_verdict_marker` for this
+  case (finding 5). One started with narration before its header (`invalid_header`).
 
 ## Accuracy, as a pipeline check
 

@@ -103,20 +103,69 @@ def _number(node) -> int | float | None:
     return None
 
 
+def _names(target) -> list[str]:
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return [name for element in target.elts for name in _names(element)]
+    if isinstance(target, ast.Starred):
+        return _names(target.value)
+    return []  # an attribute or a subscript binds no module name
+
+
+def _bound(node) -> list[str]:
+    """The module names one statement or expression binds."""
+    if isinstance(node, ast.Assign):
+        return [name for target in node.targets for name in _names(target)]
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor, ast.NamedExpr)):
+        return _names(node.target)
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return [name for item in node.items if item.optional_vars for name in _names(item.optional_vars)]
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return [(alias.asname or alias.name).split(".")[0] for alias in node.names]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    return []
+
+
+def _module_scope(tree: ast.Module):
+    """Every node that runs in module scope: blocks included, function and class bodies not."""
+    stack = list(tree.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            stack.extend(ast.iter_child_nodes(node))
+
+
 def _module_assignments(tree: ast.Module) -> dict[str, list]:
-    """Every module-level assignment by name: its number, or ``...`` for any other value."""
+    """Every binding of each module name: the number of a plain top-level assignment of a literal,
+    ``...`` for any other binding (another value, ``+=``, unpacking, a loop or ``with`` target,
+    an assignment inside an ``if`` or ``try`` block, an import, or ``global`` in a function), so
+    a name bound more than once is never read as a single value."""
     found: dict[str, list] = {}
+    plain = set()
     for node in tree.body:
-        if isinstance(node, ast.Assign):
+        if isinstance(node, ast.Assign) and all(isinstance(target, ast.Name) for target in node.targets):
             targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
             targets, value = [node.target], node.value
         else:
             continue
+        plain.add(id(node))
+        number = _number(value)
         for target in targets:
-            if isinstance(target, ast.Name):
-                number = _number(value)
-                found.setdefault(target.id, []).append(... if number is None else number)
+            found.setdefault(target.id, []).append(... if number is None else number)
+    for node in _module_scope(tree):
+        if id(node) not in plain:
+            for name in _bound(node):
+                found.setdefault(name, []).append(...)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Global):
+            for name in node.names:
+                found.setdefault(name, []).append(...)
     return found
 
 
