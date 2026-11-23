@@ -393,7 +393,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
        plugin as its server. A tool whose name carries no server (the client's
        own tools, an unscoped skill or slash command) takes `client`, as in
        `client.websearch`. Rules with different triggers on one tool share its
-       slug, and the row's trigger tells them apart. A `no-rule` tool and an
+       slug and count as one rule in repeats and in any per-slug count, as a
+       catalogue row's triggers do; the report's trigger column only says which
+       one fired, since a record holds no trigger. A `no-rule` tool and an
        `uncatalogued` Agents-Core tool take this form too.
      - **Any other rule,** on the answer itself or on a choice among several
        tools: `rule.<name>`, with the name its source gives it, such as
@@ -516,7 +518,7 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
    without `#progress`), and also match the slug in earlier records' `findings`
    at V1 or above, where a bare `cooperation` counts as an entry tagged without
-   a clause does. Closes written before item 2's **One rule, one slug** may name
+   a clause. Closes written before item 2's **One rule, one slug** may name
    a two-part slug's rule by its second part alone, after its instruction's
    source or in other words, as `mark-chapter`, `claude-md.mark-chapter` and
    `ccd-session.chapter-before-close` could each name

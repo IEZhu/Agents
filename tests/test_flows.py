@@ -662,7 +662,10 @@ def test_thread_close_names_each_rule_by_one_slug():
                    "read the earlier closes themselves with `read_history(tag=\"thread-close\")`, paged the same way",
                    "and one worded otherwise only after reading its report",
                    "any such entry counts only when its report names the same rule",
-                   "where a bare `cooperation` counts as an entry tagged without a clause does"):
+                   "where a bare `cooperation` counts as an entry tagged without a clause.",
+                   "Rules with different triggers on one tool share its slug and count as one rule "
+                   "in repeats and in any per-slug count",
+                   "since a record holds no trigger"):
         assert phrase in text, phrase
 
     # The worked example is the rule applied to the name the client exposes.
