@@ -1,36 +1,49 @@
-"""How a claim's verdicts become a confidence: a scalar Kalman filter on log-odds.
+"""How a claim's verdicts become a confidence: the exact two-state Bayes filter.
 
-The state is the log-odds that the claim holds now. Each verdict is a reading of it:
-a check at verification level ``V1``..``V4`` that confirms the claim reads
-``+logit(accuracy)``, one that refutes it reads ``-logit(accuracy)``, with a reading
-variance per level. Between verdicts the state drifts as a random walk whose
-variance per day is the claim's volatility, so confidence decays while nobody looks
-and a fact has to be checked again. The filter is ``src.estimation.kalman``.
+A claim is true or false now, and it can change by a jump: the code it describes is
+edited, the service it describes is reconfigured. Its verdicts come from routes that
+fail together when they share a cause, so the filter tracks, next to the claim's
+truth ``theta``, one hidden reading ``z_f`` per family of routes: what that family
+as a whole would say about the claim now. A route reads its family's reading with
+its own accuracy ``b``; the family reads the truth with its common-mode accuracy
+``c``. The belief is a distribution over the 2 ** (families + 1) combinations of
+``theta`` and the readings, and the filter is the forward recursion of that hidden
+Markov model:
 
-Two properties follow from treating verdicts as readings of one quantity rather than
-as independent evidence, and both are deliberate:
+* predict: over ``dt`` days the truth flips with probability
+  ``(1 - exp(-2 * lambda * dt)) / 2`` in either direction (``lambda`` is the claim's
+  volatility); readings persist while the truth does, and are drawn afresh, each
+  correct with probability ``c``, when it flips;
+* update: a verdict multiplies every combination by ``b`` when it agrees with its
+  family's reading and by ``1 - b`` when it does not, then the belief is normalised.
 
-* Confidence converges to what the strongest routes used can support and does not
-  compound past it. Verifiers built on similar models fail together (the plan's
-  coincident-failure measurement, z = 29.2), so ten agreeing checks of one kind are
-  not ten independent proofs. More checks narrow the band instead, which is what
-  lets a fact stay reusable for longer.
-* A verdict far from the belief trips the innovation gate. The reading is still
-  applied, after widening the prior so it is consistent (``kalman.update``), and the
-  claim is ``contested`` until a later verdict agrees with the belief it left behind.
-  A contradiction is a trigger for fresh validation, never a verdict by itself.
+It is exact under its model. Two consequences are the point of it:
 
-Every number below is a prior chosen for this design, not a measured accuracy of
-any route; docs/validated-claims.md says how to replace them once the ledger
-measures route accuracy (plan layer 8).
+* Agreeing verdicts of one family cannot push the claim's log-odds above
+  ``logit(c)`` of that family, however many there are: verifiers built on similar
+  models fail together (the plan's coincident-failure measurement, z = 29.2).
+  Confidence beyond that needs a second, independent family.
+* A verdict that the belief made unlikely, predictive probability below
+  ``1 / (1 + GATE)``, is a contradiction: the claim is ``contested`` until a later
+  verdict is not surprising. A contradiction is a reason to validate again, never a
+  verdict by itself; the update itself is exact and needs no special case.
+
+The Kalman filter in ``src.estimation`` is the Gaussian special case of the same
+predict-update recursion. For a binary claim it was measured worse: on 3000
+simulated claims the Brier score was 0.0109 for this filter, 0.0136 for a Kalman
+filter on the indicator scale and 0.025 to 0.047 for one on log-odds readings.
+
+Every number below is a prior chosen for this design, not a measured accuracy;
+docs/validated-claims.md says how to replace them once the ledger measures route
+accuracy (plan layer 8).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 import math
 
-from src.estimation import kalman
-
+SECONDS_PER_DAY = 86_400.0
 LEVEL_ORDER = ("V1", "V2", "V3", "V4")
 IMPORTANCE_ORDER = ("routine", "load_bearing", "critical")
 VOLATILITY_ORDER = ("stable", "normal", "volatile")
@@ -38,64 +51,136 @@ VERDICTS = ("confirmed", "refuted")
 
 
 @dataclass(frozen=True)
-class Reading:
-    """What one verdict at a level reads: ``+-logit(accuracy)`` with variance ``variance``."""
+class Route:
+    """A verification level: the family it belongs to and its own accuracy ``b``."""
 
+    family: str
     accuracy: float
-    variance: float
-
-    @property
-    def magnitude(self) -> float:
-        return math.log(self.accuracy / (1.0 - self.accuracy))
 
 
 @dataclass(frozen=True)
 class Need:
-    """What reuse at an importance level requires: a confirming level and a lower bound."""
+    """What reuse at an importance level requires: a confirming level and a confidence."""
 
     level: str
-    lower: float
+    confidence: float
 
 
-# The thread-close verification levels. V0 (the model's words only) validates nothing
-# and is not accepted.
-READINGS = {
-    "V1": Reading(accuracy=0.80, variance=0.50),  # a source was read and supports it
-    "V2": Reading(accuracy=0.90, variance=0.25),  # a command, test or call produced it
-    "V3": Reading(accuracy=0.95, variance=0.20),  # an independent fresh-context check
-    "V4": Reading(accuracy=0.98, variance=0.15),  # the owner accepted it and it held
+# Families of routes that fail together, with their common-mode accuracy c.
+FAMILIES = {
+    "model": 0.97,       # a language model reading a source or reviewing: V1 and V3 share it
+    "execution": 0.98,   # a command, test or call whose output was seen: V2
+    "owner": 0.99,       # the owner accepted it and it held: V4
 }
-# The importance levels of plan layer 7, with the level each needs (none for routine,
-# one route-different check for load_bearing, a blinded independent one for critical)
-# and the lower confidence bound reuse requires.
+FAMILY_ORDER = tuple(FAMILIES)
+# The thread-close verification levels. V0 (the model's own words) validates nothing.
+ROUTES = {
+    "V1": Route(family="model", accuracy=0.85),      # a source was read and supports it
+    "V2": Route(family="execution", accuracy=0.95),  # a command, test or call produced it
+    "V3": Route(family="model", accuracy=0.97),      # an independent fresh-context check
+    "V4": Route(family="owner", accuracy=0.99),      # the owner accepted it and it held
+}
+# The importance levels of plan layer 7: the level each needs (one route-different
+# check for load_bearing, an independent one for critical) and the confidence reuse needs.
 NEEDS = {
-    "routine": Need(level="V1", lower=0.60),
-    "load_bearing": Need(level="V2", lower=0.80),
-    "critical": Need(level="V3", lower=0.90),
+    "routine": Need(level="V1", confidence=0.75),
+    "load_bearing": Need(level="V2", confidence=0.85),
+    "critical": Need(level="V3", confidence=0.95),
 }
-# Random-walk variance of the log-odds per day without a verdict.
+# Rate per day at which the claim's truth switches, in either direction. Confidence relaxes
+# towards 1/2 with a half-life of ln 2 / (2 * rate): about a year, six weeks and two days.
 VOLATILITY = {
-    "stable": 0.002,   # a published standard, a released API: months between checks
-    "normal": 0.02,    # code and configuration in an active repository: weeks
-    "volatile": 0.2,   # counts, states, open pull requests, anything that moves daily
+    "stable": 1.0 / 730.0,   # a published standard, a released API
+    "normal": 1.0 / 120.0,   # a constant, a signature or a setting in an active repository
+    "volatile": 1.0 / 7.0,   # counts, states, open pull requests, anything that moves daily
 }
-# The belief before any verdict: even odds, two log-odds units either way.
-PRIOR_MEAN = 0.0
-PRIOR_VARIANCE = 9.0
-# The band is mean -+ BAND_K standard deviations; reuse compares its lower edge.
-BAND_K = 1.0
-GATE = kalman.CHI2_1DOF_99
+PRIOR = 0.5
+# The 0.99 quantile of chi-square with one degree of freedom, the plan's gate. A verdict
+# whose predictive probability is below 1 / (1 + GATE), about 0.131, is a contradiction.
+GATE = 6.634896601021214
+SURPRISE = 1.0 / (1.0 + GATE)
+# A claim is decided either way past this confidence: supported above, refuted below 1 - it.
+DECIDED = NEEDS["routine"].confidence
+
+Cell = tuple[int, ...]  # (theta, z_model, z_execution, z_owner)
+_CELLS: tuple[Cell, ...] = tuple(product((1, 0), repeat=len(FAMILY_ORDER) + 1))
 
 
-def logistic(x: float) -> float:
-    if x >= 0:
-        return 1.0 / (1.0 + math.exp(-x))
-    e = math.exp(x)
-    return e / (1.0 + e)
+def route_accuracy(level: str) -> float:
+    """One verdict's accuracy on its own: ``c * b + (1 - c) * (1 - b)``."""
+    route = ROUTES[level]
+    c = FAMILIES[route.family]
+    return c * route.accuracy + (1.0 - c) * (1.0 - route.accuracy)
 
 
-def logit(p: float) -> float:
-    return math.log(p / (1.0 - p))
+def _fresh(theta: int) -> dict[Cell, float]:
+    """The readings given the truth: each family reads it right with probability ``c``."""
+    weights = {}
+    for cell in _CELLS:
+        if cell[0] != theta:
+            continue
+        weight = 1.0
+        for index, family in enumerate(FAMILY_ORDER, start=1):
+            c = FAMILIES[family]
+            weight *= c if cell[index] == theta else 1.0 - c
+        weights[cell] = weight
+    return weights
+
+
+def prior_belief(p: float = PRIOR) -> dict[Cell, float]:
+    belief = {cell: p * weight for cell, weight in _fresh(1).items()}
+    belief.update({cell: (1.0 - p) * weight for cell, weight in _fresh(0).items()})
+    return belief
+
+
+def truth(belief: dict[Cell, float]) -> float:
+    """``P(theta = 1)``: the claim's confidence."""
+    return sum(weight for cell, weight in belief.items() if cell[0] == 1)
+
+
+def predict(belief: dict[Cell, float], days: float, rate: float) -> dict[Cell, float]:
+    """Carry the belief ``days`` forward; the truth switches at ``rate`` per day either way."""
+    if days <= 0:
+        return dict(belief)
+    flip = 0.5 * (1.0 - math.exp(-2.0 * rate * days))
+    true_mass = truth(belief)
+    false_mass = 1.0 - true_mass
+    fresh_true, fresh_false = _fresh(1), _fresh(0)
+    carried = {}
+    for cell, weight in belief.items():
+        arriving = fresh_true[cell] * false_mass if cell[0] == 1 else fresh_false[cell] * true_mass
+        carried[cell] = weight * (1.0 - flip) + arriving * flip
+    return carried
+
+
+def _likelihood(cell: Cell, confirmed: bool, level: str) -> float:
+    route = ROUTES[level]
+    reading = cell[1 + FAMILY_ORDER.index(route.family)]
+    return route.accuracy if (reading == 1) == confirmed else 1.0 - route.accuracy
+
+
+def update(belief: dict[Cell, float], confirmed: bool, level: str) -> tuple[dict[Cell, float], float]:
+    """Fold in one verdict: the new belief and the verdict's predictive probability."""
+    weighted = {cell: weight * _likelihood(cell, confirmed, level) for cell, weight in belief.items()}
+    evidence = sum(weighted.values())
+    return {cell: weight / evidence for cell, weight in weighted.items()}, evidence
+
+
+def aged(p: float, days: float, rate: float) -> float:
+    """``P(true)`` after ``days`` without a verdict: it relaxes towards 1/2."""
+    return 0.5 + (p - 0.5) * math.exp(-2.0 * rate * max(0.0, days))
+
+
+def days_until_below(p: float, threshold: float, rate: float) -> float | None:
+    """Days until ``aged(p)`` falls to ``threshold`` (above 1/2); 0 if it is already there.
+
+    From ``aged``: ``t = ln((p - 1/2) / (threshold - 1/2)) / (2 * rate)``.
+    """
+    if p <= threshold:
+        return 0.0
+    if rate <= 0:
+        return None
+    return math.log((p - 0.5) / (threshold - 0.5)) / (2.0 * rate)
 
 
 @dataclass(frozen=True)
@@ -113,14 +198,16 @@ class Verdict:
 class Assessment:
     """The filtered state of one claim as of ``as_of``."""
 
-    estimate: kalman.Estimate
+    confidence: float
+    settled: float
     state: str
     level: str | None
+    families: tuple[str, ...]
     importance: str
     usable_for: tuple[str, ...]
     revalidate_at: float | None
     contested: bool
-    last_nis: float
+    surprise: float
     checks: int
     confirmed: int
     refuted: int
@@ -128,86 +215,70 @@ class Assessment:
     last_at: float
     as_of: float
 
-    @property
-    def confidence(self) -> float:
-        return logistic(self.estimate.mean)
-
-    @property
-    def lower(self) -> float:
-        return logistic(self.estimate.lower(BAND_K))
-
-    @property
-    def upper(self) -> float:
-        return logistic(self.estimate.upper(BAND_K))
-
 
 def _at_least(level: str | None, needed: str) -> bool:
     return level is not None and LEVEL_ORDER.index(level) >= LEVEL_ORDER.index(needed)
-
-
-def _usable(estimate: kalman.Estimate, level: str | None, contested: bool) -> tuple[str, ...]:
-    if contested:
-        return ()
-    lower = logistic(estimate.lower(BAND_K))
-    return tuple(name for name in IMPORTANCE_ORDER
-                 if _at_least(level, NEEDS[name].level) and lower >= NEEDS[name].lower)
 
 
 def assess(verdicts: list[Verdict], now: float) -> Assessment:
     """Filter ``verdicts`` (oldest first) and carry the result to ``now``."""
     if not verdicts:
         raise ValueError("a claim has at least one verdict")
-    estimate = kalman.Estimate(PRIOR_MEAN, PRIOR_VARIANCE, verdicts[0].at)
+    belief = prior_belief()
+    at = verdicts[0].at
     volatility = verdicts[0].volatility
     level: str | None = None
+    families: list[str] = []
     importance = "routine"
     contested = False
-    nis = 0.0
+    predictive = 1.0
     confirmed = refuted = 0
     for verdict in verdicts:
-        prior = kalman.predict(estimate, verdict.at, VOLATILITY[volatility])
-        reading = READINGS[verdict.level]
-        sign = 1.0 if verdict.verdict == "confirmed" else -1.0
-        step = kalman.update(prior, sign * reading.magnitude, reading.variance, gate=GATE)
-        estimate = step.posterior
-        contested = step.innovation.gated
-        nis = step.innovation.nis
+        belief = predict(belief, (verdict.at - at) / SECONDS_PER_DAY, VOLATILITY[volatility])
+        at = max(at, verdict.at)
+        agrees = verdict.verdict == "confirmed"
+        belief, predictive = update(belief, agrees, verdict.level)
+        contested = predictive < SURPRISE
         volatility = verdict.volatility
         if IMPORTANCE_ORDER.index(verdict.importance) > IMPORTANCE_ORDER.index(importance):
             importance = verdict.importance
-        if sign > 0:
+        if agrees:
             confirmed += 1
             if not _at_least(level, verdict.level):
                 level = verdict.level
+            family = ROUTES[verdict.level].family
+            if family not in families:
+                families.append(family)
         else:
             refuted += 1
-            level = None  # only confirmations since the last refutation count towards reuse
-    settled = estimate
-    q = VOLATILITY[volatility]
-    current = kalman.predict(estimate, now, q)
-    lower = logistic(current.lower(BAND_K))
-    upper = logistic(current.upper(BAND_K))
-    supported_floor = NEEDS["routine"].lower
+            level, families = None, []  # only confirmations since the last refutation count for reuse
+    rate = VOLATILITY[volatility]
+    settled = truth(belief)
+    now = max(now, at)
+    confidence = aged(settled, (now - at) / SECONDS_PER_DAY, rate)
     if contested:
         state = "contested"
-    elif lower >= supported_floor:
+    elif confidence >= DECIDED:
         state = "supported"
-    elif upper <= 1.0 - supported_floor:
+    elif confidence <= 1.0 - DECIDED:
         state = "refuted"
-    elif logistic(settled.lower(BAND_K)) >= supported_floor:
-        state = "stale"
+    elif settled >= DECIDED or settled <= 1.0 - DECIDED:
+        state = "stale"  # decided at its last verdict; time alone moved it out
     else:
         state = "uncertain"
-    # A due date fixed at the last verdict, the same whenever it is read: the moment the band's
-    # lower edge, widening from there, falls below what the claim's importance needs.
+    usable = () if contested else tuple(
+        name for name in IMPORTANCE_ORDER
+        if _at_least(level, NEEDS[name].level) and confidence >= NEEDS[name].confidence)
+    # A due date fixed at the last verdict, the same whenever it is read.
     need = NEEDS[importance]
     if contested or not _at_least(level, need.level):
-        revalidate_at = settled.at
+        revalidate_at = at
     else:
-        days = kalman.days_until_lower_below(settled, logit(need.lower), BAND_K, q)
-        revalidate_at = None if days is None else settled.at + days * kalman.SECONDS_PER_DAY
+        days = days_until_below(settled, need.confidence, rate)
+        revalidate_at = None if days is None else at + days * SECONDS_PER_DAY
     last = verdicts[-1]
-    return Assessment(estimate=current, state=state, level=level, importance=importance,
-                      usable_for=_usable(current, level, contested), revalidate_at=revalidate_at,
-                      contested=contested, last_nis=nis, checks=len(verdicts), confirmed=confirmed,
-                      refuted=refuted, last_verdict=last.verdict, last_at=last.at, as_of=current.at)
+    return Assessment(confidence=confidence, settled=settled, state=state, level=level,
+                      families=tuple(families), importance=importance, usable_for=usable,
+                      revalidate_at=revalidate_at, contested=contested, surprise=predictive,
+                      checks=len(verdicts), confirmed=confirmed, refuted=refuted,
+                      last_verdict=last.verdict, last_at=last.at, as_of=now)

@@ -26,7 +26,7 @@ These links describe the published main branch. For an installed version or a de
 - [Worker model tiers](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/subagent-model-tiers.md): Complexity ratings, host launch arguments, conservative floors and escalation to a new attempt.
 - [Shared artifacts](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/shared-artifacts.md): Persistent exact inputs, pinned manifests and integrity checks.
 - [Shared memory](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/shared-memory.md): Read what Claude Code and Codex keep in their native memory, with sources, scopes and the background index.
-- [Validated claims](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/validated-claims.md): Verdicts about factual claims kept per workspace and filtered with a Kalman filter into a confidence that goes stale and flags contradictions.
+- [Validated claims](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/validated-claims.md): Verdicts about factual claims kept per workspace and filtered into the probability that each holds now, which goes stale and flags contradictions.
 - [Agent cooperation](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/agent-cooperation/README.md): Optional shared-daemon coordination, claims, private messages and processing notifications.
 
 ## Operations and evidence

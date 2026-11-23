@@ -143,9 +143,10 @@ def view(claim: Claim, assessment: model.Assessment) -> dict:
         "subject": claim.subject,
         "claim": claim.text,
         "state": assessment.state,
-        "confidence": round(assessment.confidence, 3),
-        "band": [round(assessment.lower, 3), round(assessment.upper, 3)],
+        "confidence": round(assessment.confidence, 4),
+        "confidence_at_last_check": round(assessment.settled, 4),
         "level": assessment.level,
+        "families": list(assessment.families),
         "importance": assessment.importance,
         "usable_for": list(assessment.usable_for),
         "revalidate_at": None if assessment.revalidate_at is None else _iso(assessment.revalidate_at),
@@ -154,8 +155,7 @@ def view(claim: Claim, assessment: model.Assessment) -> dict:
         "refuted": assessment.refuted,
         "last_verdict": assessment.last_verdict,
         "last_checked": _iso(assessment.last_at),
-        "log_odds": {"mean": round(assessment.estimate.mean, 4),
-                     "variance": round(assessment.estimate.variance, 4)},
+        "last_surprise": round(assessment.surprise, 4),
     }
 
 
@@ -272,7 +272,7 @@ class ClaimStore:
             "status": "recorded",
             "event_id": event["id"],
             "contradiction": after.contested,
-            "nis": round(after.last_nis, 3),
+            "predictive": round(after.surprise, 4),
             "previous": None if before is None else {"state": before.state,
                                                      "confidence": round(before.confidence, 3)},
             "claim": view(updated, after),

@@ -2472,8 +2472,9 @@ async def claim_record(
                                             "fresh-context reviewer checked it, V4 the owner accepted it "
                                             "and it held. V0 is refused.")],
     importance: ta.opt_str("What the claim is used for: routine, load_bearing (default) or critical. "
-                           "Reuse at an importance needs at least V1, V2 or V3 respectively.") = None,
-    volatility: ta.opt_str("How fast it can go stale: stable (months), normal (weeks, the default) or "
+                           "Reuse needs a confirming V1, V2 or V3 respectively and a confidence of "
+                           "0.75, 0.85 or 0.95.") = None,
+    volatility: ta.opt_str("How fast it can change: stable (a year), normal (weeks, the default) or "
                            "volatile (days).") = None,
     evidence: ta.strict_str_list("Optional references the check rests on, at most 10, each at most 500 "
                                  "characters: a file:line, a command and its output, a URL.") = None,
@@ -2485,21 +2486,24 @@ async def claim_record(
 ) -> str:
     """Record one verdict about a factual claim in this workspace's validated-claims store.
 
-    Record what a check actually established, after the check: a verdict is a reading
-    of the claim, and the store filters every reading of it (a scalar Kalman filter on
-    the log-odds) into a confidence with a band that narrows with agreeing checks and
-    widens while nobody checks. Agreeing checks of one kind do not compound past what
-    that kind supports, because verifiers built on similar models fail together.
+    Record what a check actually established, after the check. The store filters every
+    verdict of a claim into the probability that it holds now (the exact Bayes filter of
+    a claim that is true or false and can change): agreeing checks raise it, time relaxes
+    it towards 1/2 at the claim's volatility, and agreeing checks of one family of
+    routes (V1 and V3 are both a language model's judgement) cannot raise it past what
+    that family supports, because such verifiers fail together.
 
-    A verdict far from what the store believed trips its gate: the result says
-    ``contradiction: true`` and the claim is ``contested`` until a later verdict
-    agrees. That is a reason to validate again, not a ruling on which verdict is right.
+    A verdict the store found unlikely (predictive probability below about 0.13) is a
+    contradiction: the result says ``contradiction: true`` and the claim is
+    ``contested`` until a later verdict is not surprising. That is a reason to validate
+    again, not a ruling on which verdict is right.
 
     The store is append-only and local to the workspace (``data/claims/claims.jsonl``).
     It is for the parent session: give a worker a stored fact only as a pinned artifact.
 
-    Returns JSON: {status: recorded, event_id, contradiction, nis, previous: {state,
-    confidence} | null, claim, workspace}. ``claim`` is the state claim_lookup returns.
+    Returns JSON: {status: recorded, event_id, contradiction, predictive (the verdict's
+    probability before it arrived), previous: {state, confidence} | null, claim,
+    workspace}. ``claim`` is the state claim_lookup returns.
     Errors: {status: error, code (invalid_request, store_full, workspace), error}.
     """
     try:
@@ -2554,13 +2558,14 @@ async def claim_lookup(
     - ``key``, or ``subject`` with ``claim``: that claim plus its newest verdicts.
     - Otherwise a listing, newest verdict first, narrowed by ``query`` and ``state``.
 
-    A claim: {key, subject, claim, state, confidence, band [lower, upper], level (the
-    strongest confirming level since the last refutation), importance (the highest it
-    was recorded for), usable_for, revalidate_at, checks, confirmed, refuted,
-    last_verdict, last_checked, log_odds {mean, variance}}. States: supported (the band's
-    lower edge clears the routine bar), stale (it did after its last check, and time
-    alone pushed it below), contested (the last verdict tripped the contradiction
-    gate), refuted, uncertain.
+    A claim: {key, subject, claim, state, confidence (probability it holds now),
+    confidence_at_last_check, level (the strongest confirming level since the last
+    refutation), families (of those confirmations), importance (the highest it was
+    recorded for), usable_for, revalidate_at, checks, confirmed, refuted, last_verdict,
+    last_checked, last_surprise (the last verdict's predictive probability)}. States:
+    supported (confidence at least 0.75), refuted (at most 0.25), stale (decided at
+    its last check, and time alone moved it back), contested (the last verdict was a
+    contradiction), uncertain.
 
     Returns JSON: {mode (claim or listing), total, claims, verdicts? (claim mode, newest
     first), omitted?, workspace}. Errors: {status: error, code, error}.

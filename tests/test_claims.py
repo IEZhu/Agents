@@ -57,32 +57,46 @@ def test_one_executed_check_supports_load_bearing_reuse_but_not_critical(store):
     result = record(store, level="V2")
     claim = result["claim"]
     assert result["status"] == "recorded" and result["previous"] is None and not result["contradiction"]
-    assert claim["state"] == "supported" and claim["level"] == "V2"
+    assert claim["state"] == "supported" and claim["level"] == "V2" and claim["families"] == ["execution"]
     assert claim["usable_for"] == ["routine", "load_bearing"]
-    assert claim["band"][0] <= claim["confidence"] <= claim["band"][1]
-
-
-def test_an_independent_check_supports_critical_reuse(store):
-    claim = record(store, level="V3", importance="critical")["claim"]
-    assert claim["usable_for"] == ["routine", "load_bearing", "critical"]
-    assert claim["importance"] == "critical"
+    assert claim["confidence"] == pytest.approx(model.route_accuracy("V2"), abs=1e-4)
 
 
 def test_a_read_alone_supports_only_routine_reuse(store):
     assert record(store, level="V1")["claim"]["usable_for"] == ["routine"]
 
 
-def test_agreeing_checks_narrow_the_band_without_compounding_past_the_level(store):
-    first = record(store, level="V2")["claim"]
-    for _ in range(9):
-        latest = record(store, level="V2")["claim"]
-    width = lambda claim: claim["band"][1] - claim["band"][0]
-    assert width(latest) < width(first)
-    assert latest["confidence"] <= model.logistic(model.READINGS["V2"].magnitude) + 1e-3
-    assert latest["checks"] == 10 and latest["confirmed"] == 10
+def test_owner_acceptance_supports_critical_reuse(store):
+    claim = record(store, level="V4", importance="critical")["claim"]
+    assert claim["usable_for"] == ["routine", "load_bearing", "critical"]
+    assert claim["importance"] == "critical"
 
 
-def test_confidence_decays_to_stale_at_the_revalidation_time(store, clock):
+def test_one_family_cannot_compound_past_its_common_mode_accuracy(store):
+    for _ in range(12):
+        claim = record(store, level="V3")["claim"]
+    assert claim["confidence"] == pytest.approx(model.FAMILIES["model"], abs=1e-3)
+    assert claim["confidence"] <= model.FAMILIES["model"] + 1e-9
+
+
+def test_independent_families_do_compound(store):
+    record(store, level="V2")
+    record(store, level="V3")
+    claim = record(store, level="V4")["claim"]
+    assert claim["confidence"] > 0.999
+    assert claim["families"] == ["execution", "model", "owner"]
+
+
+def test_the_family_cap_matches_brute_force_enumeration():
+    # Twelve V3 confirmations of one family, by enumerating the family reading directly.
+    c, b = model.FAMILIES["model"], model.ROUTES["V3"].accuracy
+    true_side = c * b ** 12 + (1 - c) * (1 - b) ** 12
+    false_side = (1 - c) * b ** 12 + c * (1 - b) ** 12
+    verdicts = [model.Verdict(START, "confirmed", "V3", "normal", "routine")] * 12
+    assert model.assess(verdicts, START).confidence == pytest.approx(true_side / (true_side + false_side))
+
+
+def test_confidence_relaxes_to_stale_at_the_revalidation_time(store, clock):
     claim = record(store, level="V2", volatility="normal")["claim"]
     found = store.get(claim["key"])
     due = found.assess(clock()).revalidate_at
@@ -90,50 +104,91 @@ def test_confidence_decays_to_stale_at_the_revalidation_time(store, clock):
     before = found.assess(due - DAY)
     after = found.assess(due + DAY)
     assert "load_bearing" in before.usable_for and "load_bearing" not in after.usable_for
+    assert after.confidence == pytest.approx(model.NEEDS["load_bearing"].confidence, abs=0.01)
     later = found.assess(due + 365 * DAY)
-    assert later.state == "stale"
-    assert later.confidence == pytest.approx(before.confidence)  # time widens the band, not the mean
+    assert later.state == "stale" and 0.5 < later.confidence < 0.6
 
 
-def test_volatile_claims_go_stale_sooner(store, clock):
+def test_the_due_date_is_the_closed_form_crossing():
+    p, threshold, rate = 0.97, 0.85, 1 / 120
+    days = model.days_until_below(p, threshold, rate)
+    assert model.aged(p, days, rate) == pytest.approx(threshold)
+    assert model.days_until_below(0.8, 0.85, rate) == 0.0
+
+
+def test_volatile_claims_go_stale_sooner(store):
     normal = record(store, subject="a", claim="x", volatility="normal")["claim"]
     volatile = record(store, subject="b", claim="y", volatility="volatile")["claim"]
     assert volatile["revalidate_at"] < normal["revalidate_at"]
 
 
-def test_a_refutation_of_a_well_supported_claim_is_a_contradiction(store, clock):
-    for _ in range(3):
-        record(store, level="V3")
-        clock.advance(1)
-    result = record(store, verdict="refuted", level="V2")
-    assert result["contradiction"] and result["nis"] > model.GATE
+def test_a_refutation_against_a_confident_claim_is_a_contradiction(store, clock):
+    record(store, level="V2")
+    record(store, level="V3")
+    clock.advance(1)
+    result = record(store, verdict="refuted", level="V4")
+    assert result["contradiction"] and result["predictive"] < model.SURPRISE
     assert result["previous"]["state"] == "supported"
     claim = result["claim"]
     assert claim["state"] == "contested" and claim["usable_for"] == []
-    assert claim["level"] is None  # confirmations before a refutation no longer count
+    assert claim["level"] is None and claim["families"] == []
     assert claim["revalidate_at"] == claim["last_checked"]
-    # A second refutation agrees with where the first one left the belief: no longer contested.
+    # A second refutation from another family is no longer surprising: the claim settles as refuted.
     settled = record(store, verdict="refuted", level="V2")
     assert not settled["contradiction"] and settled["claim"]["state"] == "refuted"
 
 
-def test_a_refutation_of_a_long_unchecked_claim_is_drift_not_a_contradiction(store, clock):
-    record(store, level="V2", volatility="normal")
-    clock.advance(200)  # the band has widened enough that a change is no surprise
+def test_a_same_family_refutation_is_blamed_on_the_route_and_still_contests(store):
+    for _ in range(5):
+        record(store, level="V2")
+    result = record(store, verdict="refuted", level="V2")
+    assert result["contradiction"]
+    assert result["claim"]["confidence"] > 0.9  # one execution route erring is the likelier story
+
+
+def test_a_refutation_of_a_long_unchecked_claim_is_change_not_contradiction(store, clock):
+    record(store, level="V2")
+    clock.advance(200)
     result = record(store, verdict="refuted", level="V2")
     assert not result["contradiction"] and result["previous"]["state"] == "stale"
     assert result["claim"]["state"] == "refuted"
 
 
-def test_opposite_verdicts_in_quick_succession_contradict_even_a_weak_claim(store):
-    record(store, level="V1")
-    assert record(store, verdict="refuted", level="V2")["contradiction"]
+def test_a_refuted_claim_also_goes_stale(store, clock):
+    key = record(store, verdict="refuted", level="V2")["claim"]["key"]
+    assert store.get(key).assess(clock()).state == "refuted"
+    assert store.get(key).assess(clock() + 400 * DAY).state == "stale"
 
 
-def test_importance_above_the_checked_level_needs_revalidation_now(store, clock):
+def test_importance_above_the_checked_level_needs_revalidation_now(store):
     claim = record(store, level="V2", importance="critical")["claim"]
     assert "critical" not in claim["usable_for"]
     assert claim["revalidate_at"] == claim["last_checked"]
+
+
+def test_the_filter_matches_the_exact_hidden_markov_model_on_a_simulated_stream():
+    # With one family whose readings never err (c = 1), the filter is the plain two-state forward recursion.
+    import random
+
+    random.seed(7)
+    original_families = dict(model.FAMILIES)
+    try:
+        model.FAMILIES.update({name: 1.0 - 1e-12 for name in model.FAMILIES})
+        rate, accuracy = model.VOLATILITY["normal"], model.ROUTES["V2"].accuracy
+        p, at, verdicts = 0.5, 0.0, []
+        for _ in range(40):
+            gap = random.uniform(0, 30)
+            at += gap
+            p = model.aged(p, gap, rate)
+            confirmed = random.random() < 0.7
+            likelihood = accuracy if confirmed else 1 - accuracy
+            p = p * likelihood / (p * likelihood + (1 - p) * (1 - likelihood))
+            verdicts.append(model.Verdict(START + at * DAY, "confirmed" if confirmed else "refuted", "V2",
+                                          "normal", "routine"))
+        assert model.assess(verdicts, START + at * DAY).confidence == pytest.approx(p, abs=1e-6)
+    finally:
+        model.FAMILIES.clear()
+        model.FAMILIES.update(original_families)
 
 
 def test_assess_needs_a_verdict():
@@ -196,7 +251,8 @@ def test_search_filters_by_text_and_state_and_orders_a_state_as_a_queue(store, c
     assert [claim.subject for claim, _ in store.search(query="ALPHA")] == ["alpha"]
     clock.advance(400)
     stale = store.search(state="stale")
-    assert [claim.subject for claim, _ in stale] == ["beta", "alpha"]  # beta was due first
+    # The refuted claim was due at once (nothing confirms it), the volatile one next.
+    assert [claim.subject for claim, _ in stale] == ["gamma", "beta", "alpha"]
     with pytest.raises(ClaimError):
         store.search(state="unknown")
 
