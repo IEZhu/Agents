@@ -36,8 +36,9 @@ simulated claims the Brier score was 0.0109 for this filter, 0.0136 for a Kalman
 filter on the indicator scale and 0.025 to 0.047 for one on log-odds readings.
 
 Every number below is a prior chosen for this design, not a measured accuracy;
-docs/validated-claims.md says how to replace them once the ledger measures route
-accuracy (plan layer 8).
+docs/verifier-accuracy-measurement.md designs the measurement that would replace
+FAMILIES and ROUTES (step 8 of the reliability plan's order of work). VOLATILITY is
+a property of claims, not of verifiers, and needs a different measurement.
 """
 from __future__ import annotations
 

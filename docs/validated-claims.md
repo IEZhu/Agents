@@ -51,11 +51,16 @@ or a setting in an active repository; 1/120 per day, the default) and `volatile`
 (counts, states, open pull requests; 1/7 per day).
 
 **Every number in these tables is a prior chosen for this design, not a measured
-accuracy of any route.** The plan's layer 8 measures per-route sensitivity and
-specificity on a known-answer control set; once those numbers exist they replace
-`FAMILIES`, `ROUTES` and `VOLATILITY` in [model.py](../src/claims/model.py). Because
-the store keeps verdicts and recomputes every state on read, changing a parameter
-re-reads the whole history under the new calibration instead of mixing two.
+accuracy of any route.** Step 8 of the plan's
+[order of work](delegation-reliability-plan.md#order-of-work) measures per-route
+sensitivity and specificity on a known-answer control set, the measurement its layer 6
+describes, and [Measuring verifier accuracy](verifier-accuracy-measurement.md) designs
+it for `FAMILIES` and `ROUTES` in [model.py](../src/claims/model.py). `VOLATILITY` is
+a property of claims, not of verifiers, so that set cannot measure it: it needs
+re-checks of stored claims at random ages. Because the store keeps verdicts and
+recomputes every state on read, a changed parameter re-reads the whole history, so a
+measured value reaches the store only through the separate change that note
+describes, which applies it to the verdicts of the configuration it was measured on.
 
 ## The model
 
