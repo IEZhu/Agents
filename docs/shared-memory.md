@@ -55,7 +55,7 @@ The reader opens a file only if the file that opens lies inside its store: on PO
 | `user` | Only the user-level facts |
 | `all` | Every project's facts |
 
-The caller's project is the workspace's Claude Code project directory name (the path with every character but letters and digits replaced by `-`). For a git worktree it also includes the main checkout's name, because Claude Code keeps one memory per repository. When no workspace resolves, `scope=project` shows the user-level facts only and the result carries a `note`.
+The caller's project is the workspace's Claude Code project directory name (the path with every character but letters and digits replaced by `-`). For a git worktree it also includes the main checkout's name, because Claude Code keeps one memory per repository. When no workspace resolves, `scope=project` shows the user-level facts only and the result carries a `note`. Over HTTP the workspace is the one the session is registered for: a `workspace` argument outside it is not followed, the registered project's facts are returned, and `workspace_note` says the argument was ignored.
 
 User-level facts are Claude Code's top-level `<config dir>/memory/` and all of Codex's memories. A source in another project's memory stays hidden under `project` and `user`: a fact visible through one source shows only the sources the caller may see.
 

@@ -2372,17 +2372,18 @@ async def read_shared_memory(
       ``index`` reports {state, covered, total} and until it is ready the search is partly or
       wholly lexical (``mode``: lexical or hybrid). ``similar`` lists facts of another client or
       project that say much the same, so disagreements surface instead of being merged.
-    - With ``fact_id``: that fact with as much of its text as stays under the result limit; a
-      longer text is cut, and its source file holds the rest.
+    - With ``fact_id``: that fact with as much of its text as fits the result limit; its source
+      file holds the rest.
 
-    ``scope`` decides which projects' facts show: ``project`` keeps this workspace's project
-    (and, for a git worktree, its main checkout's) plus user-level facts; without a resolved
-    project it keeps the user-level facts only. ``client`` and ``memory_type`` narrow further.
+    ``scope`` decides which projects' facts show: ``project`` keeps the registered workspace's
+    project (and, for a git worktree, its main checkout's) plus user-level facts; without a
+    resolved project only the user-level ones. ``client`` and ``memory_type`` narrow further.
 
     Returns JSON: {mode (recency, lexical, hybrid or fact), total, facts, omitted?, instruction?,
-    scope, skipped?, index?, note?, workspace?}. A fact: {id, name, description, type, modified,
-    scope, sources, text, truncated?, score?, match?, similar?}. The listing stays under Claude
-    Code's 50,000-character result limit: previews shrink, then the last facts are left out.
+    scope, skipped?, index?, note?, workspace?, workspace_note? (a ``workspace`` argument outside
+    the registered root was ignored; that root was read)}. A fact: {id, name, description, type,
+    modified, scope, sources, text, truncated?, score?, match?, similar?}. The listing stays under
+    Claude Code's 50,000-character result limit: previews shrink, then the last facts are left out.
     """
     try:
         root, workspace_report, unresolved = None, {}, None

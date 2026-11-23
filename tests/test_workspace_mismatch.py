@@ -411,8 +411,8 @@ HISTORY_TOOLS = frozenset({"log_interaction", "read_history"})
 CLAIM_WRITE_TOOLS = frozenset({"claim_record"})
 CLAIM_READ_TOOLS = frozenset({"claim_lookup"})
 CLAIM_TOOLS = CLAIM_WRITE_TOOLS | CLAIM_READ_TOOLS
-# Takes the shared parameter, and its docstring does not yet say what an argument outside the
-# grant does; pinned here so the set stays exact.
+# Reads the registered workspace's project and notes an argument outside it like history; the
+# behaviour is checked in tests/test_shared_memory.py, which fakes the clients' memory stores.
 SHARED_MEMORY_TOOLS = frozenset({"read_shared_memory"})
 WORKSPACE_TOOLS = (COOPERATION_TOOLS | REPOSITORY_TOOLS | FLOW_TOOLS | ACTIVATION_TOOLS
                    | HISTORY_TOOLS | CLAIM_TOOLS | SHARED_MEMORY_TOOLS)
@@ -444,7 +444,7 @@ async def test_the_workspace_parameter_is_true_for_every_tool_that_shares_it():
         assert "workspace_mismatch" in docstrings[name], name
     for name in ACTIVATION_TOOLS:
         assert "repo_context" in docstrings[name], name
-    for name in HISTORY_TOOLS | CLAIM_READ_TOOLS:
+    for name in HISTORY_TOOLS | CLAIM_READ_TOOLS | SHARED_MEMORY_TOOLS:
         assert "workspace_note" in docstrings[name], name
 
 

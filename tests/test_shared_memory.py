@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 import time
 from collections import Counter
@@ -368,6 +369,44 @@ async def test_the_tool_searches_and_reads_a_fact(served, world):
     assert found["facts"][0]["name"] == "style"
     whole = json.loads(await server.read_shared_memory(fact_id=found["facts"][0]["id"].upper()))
     assert whole["facts"][0]["text"].startswith("---\nname: style")
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_outside_the_grant_is_noted_and_the_registered_project_is_read(served, world):
+    """Over HTTP the registered workspace decides (#576): another one is noted, never read."""
+    import src.server as server
+    from tests.test_workspace_mismatch import http_context
+    registered, other = world["root"].resolve(), world["other"].resolve()
+    inside = registered / "nested"
+    inside.mkdir()
+
+    async def call(root, named=None):
+        return json.loads(await server.read_shared_memory(ctx=http_context(root), workspace=named))
+
+    def names(payload):
+        return {fact["name"] for fact in payload["facts"]}
+
+    # A session registered for the other project would see its plan and not this one's style.
+    followed = names(await call(other))
+    assert "plan" in followed and "style" not in followed
+    ignored, plain = await call(registered, str(other)), await call(registered)
+    assert ignored["workspace"] == plain["workspace"] and ignored["workspace"]["root"] == str(registered)
+    note = ignored["workspace_note"]
+    assert str(other) in note and str(registered) in note and "ignored" in note
+    assert ignored["facts"] == plain["facts"] and "style" in names(ignored) and "plan" not in names(ignored)
+    # A matching argument, a directory inside the root and no argument add no note.
+    for named in (str(registered), str(inside), None):
+        answered = await call(registered, named)
+        assert "workspace_note" not in answered and answered["workspace"]["root"] == str(registered)
+
+
+@pytest.mark.asyncio
+async def test_the_tool_description_fits_claude_codes_limit():
+    """The bound of tests/test_read_history_size.py: Claude Code cuts a description at 2,048 characters."""
+    import src.server as server
+    description = {tool.name: tool for tool in await server.mcp.list_tools()}["read_shared_memory"].description
+    stripped_indent = 4 * description.count("\n") if sys.version_info >= (3, 13) else 0
+    assert len(description) + stripped_indent < 2_048
 
 
 # --- review and pre-mortem fixes ------------------------------------------------------------------------
