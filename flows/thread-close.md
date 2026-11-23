@@ -366,25 +366,63 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      the client's instruction files (`CLAUDE.md`, `AGENTS.md`, rules files), the
      MCP server's own instructions, a skill's or plugin's description ("use
      when…"), the active persona bundle, and the user's explicit requests in the
-     thread. Each becomes a row in the catalogue's form, with the slug
-     `<server-or-skill>.<rule>` and the instruction's source. A dot joins the
-     two parts, never a colon: the closing log's `record` (step 9) accepts only
-     lowercase letters and digits joined by single dots, dashes or underscores,
-     at most 64 characters. So lowercase each part, turn every run of
-     characters other than ASCII letters and digits into one dash, and trim
-     dashes from its ends. The server or skill part may hold 31 characters and
-     the rule part 32, so the dot and the rule always survive. A part over its
-     limit keeps its first characters up to the limit less 10, without a dash
-     at their end, then a dash, `h` and the first 8 hex digits of the SHA-256
-     of the whole normalized part. A part that comes out empty becomes `h` and
-     the first 8 hex digits of the SHA-256 of the original name in UTF-8, so
-     such names stay apart. Names that differ only in case or in the
-     characters between their letters and digits, such as `A_B` and `a-b`,
-     give the same part, long or short, and count as one tool. Join the parts
-     with the dot: `My_Server` and `Send Report!` give `my-server.send-report`,
-     and a server named `工具` gives the part `h5ca6730d`.
+     thread. Each rule they state becomes a row in the catalogue's form, with
+     its slug and its sources.
    - A tool that no instruction names is `no-rule`. List it with its call count;
      it is never a finding.
+   - **One rule, one slug.** A slug names the rule, never the place that states
+     it, so a rule keeps its slug when a patch moves it from memory to an
+     instruction file or a hook, and every close names it alike. Instructions
+     that restate one requirement (the tool's own description, the server's
+     instructions, an instruction file, memory, a hook's reminder) make one row
+     that lists each source. Each rule gets exactly one of these slugs, though
+     one slug may cover several rules, as a catalogue row does:
+     - **A rule on an Agents-Core tool:** its catalogue row's slug as the table
+       writes it, with no prefix, whichever instruction states the rule, such as
+       a client instruction to call `read_history` before answering about
+       earlier work (`history`). The `cooperation` row holds five rules, its
+       clauses `register`, `claim`, `ack`, `request` and `agreement`, the last
+       for intersecting work settled by messages without a committed agreement.
+       Give each clause whose trigger occurred a row of its own with the slug
+       `cooperation-<clause>`, so repeats are counted per rule; no row takes the
+       bare `cooperation`.
+     - **A rule on one other tool,** one that names the tool and requires,
+       forbids or shapes its calls: `<server>.<tool>`, both parts taken from the
+       name the client exposes, so `mcp__ccd_session__mark_chapter` gives
+       `ccd-session.mark-chapter`. A plugin's skill `<plugin>:<skill>` has the
+       plugin as its server. A tool whose name carries no server (the client's
+       own tools, an unscoped skill or slash command) takes `client`, as in
+       `client.websearch`. Rules with different triggers on one tool share its
+       slug and count as one rule in repeats and in any per-slug count, as a
+       catalogue row's triggers do; the report's trigger column only says which
+       one fired, since a record holds no trigger. A `no-rule` tool and an
+       `uncatalogued` Agents-Core tool take this form too.
+     - **Any other rule,** on the answer itself or on a choice among several
+       tools: `rule.<name>`, with the name its source gives it, such as
+       `link2action`, or else a short English name of what it requires. Reuse
+       the `rule.` slug an earlier close's record gives the same rule, and name
+       a new one only when none does.
+
+     The instruction's source (`claude-md`, `agents-md`, `memory`, a hook's
+     file) never enters a slug, and a two-part slug never loses its first part:
+     a catalogue row's slug and a cooperation clause's slug hold no dot and
+     every other slug exactly one, so a record, which has no `ac-` or `tool-`
+     prefix, still tells them apart. A dot
+     joins the two parts, never a colon: the closing log's `record` (step 9)
+     accepts only lowercase letters and digits joined by single dots, dashes or
+     underscores, at most 64 characters. So lowercase each part, turn every run
+     of characters other than ASCII letters and digits into one dash, and trim
+     dashes from its ends. The first part may hold 31 characters and the second
+     32, so the dot and the second part always survive. A part over its limit
+     keeps its first characters up to the limit less 10, without a dash at
+     their end, then a dash, `h` and the first 8 hex digits of the SHA-256 of
+     the whole normalized part. A part that comes out empty becomes `h` and the
+     first 8 hex digits of the SHA-256 of the original name in UTF-8, so such
+     names stay apart. Names that differ only in case or in the characters
+     between their letters and digits, such as `A_B` and `a-b`, give the same
+     part, long or short, and count as one tool. Join the parts with the dot:
+     `My_Server` and `Send Report!` give `my-server.send-report`, and a server
+     named `工具` gives the part `h5ca6730d`.
 3. **What was called.** List every call of an installed tool with its turn, time,
    tool and status, and for Agents-Core calls the persona descriptor. The helper
    lists no call of every tool: `logging_calls` counts the `log_interaction`
@@ -471,16 +509,27 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 
    **Repeats escalate.** `read_history(tag="ac-missed-<slug>")` and
    `read_history(tag="tool-missed-<slug>")` list exactly the entries carrying that
-   tag, archived ones included. For `cooperation`, query both the current miss's
-   own clause tag (`ac-missed-cooperation-register`, `-claim`, `-ack`,
-   `-request` or `-agreement`, the last for intersecting work settled by
-   messages without a committed agreement) and the older unqualified
+   tag, archived ones included, where `<slug>` is the finding's slug from item 2.
+   For a `cooperation` clause, query both its own tag, such as
+   `ac-missed-cooperation-register`, and the older unqualified
    `ac-missed-cooperation`: only the same
    clause is a repeat, and an entry tagged without a clause counts only when its
    report names that clause. Page with
    `limit=500` and `offset` as step 9 describes, keep only closes (`#thread-close`
    without `#progress`), and also match the slug in earlier records' `findings`
-   at V1 or above. A V0 finding carries no miss tag (step 9) and never counts as
+   at V1 or above, where a bare `cooperation` counts as an entry tagged without
+   a clause. Closes written before item 2's **One rule, one slug** may name
+   a two-part slug's rule by its second part alone, after its instruction's
+   source or in other words, as `mark-chapter`, `claude-md.mark-chapter` and
+   `ccd-session.chapter-before-close` could each name
+   `ccd-session.mark-chapter`. So also query both `ac-missed-<part>` and
+   `tool-missed-<part>` for the second part alone, and read the earlier closes
+   themselves with `read_history(tag="thread-close")`, paged the same way,
+   because a close tagged only `#tool-missed-claude-md.mark-chapter` matches no
+   query above. In their records, match a slug that equals that part or ends in
+   a dot and that part, and one worded otherwise only after reading its report;
+   any such entry counts only when its report names the same rule. A V0 finding
+   carries no miss tag (step 9) and never counts as
    a repeat: it rests only on the compacted conversation, too weak to escalate.
    Take each earlier miss's `miss_at` and the patch's `applied_at` from the
    records; for a close without a record, read it whole with
@@ -529,7 +578,8 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    destination visibility. Verify each applied patch (the diff in place, the
    call's result) and report which were applied.
 
-**Catalogue.** The slug names the row in the report and in tags. The rows name
+**Catalogue.** The slug names the row in the report, in the closing record and
+in tags, bare as the table writes it (step 4.2). The rows name
 every statically registered Agents-Core tool; a test keeps those names complete.
 The `mcp-proxy` row covers the runtime family, whose installed names must come
 from the client's actual tool exposure.
@@ -709,10 +759,12 @@ a second call:
 - `record`: what this close found and cost, in the closed schema of
   [turn records](../docs/turn-records.md): `v` 1, `kind` `report`, `session`,
   `close_ordinal` (1 for a thread's first close), one `findings` item for each
-  tool-usage row that is not `n/a` (`slug`, `status`, `cause`, `level`, and
-  `miss_at`, the time of the trigger rather than of this close), one `patches`
-  item for each numbered patch (`id` its number, `layer`, `slug`, `state`, and
-  `applied_at` once applied), the step 5.3 verifier's counts as `verifier`,
+  tool-usage row that is not `n/a` (`slug`, the row's slug as step 4.2 names
+  it, `status`, `cause`, `level`, and `miss_at`, the time of the trigger rather
+  than of this close), one `patches` item for each numbered patch (`id` its
+  number, `layer`, `slug`, for a patch of a finding that finding's slug
+  unchanged, `state`, and `applied_at` once applied), the step 5.3 verifier's
+  counts as `verifier`,
   `prep_failures`, one `unexecutable` item for each instruction of this flow the
   close could not execute as written, and the inventory's `record` numbers. An
   answer `invalid_record` wrote nothing: correct what `record_errors` names and
@@ -730,13 +782,14 @@ In `apply` mode, also curate the call:
   `response_content`, with its artifacts, errors, open loops and how to resume;
 - `files`: the artifact paths;
 - `tags`: `#thread-close`, `#session-<id>`, and for each `missed` or `misused`
-  finding at V1 or above `#ac-missed-<slug>` (a catalogue row) or
-  `#tool-missed-<slug>` (another tool's rule), taken from the table rows, so an
-  `unavailable` or `caught` row gets none. For a row covering several rules, as
-  `cooperation` does, append the clause the thread broke in one word
-  (`#ac-missed-cooperation-register`, `-claim`, `-ack`, `-request`,
-  `-agreement`), so repeats are counted per rule. Add `#flow-unexec-<step>-<code>` for each item of report
-  section 3.
+  finding at V1 or above one tag whose `<slug>` is that finding's `slug` in
+  `record`, character for character: `#ac-missed-<slug>` for a slug without a
+  dot, a catalogue row's or a cooperation clause's
+  (`#ac-missed-cooperation-register`), and `#tool-missed-<slug>` for a two-part
+  slug (`#tool-missed-ccd-session.mark-chapter`), so an `unavailable` or
+  `caught` row gets none, two findings of one slug share one tag, and no finding
+  gets a second tag under another spelling. Add `#flow-unexec-<step>-<code>` for
+  each item of report section 3.
 
 A close that spans turns, for example while the verifier runs, logs each earlier
 turn's answer as progress, tagged `#thread-close`, `#session-<id>` and
