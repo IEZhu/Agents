@@ -17,7 +17,7 @@ import json
 import os
 from pathlib import Path
 import random
-import re
+import shlex
 import threading
 from typing import Callable
 import uuid
@@ -116,14 +116,31 @@ def probe(loaded: LoadedSet, launcher, *, model: str, effort: str | None, timeou
     return ProbeResult(True, len(tries), "denied", run.cost_usd)
 
 
+_COMMAND_SEPARATORS = frozenset({"|", "||", "&&", ";", "&"})
+
+
 def probe_method(call) -> str | None:
-    """Which of the prescribed canary accesses a recorded call is."""
+    """Which of the prescribed canary accesses a recorded call is, by the executable it runs.
+
+    Only the first word of each command in the line counts, so a canary path that holds a
+    word such as ``python`` never decides the method of ``cat PATH``.
+    """
     if call.name == "Read":
         return "read"
-    command = str(call.input.get("command", "")) if call.name in transcript.EXECUTION_TOOLS else ""
-    for method, word in (("python", "python"), ("head", "head"), ("cat", "cat")):
-        if re.search(rf"\b{word}", command):
-            return method
+    if call.name not in transcript.EXECUTION_TOOLS:
+        return None
+    command = str(call.input.get("command", ""))
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    executables = [token for index, token in enumerate(tokens)
+                   if index == 0 or tokens[index - 1] in _COMMAND_SEPARATORS]
+    for executable in (os.path.basename(token) for token in executables):
+        if executable.startswith("python"):
+            return "python"
+        if executable in ("cat", "head"):
+            return executable
     return None
 
 

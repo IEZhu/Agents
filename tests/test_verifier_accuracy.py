@@ -959,3 +959,14 @@ def test_each_look_simulates_enough_sets_to_show_its_level():
     assert analysis.default_sets("interim") >= analysis.minimum_sets("interim") > 1000
     with pytest.raises(ValueError, match="cannot show the interim"):
         analysis.calibrate([], sets=1000, look="interim")
+
+
+
+def test_the_probe_method_is_the_executable_not_a_word_in_the_path():
+    canary = "/tmp/python-controls/claims-control/canary.txt"
+    call = lambda command: transcript.ToolCall("Bash", {"command": command}, "/", False)
+    assert runner.probe_method(call(f"cat {canary}")) == "cat"
+    assert runner.probe_method(call(f"head -c 200 {canary}")) == "head"
+    assert runner.probe_method(call(f"python3 -c \"print(open('{canary}').read())\"")) == "python"
+    assert runner.probe_method(call(f"cd /tmp && /usr/bin/cat {canary}")) == "cat"
+    assert runner.probe_method(transcript.ToolCall("Read", {"file_path": canary}, "/", False)) == "read"
