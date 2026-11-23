@@ -44,6 +44,7 @@ Agents/
 │   │   ├── persona_bundle.py # Fresh instruction blocks and bundle revision
 │   │   ├── protocol_text.py # Every protocol surface, rendered from the section files in protocol/
 │   │   ├── readiness.py  # Background retrieval startup (warming_up)
+│   │   ├── warmup_estimate.py # Typical warmup time across starts, for the warming_up hint
 │   │   ├── skills.py     # Skill retrieval (vector search)
 │   │   ├── implants.py   # Implant retrieval (vector search)
 │   │   ├── rules.py      # Shared rule loading
@@ -58,6 +59,8 @@ Agents/
 │   │   ├── context.py    # Context retrieval (history formatting)
 │   │   └── language.py   # Language detection
 │   ├── memory/           # Repository summary, history, managed sections
+│   ├── claims/           # Validated-claims store: verdicts filtered into a confidence (claim_record, claim_lookup)
+│   ├── estimation/       # Scalar Kalman filter and the drifting-rate estimator
 │   ├── schemas/          # protocol.py (request, response, persona), tool_args.py (MCP argument types)
 │   └── utils/
 │       ├── prompt_loader.py

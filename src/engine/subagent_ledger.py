@@ -5,7 +5,10 @@ validation tools stay read-only by default. One JSON line per prepared package w
 execution and per validation of such a contract, in the installation's
 ``data/subagent-tiers/ledger.jsonl``. Task IDs are stored hashed. A write failure is logged
 and never fails the tool call. ``summarize`` shows per client, tier
-and model how often light workers were accepted without escalation.
+and model how often light workers were accepted without escalation, both as all-time
+counts and as a recent rate: the outcomes filtered in time order with fading memory
+(``src/estimation/rate.py``), so a model or client change shows up instead of being
+averaged away by months of history.
 """
 from __future__ import annotations
 
@@ -18,9 +21,14 @@ import os
 from pathlib import Path
 import threading
 
+from src.estimation import rate
+
 logger = logging.getLogger(__name__)
 
 LEDGER_MAX_BYTES = 5 * 1024 * 1024
+# How fast old outcomes stop counting in the recent acceptance rate: an outcome weighs
+# half as much after this many days. A chosen setting, not a measurement.
+ACCEPTANCE_HALF_LIFE_DAYS = 14.0
 _lock = threading.Lock()
 
 
@@ -101,9 +109,33 @@ def read_entries(path: Path | str | None = None) -> list[dict]:
     return entries
 
 
-def summarize(entries: list[dict]) -> list[dict]:
-    """Counts per (client, tier, model), in first-seen order."""
+def _timestamp(entry: dict) -> float | None:
+    try:
+        return dt.datetime.fromisoformat(str(entry["at"])).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _accepted(entry: dict) -> bool:
+    return bool(entry.get("valid")) and entry.get("status") == "completed" and not entry.get("escalation")
+
+
+def _recent(estimate, now: float) -> dict:
+    current = rate.forward(estimate, max(now, estimate.at), ACCEPTANCE_HALF_LIFE_DAYS)
+    low, high = rate.band(current)
+    return {"rate": round(current.mean, 3), "low": round(low, 3), "high": round(high, 3)}
+
+
+def summarize(entries: list[dict], now: float | None = None) -> list[dict]:
+    """Counts per (client, tier, model), in first-seen order, plus the recent acceptance rate.
+
+    ``recent_acceptance`` filters the timed validations in file order (the ledger is
+    append-only, so that is time order) and is carried to ``now``; it is ``None`` for a
+    row without one. Untimed entries still count but do not move the rate.
+    """
+    now = dt.datetime.now(dt.timezone.utc).timestamp() if now is None else now
     rows: dict[tuple, dict] = {}
+    estimates: dict[tuple, object] = {}
     for entry in entries:
         key = (entry.get("client") or "unknown", entry.get("tier"), entry.get("model") or "inherit")
         row = rows.setdefault(key, {"client": key[0], "tier": key[1], "model": key[2], "prepared": 0,
@@ -116,15 +148,27 @@ def summarize(entries: list[dict]) -> list[dict]:
                 row["invalid"] += 1
             if entry.get("escalation"):
                 row["escalations"][entry["escalation"]] += 1
-            elif entry.get("valid") and entry.get("status") == "completed":
+            elif _accepted(entry):
                 row["accepted"] += 1
-    return [{**row, "escalations": dict(row["escalations"])} for row in rows.values()]
+            at = _timestamp(entry)
+            if at is not None:
+                estimate = estimates.get(key) or rate.prior(at)
+                estimates[key] = rate.observe(estimate, _accepted(entry), at, ACCEPTANCE_HALF_LIFE_DAYS)
+    return [{**row, "escalations": dict(row["escalations"]),
+             "recent_acceptance": _recent(estimates[key], now) if key in estimates else None}
+            for key, row in rows.items()]
+
+
+def _recent_cell(recent: dict | None) -> str:
+    if not recent:
+        return "-"
+    return f"{recent['rate']:.0%} ({recent['low']:.0%}-{recent['high']:.0%})"
 
 
 def format_table(rows: list[dict]) -> str:
-    header = ("client", "tier", "model", "prepared", "validated", "accepted", "invalid", "escalations")
+    header = ("client", "tier", "model", "prepared", "validated", "accepted", "recent", "invalid", "escalations")
     table = [header] + [(row["client"], row["tier"], row["model"], str(row["prepared"]), str(row["validated"]),
-                         str(row["accepted"]), str(row["invalid"]),
+                         str(row["accepted"]), _recent_cell(row.get("recent_acceptance")), str(row["invalid"]),
                          ", ".join(f"{tier}={count}" for tier, count in row["escalations"].items()) or "-")
                         for row in rows]
     widths = [max(len(line[column]) for line in table) for column in range(len(header))]

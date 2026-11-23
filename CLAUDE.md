@@ -372,6 +372,13 @@ preserve them.
   web UI's Memory tab also shows, `src/memory/shared.py` skips secret-bearing
   files, keeps each fact's sources and builds the semantic index in the
   background ([docs/shared-memory.md](docs/shared-memory.md)).
+- `claim_record(...)` and `claim_lookup(...)` keep verdicts about factual claims
+  per workspace in `data/claims/claims.jsonl` (`src/claims/`). A claim's verdicts
+  run through the exact two-state Bayes filter of `src/claims/model.py`, with one
+  hidden reading per family of verifiers that fail together; its accuracies and
+  volatilities are priors, not measurements
+  ([docs/validated-claims.md](docs/validated-claims.md)). `src/estimation/` holds
+  the Kalman filter behind the warmup hint and the ledger's recent acceptance rate.
 - Preserve unrelated Repository Memory sections and user instructions when
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
   for the current contracts, compatibility behavior and migration procedure.

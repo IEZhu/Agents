@@ -9,6 +9,7 @@ the argument is checked against the client's own MCP roots, is untouched.
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -342,7 +343,7 @@ def test_the_fallback_journal_remedy_is_narrow_too():
 
 @pytest.mark.asyncio
 async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_argument(repositories):
-    """log_interaction and read_history never refuse (#576): the note says what was not followed."""
+    """log_interaction, read_history and claim_lookup never refuse (#576): the note says what was not followed."""
     registered, other, inside = repositories
     ctx = http_context(registered)
 
@@ -353,7 +354,10 @@ async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_
     async def read(named):
         return json.loads(await server.read_history(ctx=ctx, workspace=named))
 
-    for call in (log, read):
+    async def lookup(named):
+        return json.loads(await server.claim_lookup(ctx=ctx, workspace=named))
+
+    for call in (log, read, lookup):
         ignored = await call(str(other))
         # The workspace actually used is the registered one, exactly as without a note.
         assert ignored["workspace"]["root"] == str(registered)
@@ -365,6 +369,22 @@ async def test_history_tools_keep_the_registered_workspace_and_note_the_ignored_
             answered = await call(named)
             assert "workspace_note" not in answered
             assert answered["workspace"]["root"] == str(registered)
+
+
+@pytest.mark.asyncio
+async def test_claim_record_refuses_another_workspace_and_writes_nothing(repositories):
+    """A verdict checked in repository B must not be stored as if it belonged to A (#576)."""
+    registered, other, inside = repositories
+    ctx = http_context(registered)
+    refused = json.loads(await server.claim_record(subject="s", claim="c", verdict="confirmed", level="V2",
+                                                   ctx=ctx, workspace=str(other)))
+    assert refused["status"] == "error" and refused["code"] == "workspace_mismatch"
+    assert refused["registered_workspace"] == str(registered)
+    assert not (registered / "data" / "claims").exists() and not (other / "data" / "claims").exists()
+    for named in (str(registered), str(inside), None):
+        recorded = json.loads(await server.claim_record(subject="s", claim="c", verdict="confirmed",
+                                                        level="V2", ctx=ctx, workspace=named))
+        assert recorded["status"] == "recorded" and recorded["workspace"]["root"] == str(registered)
 
 
 @pytest.mark.asyncio
@@ -387,8 +407,15 @@ REPOSITORY_TOOLS = frozenset({"describe_repo", "write_repo_summary", "run_flow",
 FLOW_TOOLS = frozenset({"get_flow", "save_flow", "delete_flow", "set_flow_persona"})
 ACTIVATION_TOOLS = frozenset({"route_and_load", "get_agent_context"})
 HISTORY_TOOLS = frozenset({"log_interaction", "read_history"})
+# The writer refuses a workspace the grant does not cover; the reader notes it like history.
+CLAIM_WRITE_TOOLS = frozenset({"claim_record"})
+CLAIM_READ_TOOLS = frozenset({"claim_lookup"})
+CLAIM_TOOLS = CLAIM_WRITE_TOOLS | CLAIM_READ_TOOLS
+# Takes the shared parameter, and its docstring does not yet say what an argument outside the
+# grant does; pinned here so the set stays exact.
+SHARED_MEMORY_TOOLS = frozenset({"read_shared_memory"})
 WORKSPACE_TOOLS = (COOPERATION_TOOLS | REPOSITORY_TOOLS | FLOW_TOOLS | ACTIVATION_TOOLS
-                   | HISTORY_TOOLS)
+                   | HISTORY_TOOLS | CLAIM_TOOLS | SHARED_MEMORY_TOOLS)
 
 
 @pytest.mark.asyncio
@@ -413,11 +440,11 @@ async def test_the_workspace_parameter_is_true_for_every_tool_that_shares_it():
         assert "never followed" not in description, name
     for name in COOPERATION_TOOLS:
         assert "checkout grant" in docstrings[name], name
-    for name in REPOSITORY_TOOLS | FLOW_TOOLS:
+    for name in REPOSITORY_TOOLS | FLOW_TOOLS | CLAIM_WRITE_TOOLS:
         assert "workspace_mismatch" in docstrings[name], name
     for name in ACTIVATION_TOOLS:
         assert "repo_context" in docstrings[name], name
-    for name in HISTORY_TOOLS:
+    for name in HISTORY_TOOLS | CLAIM_READ_TOOLS:
         assert "workspace_note" in docstrings[name], name
 
 
@@ -518,6 +545,11 @@ async def test_a_registered_root_named_under_another_spelling_is_noted_not_refus
     registered = registered.resolve()
     if not _case_insensitive(registered):
         pytest.skip("this filesystem holds the two spellings apart")
+    if sys.platform == "win32":
+        # Seen in CI: there the respelled name resolves to the registered root itself, so it is
+        # neither a mismatch nor a respelling and no note is due; the refusal this test guards
+        # against cannot arise.
+        pytest.skip("Path.resolve() returns the directory's own spelling on Windows")
     respelled = str(registered.with_name(registered.name.lower()))
     assert respelled != str(registered) and Path(respelled).samefile(registered)
     ctx = http_context(registered)

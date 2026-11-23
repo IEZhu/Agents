@@ -57,6 +57,14 @@ on:
       - src/memory/native.py
       - src/memory/shared.py
       - tests/test_shared_memory.py
+      - src/claims/**
+      - src/estimation/**
+      - src/engine/warmup_estimate.py
+      - src/engine/subagent_ledger.py
+      - tests/test_claims.py
+      - tests/test_estimation_*.py
+      - tests/test_warmup_estimate.py
+      - tests/test_tool_annotations.py
       - rules/subagents/**
       - tests/test_artifact*.py
       - tests/test_cooperation*.py
@@ -142,6 +150,14 @@ on:
       - src/memory/native.py
       - src/memory/shared.py
       - tests/test_shared_memory.py
+      - src/claims/**
+      - src/estimation/**
+      - src/engine/warmup_estimate.py
+      - src/engine/subagent_ledger.py
+      - tests/test_claims.py
+      - tests/test_estimation_*.py
+      - tests/test_warmup_estimate.py
+      - tests/test_tool_annotations.py
       - rules/subagents/**
       - tests/test_artifact*.py
       - tests/test_cooperation*.py
@@ -227,6 +243,8 @@ jobs:
           -q -p no:cacheprovider
       - name: Cooperation notifications, request states and MCP privacy
         run: python -B -m pytest tests/test_cooperation_mailbox.py tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_service.py tests/test_cooperation_models.py tests/test_cooperation_mcp.py tests/test_cooperation_runtime_integration.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q -p no:cacheprovider
+      - name: Validated claims, the Kalman estimators and the tool hints
+        run: python -B -m pytest tests/test_estimation_kalman.py tests/test_estimation_rate.py tests/test_claims.py tests/test_warmup_estimate.py tests/test_subagent_ledger.py tests/test_tool_annotations.py -q -p no:cacheprovider
       - name: Lazy log worker startup and async writes
         run: python -B -m pytest tests/test_log_interaction_async.py tests/test_log_worker_startup.py -q -p no:cacheprovider
       - name: POSIX fake native and Redis boundaries, runtime identity, update admission and the stdio updater
