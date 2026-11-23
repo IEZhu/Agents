@@ -238,10 +238,16 @@ def test_the_store_is_private(store):
 
 
 def test_malformed_lines_are_skipped(store):
-    record(store)
+    key = record(store)["claim"]["key"]
+    good = json.loads(store.path.read_text(encoding="utf-8"))
+    broken = [{**good, "at": "yesterday"}, {**good, "level": "V9"}, {**good, "verdict": None},
+              {**good, "volatility": "fast"}, {**good, "subject": 3}, {**good, "v": 2}]
     with store.path.open("a", encoding="utf-8") as handle:
         handle.write("not json\n[1]\n{\"v\": 1, \"key\": \"nope\"}\n")
-    assert len(store.claims()) == 1
+        for event in broken:
+            handle.write(json.dumps(event) + "\n")
+    assert len(store.claims()) == 1 and len(store.get(key).events) == 1
+    assert store.get(key).assess(START).state == "supported"
 
 
 def test_search_filters_by_text_and_state_and_orders_a_state_as_a_queue(store, clock):

@@ -112,6 +112,22 @@ def _attestation(contract_revision: object, result_sha256: object) -> dict | Non
     return {"contract_revision": contract_revision, "result_sha256": result_sha256}
 
 
+def _well_formed(event: object) -> bool:
+    """A line the filter can use; anything else (a hand edit, a torn write) is skipped, not fatal."""
+    if not isinstance(event, dict) or event.get("v") != FORMAT_VERSION:
+        return False
+    try:
+        _seconds(event["at"])
+    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+        return False
+    return (isinstance(event.get("key"), str) and bool(KEY.match(event["key"]))
+            and isinstance(event.get("subject"), str) and isinstance(event.get("claim"), str)
+            and event.get("verdict") in model.VERDICTS and event.get("level") in model.LEVEL_ORDER
+            and event.get("importance") in model.IMPORTANCE_ORDER
+            and event.get("volatility") in model.VOLATILITY_ORDER
+            and isinstance(event.get("evidence", []), list))
+
+
 @dataclass(frozen=True)
 class Claim:
     """Every verdict recorded for one key, oldest first."""
@@ -187,7 +203,7 @@ class ClaimStore:
                 event = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(event, dict) and event.get("v") == FORMAT_VERSION and KEY.match(str(event.get("key"))):
+            if _well_formed(event):
                 events.append(event)
         return events
 
