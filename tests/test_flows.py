@@ -573,15 +573,30 @@ def test_thread_close_dates_misses_and_keeps_the_report_entry_distinct():
         assert phrase in text, phrase
 
 
-def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
-    """Another tool's slug is one the closing record accepts; agreement is a cooperation clause."""
+def _slug_part(name: str, limit: int) -> str:
+    """One slug part as thread-close step 4.2 describes it, applied as written."""
     import re
 
+    kept = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if not kept:
+        return "h" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+    if len(kept) <= limit:
+        return kept
+    digest = hashlib.sha256(kept.encode("utf-8")).hexdigest()[:8]
+    return kept[:limit - 10].rstrip("-") + "-h" + digest
+
+
+def _two_part_slug(first: str, second: str) -> str:
+    return _slug_part(first, 31) + "." + _slug_part(second, 32)
+
+
+def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
+    """Another tool's slug is one the closing record accepts; agreement is a cooperation clause."""
     from src.memory.record import validate
 
     text = " ".join(FlowCatalog().load("thread-close").content.split())
-    assert "with the slug `<server-or-skill>.<rule>`" in text
-    assert "`<server-or-skill>:<rule>`" not in text
+    assert "`<server>.<tool>`, both parts taken from the name the client exposes" in text
+    assert "<server-or-skill>" not in text and "`<server>:<tool>`" not in text
     finding = {"status": "missed", "cause": "ignored", "level": "V2"}
     accepted, problems = validate({"v": 1, "kind": "report",
                                    "findings": [{**finding, "slug": "ccd-turn.wrap-up"}]})
@@ -590,18 +605,7 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
                                   "findings": [{**finding, "slug": "ccd-turn:wrap-up"}]})
     assert refused is None and problems
 
-    def part(name: str, limit: int) -> str:
-        # One part as step 4.2 describes it, applied as written.
-        kept = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-        if not kept:
-            return "h" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
-        if len(kept) <= limit:
-            return kept
-        digest = hashlib.sha256(kept.encode("utf-8")).hexdigest()[:8]
-        return kept[:limit - 10].rstrip("-") + "-h" + digest
-
-    def slug(server: str, rule: str) -> str:
-        return part(server, 31) + "." + part(rule, 32)
+    part, slug = _slug_part, _two_part_slug
 
     assert ("`My_Server` and `Send Report!` give `my-server.send-report`" in text
             and slug("My_Server", "Send Report!") == "my-server.send-report")
@@ -621,10 +625,63 @@ def test_thread_close_slugs_fit_the_record_and_agreement_is_a_clause():
         accepted, problems = validate({"v": 1, "kind": "report",
                                        "findings": [{**finding, "slug": value}]})
         assert accepted is not None, (server, rule, value, problems)
-        assert value.split(".")[1], value  # the rule part always survives
-    for phrase in ("`-request` or `-agreement`, the last for intersecting work settled by messages",
-                   "`-request`, `-agreement`), so repeats are counted per rule"):
+        assert value.split(".")[1], value  # the second part always survives
+    for phrase in ("clauses `register`, `claim`, `ack`, `request` and `agreement`, the last "
+                   "for intersecting work settled by messages without a committed agreement",
+                   "with the slug `cooperation-<clause>`, so repeats are counted per rule"):
         assert phrase in text, phrase
+
+
+def test_thread_close_names_each_rule_by_one_slug():
+    """A slug names the rule, not the file that states it, and record, tag and repeat search share it."""
+    from src.memory.record import validate
+
+    content = FlowCatalog().load("thread-close").content
+    text = " ".join(content.split())
+    for phrase in ("A slug names the rule, never the place that states it",
+                   "so a rule keeps its slug when a patch moves it from memory to an instruction file or a hook",
+                   "Each rule gets exactly one of these slugs",
+                   "its catalogue row's slug as the table writes it, with no prefix, "
+                   "whichever instruction states the rule",
+                   "no row takes the bare `cooperation`",
+                   "takes `client`, as in `client.websearch`",
+                   "`rule.<name>`, with the name its source gives it",
+                   "Reuse the `rule.` slug an earlier close's record gives the same rule",
+                   "The instruction's source (`claude-md`, `agents-md`, `memory`, a hook's file) never enters a slug",
+                   "a catalogue slug holds no dot and every other slug exactly one",
+                   # The record, the patch and the tag carry one spelling.
+                   "`slug`, the row's slug as step 4.2 names it",
+                   "for a patch of a finding that finding's slug unchanged",
+                   "one tag whose `<slug>` is that finding's `slug` in `record`, character for character",
+                   "no finding gets a second tag under another spelling",
+                   # Repeats still reach the closes written before the rule.
+                   "as `mark-chapter` and `claude-md.mark-chapter` name `ccd-session.mark-chapter`",
+                   "Query the tag for the second part alone too",
+                   "such an entry counts only when its report names the same rule",
+                   "where a bare `cooperation` counts as an entry tagged without a clause does"):
+        assert phrase in text, phrase
+
+    # The worked example is the rule applied to the name the client exposes.
+    assert "so `mcp__ccd_session__mark_chapter` gives `ccd-session.mark-chapter`" in text
+    for exposed, expected in (("mcp__ccd_session__mark_chapter", "ccd-session.mark-chapter"),
+                              ("mcp__ccd_turn__wrap_up", "ccd-turn.wrap-up"),
+                              ("mcp__Claude_Browser__navigate", "claude-browser.navigate")):
+        server, tool = exposed.split("__")[1:]
+        assert _two_part_slug(server, tool) == expected, exposed
+    assert "`#tool-missed-ccd-session.mark-chapter`" in text
+
+    # A catalogue slug has no dot, so the dot alone separates it from every other slug,
+    # and no row's slug can be mistaken for a cooperation clause.
+    table = content.split("**Catalogue.**", 1)[1].split("\n## ", 1)[0]
+    catalogue = [line.split("|")[1].strip(" `") for line in table.splitlines() if line.startswith("| `")]
+    assert "cooperation" in catalogue
+    assert [slug for slug in catalogue if "." in slug or slug.startswith("cooperation-")] == []
+    finding = {"status": "missed", "cause": "ignored", "level": "V2"}
+    for value in ("cooperation-register", "cooperation-agreement", "ccd-session.mark-chapter",
+                  "client.websearch", "rule.link2action"):
+        accepted, problems = validate({"v": 1, "kind": "report",
+                                       "findings": [{**finding, "slug": value}]})
+        assert accepted is not None, (value, problems)
 
 
 def test_thread_close_ladder_makes_a_hook_on_an_irreversible_call_a_gate():

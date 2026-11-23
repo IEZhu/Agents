@@ -41,6 +41,8 @@ Counts are integers from 0 to 100,000; `true` is not a count. The enumerated val
 
 A slug is lowercase letters and digits joined by single dots, dashes or underscores, at most 64 characters: a session id, a catalogue slug, a step number such as `5.3`, an error code. A time is ISO 8601 with its offset; it is stored in UTC as `YYYY-MM-DDTHH:MM:SS+00:00`, the form of the journal's own entry times, so the two compare as text. `miss_at` is the time of the trigger the finding is about, not the time of the close; `applied_at` is the time the patch was applied.
 
+A finding's `slug` names one rule, and the thread-close flow gives each rule exactly one, whichever instruction states it ([step 4.2, **One rule, one slug**](../flows/thread-close.md#4-audit-tool-usage)): a catalogue slug without a dot for an Agents-Core tool, `cooperation-<clause>` for each cooperation clause, `<server>.<tool>` for a rule on another tool, such as `ccd-session.mark-chapter`, and `rule.<name>` for any other rule. A patch of a finding carries that finding's slug, and the finding's miss tag carries the same slug. Records written before that rule may name one rule under several slugs, such as `mark-chapter`, `claude-md.mark-chapter` and `ccd-session.mark-chapter`. The journal keeps them as written, and the flow's **Repeats escalate** says how a close still matches them.
+
 What the server does with it:
 
 - **Nested, never merged.** The record goes under `metadata.record`. `metadata` also holds the server's own keys, `_agents_write` (the idempotent-write receipt) and `claimed_workspace` (the fallback journal's owner), which replay and `fallback.matches` trust; a record cannot reach them.
