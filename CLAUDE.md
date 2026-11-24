@@ -89,7 +89,11 @@ activate a persona before the first final answer, including a greeting or a
 project-status question. Do this without waiting for the user to mention
 Agents-Core, a role, the footer, or logging. Load an explicitly requested known
 role with `get_agent_context`; otherwise call `route_and_load` with the user's
-request, `protocol_version=2` and `current_persona=null`.
+request, `protocol_version=2` and `current_persona=null`. When the client lists
+the Agents-Core tools as deferred, load `route_and_load`, `get_agent_context` and
+`log_interaction` together with one exact-name selection before the first call,
+instead of a keyword search; in Claude Code that is ToolSearch with `select:` and
+the three names exactly as the client lists them.
 
 The Claude desktop app adds its own `Agents-Core-Desktop` server to its Code
 sessions; Claude Code denies it there but may still list its tools. When both
