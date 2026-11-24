@@ -34,6 +34,13 @@ input prevents further progress, finish independent work before handing off as
 An optional question during ongoing work does not establish a handoff. Never
 set an attention status and then continue autonomous work.
 
+Set the attention status last in the turn: after the final `log_interaction` and
+any closing call that the answer still follows, right before the answer itself,
+or immediately before a closing call that shows no text after it. Until then keep
+`working` or `waiting`, so the title never calls the user to a result that is not
+on screen yet. A hook that sends the turn back for more work returns it to
+`working` until the answer is delivered again.
+
 At a closure-audit handoff, use `finishing` when required obligations remain,
 unless essential input or required human approval calls for `needs_user`/`review`.
 This means the remaining required work needs to be finished; the task is still
