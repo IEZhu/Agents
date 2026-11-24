@@ -221,3 +221,37 @@ def test_marker_is_the_first_line(body, expected):
 ])
 def test_a_graphql_author_is_trusted_only_as_an_allowlisted_bot_node(author, expected):
     assert pr_threads.trusted(pr_threads.graphql_user({"author": author})) is expected
+
+
+# A reviewer can answer after its thread was resolved, or resolve its own thread and reply
+# in it ("not marking the finding as addressed yet"): read only for unresolved threads, such
+# a reply is never seen, which is how two findings on #735 reached the merge unanswered.
+LATE = thread("T_late", 7, comment(71, BOT, "Late finding"), comment(72, BOT, "Not addressed yet"), resolved=True)
+
+
+def test_a_resolved_thread_where_someone_else_spoke_last_is_listed(monkeypatch, capsys, fake_gh):
+    monkeypatch.setitem(globals(), "THREADS", [*THREADS, LATE])
+    run(monkeypatch, "7")
+    out = capsys.readouterr().out
+    assert "#7 head aaaaaaa: 4 unresolved of 6 threads, 1 resolved with the last word not yours\n" in out
+    assert "  LAST WORD NOT YOURS src/x.py:7 coderabbitai c71, resolved; last: coderabbitai c72\n    Late finding\n" in out
+    assert "Old finding" not in out  # resolved, and the account spoke last
+    # The listing needs no new field: the default query still reads no last-comment body.
+    assert [args[3] for args in fake_gh if args[:2] == ("api", "graphql")] == [f"query={pr_threads.QUERY}"]
+
+
+def test_resolve_mine_still_lists_but_never_touches_a_resolved_thread(monkeypatch, capsys, fake_gh):
+    monkeypatch.setitem(globals(), "THREADS", [*THREADS, LATE])
+    run(monkeypatch, "7", "--resolve-mine")
+    out = capsys.readouterr().out
+    assert "  LAST WORD NOT YOURS src/x.py:7 coderabbitai c71" in out
+    assert all('threadId:"T_late"' not in m for m in mutations(fake_gh))
+
+
+def test_autodev_mode_marks_the_trust_of_the_last_word(monkeypatch, capsys, fake_gh):
+    monkeypatch.setitem(globals(), "THREADS", [*THREADS, LATE])
+    run(monkeypatch, "7", "--mode", "autodev")
+    out = capsys.readouterr().out
+    assert "  LAST WORD NOT YOURS src/x.py:7 coderabbitai c71, resolved; last: coderabbitai c72 TRUSTED\n" in out
+    # The shared account's last word on a resolved thread is the owner's or the agent's: not listed.
+    assert "src/x.py:4" not in out
