@@ -300,6 +300,20 @@ Table: term | definition. Domain-specific terms only. Max 15.
 _PLACEHOLDER = re.compile(r"\{(REPO_NAME|WORD_MIN|WORD_MAX|CONTEXT_BUNDLE)\}")
 
 
+def in_git_work_tree(path: str | os.PathLike) -> bool:
+    """True when *path* or one of its parents holds a ``.git`` file or directory.
+
+    A linked worktree's ``.git`` is a file pointing at the common directory, so existence is
+    tested, not ``is_dir``. A plain folder (a task directory, a download folder) is not a
+    repository, however many files it holds, and has nothing to describe (#734).
+    """
+    try:
+        start = Path(os.path.abspath(path))
+        return any((parent / ".git").exists() for parent in (start, *start.parents))
+    except (OSError, ValueError):
+        return False
+
+
 @dataclass
 class DescribeDecision:
     """Outcome of ``RepoDescriber.plan()``."""

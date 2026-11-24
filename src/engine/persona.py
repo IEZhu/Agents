@@ -342,6 +342,7 @@ async def _repo_context(ctx, workspace) -> dict | None:
     """The describe_repo result for this activation's workspace, or None with nothing to report."""
     from src.daemon.workspaces import (WorkspaceError, WorkspaceMismatch,
                                        resolve_client_context)
+    from src.memory.describer import in_git_work_tree
     if ctx is None and os.environ.get("AGENTS_TRANSPORT") == "http":
         # Over HTTP only the request carries the workspace, and an activation call that does not
         # forward its MCP context cannot see it: report nothing rather than guess a repository.
@@ -361,6 +362,9 @@ async def _repo_context(ctx, workspace) -> dict | None:
         return _unavailable_report(client, failure)
     if _summary_file_escapes(root):
         return _unsafe_report(client, root)
+    if not in_git_work_tree(root):
+        # A plain folder has nothing to describe: no needs_summary, no prompt (#734).
+        return None
     return await asyncio.to_thread(_describe_workspace, root, workspace_id,
                                    _caller_identity(client),
                                    None if root == registered else registered)

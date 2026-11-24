@@ -22,6 +22,8 @@ from src.result_size import shown_size
 
 def _seed_repo(root: Path) -> None:
     """Minimal but realistic repo structure."""
+    if not (root / ".git").exists():
+        (root / ".git").mkdir()
     (root / "src").mkdir()
     (root / "src" / "main.py").write_text("print('hi')\n")
     (root / "tests").mkdir()

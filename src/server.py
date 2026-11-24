@@ -64,7 +64,7 @@ from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS,
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.utils import debug_logger
-from src.memory.describer import RepoDescriber
+from src.memory.describer import RepoDescriber, in_git_work_tree
 from src.memory import fallback
 from src.memory import record as turn_record
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
@@ -2079,6 +2079,7 @@ async def describe_repo(
       up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
       needs_summary (refresh required; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
+      not_a_repository (no .git at or above repo_path): {status, repo_path, instruction}
       error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
         and, from a server the Claude desktop app started, hint; a workspace outside
         the registered root adds code=workspace_mismatch, registered_workspace,
@@ -2095,6 +2096,17 @@ async def describe_repo(
             "repo_path": repo_path,
             "force_refresh": force_refresh,
         })
+        if not in_git_work_tree(repo_path):
+            payload = {
+                "status": "not_a_repository",
+                "repo_path": repo_path,
+                "instruction": (
+                    "This folder is not inside a git repository, so no repository description "
+                    "applies; continue your task without one."
+                ),
+            }
+            debug_log("describe_repo", "res", payload)
+            return json.dumps(payload, ensure_ascii=False)
         loop = asyncio.get_running_loop()
         describer = RepoDescriber(repo_path=repo_path)
 
@@ -2164,6 +2176,7 @@ async def write_repo_summary(
 
     Returns JSON whose fields depend on status:
       refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
+      error, no .git at or above repo_path: {status, code=not_a_repository, error}; writes nothing
       rejected, protected installation/source root or stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
@@ -2185,6 +2198,15 @@ async def write_repo_summary(
             "repo_hash": repo_hash,
             "summary_len": len(summary),
         })
+        if not in_git_work_tree(repo_path):
+            payload = {
+                "status": "error",
+                "code": "not_a_repository",
+                "error": (f"not_a_repository: {repo_path} is not inside a git repository, "
+                          "so no summary was written"),
+            }
+            debug_log("write_repo_summary", "error", payload)
+            return json.dumps(payload, ensure_ascii=False)
         loop = asyncio.get_running_loop()
         describer = RepoDescriber(repo_path=repo_path)
         payload = await loop.run_in_executor(

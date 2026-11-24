@@ -168,8 +168,8 @@ async def test_worktree_normalization_protects_installation_but_explicit_target_
     (gitdir / "commondir").write_text("../..\n")
     worktree = repo / ".worktrees" / "feature"
     worktree.mkdir(parents=True)
-    _seed_repo(worktree)
     (worktree / ".git").write_text(f"gitdir: {gitdir}\n")
+    _seed_repo(worktree)
     monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
     ctx = SimpleNamespace(session=SimpleNamespace(
         check_client_capability=lambda _: True,
@@ -220,8 +220,8 @@ async def test_external_worktree_needs_physical_memory_root_override(repo, monke
     (gitdir / "commondir").write_text("../..\n")
     worktree = repo.parent / "external-worktree"
     worktree.mkdir()
-    _seed_repo(worktree)
     (worktree / ".git").write_text(f"gitdir: {gitdir}\n")
+    _seed_repo(worktree)
     monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
     ctx = SimpleNamespace(session=SimpleNamespace(
         check_client_capability=lambda _: True,
@@ -342,12 +342,59 @@ async def test_memory_tools_use_an_empty_session_folder(tmp_path, monkeypatch):
         history = json.loads(await server.read_history())
         assert [entry["intent"] for entry in history["entries"]] == ["q"]
         assert (plain / "history.md").is_file()
+        # A plain folder is not a repository: nothing to describe, nothing to write (#734).
         described = await _describe()
-        assert described["status"] == "needs_summary"
+        assert described["status"] == "not_a_repository"
         assert described["repo_path"] == str(plain.resolve())
-        written = await _write(described, _valid_summary())
-        assert written["status"] in ("written", "refreshed")
-        assert _section(plain) is not None
+        assert not (plain / "CLAUDE.md").exists()
         assert not (plain / ".git").exists()
     finally:
         engine_config._reset_client_repo_root_cache()
+
+
+@pytest.fixture
+def plain_folder(tmp_path, monkeypatch):
+    """A task folder with two data files and no .git at or above it, as the client root."""
+    folder = tmp_path / "task"
+    folder.mkdir()
+    (folder / "data.csv").write_text("a,b\n1,2\n")
+    (folder / "notes.txt").write_text("notes\n")
+    monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(folder))
+    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+    engine_config._reset_client_repo_root_cache()
+    yield folder.resolve()
+    engine_config._reset_client_repo_root_cache()
+
+
+@pytest.mark.asyncio
+async def test_describe_repo_in_a_plain_folder_is_not_a_repository(plain_folder):
+    described = await _describe()
+    assert set(described) == {"status", "repo_path", "instruction"}
+    assert described["status"] == "not_a_repository"
+    assert described["repo_path"] == str(plain_folder)
+    assert "prompt" not in described and "repo_hash" not in described
+    forced = await _describe(force_refresh=True)
+    assert forced["status"] == "not_a_repository"
+    assert sorted(path.name for path in plain_folder.iterdir()) == ["data.csv", "notes.txt"]
+
+
+@pytest.mark.asyncio
+async def test_write_repo_summary_in_a_plain_folder_refuses_and_writes_nothing(plain_folder):
+    written = json.loads(await server.write_repo_summary(
+        summary=_valid_summary(), repo_hash="0" * 32, repo_path=str(plain_folder)))
+    assert written["status"] == "error" and written["code"] == "not_a_repository"
+    assert "not_a_repository" in written["error"]
+    assert sorted(path.name for path in plain_folder.iterdir()) == ["data.csv", "notes.txt"]
+
+
+@pytest.mark.asyncio
+async def test_a_dot_git_file_or_directory_above_the_path_makes_it_a_repository(repo):
+    nested = repo / "src" / "pkg"
+    nested.mkdir()
+    assert describer_module.in_git_work_tree(nested)
+    # A linked worktree's .git is a file, not a directory.
+    (repo / ".git").rmdir()
+    (repo / ".git").write_text("gitdir: /elsewhere/.git/worktrees/x\n")
+    assert describer_module.in_git_work_tree(nested)
+    (repo / ".git").unlink()
+    assert not describer_module.in_git_work_tree(nested)

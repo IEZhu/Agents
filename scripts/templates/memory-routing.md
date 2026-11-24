@@ -24,7 +24,7 @@ Use cooperation_send, cooperation_receive and cooperation_ack on the shared MCP 
 
 Before changing another session's branch, worktree, pull request, host or service, message the owning session and wait for its answer. If it does not answer, ask the user; silence and delivery acknowledgement are not consent. Explicit user authorization remains authoritative.
 
-For ordinary conversations, the first time you read, search or change repository files, when describe_repo is available, call describe_repo with workspace and the target repo_path before ad hoc exploration. On needs_summary, follow its instruction; call write_repo_summary only where that instruction allows a write. When describe_repo is unavailable, report that limitation and use the documented manual role fallback without claiming a loaded repository description.
+For ordinary conversations, the first time you read, search or change files in a git repository, when describe_repo is available, call describe_repo with workspace and the target repo_path before ad hoc exploration. On needs_summary, follow its instruction; call write_repo_summary only where that instruction allows a write. On not_a_repository nothing further is needed. When describe_repo is unavailable, report that limitation and use the documented manual role fallback without claiming a loaded repository description.
 
 The following activation and logging steps apply to ordinary conversations.
 Before the first final answer, when MCP is available and there is no prior persona
