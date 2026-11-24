@@ -1736,94 +1736,33 @@ def _short_action(value: str) -> str:
 @mcp.tool(**TOOL_HINTS["log_interaction"])
 async def log_interaction(
     agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
-    query: Annotated[str, Field(description="The current user request verbatim, except that secrets and capability values become safe references and prohibited personal details are omitted.")],
-    response_content: Annotated[str, Field(description="The exact final answer text, without any time line, with secrets and capability values replaced by safe references and prohibited personal details omitted.")],
-    request_id: ta.opt_str("Optional request id for correlation.") = None,
-    reasoning: ta.opt_str("Optional short reason for the selection.") = None,
-    intent: ta.opt_str("Optional curated intent; defaults to query.") = None,
-    action: ta.opt_str("Optional curated action; defaults to the agent name.") = None,
-    outcome: ta.opt_str("Optional curated outcome; defaults to response_content.") = None,
+    query: Annotated[str, Field(description="The current user request verbatim, redacted as described.")],
+    response_content: Annotated[str, Field(description="The exact final answer with its footer, redacted, no time line.")],
+    request_id: ta.opt_str("Correlation id.") = None,
+    reasoning: ta.opt_str("Why this agent.") = None,
+    intent: ta.opt_str("Curated intent; default query.") = None,
+    action: ta.opt_str("Curated action; default the agent name.") = None,
+    outcome: ta.opt_str("Curated outcome; default response_content.") = None,
     files: ta.str_list(ta.LOG_FILES_DESC) = None,
     tags: ta.str_list(ta.LOG_TAGS_DESC, separators=r"[,\s]+") = None,
     persona: ta.persona_arg(ta.LOG_PERSONA_DESC) = None,
     persona_action: ta.opt_str(ta.LOG_PERSONA_ACTION_DESC) = None,
     ctx: Context | None = None,
-    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+    workspace: ta.opt_str(ta.LOG_WORKSPACE_DESC) = None,
     idempotency_key: Annotated[str | None, Field(min_length=1, max_length=256,
-        description="Generate a fresh UUID for each logical memory write and reuse it only for retries of that exact payload, across chats in the trusted Personal workspace. Changed payloads conflict. Retained with the journal; request_id is only correlation."),
+        description="Fresh UUID per logical write; reuse it only for its retries."),
         WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 256})] = None,
     record: ta.record_arg(turn_record.describe()) = None,
 ) -> str:
-    """End-of-turn logger. Compose the answer including its footer, call this tool
-    with that exact response_content (redacted as below), then deliver the final
-    answer. Pass the current user request verbatim as query, except for the
-    redactions below; do not paraphrase or substitute a different request or summary. Before this
-    call, replace secrets and capability values in every field with safe references
-    and omit prohibited personal details. Pass workspace, your working directory.
-
-    persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
-    with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
-    implants_loaded, rules_loaded); persona_action (keep/switch/refresh/restore)
-    only together with it. Compact subagents return their data envelope without
-    calling this tool. Other callers without a retained descriptor omit both and
-    add no footer; this does not waive initial activation. files/tags are JSON arrays.
-    Persona and persona_action are client-reported attribution, not proof of
-    instruction compliance. A partial, malformed or mismatching persona never
-    costs the turn: it is written marked ``unverified`` or ``mismatch`` and the
-    response carries ``warnings``. Do not retry such a call.
-
-    Two sinks, independent of each other:
-
-    * **history.md** — written via ``HistoryWriter`` (append-only, content-hash
-      deduped; the persona line is not part of the hash). Defaults:
-      ``intent=query``, ``action="Agent: {agent_name}"``, ``outcome=response_content``.
-      Pass ``intent``/``action``/``outcome``/``files``/``tags`` to curate the entry.
-      ``record`` (#584) adds a closed, typed map under ``metadata.record``; it is
-      not part of the content hash, so a duplicate keeps the first entry's record.
-      An invalid record is refused before anything is written: ``status: ERROR``,
-      ``record_errors`` and ``record: {status: not_written}``. Otherwise the
-      result reports ``record: {status, bytes}``.
-
-    * **Langfuse** — generation trace recorded only when ``LANGFUSE_PUBLIC_KEY`` /
-      ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
-      ``langfuse_compat``.
-
-    Waits for the local journal's durable commit, without waiting for Langfuse,
-    semantic indexing or Git sync. ``history`` returns ``status: recorded`` (or
-    legacy ``duplicate``) and ``state: durably_accepted`` only after persistence.
-    An optional ``idempotency_key`` replays the original history receipt and
-    answer timestamp for the same canonical payload; changes return
-    ``history: {status: error, state: rejected, error: idempotency_conflict}``.
-    Keys are scoped to the trusted Personal workspace and log operation, retained
-    with its complete local journal including archives and deletion receipts.
-    They have no automatic TTL; deleting journal storage ends retry protection.
-    This single-owner boundary does not provide Hosted multi-tenant authorization.
-    ``request_id`` remains correlation only. Keyed writes reject unresolved
-    workspaces instead of redirecting them to the fallback journal.
-    Results also carry ``workspace`` (``root``, ``source``), ``workspace_note`` (only when
-    the call named a workspace outside the registered root: that argument was ignored
-    and the root was used), ``pid``, ``history_last_error``
-    (``code``, ``errno``, ``path``, ``at``; when this or an earlier history write
-    failed) and the attribution (with ``warnings`` and an ``instruction`` when it
-    was incomplete). While retrieval is still warming up, ``langfuse`` is
-    ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
-    (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
-    and it is not part of ``response_content``. Memory is written to the journal
-    before acceptance; only Langfuse uses a best-effort background queue.
-    A failed history write returns ``history.status: error`` and ``state: unknown``
-    when persistence is uncertain (retry with the same key). It is logged once per
-    path and errno and reported as ``history_last_error`` on this result;
-    Langfuse failures are only logged. When no project
-    resolves, the turn goes to the installation's fallback journal (#292):
-    ``workspace`` is ``{root: null, source: "fallback", claimed, reason, journal}``,
-    ``claimed`` the directory the client named (recorded, never written), and the
-    ``instruction`` says to mention it once. Keyed calls reject invalid keys or
-    unresolved workspaces. Other request-level rejections include a stdio client
-    with MCP roots that named no workspace, asked to retry once
-    with it, or a fallback journal directory that cannot be created (a later write
-    failure is returned in ``history``): a protocol ERROR without
-    ``timestamp``, over stdio with ``pid`` and ``workspace_inputs`` (``cwd``,
-    ``claude_project_dir``, ``agents_client_repo_root``, ``client``, ``roots``).
+    """End-of-turn logger: log the composed final answer, footer included, as
+    response_content, then deliver it. query: the current user request verbatim. In
+    every field replace secrets and capability values with safe references and omit
+    prohibited personal details. persona: the last SUCCESS/NO_CHANGE descriptor
+    verbatim, all 7 keys, plus persona_action; without one omit both and add no
+    footer. Pass workspace; outside the grant it is ignored (workspace_note).
+    files/tags: JSON arrays. The returned timestamp starts the delivered answer on
+    its own line. Mention history_last_error once; never retry in a loop.
+    Details: docs/memory-acceptance.md#the-log_interaction-call
     """
     if idempotency_key is not None and (not isinstance(idempotency_key, str)
                                        or not 1 <= len(idempotency_key) <= 256

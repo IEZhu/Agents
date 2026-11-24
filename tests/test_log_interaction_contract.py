@@ -422,8 +422,7 @@ async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redact
     root = Path(__file__).resolve().parents[1]
     tool = {t.name: t for t in await server.mcp.list_tools()}["log_interaction"]
     properties = tool.inputSchema["properties"]
-    surfaces = {"APPLY_INSTRUCTION": APPLY_INSTRUCTION, "tool description": tool.description,
-                "query description": properties["query"]["description"]}
+    surfaces = {"APPLY_INSTRUCTION": APPLY_INSTRUCTION, "tool description": tool.description}
     for name in ("scripts/templates/routing-protocol-core.md", "scripts/templates/memory-routing.md",
                  "CLAUDE.md", "docs/routing_flow.md"):
         surfaces[name] = (root / name).read_text(encoding="utf-8")
@@ -432,10 +431,28 @@ async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redact
         flat = " ".join(text.split())
         assert "request verbatim" in flat, name
         assert all(term in flat for term in redactions), name
-    response = properties["response_content"]["description"]
-    assert all(term in response for term in redactions)
+    # The two text arguments defer to the tool description, which every listing carries (#734).
+    assert "request verbatim, redacted" in properties["query"]["description"]
+    assert "redacted" in properties["response_content"]["description"]
     # The server instructions are kept short and defer the redaction set to the tool description.
     assert "query verbatim, redacted as log_interaction's description says" in server.mcp.instructions
+
+
+@pytest.mark.asyncio
+async def test_the_listing_stays_small_and_points_to_the_rest_of_the_contract():
+    """A deferring client loads this tool in every session (#734): description plus compact
+    schema stay within budget, and what they leave out is in the page they name."""
+    from pathlib import Path
+    tool = {t.name: t for t in await server.mcp.list_tools()}["log_interaction"]
+    size = len(tool.description) + len(json.dumps(tool.inputSchema, separators=(",", ":")))
+    assert size <= 4500, size
+    pointer = "docs/memory-acceptance.md#the-log_interaction-call"
+    assert pointer in tool.description
+    page = (Path(__file__).resolve().parents[1] / "docs/memory-acceptance.md").read_text(encoding="utf-8")
+    assert "\n## The `log_interaction` call\n" in page
+    for detail in ("HistoryWriter", "LANGFUSE_PUBLIC_KEY", "warming_up", "workspace_inputs",
+                   'source: "fallback"', "history_last_error", "workspace_note", "not part of the hash"):
+        assert detail in page, detail
 
 
 def test_server_choice_guidance_is_visible_before_truncation():

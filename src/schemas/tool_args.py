@@ -110,23 +110,24 @@ def persona_arg(description: str):
 
 
 _RECORD_ITEM = {"type": "object"}
+# Every tool listing carries these, so a field gets a phrase only where its name and type do not
+# say its shape. The values, limits and meanings are in docs/turn-records.md.
 RECORD_PROPERTIES = {
-    "v": {"type": "integer", "description": "Schema version, 1."},
+    "v": {"type": "integer"},
     "kind": {"type": "string", "description": "report, patch-apply or status."},
-    "session": {"type": "string", "description": "Session id as a slug."},
-    "close_ordinal": {"type": "integer", "description": "Which close of this session, from 1."},
+    "session": {"type": "string"},
+    "close_ordinal": {"type": "integer"},
     "findings": {"type": "array", "items": _RECORD_ITEM,
-                 "description": "Tool-usage rows: {slug, status, cause, miss_at, level}."},
+                 "description": "[{slug,status,cause,miss_at,level}]"},
     "patches": {"type": "array", "items": _RECORD_ITEM,
-                "description": "Patches: {id, layer, slug, state, applied_at}."},
+                "description": "[{id,layer,slug,state,applied_at}]"},
     "verifier": {"type": "object",
-                 "description": "Counts: claims, confirmed, refuted, unconfirmed, invalid_rounds."},
-    "prep_failures": {"type": "integer", "description": "Worker preparations that failed."},
-    "unexecutable": {"type": "array", "items": _RECORD_ITEM,
-                     "description": "Flow steps that could not run as written: {step, code}."},
-    "duration_s": {"type": "integer", "description": "Seconds from the first to the last transcript entry."},
-    "responses": {"type": "integer", "description": "Model responses, deduplicated."},
-    "output_tokens": {"type": "integer", "description": "Output tokens of those responses."},
+                 "description": "{claims,confirmed,refuted,unconfirmed,invalid_rounds}"},
+    "prep_failures": {"type": "integer"},
+    "unexecutable": {"type": "array", "items": _RECORD_ITEM, "description": "[{step,code}]"},
+    "duration_s": {"type": "integer"},
+    "responses": {"type": "integer"},
+    "output_tokens": {"type": "integer"},
 }
 
 
@@ -162,11 +163,15 @@ WORKSPACE_DESC = (
 LOG_PERSONA_DESC = (
     "Last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys; omit if none."
 )
-LOG_PERSONA_ACTION_DESC = (
-    "One of keep, switch, refresh, restore; send it only together with persona."
+LOG_PERSONA_ACTION_DESC = "keep, switch, refresh or restore; only together with persona."
+LOG_FILES_DESC = 'Files touched, a JSON array, e.g. ["src/a.py"].'
+LOG_TAGS_DESC = 'Tags, a JSON array, e.g. ["bug", "fix"].'
+# log_interaction's own, shorter than WORKSPACE_DESC: its docstring says what happens to a path
+# outside the grant (workspace_note), and the full rule is in docs/memory-acceptance.md.
+LOG_WORKSPACE_DESC = (
+    "Absolute working directory; never widens the grant (HTTP registration, pinned root or "
+    "MCP roots)."
 )
-LOG_FILES_DESC = 'Optional files touched, as a JSON array of paths, e.g. ["src/a.py"].'
-LOG_TAGS_DESC = 'Optional tags, as a JSON array of strings, e.g. ["bug", "fix"].'
 
 
 def unparsed_arg(schema_type: str, description: str, *, items: dict | None = None):
