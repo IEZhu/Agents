@@ -489,7 +489,7 @@ async def test_legacy_client_call_with_context_hash_reaches_protocol_2_routing(m
 
     _, result = await server.mcp.call_tool("route_and_load", {"query": "SQL?", "context_hash": "0123abcd"})
 
-    assert json.loads(result["result"])["protocol_version"] == 2
+    assert result["protocol_version"] == 2
     route.assert_awaited_once()
     assert route.await_args.args[1] == "SQL?"
 

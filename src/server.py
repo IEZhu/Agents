@@ -159,16 +159,65 @@ _history_stores = HistoryStores()
 
 from src.daemon.mcp_proxy.exposure import ProxyToolsMixin
 
+# Tools whose handlers return one JSON object as text (#734). FastMCP gives a str-returning
+# tool the output schema {"result": string} and the structured content {"result": <text>},
+# and Claude Code shows the model JSON.stringify(structuredContent) (src/result_size.py):
+# the object escaped twice. Over stdio these tools answer with the object itself as
+# structured content and the same JSON text, unchanged, as text content, so the model
+# reads it encoded once. The shared service keeps the {"result": <text>} form: its
+# clients reach a restarted process without listing the tools again (stateless HTTP),
+# and one still holding the former schema would reject anything without "result".
+SINGLE_ENCODED_TOOLS = frozenset({
+    "route_and_load", "get_agent_context", "refresh_persona_context", "log_interaction", "describe_repo",
+})
+
+
+def _object_output_schema(name: str) -> dict:
+    """The listed output schema of a single-encoded tool: any object, so both forms validate."""
+    return {"type": "object", "title": f"{name}Output",
+            "description": "The tool's JSON response object; the shared service may still return it "
+                           "as {\"result\": <its JSON text>}."}
+
+
+def _reject_constant(constant: str):
+    raise ValueError(f"non-finite JSON number {constant}")
+
+
+def _single_encoded(result):
+    """FastMCP's (content, {"result": text}) as (content, the object the text holds).
+
+    Anything else (a text that is not one JSON object, a non-finite number, another
+    result shape) is returned unchanged; the listed schema accepts that form too.
+    """
+    if not (isinstance(result, tuple) and len(result) == 2):
+        return result
+    content, structured = result
+    if not (isinstance(structured, dict) and set(structured) == {"result"}
+            and isinstance(structured["result"], str)):
+        return result
+    try:
+        payload = json.loads(structured["result"], parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        return result
+    return (content, payload) if isinstance(payload, dict) else result
+
 
 class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
     """Preserve strict worker/local inference inputs before FastMCP conversion."""
 
+    async def list_tools(self):
+        tools = await super().list_tools()
+        return [tool.model_copy(update={"outputSchema": _object_output_schema(tool.name)})
+                if tool.name in SINGLE_ENCODED_TOOLS else tool for tool in tools]
+
     async def call_tool(self, name: str, arguments: dict):
         from src import stdio_workspace
         from src.daemon.workspaces import _http_request
-        enabled = os.environ.get("AGENTS_TRANSPORT") != "http" and _http_request(self.get_context()) is None
-        with stdio_workspace.bind(arguments, enabled=enabled) as sanitized:
-            return await self._call_tool_bound(name, sanitized)
+        stdio = os.environ.get("AGENTS_TRANSPORT") != "http" and _http_request(self.get_context()) is None
+        with stdio_workspace.bind(arguments, enabled=stdio) as sanitized:
+            result = await self._call_tool_bound(name, sanitized)
+        # A stdio client listed the tools from this very process: it holds the object schema.
+        return _single_encoded(result) if stdio and name in SINGLE_ENCODED_TOOLS else result
 
     async def _call_tool_bound(self, name: str, arguments: dict):
         if name in artifact_tools.TOOL_NAMES:
