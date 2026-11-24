@@ -398,3 +398,32 @@ async def test_a_dot_git_file_or_directory_above_the_path_makes_it_a_repository(
     assert describer_module.in_git_work_tree(nested)
     (repo / ".git").unlink()
     assert not describer_module.in_git_work_tree(nested)
+
+
+def test_a_git_tracked_home_does_not_make_its_folders_repositories(tmp_path, monkeypatch):
+    """#734 review: the walk stops at the home directory, as the project-root walk does."""
+    home = tmp_path / "home"
+    task = home / "task"
+    task.mkdir(parents=True)
+    (home / ".git").mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    assert not describer_module.in_git_work_tree(task)
+    assert not describer_module.describable_project(task)
+    (task / ".git").mkdir()
+    assert describer_module.in_git_work_tree(task)
+
+
+def test_a_folder_marked_by_its_own_instruction_file_stays_describable(tmp_path, monkeypatch):
+    """#734 review: a project without git that holds CLAUDE.md or AGENTS.md keeps describe_repo;
+    the home directory with such a file does not become one."""
+    project = tmp_path / "home" / "notes-project"
+    project.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert not describer_module.describable_project(project)
+    (project / "CLAUDE.md").write_text("# Notes\n")
+    assert describer_module.describable_project(project)
+    (project / "CLAUDE.md").unlink()
+    (project / "AGENTS.md").write_text("# Notes\n")
+    assert describer_module.describable_project(project)
+    (tmp_path / "home" / "CLAUDE.md").write_text("# Home\n")
+    assert not describer_module.describable_project(tmp_path / "home")

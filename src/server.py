@@ -64,7 +64,7 @@ from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS,
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.utils import debug_logger
-from src.memory.describer import RepoDescriber, in_git_work_tree
+from src.memory.describer import RepoDescriber, describable_project
 from src.memory import fallback
 from src.memory import record as turn_record
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
@@ -2083,7 +2083,7 @@ async def describe_repo(
             "repo_path": repo_path,
             "force_refresh": force_refresh,
         })
-        if not in_git_work_tree(repo_path):
+        if not describable_project(repo_path):
             payload = {
                 "status": "not_a_repository",
                 "repo_path": repo_path,
@@ -2185,7 +2185,7 @@ async def write_repo_summary(
             "repo_hash": repo_hash,
             "summary_len": len(summary),
         })
-        if not in_git_work_tree(repo_path):
+        if not describable_project(repo_path):
             payload = {
                 "status": "error",
                 "code": "not_a_repository",

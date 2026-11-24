@@ -271,3 +271,52 @@ def test_the_pointers_leave_logging_to_the_hook(switches, surface):
     text = getattr(protocol_text, surface)()
     assert "Do not call log_interaction" in text
     assert "footer and log_interaction" not in text
+
+
+# --- #734 review follow-ups -----------------------------------------------------------------------
+
+def test_a_flow_persona_attributes_the_turn(switches, project, tmp_path):
+    """run_flow nests the flow persona's SUCCESS under persona_activation; the hook must read it."""
+    transcript = tmp_path / "flow.jsonl"
+    rows = [{"type": "user", "promptId": "p1", "message": {"role": "user", "content": "review the PR"}},
+            {"type": "assistant", "message": {"id": "m1", "content": [
+                {"type": "tool_use", "id": "t1", "name": "mcp__agents-core__run_flow",
+                 "input": {"flow": "pr-review"}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": json.dumps(
+                    {"status": "needs_execution",
+                     "persona_activation": {"status": "SUCCESS", "persona": PERSONA}})}]}},
+            {"type": "assistant", "message": {"id": "m2", "content": [{"type": "text", "text": "Reviewed."}]}}]
+    transcript.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    hook.record_turn(stop_event(project, transcript))
+    [entry] = entries(project)
+    assert entry.action.startswith("Agent: software_engineer") and entry.action.endswith("action=switch")
+
+
+def test_reminders_are_stripped_only_before_the_prompt_and_in_linear_time():
+    quoted = "Explain this tag: <system-reminder>quoted</system-reminder> in my notes"
+    assert hook._without_leading_reminders(quoted) == quoted
+    assert hook._without_leading_reminders(
+        "<system-reminder>a</system-reminder>\n <system-reminder>b</system-reminder> prompt") == "prompt"
+    assert hook._without_leading_reminders("<system-reminder>never closed prompt") == \
+        "<system-reminder>never closed prompt"
+    import time
+    started = time.monotonic()
+    hook._without_leading_reminders(" " * 200_000 + "<system-reminder>" * 20_000 + "x")
+    assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.parametrize("secret,kept", [
+    ("sk-proj-AbCdEf0123456789xyzXYZ", "sk-proj-"),
+    ("xoxb-1234567890-abcdefghij", "xoxb-"),
+    ("AIzaSyA1234567890abcdefghijklmnopqrstu", "AIza"),
+    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U", "eyJ"),
+    ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key="),
+    ('"capability":"6e3_t5gNYzolREw4gp61PiE3mdDGCUbMeZO_8ZFlmcM"', '"capability":"'),
+    ("ghp_abcdefghijklmnop1234", "ghp_"),
+])
+def test_the_hook_masks_common_secret_formats(secret, kept):
+    from src.schedules.records import mask
+    masked = hook._masked(f"before {secret} after", mask)
+    assert masked.startswith(f"before {kept}***") and masked.endswith(" after")
+    assert secret[len(kept):].rstrip('"') not in masked

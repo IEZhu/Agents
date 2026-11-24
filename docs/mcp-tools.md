@@ -52,7 +52,7 @@ owner-registered checkout grant. Stdio has its own root-selection rules. See
 
 | Tool | Purpose and boundary | Reference |
 |---|---|---|
-| `describe_repo` | Read context or return `needs_summary`, or `not_a_repository` outside a git repository; does not write project files | [Repository memory](memory.md) |
+| `describe_repo` | Read context or return `needs_summary`, or `not_a_repository` for a folder that is neither a git work tree nor marked by its own `CLAUDE.md` or `AGENTS.md`; does not write project files | [Repository memory](memory.md) |
 | `write_repo_summary` | Explicitly persist a description using its repository fingerprint; refuses installation/source roots and folders outside a git repository | [Repository memory](memory.md) |
 | `read_history` | Read recent, semantic or exact-entry history, optionally by exact `tag`; inspect returned workspace and errors. Recent and entry reads return `metadata` with any turn record; semantic reads do not | [Memory operations](shared-mcp-daemon.md#memory-and-errors), [turn records](turn-records.md) |
 | `read_shared_memory` | Read the AI clients' native memory on this machine (Claude Code, Codex), recent, searched or one fact with as much text as fits, with each fact's sources; read-only, skips files with a detected credential and counts them in `skipped` | [Shared memory](shared-memory.md) |

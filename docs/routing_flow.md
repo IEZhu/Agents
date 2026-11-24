@@ -305,9 +305,9 @@ while the running server serves an older one asks for a restart instead. The
 check only reads the files; the slash prompts and a flow's `persona_activation`
 carry the same warnings. `ROUTE_REQUIRED`
 candidates carry `name`, `display_name` and `role`; the slash command
-(`trigger_command`) is for people and stays out of them. A workspace that is not
-inside a git repository (no `.git` at or above it) reports no `repo_context` at all,
-as `describe_repo` answers `not_a_repository` there (#734).
+(`trigger_command`) is for people and stays out of them. A workspace that is a plain
+folder (no git work tree, no `CLAUDE.md` or `AGENTS.md` of its own) reports no `repo_context`
+at all, as `describe_repo` answers `not_a_repository` there (#734).
 
 Over HTTP the server instructions answered at `initialize` keep their opening
 lines, the rules only they state (the answer language and footer, the workspace

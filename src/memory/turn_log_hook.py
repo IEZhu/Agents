@@ -13,8 +13,10 @@ turn as intent, ``Agent: <agent>`` and the persona attribution line as action, t
 without a time line as outcome, through the same ``HistoryWriter``, its content-hash
 deduplication and the same project resolution. The persona is the descriptor of the last
 ``SUCCESS`` or ``NO_CHANGE`` of ``route_and_load``, ``get_agent_context`` or
-``refresh_persona_context`` in the transcript. Token-like secrets are masked; nothing else is
-redacted, because no model reads the text first.
+``refresh_persona_context``, or the ``persona_activation`` of ``run_flow``, in the transcript.
+Secrets are masked by format (``SECRET_PATTERNS`` of the schedule records plus
+``EXTRA_SECRET_PATTERNS`` here) and by key name; other personal details are not redacted,
+because no model reads the text first.
 
 Without both switches, or without a prompt, an answer, a persona or a safe project, nothing is
 written. The hook always exits 0 and prints nothing to stdout: a failure leaves the turn
@@ -40,9 +42,22 @@ MAX_INPUT_BYTES = 8 * 1024 * 1024
 # A headless run's transcript is far smaller; a larger one is left unlogged rather than parsed.
 MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024
 PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
+# run_flow returns a flow persona's activation nested under persona_activation (#734 review).
+FLOW_TOOL = "run_flow"
 PERSONA_STATUSES = ("SUCCESS", "NO_CHANGE")
 # What Claude Code places before a typed prompt, and user rows it writes itself.
-LEADING_REMINDERS = re.compile(r"\s*(?:<system-reminder>.*?</system-reminder>\s*)+", re.DOTALL)
+REMINDER_OPEN, REMINDER_CLOSE = "<system-reminder>", "</system-reminder>"
+# Formats the schedule records' mask() does not know, masked here on top of it (#734 review).
+EXTRA_SECRET_PATTERNS = (
+    re.compile(r"\b(sk-(?:proj-|svcacct-)?)[A-Za-z0-9_-]{16,}"),
+    re.compile(r"\b(xox[abposr]-)[A-Za-z0-9-]{10,}"),
+    re.compile(r"\b(AIza)[0-9A-Za-z_-]{30,}"),
+    re.compile(r"\b(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+    re.compile(r"(?i)\b(aws_secret_access_key\s*[=:]\s*[\"']?)[A-Za-z0-9/+=]{30,}"),
+    # A value under a secret-bearing key, such as a cooperation capability.
+    re.compile(r"(?i)([\"']?\b(?:capability|parent_capability|api[_-]?key|secret|token|password|passwd)"
+               r"[\"']?\s*[=:]\s*[\"']?)[A-Za-z0-9._~+/=-]{16,}"),
+)
 HOST_ROW = re.compile(r"Stop hook (?:feedback|blocking error)|\[Request interrupted by user")
 # The line log_interaction's timestamp would add (``YYYY.MM.DD HH:MM:SS``), never part of the outcome.
 TIME_LINE = re.compile(r"\A\s*\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}[ \t]*\r?\n")
@@ -84,8 +99,24 @@ def prompt_text(record: dict) -> str | None:
     text = _content_text(content)
     if text is None:
         return None
-    text = LEADING_REMINDERS.sub("", text, count=1).strip()
+    text = _without_leading_reminders(text).strip()
     return text if text and not HOST_ROW.match(text) else None
+
+
+def _without_leading_reminders(text: str) -> str:
+    """``text`` without the reminder blocks the client puts before a prompt.
+
+    A loop over string searches, not a regular expression: an unanchored lazy pattern
+    backtracked quadratically on long whitespace and stripped reminders quoted mid-prompt
+    (#734 review).
+    """
+    rest = text.lstrip()
+    while rest.startswith(REMINDER_OPEN):
+        end = rest.find(REMINDER_CLOSE)
+        if end < 0:
+            break
+        rest = rest[end + len(REMINDER_CLOSE):].lstrip()
+    return rest
 
 
 def _tool_payload(block: dict) -> dict | None:
@@ -106,7 +137,7 @@ def _persona_tool(name) -> str | None:
     if not isinstance(name, str) or not name.startswith("mcp__"):
         return None
     tool = name.rsplit("__", 1)[-1]
-    return tool if tool in PERSONA_TOOLS else None
+    return tool if tool in PERSONA_TOOLS or tool == FLOW_TOOL else None
 
 
 def _action(status: str, tool: str, arguments: dict, in_turn: bool) -> str:
@@ -115,7 +146,7 @@ def _action(status: str, tool: str, arguments: dict, in_turn: bool) -> str:
         return "keep"
     if tool == "refresh_persona_context":
         return "refresh"
-    if tool == "get_agent_context" and arguments.get("force_reload") is True:
+    if tool in ("get_agent_context", FLOW_TOOL) and arguments.get("force_reload") is True:
         return "restore"
     return "switch"
 
@@ -166,6 +197,9 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                         and isinstance(block.get("tool_use_id"), str) and block["tool_use_id"] in tools):
                     continue
                 response = _tool_payload(block)
+                if response is not None and tools[block["tool_use_id"]][0] == FLOW_TOOL:
+                    activation = response.get("persona_activation")
+                    response = activation if isinstance(activation, dict) else None
                 if (response is not None and response.get("status") in PERSONA_STATUSES
                         and isinstance(response.get("persona"), dict)):
                     tool, arguments = tools[block["tool_use_id"]]
@@ -248,8 +282,16 @@ def record_turn(payload) -> dict:
     metadata = {"answer_timestamp": datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"),
                 "logged_by": "stop_hook"}
     writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
-    return writer.append_entry(mask(turn.prompt), attributed, mask(answer), None, None, metadata,
-                               dedupe_action=action)
+    return writer.append_entry(_masked(turn.prompt, mask), attributed, _masked(answer, mask), None, None,
+                               metadata, dedupe_action=action)
+
+
+def _masked(text: str, mask) -> str:
+    """``text`` with the schedule records' secret formats and EXTRA_SECRET_PATTERNS masked."""
+    text = mask(text)
+    for pattern in EXTRA_SECRET_PATTERNS:
+        text = pattern.sub(lambda match: match[1] + "***", text)
+    return text
 
 
 def main(argv=None) -> int:

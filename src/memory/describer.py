@@ -301,15 +301,40 @@ _PLACEHOLDER = re.compile(r"\{(REPO_NAME|WORD_MIN|WORD_MAX|CONTEXT_BUNDLE)\}")
 
 
 def in_git_work_tree(path: str | os.PathLike) -> bool:
-    """True when *path* or one of its parents holds a ``.git`` file or directory.
+    """True when *path* or one of its parents below an unsafe root holds a ``.git`` entry.
 
     A linked worktree's ``.git`` is a file pointing at the common directory, so existence is
-    tested, not ``is_dir``. A plain folder (a task directory, a download folder) is not a
-    repository, however many files it holds, and has nothing to describe (#734).
+    tested, not ``is_dir``. The walk stops where the project-root walk stops (the home
+    directory, system directories), so a git-tracked home does not make every folder under it
+    a repository (#734 review).
     """
+    from src.engine.config import _unsafe_client_root_reason
     try:
         start = Path(os.path.abspath(path))
-        return any((parent / ".git").exists() for parent in (start, *start.parents))
+        for candidate in (start, *start.parents):
+            if _unsafe_client_root_reason(candidate) is not None:
+                return False
+            if (candidate / ".git").exists():
+                return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def describable_project(path: str | os.PathLike) -> bool:
+    """Whether describe_repo and write_repo_summary serve *path* (#734).
+
+    A git work tree, or a folder that marks itself as a project with its own CLAUDE.md or
+    AGENTS.md, as a described project without git does. A plain folder (a task directory, a
+    download folder) is not a project, however many files it holds, and has nothing to
+    describe.
+    """
+    from src.engine.config import _unsafe_client_root_reason
+    try:
+        root = Path(os.path.abspath(path))
+        if _unsafe_client_root_reason(root) is not None:
+            return False
+        return in_git_work_tree(root) or any((root / marker).is_file() for marker in ("CLAUDE.md", "AGENTS.md"))
     except (OSError, ValueError):
         return False
 
