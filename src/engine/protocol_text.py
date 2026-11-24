@@ -13,7 +13,9 @@ side as named variants, so a rule is edited in one file:
   shows of them, the ``SUCCESS`` instruction is sent with a conversation's first activation
   and a restore, and the memory reminder states the conversation steps in its own prose; a
   short rule that two of them state alike (``finish:turn-end``, ``finish:redaction``) is its
-  own variant.
+  own variant;
+- ``tool`` and ``tool-*``: a procedure that a tool's description carries instead of the
+  always-on surfaces, which state only its trigger (``TOOL_PARTS``, #734).
 
 The ``pointer`` section holds what a later ``SUCCESS`` of a conversation and the server
 instructions for a client whose own instruction file is current send instead of a text the
@@ -36,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import os
 import re
 import shutil
@@ -139,12 +142,14 @@ def _sentences_of(*pieces: Piece) -> str:
 
 
 def template() -> str:
-    """The managed routing section of CLAUDE.md and AGENTS.md (scripts/templates/routing-protocol-core.md)."""
+    """The managed routing section of CLAUDE.md and AGENTS.md (scripts/templates/routing-protocol-core.md).
+
+    Delegation, artifacts, local inference and cooperation appear here as triggers that name the
+    tool whose description holds the procedure (``TOOL_PARTS``, #734).
+    """
     return "\n\n".join([
-        part("intro", "full"), part("delegation", "full"), part("artifacts", "full"),
-        part("output-artifacts", "full"), part("local-inference", "full"), part("delegation", "full-fallback"),
-        part("worker", "full"), part("cooperation", "full"), part("start", "full"), part("decide", "full"),
-        part("apply", "full"), part("flows", "full"), part("first-work", "full"), part("ownership", "full"),
+        part("intro", "full"), part("delegation", "full"), part("worker", "full"), part("cooperation", "full"),
+        part("start", "full"), part("decide", "full"), part("apply", "full"), part("flows", "full"), part("first-work", "full"), part("ownership", "full"),
         part("progress", "full"), _paragraph(("finish", "full"), ("history-errors", "full")),
         part("compatibility", "full"),
     ]) + "\n"
@@ -157,17 +162,16 @@ def server_instructions() -> str:
     The shorter window holds what every turn needs: the opening lines (protocol, server choice,
     worker exemption, first-answer activation, logging) and the delegation request through
     ``Require status: prepared.``. The longer window adds the first-work rule, which a session may
-    need before its first activation, and the delegation exchange from the launch through
-    validation, acceptance and new attempts to ``Never edit identities or the contract to make a
-    result pass.``; the exchange's fallback, what the worker reads from its package, nested
-    delegation and the bound on how much to delegate follow it and may fall outside. Both windows
-    end within a few dozen characters of a rule they must hold, so text moved in front of one
-    pushes that rule out: the volume bound stays behind them and reaches a client through the
-    managed instruction section, the memory reminder and the ``SUCCESS`` instruction instead. The
-    keep/switch rules also appear in the
-    descriptions of the persona tools, and the describe_repo fallback, the owning-session rules and
-    the definition of progress messages, which follow the windows, arrive with the full
-    ``SUCCESS`` instruction. tests/test_log_interaction_contract.py checks both windows.
+    need before its first activation, and the delegation trigger: validate every output, require
+    ``valid: true``, read the descriptions of get_subagent_context and validate_subagent_result
+    before the first delegation, and the fallback when an endpoint is unavailable. The exchange
+    itself, the bound on how much to delegate, artifacts, local inference and the cooperation
+    mailbox live in tool descriptions (``TOOL_PARTS``, #734), which a deferring client loads only
+    when it selects the tool. Both windows end within a few hundred characters of a rule they must
+    hold, so text moved in front of one may push that rule out. The keep/switch rules also appear
+    in the descriptions of the persona tools, and the owning-session rules and the definition of
+    progress messages, which may follow the windows, arrive with the full ``SUCCESS`` instruction
+    too. tests/test_log_interaction_contract.py checks both windows.
     """
     return "\n\n".join([
         _server_opening(),
@@ -175,7 +179,6 @@ def server_instructions() -> str:
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
         _sentences_of(("artifacts", "compact"), ("local-inference", "compact")),
-        part("output-artifacts", "compact"),
         part("cooperation", "compact"),
         _paragraph(("apply", "server"), _sentences_of(("intro", "compact"), ("apply", "server-prompts"))),
         _server_tail(),
@@ -215,8 +218,7 @@ BUNDLE_PARTS: tuple[tuple[str, str], ...] = (
     ("ownership", "compact"), ("apply", "bundle"), ("apply", "bundle-pointer"), ("finish", "bundle"),
     ("finish", "redaction"), ("history-errors", "compact"), ("progress", "compact"),
     ("delegation", "compact-request"), ("delegation", "compact"), ("artifacts", "compact"),
-    ("output-artifacts", "compact"), ("intro", "compact"), ("local-inference", "compact"),
-    ("cooperation", "compact"),
+    ("intro", "compact"), ("local-inference", "compact"), ("cooperation", "compact"),
 )
 # The finish rule of the SUCCESS instruction when the client's Stop hook logs each turn: the model
 # neither calls log_interaction nor redacts what it would have passed to it.
@@ -253,6 +255,41 @@ def bundle_section_pointer() -> str:
                          ("pointer", "bundle-section-reload"), ("pointer", "bundle-restore"))
 
 
+# The procedures that the descriptions of these tools carry instead of the always-on surfaces
+# (#734). Every model call re-reads the managed section and the server instructions, while a
+# deferring client (Claude Code) loads a tool's description only when it selects that tool. Each
+# always-on surface keeps a trigger that names the tool to read before the first use. A rule that
+# must hold while MCP is unavailable, or for a worker that never loads these tools, stays on the
+# always-on surfaces.
+TOOL_PARTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "get_subagent_context": (("delegation", "compact-request"), ("delegation", "tool-prepare"),
+                             ("artifacts", "tool-prepare")),
+    "validate_subagent_result": (("delegation", "tool-validate"), ("artifacts", "tool-validate"),
+                                 ("output-artifacts", "tool")),
+    "cooperation_register": (("cooperation", "tool"),),
+    "local_context_create": (("local-inference", "tool"),),
+}
+
+
+def tool_procedure(name: str) -> str:
+    """The protocol text that the description of tool ``name`` carries; empty for any other tool."""
+    return "\n".join(part(*piece) for piece in TOOL_PARTS.get(name, ()))
+
+
+def tool_description(name: str, docstring: str | None) -> str:
+    """The description of tool ``name``: its docstring with the tool's procedure after the summary.
+
+    The summary paragraph stays first, as a client lists it; the procedure follows, ahead of the
+    tool's limits and errors, so a client that cuts a long description loses the mechanics before
+    a rule. A tool without a procedure keeps its docstring unchanged.
+    """
+    procedure = tool_procedure(name)
+    if not procedure:
+        return docstring or ""
+    summary, _, details = inspect.cleandoc(docstring or "").partition("\n\n")
+    return "\n\n".join(text for text in (summary, procedure, details) if text)
+
+
 def _revision(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -282,7 +319,7 @@ def memory_reminder() -> str:
     return "\n\n".join([
         _paragraph(("header", "memory"), ("intro", "compact")),
         _sentences_of(("delegation", "compact-request"), ("delegation", "compact")),
-        part("worker", "memory"), part("artifacts", "compact"), part("output-artifacts", "compact"),
+        part("worker", "memory"), part("artifacts", "compact"),
         part("local-inference", "compact"), part("cooperation", "compact"), part("ownership", "compact"),
         _sentences_of(("first-work", "compact"), ("first-work", "compact-unavailable")),
         part("start", "memory"), part("decide", "memory"), part("apply", "memory"), part("progress", "compact"),

@@ -137,7 +137,6 @@ BUNDLE_TOPICS = {
     ("delegation", "compact-request"): "the file-receipt delegation exchange",
     ("delegation", "compact"): "the file-receipt delegation exchange",
     ("artifacts", "compact"): "artifacts",
-    ("output-artifacts", "compact"): "artifacts",
     ("intro", "compact"): "the tool roles",
     ("local-inference", "compact"): "local inference",
     ("cooperation", "compact"): "cooperation",
@@ -152,8 +151,11 @@ def test_the_pointer_names_every_rule_the_full_instruction_carries(pointer):
         " ".join(protocol_text.part(*name).split()) for name in protocol_text.BUNDLE_PARTS)
     for name, topic in BUNDLE_TOPICS.items():
         assert topic in pointer, (name, topic)
-    # #509: the delegation the pointer names is the file-receipt exchange.
-    assert "The default receipt names a private package file" in protocol_text.part("delegation", "compact")
+    # #509: the delegation the pointer names is the file-receipt exchange, which get_subagent_context's
+    # description states since #734; the full instruction keeps the trigger that names that tool.
+    assert "the private package file" in protocol_text.part("delegation", "tool-prepare")
+    assert "the receipt's launch text" in protocol_text.part("delegation", "tool-prepare")
+    assert "Read both tools' descriptions before delegating" in persona.APPLY_INSTRUCTION
 
 
 def test_the_full_instruction_says_a_later_success_points_to_it():
@@ -430,12 +432,15 @@ def test_the_server_pointer_keeps_the_opening_and_the_rules_only_the_server_stat
     for name in ("tools", "flows", "compatibility"):
         assert protocol_text.part(name, "server") in tail
     assert protocol_text.template_revision() in pointer and "{revision}" not in pointer
-    assert "force_reload=True" in pointer and len(pointer) < len(full) / 2
+    # The pointer replaces the middle of the full text with a short reference to the template. Since
+    # #734 that middle is short too, so the whole pointer is no longer under half of the full text.
+    middle, reference = full[len(opening):len(full) - len(tail)], pointer[len(opening):len(pointer) - len(tail)]
+    assert "force_reload=True" in pointer and len(reference) < len(middle) / 2
     # Everything between the opening and the tail is in the template, and the pointer names it.
     for name, variant in (("delegation", "compact-request"), ("delegation", "compact"), ("artifacts", "compact"),
-                          ("local-inference", "compact"), ("output-artifacts", "compact"),
-                          ("cooperation", "compact"), ("progress", "compact"), ("first-work", "compact"),
-                          ("ownership", "compact"), ("decide", "server"), ("apply", "server")):
+                          ("local-inference", "compact"), ("cooperation", "compact"), ("progress", "compact"),
+                          ("first-work", "compact"), ("ownership", "compact"), ("decide", "server"),
+                          ("apply", "server")):
         assert protocol_text.part(name, variant) not in pointer, (name, variant)
     for topic in ("the delegation exchange", "artifacts", "local inference", "cooperation", "the keep/switch decision",
                   "response statuses", "the first-work repository description", "work another session owns",

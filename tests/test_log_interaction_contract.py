@@ -20,7 +20,7 @@ TOOLS = ("log_interaction", "route_and_load", "get_agent_context", "refresh_pers
 # Claude Code shows this many characters of a server's instructions: 4,096 since v2.1.296,
 # 2,048 before (#421, #508). Older clients are still in use, so the shorter window holds
 # the directives every turn needs and the longer one the first-work rule and the delegation
-# exchange through validation, acceptance and the rule against editing identities.
+# trigger; the exchange itself is in the delegation tools' descriptions (#734).
 OLDER_CLAUDE_CODE_WINDOW = 2048
 CLAUDE_CODE_WINDOW = 4096
 
@@ -344,25 +344,40 @@ def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
 @pytest.mark.parametrize("phrase", [
     "call describe_repo with workspace and the target repo_path before ad hoc exploration.",
     "Call validate_subagent_result for every returned or revised output",
-    "Require valid: true before accepting",
-    "Never edit identities or the contract to make a result pass.",
-    "Invalid output requires correction and revalidation",
-    "truncated.produced counts that stage's diagnostics before the cap of 20, not distinct problems.",
+    "require valid: true before accepting it.",
+    "Read both tools' descriptions before delegating: they hold the procedure and the artifact rules.",
+    "If either endpoint or native spawning is unavailable, report it and work in the parent when practical",
+    "no unprepared/full-persona worker or unvalidated result is an automatic fallback.",
 ])
-def test_first_work_and_validation_stay_inside_the_current_window(phrase):
+def test_first_work_and_the_delegation_trigger_stay_inside_the_current_window(phrase):
     """#508: current Claude Code shows 4,096 characters, enough after the per-turn directives
     for the first-work rule, which a session may need before its first activation, and the
-    delegation exchange through its validation and acceptance rules and the rule that a result
-    never passes by editing identities or the contract.
+    delegation trigger: validate every output, require valid: true, read the two tools'
+    descriptions first, and the fallback when an endpoint is unavailable.
 
-    The last two phrases are pinned because the window cut them once already: a fix for this
-    very class grew the compact variant until "and revalidation" ended at 4,114 characters and
-    the marker's own explanation at 4,203, past the window, while the four phrases above it
-    stayed inside and every gate passed. Each rule the window must deliver belongs here, not
-    only the ones that were short enough on the day the list was written.
+    Until #734 the window had to hold the exchange itself, through the rules on invalid output,
+    truncated.produced and edited identities; the window cut two of them once. Those rules now
+    live in validate_subagent_result's description, which a deferring client loads when it
+    selects the tool (test_the_validation_rules_reach_the_tool_that_needs_them). The fallback
+    stays here because a description is out of reach when its server is.
     """
     text = server.mcp.instructions
     assert phrase in text and text.index(phrase) + len(phrase) < CLAUDE_CODE_WINDOW
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phrase", [
+    "edit identity fields to make validation pass.",
+    "return the diagnostics for correction and validate the revised output again",
+    "truncated.produced counting the diagnostics that stage produced, not distinct problems.",
+    "Require valid: true before accepting, integrating, citing as verified or marking the delegated work complete",
+])
+async def test_the_validation_rules_reach_the_tool_that_needs_them(phrase):
+    """The rules the 4,096-character window held before #734 now open validate_subagent_result's
+    description, which Claude Code shows in full (16,384 characters) once tool search loads it."""
+    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    description = " ".join(tools["validate_subagent_result"].description.split())
+    assert phrase in description and phrase not in " ".join(server.mcp.instructions.split())
 
 
 @pytest.mark.asyncio

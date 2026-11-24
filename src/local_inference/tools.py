@@ -55,10 +55,16 @@ async def _call(name: str, ctx: Context | None, arguments: dict) -> dict[str, An
         return error.envelope()
 
 
-def register_tools(mcp, hints: dict):
-    """Register the same functions on production and model-free test runtimes."""
+def register_tools(mcp, hints: dict, describe=None):
+    """Register the same functions on production and model-free test runtimes.
+
+    ``describe(name, docstring)``, when given, composes each tool's description; the server
+    passes protocol_text.tool_description, which adds the protocol procedure a tool carries.
+    """
     for name in TOOL_NAMES:
-        mcp.add_tool(globals()[name], **hints[name])
+        function = globals()[name]
+        description = describe(name, function.__doc__) if describe is not None else None
+        mcp.add_tool(function, description=description, **hints[name])
 
 
 async def local_inference_status(ctx: Context | None = None) -> dict[str, Any]:

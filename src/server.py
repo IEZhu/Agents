@@ -640,7 +640,20 @@ TOOL_HINTS = {
     "artifact_manifest_release": tool_hints("Release artifact manifest", read_only=False, destructive=True, idempotent=True),
 }
 
-local_inference_tools.register_tools(mcp, TOOL_HINTS)
+
+def protocol_tool(name: str):
+    """``mcp.tool`` with the tool's hints, for a tool whose description carries a protocol procedure.
+
+    protocol_text.tool_description puts the procedure that the always-on surfaces only trigger
+    (protocol_text.TOOL_PARTS, #734) after the docstring's summary.
+    """
+    def register(function):
+        description = protocol_text.tool_description(name, function.__doc__)
+        return mcp.tool(**TOOL_HINTS[name], description=description)(function)
+    return register
+
+
+local_inference_tools.register_tools(mcp, TOOL_HINTS, describe=protocol_text.tool_description)
 artifact_tools.register_tools(mcp, TOOL_HINTS)
 
 
@@ -708,7 +721,7 @@ async def _cooperation_call(operation, request, ctx, workspace):
         return _cooperation_error("store_unavailable", "Cooperation operation is unavailable.")
 
 
-@mcp.tool(**TOOL_HINTS["cooperation_register"])
+@protocol_tool("cooperation_register")
 async def cooperation_register(
     request: ta.unparsed_arg("object", "Closed agents-core/cooperation/1 registration object or raw JSON. Required: protocol, checkout_path (absolute physical checkout), root_task_id, task_id, attempt_id, scope (1..50 resources with resource_type, resource_key, access). Optional contract_revision, parent_id and parent_capability, role, communication_mode (mcp/native/parent_relay/checkpoint; default mcp), artifact_access, execution_mode (independent/parent_relay). Maximum 32768 UTF-8 bytes, depth 8; no unknown fields or duplicate keys."),
     workspace: ta.unparsed_arg("string", ta.WORKSPACE_DESC) = None,
@@ -1371,7 +1384,7 @@ async def _with_drift_warnings(response: str) -> str:
         return response
 
 
-@mcp.tool(**TOOL_HINTS["get_subagent_context"])
+@protocol_tool("get_subagent_context")
 async def get_subagent_context(
     agent_name: ta.unparsed_arg("string", "Required canonical existing persona name; at most 80 characters."),
     task: ta.unparsed_arg("string", "Required nonempty assignment; at most 4000 characters."),
@@ -1395,23 +1408,13 @@ async def get_subagent_context(
     """Prepare a stateless task-scoped worker package without switching your persona.
 
     Unknown arguments are rejected; a request sent as one unnamed field instead of named
-    arguments is reported as arguments_wrapped with the accepted fields. Total original request limit: 48000 canonical
-    JSON characters, including unknown fields. This tool does not spawn workers.
-    Require status: prepared before spawning. By default (delivery file) the result is a
-    receipt: launch a fresh native worker with its launch text (the worker reads the package
-    file itself) and keep contract_revision; the server keeps the contract. With delivery
-    inline, retain the returned contract and forward worker_context unchanged. The worker uses
-    this role without another activation or conversation footer/log and returns only its
-    result in the package's format. For every returned or revised output call
-    validate_subagent_result; require valid: true before accepting or integrating it, then
-    assess evidence/acceptance criteria yourself. Endpoint failure does not authorize an
-    unprepared worker or unvalidated result. Missing compact sources or an insufficient
-    mandatory-context budget return an error with no partial package; a receipt's omitted
-    names every component the budget dropped. With complexity, the
-    package carries execution: the tier after floors, the newest model of that tier for the
-    client, and spawn, the arguments for the host's launching tool (Agent, spawn_agent or
-    Task; a Claude Code Workflow agent takes the same model in agent() options). Floors may
-    raise a tier, never lower it.
+    arguments is reported as arguments_wrapped with the accepted fields. Total original request
+    limit: 48000 canonical JSON characters, including unknown fields. This tool does not spawn
+    workers. Missing compact sources or an insufficient mandatory-context budget return an
+    error with no partial package; a receipt's omitted names every component the budget
+    dropped. With complexity, the package carries execution: the tier after floors, the newest
+    model of that tier for the client, and spawn, the arguments for the host's launching tool.
+    Floors may raise a tier, never lower it.
     """
     if delivery not in ("file", "inline"):
         return PreparationResponse(PreparationError(errors=diagnostics(
@@ -1445,7 +1448,7 @@ async def get_subagent_context(
     return PreparationResponse(receipt if delivery == "file" else result)
 
 
-@mcp.tool(**TOOL_HINTS["validate_subagent_result"])
+@protocol_tool("validate_subagent_result")
 async def validate_subagent_result(
     contract: ta.unparsed_arg("object", "The contract object retained from an inline package. Give this or contract_revision, never a worker replacement.") = None,
     contract_revision: ta.unparsed_arg("string", "The receipt's contract_revision: the server validates against the contract it stored at preparation. Give this or contract.") = None,
@@ -1454,9 +1457,6 @@ async def validate_subagent_result(
 ) -> ValidationResponse:
     """Validate worker output structurally against the retained or server-stored contract.
 
-    Required for every returned or revised worker output before acceptance or
-    integration. Require valid: true, then independently assess its evidence.
-    Correct and revalidate invalid output; never rewrite its original contract.
     Prefer contract_revision and result_ref: nothing is retyped, and the server checks the
     exact bytes the worker produced; result_sha256 identifies them. Rejects unknown tool
     arguments. Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
@@ -1469,8 +1469,7 @@ async def validate_subagent_result(
     distinct problems. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
     establishes truth, authorization or issue completion. For a contract prepared with
     complexity, escalation names the next tier when the result is invalid, failed, partial or
-    has a failed check. Prepare a new attempt with that complexity and a new attempt_id; for
-    an invalid result, only after one correction failed.
+    has a failed check.
     """
     try:
         if (contract is None) == (contract_revision is None):
