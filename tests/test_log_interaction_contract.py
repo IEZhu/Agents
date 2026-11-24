@@ -348,6 +348,8 @@ def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
     "Read both tools' descriptions before delegating: they hold the procedure and the artifact rules.",
     "If either endpoint or native spawning is unavailable, report it and work in the parent when practical",
     "no unprepared/full-persona worker or unvalidated result is an automatic fallback.",
+    # #734: a deferring client loads the persona tools by exact name before its first call.
+    "load route_and_load, get_agent_context and log_interaction with one exact-name selection",
 ])
 def test_first_work_and_the_delegation_trigger_stay_inside_the_current_window(phrase):
     """#508: current Claude Code shows 4,096 characters, enough after the per-turn directives

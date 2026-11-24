@@ -164,7 +164,8 @@ def server_instructions() -> str:
     ``Require status: prepared.``. The longer window adds the first-work rule, which a session may
     need before its first activation, and the delegation trigger: validate every output, require
     ``valid: true``, read the descriptions of get_subagent_context and validate_subagent_result
-    before the first delegation, and the fallback when an endpoint is unavailable. The exchange
+    before the first delegation, the fallback when an endpoint is unavailable, and the exact-name
+    selection that loads the persona tools when a client defers them (#734). The exchange
     itself, the bound on how much to delegate, artifacts, local inference and the cooperation
     mailbox live in tool descriptions (``TOOL_PARTS``, #734), which a deferring client loads only
     when it selects the tool. Both windows end within a few hundred characters of a rule they must
@@ -176,6 +177,7 @@ def server_instructions() -> str:
     return "\n\n".join([
         _server_opening(),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
+        part("start", "server-load"),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
         _sentences_of(("artifacts", "compact"), ("local-inference", "compact")),

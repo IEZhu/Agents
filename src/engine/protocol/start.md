@@ -30,6 +30,9 @@ that failure and follow the error or unavailable-MCP instructions below.
 <!-- variant: server -->
 Before the first final answer with MCP available and no prior activation, load an explicitly requested known role with get_agent_context, otherwise route_and_load with current_persona=null, even for greetings and project-status questions. Complete ROUTE_REQUIRED with get_agent_context in the same turn before answering; do not ask permission. Discovery and memory tools activate no persona. Report activation failures; follow the fallback below.
 
+<!-- variant: server-load -->
+When the client lists these tools as deferred, load route_and_load, get_agent_context and log_interaction with one exact-name selection before the first call (in Claude Code, ToolSearch select: with the names as listed), not a keyword search.
+
 <!-- variant: memory -->
 The following activation and logging steps apply to ordinary conversations.
 Before the first final answer, when MCP is available and there is no prior persona
