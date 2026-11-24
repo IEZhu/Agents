@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import yaml
 
 from src import component_toggles
-from src.engine import enrichment
+from src.engine import config, enrichment
 from src.engine.config import IMPLANTS_DEEP_TIER_DEFAULT, MAX_PREFERRED_IMPLANTS
 from src.engine.rules import format_rules_for_prompt, get_rules, load_selected_rules
 from src.utils.prompt_loader import process_imports, read_mdc, resolve_path
@@ -157,8 +157,17 @@ async def build_persona_bundle(
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")
-    # Everything below derives from `tier` alone. The profile contributed the tier
-    # above and is deliberately not consulted again.
+    # Headless one-shot runs (#734) pay for every bundle character again on each
+    # later model call of the run, so they get at most the standard tier's
+    # enrichment: deep is lowered here, which caps the semantic skills at
+    # `_n_results_for_tier("standard")` on top of the declared core skills and
+    # renders them compiled; the implant count below drops the declared floor.
+    headless = config.headless_profile()
+    if headless and tier == "deep":
+        tier = "standard"
+    # Everything below derives from `tier` alone (and the process-wide `headless`
+    # switch, which is not per query). The profile contributed the tier above and
+    # is deliberately not consulted again.
     #
     # A v2 bundle is a SESSION-scoped artifact: `persona.load_persona` returns
     # NO_CHANGE for the same agent on every later turn, so it is built once and
@@ -223,7 +232,14 @@ async def build_persona_bundle(
     # agent's declared implants from every later turn.
     elif tier in ("standard", "deep"):
         default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
-        count = min(max(default_count, len(preferred_implants)), MAX_PREFERRED_IMPLANTS)
+        if headless:
+            # The standard tier's own budget (the tier is never deep here).
+            # Declared implants still fill it first, in declaration order, so an
+            # agent keeps its leading ones; they just no longer raise the count,
+            # which is what lifts most agents to three.
+            count = min(default_count, MAX_PREFERRED_IMPLANTS)
+        else:
+            count = min(max(default_count, len(preferred_implants)), MAX_PREFERRED_IMPLANTS)
         selected_implants = await asyncio.to_thread(
             lambda *a, **k: enrichment.get_implant_retriever().retrieve(*a, **k), query,
             n_results=count, role=agent_name,
