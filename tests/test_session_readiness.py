@@ -156,10 +156,10 @@ def success(activation, replaces=None, *, agent="software_engineer", instruction
                            rules_block="## Rules\n- rule-a", skills_block="", implants_block="").to_json()
 
 
-def tool_call(call_id, name="mcp__Agents-Core__get_agent_context", **fields):
+def tool_call(call_id, name="mcp__Agents-Core__get_agent_context", arguments=None, **fields):
     return {"type": "assistant", **fields,
             "message": {"role": "assistant", "content": [{"type": "tool_use", "id": call_id, "name": name,
-                                                          "input": {}}]}}
+                                                          "input": arguments or {}}]}}
 
 
 def tool_result(call_id, text, *, wrap=True, as_list=False, **fields):
@@ -254,8 +254,30 @@ def test_active_bundle_reads_flow_activations_and_unwrapped_content(tmp_path):
     )
     bundle = readiness.active_bundle(path, far())
     assert bundle["persona"]["activation_id"] == "f2" and bundle["tool"] == "refresh_persona_context"
-    # No full instruction of this revision was ever sent, so the pointer is kept.
-    assert bundle["instruction"] == "Only a pointer."
+    # The pointer is replaced by the full text the first activation sent for the same revision.
+    assert bundle["instruction"] == "Full rules."
+
+
+def test_active_bundle_needs_the_full_instruction_of_its_revision(tmp_path):
+    """Only a first activation or a force_reload carries the full text; a pointer alone is no restore."""
+    pointer = "This conversation's first activation sent the full instruction."
+    # The revision changed (a server update) after the full text was sent: only a pointer remains.
+    moved = [tool_call("t1"), tool_result("t1", success("a1")),
+             tool_call("t2"), tool_result("t2", success("a2", "a1", instruction=pointer, revision="r2"))]
+    assert readiness.active_bundle(write_transcript(tmp_path, *moved), far()) is None
+    # A force_reload of the new revision brings its full text back.
+    reload = [tool_call("t3", arguments={"force_reload": True}),
+              tool_result("t3", success("a3", "a2", instruction="Full rules, r2.", revision="r2"))]
+    bundle = readiness.active_bundle(write_transcript(tmp_path, *moved, *reload), far())
+    assert bundle["persona"]["activation_id"] == "a3" and bundle["instruction"] == "Full rules, r2."
+    # Unreadable first output, then a pointer-only SUCCESS: still no full instruction.
+    preview = "<persisted-output>\nOutput too large (52KB). Full output saved to: /x/tool-results/a.txt\n"
+    hidden = [tool_call("t1"), tool_result("t1", preview, wrap=False),
+              tool_call("t2"), tool_result("t2", success("a2", "a1", instruction=pointer))]
+    assert readiness.active_bundle(write_transcript(tmp_path, *hidden), far()) is None
+    payload = {"source": "compact", "transcript_path": write_transcript(tmp_path, *hidden)}
+    assert readiness.hook_output(payload)["hookSpecificOutput"]["additionalContext"] == \
+        readiness.restore_context(payload)
 
 
 def test_active_bundle_refuses_an_uncertain_state(tmp_path):
@@ -263,8 +285,9 @@ def test_active_bundle_refuses_an_uncertain_state(tmp_path):
     entries = [tool_call("t1"), tool_result("t1", success("a1")),
                tool_call("t2"), tool_result("t2", preview, wrap=False)]
     assert readiness.active_bundle(write_transcript(tmp_path, *entries), far()) is None
-    # A later SUCCESS ends the uncertainty.
-    later = [tool_call("t3"), tool_result("t3", success("a3", "unknown-to-the-hook"))]
+    # A later SUCCESS that carries its full instruction ends the uncertainty.
+    later = [tool_call("t3", arguments={"force_reload": True}),
+             tool_result("t3", success("a3", "unknown-to-the-hook"))]
     bundle = readiness.active_bundle(write_transcript(tmp_path, *entries, *later), far())
     assert bundle["persona"]["activation_id"] == "a3"
     # An ordinary error text from a persona tool keeps the active bundle.
@@ -384,7 +407,7 @@ def test_install_preserves_settings_backs_up_and_is_idempotent(tmp_path, monkeyp
         assert len(handlers) == readiness.RESTORE_PARTS
         assert [shlex.split(item["command"])[2:] for item in handlers[1:]] == [
             ["--restore-part", str(part)] for part in range(2, readiness.RESTORE_PARTS + 1)]
-        assert all(item["timeout"] == 5 and installer.owns_handler(item, Path(result["script"]))
+        assert all(item["timeout"] == 5 and installer.owns_handler(item, Path(result["script"]), parts=True)
                    for item in handlers)
     else:  # Codex keeps the single reload request
         assert handlers == [handler]
@@ -440,16 +463,32 @@ def test_only_dedicated_hook_group_is_owned(tmp_path):
     other = {"hooks": [{"type": "command", "command": "audit --script " + shlex.quote(str(script))}]}
     assert not installer.owns_group(other, script)
     parts = {"hooks": installer.restore_handlers(own["hooks"][0], script, "claude")}
-    assert len(parts["hooks"]) > 1 and installer.owns_group(parts, script)
-    assert not installer.owns_group({"hooks": []}, script)
+    assert len(parts["hooks"]) > 1 and installer.owns_group(parts, script, parts=True)
+    # Parts are generated only in Claude's compact group; anywhere else they are the user's.
+    assert not installer.owns_group(parts, script)
+    assert not installer.owns_group({"hooks": []}, script, parts=True)
     # Only the parts the installer writes are its own; another value is the user's handler.
     outside = [["--restore-part", value] for value in ("0", "1", "02", str(readiness.RESTORE_PARTS + 1))]
     for bogus in (["--restore-part", "two"], ["--restore-part"], ["--other", "2"], *outside):
-        assert not installer.owns_handler({"command": installer.command_for(script, *bogus)}, script)
+        assert not installer.owns_handler({"command": installer.command_for(script, *bogus)}, script, parts=True)
     own["hooks"].append({"type": "command", "command": "other"})
     assert not installer.owns_group(own, script)
     parts["hooks"].append({"type": "command", "command": "other"})
-    assert not installer.owns_group(parts, script)
+    assert not installer.owns_group(parts, script, parts=True)
+
+
+@pytest.mark.parametrize("client,matcher", [("claude", "^(startup|clear)$"), ("codex", "^compact$")])
+def test_install_keeps_a_part_handler_where_it_never_writes_parts(tmp_path, monkeypatch, client, matcher):
+    """A user's --restore-part handler outside Claude's compact group is not replaced."""
+    monkeypatch.setattr(installer, "client_home", lambda _: tmp_path)
+    target = tmp_path / ("settings.json" if client == "claude" else "hooks.json")
+    script = tmp_path / "hooks" / installer.SCRIPT_NAME
+    mine = {"matcher": matcher, "hooks": [{"type": "command", "timeout": 5,
+                                           "command": installer.command_for(script, "--restore-part", "2")}]}
+    target.write_text(json.dumps({"hooks": {"SessionStart": [mine]}}))
+    installer.install(client)
+    groups = json.loads(target.read_text())["hooks"]["SessionStart"]
+    assert groups[0] == mine and len(groups) == 3
 
 
 @pytest.mark.parametrize("client,roots_key,model_key", [
@@ -568,7 +607,8 @@ def test_windows_commands_keep_paths_and_stdin_safe(monkeypatch, prefix):
     cursor_command = installer.command_for(script, "--client", "cursor")
     assert installer.owns_handler({"command": cursor_command}, script)
     part_command = installer.command_for(script, "--restore-part", "2")
-    assert installer.owns_handler({"command": part_command}, script)
+    assert installer.owns_handler({"command": part_command}, script, parts=True)
+    assert not installer.owns_handler({"command": part_command}, script)
     if sys.platform != "win32":
         parsed = subprocess.run(["bash", "-c", "set -- " + command + "; printf '%s\\n' \"$@\""],
                                 capture_output=True, text=True, check=True).stdout.splitlines()

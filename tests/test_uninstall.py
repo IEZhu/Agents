@@ -1215,6 +1215,22 @@ def test_uninstall_keeps_a_restore_part_handler_the_installer_never_writes(tmp_p
 
 
 @pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_uninstall_keeps_a_part_handler_outside_the_compact_group(tmp_path, monkeypatch, platform):
+    """The installer writes parts only in the compact group, so one in startup/clear is the user's."""
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform)
+    target, script = paths["claude"]
+    document = json.loads(target.read_bytes())
+    startup = document["hooks"]["SessionStart"][0]
+    mine = {"type": "command", "command": readiness_installer.command_for(script, "--restore-part", "2"),
+            "timeout": 5}
+    startup["hooks"].append(mine)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    updated = json.loads(target.read_bytes())
+    assert updated["hooks"]["SessionStart"] == [{"matcher": readiness_installer.MATCHER, "hooks": [mine]}]
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_uninstall_preserves_quoted_readiness_runtime_in_modified_mixed_handler(tmp_path, monkeypatch, platform):
     """A modified handler referencing an apostrophe-containing path keeps its runtime."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform, home_name="O'Neil home")

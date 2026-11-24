@@ -144,10 +144,13 @@ thread rather than a worker's. A complete `SUCCESS` applies when its
 counts after an activation too, because a model that re-routes, or loads a flow's
 persona, without `current_persona` applies the result: in a replay of 170 local
 sessions that logged an activation, a stricter rule that ignores it restored a
-persona the model had already left in 13, and this rule in none. The
-`instruction` is the longest one any applied `SUCCESS` of the same
-`instruction_revision` carried, so a later pointer is replaced by the full text the
-first activation sent.
+persona the model had already left in 13, and this rule in none. The server sends
+the full instruction only to a first activation (a null `replaces_activation_id`)
+or a `force_reload`; a later `SUCCESS` carries a pointer to it. The bundle takes the
+full text of its own `instruction_revision` from those. When the transcript holds
+only a pointer for that revision, which happens after a server update changes the
+revision mid-conversation, the pointer itself asks for a reload, so the hook asks
+for it too.
 
 The hook returns that `SUCCESS` unchanged: its descriptor, exact footer, full
 instruction and four blocks, then an end marker, with a header that tells the model
@@ -155,7 +158,7 @@ the bundle is applied and retained, to continue with `keep` and not to call
 `get_agent_context` or `route_and_load` to recover it. Claude Code 2.1.330 keeps
 one hook's `additionalContext` inline only up to 10,000 UTF-16 code units and
 writes longer text to a file the model sees as a preview, while a bundle runs to
-26,000 to 69,000 characters, most of the spread in the skills block. The Claude
+29,000 to 69,000 characters, most of the spread in the skills block. The Claude
 compact group therefore runs `RESTORE_PARTS` (12) handlers: the plain command
 returns part 1, and `--restore-part 2` to `--restore-part 12` return the further
 parts, each at most 9,500 code units, about 114,000 in all. The client collects
@@ -166,15 +169,19 @@ activation it belongs to. A part the bundle does not need returns `{}`.
 When nothing certain is found, part 1 returns the reload request below and the
 other parts return nothing. That covers no transcript, no applied `SUCCESS`, a
 persona result saved to a file (its bundle is unreadable, so the state is unknown
-until a later `SUCCESS`), a bundle larger than twelve parts, and a scan that runs
-past its 3-second budget. If a part or the end marker is missing from the model's
-context, the header asks for the same reload.
+until a later `SUCCESS`), no full instruction of the bundle's revision, a bundle
+larger than twelve parts, and a scan that runs past its 3-second budget. If a part
+or the end marker is missing from the model's context, the header asks for the
+same reload.
 
-Measured on this machine's 171 Claude Code transcripts that held an activation:
-the restored activation matched the one the model last passed to `log_interaction`
-in every one of the 169 that logged. The bundles took three to eight parts, 25,964
-to 68,635 code units; the three eight-part ones were `purchase_researcher`
-activations with skills blocks of 25,931 to 27,345 characters. No scan took longer
+Measured on this machine's Claude Code transcripts, 170 of which logged an
+activation: 149 restored the activation the model last passed to
+`log_interaction`; 20 fell back to the reload request, each a long conversation
+whose revision had changed with a server update; one restored a `force_reload`
+activation newer than that session's last log, written while it was still running.
+The 151 restored bundles took four to eight parts, 29,176 to 68,640 code units; the
+three eight-part ones were `purchase_researcher` activations with skills blocks of
+25,931 to 27,345 characters. No scan took longer
 than 0.19 s, and all twelve handlers started together on the largest transcript,
 57 MB, finished in 0.37 s. A headless Claude Code 2.1.325 session given five parts
 from a real transcript saw all of them inline, in the order 3, 1, 4, 5, 2, found
@@ -196,7 +203,7 @@ persona ignores the text.
 | Client | Compact handler |
 |---|---|
 | Claude Code; Desktop Code tab | Yes: `SessionStart` source `compact`, `hookSpecificOutput.additionalContext`; the restored bundle in up to twelve parts, else the reload request |
-| Codex | Yes: Codex documents the same source and field; the reload request only, since its rollout is not read; not yet verified on an installed client |
+| Codex | Yes: Codex documents the same source and field; the reload request only: the runtime scans the rollout, but its entries (`response_item`, `event_msg`) carry no Claude Code `message`, so no activation is found, and with one handler in its compact group a bundle could only arrive as part 1 of several, whose header asks for the reload; not yet verified on an installed client |
 | Cursor | No: `sessionStart` has no source, and `preCompact` can only show a user message |
 | Antigravity | No: its hooks document no compaction event |
 | Claude Desktop Chat | No: the MCP fallback has no lifecycle hook |

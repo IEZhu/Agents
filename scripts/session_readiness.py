@@ -242,10 +242,13 @@ def active_bundle(transcript: str, deadline: float) -> dict | None:
     file. Only results of the Agents-Core persona tools on the main thread count. A SUCCESS
     applies when it replaces the active activation, or none, as the protocol says; a stale one
     is skipped. A persona result that cannot be read (a preview of output saved to a file)
-    makes the state unknown until a later SUCCESS. Returns None when nothing certain is found,
-    including a scan that runs past its deadline.
+    makes the state unknown until a later SUCCESS. The server sends the full instruction only
+    to a first activation (null replaces_activation_id) or a force_reload; a later SUCCESS
+    carries a pointer to it, so the bundle takes the full text of its revision from those.
+    Returns None when nothing certain is found: no applied SUCCESS, an unknown state, no full
+    instruction of the bundle's revision, or a scan that runs past its deadline.
     """
-    tools: dict[str, str] = {}
+    tools: dict[str, tuple[str, bool]] = {}
     current: dict | None = None
     unknown = False
     instructions: dict[str, str] = {}
@@ -276,11 +279,14 @@ def active_bundle(transcript: str, deadline: float) -> dict | None:
                     continue
                 if block.get("type") == "tool_use" and (tool := persona_tool(block.get("name"))):
                     if isinstance(block.get("id"), str):
-                        tools[block["id"]] = tool
+                        arguments = block.get("input")
+                        reload = isinstance(arguments, dict) and arguments.get("force_reload") is True
+                        tools[block["id"]] = (tool, reload)
                     continue
-                tool = tools.get(block.get("tool_use_id")) if block.get("type") == "tool_result" else None
-                if tool is None:
+                call = tools.get(block.get("tool_use_id")) if block.get("type") == "tool_result" else None
+                if call is None:
                     continue
+                tool, reload = call
                 response = persona_response(tool, block.get("content"))
                 if response is None:
                     unknown = unknown or "persisted-output" in (result_text(block.get("content")) or "")
@@ -300,14 +306,16 @@ def active_bundle(transcript: str, deadline: float) -> dict | None:
                     seen.add(activation)
                     current, unknown = dict(response, tool=tool), False
                     revision, text = response.get("instruction_revision"), response.get("instruction")
-                    if isinstance(revision, str) and isinstance(text, str) and \
-                            len(text) > len(instructions.get(revision, "")):
+                    if (replaces is None or reload) and isinstance(revision, str) and isinstance(text, str):
                         instructions[revision] = text
     if current is None or unknown:
         return None
     revision = current.get("instruction_revision")
-    # A later SUCCESS points to the full instruction its conversation's first activation sent.
-    current["instruction"] = instructions.get(revision) or current.get("instruction") or ""
+    if not isinstance(revision, str) or revision not in instructions:
+        # Only a pointer to a full text this transcript does not hold: restoring it would tell
+        # the model to reload anyway, against the header, so ask for the reload instead.
+        return None
+    current["instruction"] = instructions[revision]
     return current
 
 

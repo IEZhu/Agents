@@ -86,7 +86,8 @@ def require_unchanged(path: Path, expected: bytes | None) -> None:
         raise ValueError("Hook configuration changed during setup; rerun the installer")
 
 
-def owns_handler(handler: dict, script: Path) -> bool:
+def owns_handler(handler: dict, script: Path, *, parts: bool = False) -> bool:
+    """A handler this installer wrote; restore parts count only where it writes them (parts=True)."""
     command = handler.get("command")
     if handler.get("type", "command") != "command" or not isinstance(command, str):
         return False
@@ -110,13 +111,14 @@ def owns_handler(handler: dict, script: Path) -> bool:
     options = arguments[2:]
     return (len(arguments) in (2, 4) and arguments[1].strip('"') == str(script)
             and (not options or options in (["--client", "cursor"], ["--client", "antigravity"])
-                 or options in RESTORE_PART_OPTIONS))
+                 or (parts and options in RESTORE_PART_OPTIONS)))
 
 
-def owns_group(group: dict, script: Path) -> bool:
+def owns_group(group: dict, script: Path, *, parts: bool = False) -> bool:
     handlers = group.get("hooks")
     return (isinstance(handlers, list) and bool(handlers)
-            and all(isinstance(handler, dict) and owns_handler(handler, script) for handler in handlers))
+            and all(isinstance(handler, dict) and owns_handler(handler, script, parts=parts)
+                    for handler in handlers))
 
 
 def restore_handlers(handler: dict, script: Path, client: str) -> list[dict]:
@@ -207,7 +209,9 @@ def configure(document: dict, client: str, script: Path) -> tuple[dict, dict[Pat
         # Same command; on source "compact" the runtime returns the persona the transcript shows
         # was active, or asks the model to restore it.
         restore = {"matcher": COMPACT_MATCHER, "hooks": restore_handlers(handler, script, client)}
-        upsert(items, restore, lambda item: owns_group(item, script) and item.get("matcher") == COMPACT_MATCHER)
+        parts = client in RESTORE_PART_CLIENTS  # only Claude's compact group holds generated parts
+        upsert(items, restore,
+               lambda item: owns_group(item, script, parts=parts) and item.get("matcher") == COMPACT_MATCHER)
         mode = "native-message"
     return entry, {script: runtime}, mode
 

@@ -1113,8 +1113,12 @@ def _readiness_arguments(command: str, *, windows: bool) -> list[str] | None:
     return arguments
 
 
-def _readiness_handler(handler, client: str, script: Path, installation: Path, *, windows: bool) -> bool:
-    """Match an unchanged generated handler using the selected installation's interpreter."""
+def _readiness_handler(handler, client: str, script: Path, installation: Path, *, windows: bool,
+                       compact: bool = False) -> bool:
+    """Match an unchanged generated handler using the selected installation's interpreter.
+
+    Restore parts count only in Claude's compact group (``compact``), the one place the
+    installer writes them."""
     if not isinstance(handler, dict):
         return False
     expected = {"command": handler.get("command"), "timeout": 5}
@@ -1124,7 +1128,7 @@ def _readiness_handler(handler, client: str, script: Path, installation: Path, *
         return False
     arguments = _readiness_arguments(handler.get("command"), windows=windows)
     options = ["--client", client] if client in ("cursor", "antigravity") else []
-    if (client == "claude" and arguments is not None and len(arguments) == 4
+    if (client == "claude" and compact and arguments is not None and len(arguments) == 4
             and arguments[2] == "--restore-part"
             and arguments[3] in [str(part) for part in range(2, READINESS_RESTORE_PARTS + 1)]):
         options = arguments[2:]  # a further part of the compact group
@@ -1165,8 +1169,10 @@ def remove_readiness(content: bytes, client: str, script: Path, installation: Pa
                             or item["matcher"] not in (READINESS_MATCHER, READINESS_COMPACT_MATCHER)
                             or not isinstance(item["hooks"], list)):
                         continue
+                    compact = item["matcher"] == READINESS_COMPACT_MATCHER
                     owned = [i for i, handler in enumerate(item["hooks"])
-                             if _readiness_handler(handler, client, script, installation, windows=windows)]
+                             if _readiness_handler(handler, client, script, installation, windows=windows,
+                                                   compact=compact)]
                     if owned and len(owned) == len(item["hooks"]):
                         removals.append(((*prefix, index), None))
                     else:
