@@ -2,7 +2,7 @@
 
     python scripts/dev/pr_threads.py 95                  # unresolved threads + reviews on the head
     python scripts/dev/pr_threads.py 95 --resolve-mine   # resolve threads whose last comment is yours
-    python scripts/dev/pr_threads.py --closed            # unresolved threads on every merged/closed PR
+    python scripts/dev/pr_threads.py --closed            # every merged/closed PR with an unresolved thread or a late reply
     python scripts/dev/pr_threads.py 95 --mode autodev   # a self-development PR (flows/pr-review.md#autodev-mode)
 
 "Yours" is the account `gh` is logged in as. A thread is answered once its last
@@ -10,6 +10,11 @@ comment is yours; resolve it only after the reply says what was done (the fix co
 or why the finding was declined). Reviewers also put findings in the review body
 ("Previously missed", overview notes) rather than a thread: those are printed for
 reviews on the current head so they are not overlooked.
+
+A resolved thread whose last comment is not yours is printed too, as LAST WORD NOT
+YOURS: a reviewer can reply after a thread was resolved, or resolve it itself and then
+reply, and such a reply ("not marking the finding as addressed yet") is easy to miss
+when only unresolved threads are read. Its comment id names the reply to open.
 
 In `autodev` mode the owner and self-development share one account (docs/autodev-plan.md
 5.1), so the login cannot tell them apart: a thread counts as answered only when its last
@@ -98,6 +103,12 @@ def trust(user: dict | None) -> str:
     return "TRUSTED" if trusted(user) else "untrusted"
 
 
+def last_word_not_yours(thread: dict, me: str) -> bool:
+    """Resolved, but someone other than the account spoke last: a reply that came after the
+    resolution, or a reviewer that resolved its own thread and then answered in it."""
+    return thread["isResolved"] and login(thread["last"]["nodes"][0]) != me
+
+
 def answered(last: dict, me: str, mode: str) -> bool:
     """The last comment is yours; in autodev mode also marked, since the owner shares the account."""
     return login(last) == me and (mode != AUTODEV or marked(last.get("body")))
@@ -116,7 +127,9 @@ def show(repo: str, number: int, me: str, resolve_mine: bool, mode: str = DEFAUL
     owner, name = repo.split("/")
     head, nodes = threads(owner, name, number, AUTODEV_QUERY if mode == AUTODEV else QUERY)
     open_threads = [t for t in nodes if not t["isResolved"]]
-    print(f"#{number} head {head[:7]}: {len(open_threads)} unresolved of {len(nodes)} threads")
+    spoken_after = [t for t in nodes if last_word_not_yours(t, me)]
+    print(f"#{number} head {head[:7]}: {len(open_threads)} unresolved of {len(nodes)} threads"
+          + (f", {len(spoken_after)} resolved with the last word not yours" if spoken_after else ""))
     for t in open_threads:
         first, last = t["first"]["nodes"][0], t["last"]["nodes"][0]
         if resolve_mine and login(last) == me:
@@ -131,6 +144,12 @@ def show(repo: str, number: int, me: str, resolve_mine: bool, mode: str = DEFAUL
             # A trusted bot's reply in a thread the agent or the owner started counts (pr-review, autodev item 3).
             print(f"    last: {login(last)} c{last['databaseId']} {trust(graphql_user(last))}: "
                   + (last.get("body") or "").replace("\n", " ")[:500])
+    for t in spoken_after:
+        first, last = t["first"]["nodes"][0], t["last"]["nodes"][0]
+        source = f" {trust(graphql_user(last))}" if mode == AUTODEV else ""
+        print(f"  LAST WORD NOT YOURS {t['path']}:{t['line']} {login(first)} c{first['databaseId']}, "
+              f"resolved; last: {login(last)} c{last['databaseId']}{source}")
+        print("    " + first["body"].replace("\n", " ")[:300])
     if not resolve_mine:
         for r in review_bodies(repo, number, head, me, mode):
             source = f" {trust(r.get('user'))}" if mode == AUTODEV else ""
@@ -158,7 +177,8 @@ def main() -> None:
         numbers = [pr["number"] for page in pages for pr in page]
         owner, name = repo.split("/")
         for n in sorted(numbers):
-            if any(not t["isResolved"] for t in threads(owner, name, n)[1]):
+            # A late reply in a resolved thread is outstanding too, so it keeps the PR in the scan.
+            if any(not t["isResolved"] or last_word_not_yours(t, me) for t in threads(owner, name, n)[1]):
                 show(repo, n, me, args.resolve_mine, args.mode)
         return
     if args.pr is None:

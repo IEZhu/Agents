@@ -130,7 +130,8 @@ intent, and after a rebase push to the verified source remote with an explicit
 `--force-with-lease=refs/heads/<branch>:<last seen head>`, never relying on the
 default remote or upstream ([keep the branch current](../flows/pr-review.md#keep-the-branch-current-and-git-healthy)).
 
-**Merged PRs.** Unresolved threads on merged or closed PRs are still answered:
+**Merged PRs.** Unresolved threads on merged or closed PRs, and resolved ones where a
+reviewer spoke after the resolution, are still answered:
 `python scripts/dev/pr_threads.py --closed` lists them.
 
 ## Evals
