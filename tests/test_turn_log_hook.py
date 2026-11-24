@@ -340,6 +340,32 @@ def test_a_bare_capability_in_prose_is_masked_and_a_hex_digest_is_not():
     assert capability not in masked and digest in masked
 
 
+@pytest.mark.parametrize("token", [
+    "Ab" * 21 + "C",    # no digit
+    "q7" * 21 + "z",    # no uppercase
+    "Q7" * 21 + "Z",    # no lowercase
+    "Ab_-" * 10 + "Cde",  # no digit, with the URL-safe punctuation
+])
+def test_a_capability_missing_a_character_class_is_still_masked(token):
+    """#734 review: secrets.token_urlsafe(32) can lack a digit or a case."""
+    from src.schedules.records import mask
+    assert len(token) == 43
+    assert hook._masked(f"use {token} now", mask) == "use *** now"
+
+
+@pytest.mark.parametrize("text,leak", [
+    ('{"password":"abc\'def456"}', "def456"),
+    ('{"password":"ab\\"cd456 tail"}', "cd456"),
+    ("password='x\"yz789 tail'", "yz789"),
+    ("token: 'it\\'s-sec456'", "s-sec456"),
+])
+def test_a_quoted_secret_is_masked_up_to_its_own_closing_quote(text, leak):
+    """#734 review: the other quote character or an escaped quote must not end the value."""
+    from src.schedules.records import mask
+    masked = hook._masked(text, mask)
+    assert leak not in masked and "***" in masked
+
+
 def test_a_prompt_without_text_ends_the_previous_turn(switches, project, tmp_path):
     """#734 review: an image-only prompt must not lend the previous prompt to its answer."""
     transcript = tmp_path / "image.jsonl"

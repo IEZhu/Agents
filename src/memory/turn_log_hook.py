@@ -55,13 +55,19 @@ EXTRA_SECRET_PATTERNS = (
     re.compile(r"\b(AIza)[0-9A-Za-z_-]{30,}"),
     re.compile(r"\b(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\b(aws_secret_access_key\s*[=:]\s*[\"']?)[A-Za-z0-9/+=]{30,}"),
-    # The whole value under a secret-bearing key, quoted or not, however short (#734 review).
-    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*[\"'])[^\"'\n]+" % SECRET_KEYS),
+    # The whole value under a secret-bearing key, quoted or not, however short (#734 review). A
+    # quoted value runs to its own closing quote: the other quote character and escaped quotes
+    # are part of it.
+    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*\")(?:[^\"\\\n]|\\.)+" % SECRET_KEYS),
+    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*')(?:[^'\\\n]|\\.)+" % SECRET_KEYS),
     re.compile(r"(?i)(\b(?:%s)\s*[=:]\s*)(?![\"'])[^\s,;}&\"']+" % SECRET_KEYS),
 )
 # A 43-character URL-safe token (secrets.token_urlsafe(32), the form of a cooperation capability)
-# in prose, without a key; mixed case and a digit tell it from a hex digest (#734 review).
+# in prose, without a key (#734 review). Such a token may lack a digit or either case, so every
+# one is masked except a lowercase hex string, which is a digest; an identifier of exactly this
+# length is masked too, a loss the journal accepts.
 RANDOM_TOKEN = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])")
+HEX_DIGEST = re.compile(r"[0-9a-f]+")
 HOST_ROW = re.compile(r"Stop hook (?:feedback|blocking error)|\[Request interrupted by user")
 # The line log_interaction's timestamp would add (``YYYY.MM.DD HH:MM:SS``), never part of the outcome.
 TIME_LINE = re.compile(r"\A\s*\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}[ \t]*\r?\n")
@@ -308,9 +314,7 @@ def _masked(text: str, mask) -> str:
 
 def _mask_random_token(match) -> str:
     token = match[0]
-    random = (any(c.islower() for c in token) and any(c.isupper() for c in token)
-              and any(c.isdigit() for c in token))
-    return "***" if random else token
+    return token if HEX_DIGEST.fullmatch(token) else "***"
 
 
 def main(argv=None) -> int:
