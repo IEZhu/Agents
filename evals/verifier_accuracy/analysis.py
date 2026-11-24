@@ -7,7 +7,9 @@ correct has likelihood ``c·b^r·(1−b)^(n−r) + (1−c)·(1−b)^r·b^(n−r)
 ``(c, b)`` is computed on a grid with uniform priors over (1/2, 1) for ``c`` and (0, 1) for
 ``b``, the log-likelihood divided by the design effect ``D``. ``D`` is the variance of the
 point estimates under cluster resampling over their variance under item resampling, never
-below 1, and the mean cluster size when either variance is zero; the coverage simulation
+below 1. When either variance is zero, as when every verdict agrees, ``D`` is the size-weighted
+mean cluster size, the sum of squared cluster sizes over the item count: the design effect when
+a cluster's items fail together, which for unequal clusters exceeds the plain mean. The coverage simulation
 raises a floor under it until every band holds its level. Bands are marginal quantiles:
 0.00625/0.99375 at the final look (Bonferroni over c_model, b_V3, c_execution, b_V2) and
 0.0005/0.9995 at the interim look. The planning look, after a first stage of the run, reports
@@ -112,16 +114,21 @@ def design_effect(units: list[Unit], coarse: Grid, rng: np.random.Generator, res
     cluster_draws = rng.integers(0, len(by_cluster), size=(resamples, len(by_cluster)))
     by_items = coarse.mle_many(one_hot[item_draws].sum(axis=1))
     by_clusters = coarse.mle_many(by_cluster[cluster_draws].sum(axis=1))
+    sizes = by_cluster.sum(axis=1)
     mean_size = len(units) / len(by_cluster)
+    # Items of a cluster failing together: the item-weighted proportion's variance grows by
+    # sum(m^2)/sum(m), which for unequal clusters is larger than the plain mean size.
+    together = float((sizes ** 2).sum() / sizes.sum())
     ratios = {}
     for column, name in enumerate(("c", "b")):
         # Identical estimates have zero variance; np.var of equal floats can leave a rounding
         # residue, so zero is decided by the spread, not by the variance.
         if np.ptp(by_items[:, column]) == 0 or np.ptp(by_clusters[:, column]) == 0:
-            ratios[name] = mean_size
+            ratios[name] = together
         else:
             ratios[name] = float(np.var(by_clusters[:, column], ddof=1) / np.var(by_items[:, column], ddof=1))
     return {"D": max(1.0, *ratios.values()), "ratios": ratios, "mean_cluster_size": mean_size,
+            "weighted_cluster_size": together,
             "clusters": len(by_cluster)}
 
 
@@ -544,23 +551,31 @@ def project(stage_fit: dict, units: list[Unit], *, family: str, cluster_sizes: l
     drawn = rng.choice(len(weights), size=sets, p=weights)
     widths = {"c": [], "b": []}
     rules = {"c": Counter(), "b": Counter()}
+    empty = 0
     for index in drawn:
         c, b = float(grid.c[index // len(grid.b)]), float(grid.b[index % len(grid.b)])
         result = fit(_simulated_units(c, b, cluster_sizes, rng, verdict_yield=verdict_yield), family=family,
                      look="final", grid=grid, coarse=coarse, rng=rng, resamples=resamples, d_floor=floor)
+        if not result["items"]:  # every simulated verdict was lost: no band at all
+            empty += 1
+            continue
         for name in ("c", "b"):
             parameter = result["parameters"][name]
             widths[name].append(parameter["half_width"])
             rules[name][str(parameter["rule"])] += 1
     out = {"items": sum(cluster_sizes), "clusters": len(cluster_sizes), "verdict_yield": round(verdict_yield, 4),
-           "d_floor": round(floor, 4), "sets": sets}
+           "d_floor": round(floor, 4), "sets": sets, "empty_sets": empty}
     for name in ("c", "b"):
         values = np.array(widths[name])
+        if not len(values):
+            out[name] = {"stage_median": stage_fit["parameters"][name]["median"], "half_width": None,
+                         "narrow_share": 0.0, "rule_shares": {}}
+            continue
         out[name] = {"stage_median": stage_fit["parameters"][name]["median"],
                      "half_width": {"median": round(float(np.median(values)), 4),
                                     "p10": round(float(np.quantile(values, 0.1)), 4),
                                     "p90": round(float(np.quantile(values, 0.9)), 4)},
-                     "narrow_share": round(float(np.mean(values <= NARROW)), 4),
+                     "narrow_share": round(float((values <= NARROW).sum() / sets), 4),
                      "rule_shares": {rule: round(count / sets, 4) for rule, count in sorted(rules[name].items())}}
     return out
 
@@ -573,6 +588,8 @@ def planning(rows: list[dict], statements: dict[str, dict], report: dict, *, d_f
     grid, coarse = grid or Grid(), coarse or Grid(100, 200)
     clusters = {item: row["cluster"] for item, row in statements.items()}
     fitted = usable(effective(rows))
+    # The same units analyze fits: an item whose verdicts mix configurations is left out of every one.
+    units_by = {family: family_units(fitted, family, clusters)[0] for family in FAMILY_LEVEL}
     sizes = {"model": Counter(row["cluster"] for row in statements.values()),
              "execution": Counter(row["cluster"] for row in statements.values() if row["v2"])}
     yields = {family: stage_yield(rows, family) for family in FAMILY_LEVEL}
@@ -582,7 +599,7 @@ def planning(rows: list[dict], statements: dict[str, dict], report: dict, *, d_f
         families = {}
         for family, subsets in entry["families"].items():
             stage_fit = subsets["all"]
-            units = family_units([row for row in fitted if configuration(row) == key], family, clusters)[0].get(key, [])
+            units = units_by[family].get(key, [])
             verdict_yield = yields[family]
             if not units or not verdict_yield:
                 continue

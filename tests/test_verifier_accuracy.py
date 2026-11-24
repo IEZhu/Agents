@@ -1081,3 +1081,39 @@ def test_counts_that_would_run_or_simulate_nothing_are_refused(capsys):
             cli.parser().parse_args(argv)
         assert "must be at least 1" in capsys.readouterr().err
     assert cli.parser().parse_args(["run", "--stage-runs", "220"]).stage_runs == 220
+
+
+
+# --- Review round 2 of the staged run ----------------------------------------------------------
+
+
+def test_agreeing_verdicts_in_unequal_clusters_fall_back_to_the_size_weighted_mean():
+    units = [analysis.Unit("a0", "a", True, 2, 2)] + [analysis.Unit(f"b{j}", "b", True, 2, 2) for j in range(10)]
+    result = analysis.fit(units, family="model", look="final", grid=GRID, coarse=COARSE,
+                          rng=np.random.default_rng(0), resamples=50)
+    effect = result["design_effect"]
+    assert effect["mean_cluster_size"] == pytest.approx(5.5)
+    assert effect["D"] == pytest.approx((1 + 100) / 11)  # a cluster's items failing together
+
+
+def test_a_projection_whose_simulated_sets_lose_every_verdict_reports_no_band():
+    rng = np.random.default_rng(3)
+    units = analysis._simulated_units(0.9, 0.9, [1] * 40, rng)
+    stage_fit = analysis.fit(units, family="model", look="planning", grid=GRID, coarse=COARSE, rng=rng, resamples=20)
+    out = analysis.project(stage_fit, units, family="model", cluster_sizes=[1, 1, 1], verdict_yield=1e-12,
+                           d_floor=1.0, sets=5, resamples=10, rng=rng, grid=GRID, coarse=COARSE)
+    assert out["empty_sets"] == 5
+    assert out["c"]["half_width"] is None and out["b"]["rule_shares"] == {} and out["b"]["narrow_share"] == 0.0
+
+
+def test_the_projection_uses_the_units_analyze_fits(monkeypatch):
+    spec = [(f"i{i}", True, "V3", "confirmed") for i in range(10)] + [("mixed", True, "V3", "confirmed")]
+    rows = _rows(spec) + [{**row, "slot": 2} for row in _rows(spec)]
+    rows[-1]["model"] = "other"  # the mixed item's second verdict comes from another configuration
+    statements = {item: {"cluster": f"k{index}", "stratum": "path", "v2": False}
+                  for index, item in enumerate([f"i{i}" for i in range(10)] + ["mixed"])}
+    report = analysis.analyze(rows, statements, look="planning", resamples=20, grid=GRID, coarse=COARSE)
+    seen = []
+    monkeypatch.setattr(analysis, "project", lambda stage_fit, units, **options: seen.append(len(units)) or {})
+    analysis.planning(rows, statements, report, d_floor=1.0, sets=2, resamples=5, grid=GRID, coarse=COARSE)
+    assert report["mixed_configuration_items"]["model"] == 1 and seen == [10]
