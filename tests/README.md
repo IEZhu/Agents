@@ -81,7 +81,8 @@ Use the direct Python command when you need to select specific test files.
 The [Documentation workflow](../.github/workflows/documentation-quality.yml) runs
 the offline documentation checker and `test_check_docs.py`, `test_flows.py`,
 `test_version.py`, `test_workflow_permissions.py`, `test_subagent_contract_text.py`,
-`test_content_checks_workflow.py` and `test_pr_threads.py` for every pull request and pushes to `main`/`dev`.
+`test_content_checks_workflow.py`, `test_pr_threads.py`, `test_thread_inventory.py` and
+`test_verifier_accuracy.py` for every pull request and pushes to `main`/`dev`.
 It checks the source-derived README badge as well as navigation and public tool
 references. It installs the runtime test dependencies for the registration and
 flow checks, but starts no model. Declared flow bundles use real source components

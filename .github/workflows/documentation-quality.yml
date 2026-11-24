@@ -33,7 +33,7 @@ jobs:
         run: python -m pip install -r requirements.txt 'markdown-it-py>=3,<5'
       - name: Check local navigation, public tool references and badge freshness
         run: python -B scripts/check_docs.py
-      - name: Check parser, registrations, flow contracts, runtime version, workflow permissions, generated blocks, content-check wiring and the PR-thread helper
-        run: python -B -m pytest tests/test_check_docs.py tests/test_flows.py tests/test_version.py tests/test_workflow_permissions.py tests/test_subagent_contract_text.py tests/test_content_checks_workflow.py tests/test_pr_threads.py -q -p no:cacheprovider
+      - name: Check parser, registrations, flow contracts, runtime version, workflow permissions, generated blocks, content-check wiring, the PR-thread helper and the thread-close inventory helper
+        run: python -B -m pytest tests/test_check_docs.py tests/test_flows.py tests/test_version.py tests/test_workflow_permissions.py tests/test_subagent_contract_text.py tests/test_content_checks_workflow.py tests/test_pr_threads.py tests/test_thread_inventory.py -q -p no:cacheprovider
       - name: Check the verifier-accuracy harness (fake workers, no model and no network)
         run: python -B -m pytest tests/test_verifier_accuracy.py -q -p no:cacheprovider
