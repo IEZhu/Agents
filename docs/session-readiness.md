@@ -146,8 +146,11 @@ persona, without `current_persona` applies the result: in a replay of 170 local
 sessions that logged an activation, a stricter rule that ignores it restored a
 persona the model had already left in 13, and this rule in none. The server sends
 the full instruction only to a first activation (a null `replaces_activation_id`)
-or a `force_reload`; a later `SUCCESS` carries a pointer to it. The bundle takes the
-full text of its own `instruction_revision` from those. When the transcript holds
+or a `force_reload`; a later `SUCCESS` carries a pointer to it. Under the headless
+profile even a first activation gets a pointer to the managed section of the
+client's instruction file instead; Claude Code attaches that file again after a
+compaction, so the section the pointer names is still in context. The bundle takes
+the instruction of its own `instruction_revision` from those. When the transcript holds
 only a pointer for that revision, which happens after a server update changes the
 revision mid-conversation, the pointer itself asks for a reload, so the hook asks
 for it too.
@@ -179,7 +182,7 @@ activation: 149 restored the activation the model last passed to
 `log_interaction`; 20 fell back to the reload request, each a long conversation
 whose revision had changed with a server update; one restored a `force_reload`
 activation newer than that session's last log, written while it was still running.
-The 151 restored bundles took four to eight parts, 29,176 to 68,640 code units; the
+The 151 restored bundles took four to eight parts, 29,204 to 68,668 code units; the
 three eight-part ones were `purchase_researcher` activations with skills blocks of
 25,931 to 27,345 characters. No scan took longer
 than 0.19 s, and all twelve handlers started together on the largest transcript,
