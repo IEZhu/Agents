@@ -256,6 +256,23 @@ def test_artifact_free_contracts_keep_original_shape_and_structural_validation(a
     assert response.valid and response.verification == "structural_only"
 
 
+def test_a_worker_without_a_manifest_still_gets_the_output_artifact_rule(artifact_worker_tree):
+    """#734 review: the output-artifact handoff lives in worker-result, which every package carries."""
+    source = Path(__file__).resolve().parents[1] / "rules/subagents/rule-worker-result.mdc"
+    destination = artifact_worker_tree / "rules/subagents/rule-worker-result.mdc"
+    destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    package = prepare_subagent(request(max_context_chars=64000))
+    assert isinstance(package, PreparedPackage), package
+    for text in ("report a file by its path", "Publish to the artifact store only text the scope authorizes",
+                 "artifact_publish", "artifact_manifest_create", "(32 entries each)",
+                 "artifact://<manifest_id>/<manifest_sha256>/<artifact_id>", "keep those manifests active",
+                 "leave the parent's input manifest untouched"):
+        assert text in package.worker_context, text
+    assert subagent.ARTIFACT_WORKER_RULE_ID not in package.descriptor.rules_loaded
+    assert "artifact_read(" not in package.worker_context
+    assert "Pinned artifact reads" not in package.worker_context
+
+
 def test_prepared_worker_has_scoped_output_artifact_handoff_instructions(artifact_worker_tree):
     package = prepare_manifest(max_context_chars=64000)
     assert "artifact_publish" in package.worker_context

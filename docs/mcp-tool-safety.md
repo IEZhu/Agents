@@ -103,8 +103,13 @@ source reads; do not print the raw error's inputs or retry a write.
 
 `decodeObject` accepts a complete JSON object string or a plain object.
 `decodeMcpObject` explicitly handles MCP CallToolResult envelopes: structured
-content wins over text; the legacy single `structuredContent.result` JSON
-string is unwrapped once; otherwise exactly one JSON text block is required.
+content wins over text, so an object there (what the persona tools,
+`log_interaction` and `describe_repo` return over stdio, #734) is used as it is;
+the single `structuredContent.result` JSON string that FastMCP gives every other
+string-valued tool, and the shared service gives these too, is unwrapped once; otherwise exactly one JSON text block is required.
+A structured object whose only key is `result` holding a string counts as that wrapper,
+so a tool whose own result is such an object cannot be read through `mcp: true`; no
+Agents-Core tool returns one.
 Pass `mcp: true` only for such an envelope. Direct payloads keep their `result`
 and `content` properties as data. Nulls, arrays, scalars, empty/malformed JSON,
 explicit client truncation markers and tool errors fail closed. A syntax error
@@ -243,10 +248,14 @@ item projection and forbidden credential sentinels. No real history or
 clipboard is read.
 
 The code-mode recipe above also runs verbatim in a Codex-like isolate whose
-shell tool reads the real adapter file. Its Agents-Core results use the legacy
-`structuredContent.result` wrapper that FastMCP returns for a string-valued
-tool. Flow discovery emits only the bounded envelope and retains the whole
-result; a malformed result refuses with its source reference in the error text
+shell tool reads the real adapter file. A string-valued Agents-Core tool
+answers with the `structuredContent.result` wrapper that FastMCP returns for it,
+the form the shared service keeps for the five single-encoded tools too; a tool
+that returns an object, such as `artifact_publish`, `local_inference_status` or
+the five over stdio, answers with that object as structured content, and the
+adapter decodes both, so a client reads each tool's documented result shape
+rather than assuming a `result` key. Flow discovery emits only the bounded envelope
+and retains the whole result; a malformed result refuses with its source reference in the error text
 the model sees; a truncated adapter load stops before the first tool call.
 Through the same loader, a `run_flow` bundle keeps its request, flow body and
 persona blocks out of the output, and selecting its oversized body refuses with

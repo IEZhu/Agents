@@ -26,6 +26,9 @@ paths use it:
 Persona bundles also honor the per-rule switches of the web UI and include
 enabled cached URL subscriptions (``get_rules(apply_toggles=True)``); the
 per-query evaluation path ignores both. Subscription reads never fetch a URL.
+Under the headless client profile the same switch path also leaves out
+``HEADLESS_OMITTED_RULES``, the rules a one-shot run cannot act on. That is a
+property of the run, not of an agent, so every agent still gets the same set.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from typing import List, Optional
 import yaml
 
 from src import component_toggles
+from src.engine import config
 from src.engine.config import RULES_DIR, RULES_ENABLED
 from src.utils.prompt_loader import process_imports, resolve_path, split_frontmatter
 
@@ -47,6 +51,12 @@ logger = logging.getLogger(__name__)
 
 
 _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
+
+# Rules a headless one-shot run cannot act on (#734): it has no chat title to keep
+# aligned (thread-status) and no peer sessions to coordinate with
+# (agent-cooperation). Under ``config.headless_profile()`` the persona bundle
+# treats them like rules switched off in the web UI.
+HEADLESS_OMITTED_RULES = frozenset({"agent-cooperation", "thread-status"})
 
 # Strip a single leading H1 heading from rule bodies when rendering.
 # Each rule body is wrapped under a "### Rule: <name>" subheader inside the
@@ -236,6 +246,8 @@ def get_rules(
     switches and cached user subscriptions on purpose, so evaluation results do
     not depend on local settings. User rules are read fresh from the local library
     and merged by priority; their source URLs are never fetched during loading.
+    Under the headless client profile ``apply_toggles=True`` also drops
+    ``HEADLESS_OMITTED_RULES``, as if they were switched off.
     """
     global _cache
     if not RULES_ENABLED:
@@ -248,6 +260,8 @@ def get_rules(
         rules = _cache
     if apply_toggles:
         off = component_toggles.disabled("rules")
+        if config.headless_profile():
+            off = off | HEADLESS_OMITTED_RULES
         from src.user_rules import RuleLibrary
         rules = [rule for rule in rules if rule.name not in off]
         rules.extend(RuleLibrary().rules())

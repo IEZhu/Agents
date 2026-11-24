@@ -597,7 +597,7 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 | Slug | Tools | Trigger | `missed` or `misused` when |
 |---|---|---|---|
 | `routing` | `route_and_load`, `get_agent_context`, `list_agents` | the first substantive request; a change of domain; the user asks which agents exist | an answer before any `SUCCESS` or `NO_CHANGE`; a new domain handled by the old persona; the agent catalogue described from memory |
-| `persona-restore` | `get_agent_context(force_reload=true)` | a context compaction; answers that lost the footer or the rules | no reload after the compaction, and later answers break the bundle or a `log_interaction` is stored `unverified` |
+| `persona-restore` | `get_agent_context(force_reload=true)` | a context compaction whose compact hook returned no restored bundle, or not all of its parts; answers that lost the footer or the rules | no reload after the compaction, and later answers break the bundle or a `log_interaction` is stored `unverified`; a compaction the hook restored in full needs no reload, and its next answer logs `keep` |
 | `persona-enrichment` | `refresh_persona_context`, `load_implants` | the task needed a skill or reasoning pattern the bundle lacked | the method was improvised while a matching skill or implant existed |
 | `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
 | `log` | `log_interaction` | every final answer eligible for safe, authorized logging | eligible final answers outnumber calls after excluding the privacy skips that step 9 allows; a `history_last_error` or workspace error went unmentioned |

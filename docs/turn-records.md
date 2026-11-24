@@ -35,7 +35,7 @@ Counts are integers from 0 to 100,000; `true` is not a count. The enumerated val
 
 - `status`: `used`, `caught` (a hook blocked or reminded, and the same turn then made the call; never a miss), `misused`, `missed`, `unavailable`, `n/a`, `uncatalogued`, `no-rule`.
 - `cause`: `not-in-context`, `ignored`, `not-loaded`, `no-trigger`, `failed`.
-- `level`: `V0` to `V4`, and `refuted`, `stale`, `contested` for ✗, ⚠ and `?`.
+- `level`: `V0`, `V1`, `V2`, `V3`, `V4`, and `refuted`, `stale`, `contested` for ✗, ⚠ and `?`.
 - `layer`: `memory`, `user-instruction`, `client-instruction`, `client-config`, `hook`, `flow`, `flow-persona`, `flow-library`, `agents-core`, `issue`.
 - `state`: `proposed`, `applied`, `verified`, `declined`, `failed`.
 

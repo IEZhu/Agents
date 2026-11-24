@@ -23,18 +23,37 @@ def _surfaces():
 
 
 @pytest.mark.parametrize("name", list(_surfaces()))
-def test_cooperation_trigger_keeps_authority_and_fallback_on_all_surfaces(name):
+def test_cooperation_trigger_keeps_the_fallback_on_all_surfaces(name):
+    """Every always-on surface says when to coordinate, which tool describes how, and what to do
+    without a coordinator, which no tool description can say once the server is out of reach."""
     text = " ".join(_surfaces()[name].split()).lower()
-    for phrase in ("when agent work intersects", "authorized", "priority source", "one integrator",
-                   "resource claims", "prepared", "result validation", "independent work",
-                   "silence", "timeout", "unrelated chats", "assignments"):
+    for phrase in ("when agent work intersects", "preserve existing work", "authorized", "cooperation_register",
+                   "without a usable coordinator", "owner/user", "independent work"):
         assert phrase in text, (name, phrase)
+    if name not in ("routing_template", "managed_claude"):
+        # The short surfaces also keep consent and unrelated chats; the managed section leaves them
+        # to the owning-session section and the procedure, to stay within its budget (#734).
+        for phrase in ("cooperation_send", "cooperation_receive", "cooperation_ack", "mcp", "silence", "timeout",
+                       "unrelated chats", "assignments"):
+            assert phrase in text, (name, phrase)
+
+
+def test_cooperation_procedure_is_in_the_register_description():
+    """The mailbox, agreement and claims procedure moved from the always-on surfaces into
+    cooperation_register's description (#734); tests/test_protocol_text.py checks that the server
+    serves it."""
+    text = " ".join(protocol_text.tool_procedure("cooperation_register").split()).lower()
+    for phrase in ("priority source", "one integrator", "resource claims", "prepared", "result validation",
+                   "silence", "timeout", "unrelated chat", "assignments"):
+        assert phrase in text, phrase
     for phrase in ("cooperation_send", "cooperation_receive", "cooperation_ack", "mcp",
                    "delivery acknowledgement", "untrusted task data", "native host messaging is not required"):
-        assert phrase in text, (name, phrase)
+        assert phrase in text, phrase
     for phrase in ("cooperation_wait", "notification cursor", "cooperation_request_status",
                    "cooperation_request_update", "request revision", "idle model"):
-        assert phrase in text, (name, phrase)
+        assert phrase in text, phrase
+    for name, surface in _surfaces().items():
+        assert "notification cursor" not in surface and "cooperation_request_update" not in surface, name
 
 
 def test_managed_section_matches_canonical_template_and_previous_memory_is_retained():

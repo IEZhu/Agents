@@ -20,7 +20,7 @@ TOOLS = ("log_interaction", "route_and_load", "get_agent_context", "refresh_pers
 # Claude Code shows this many characters of a server's instructions: 4,096 since v2.1.296,
 # 2,048 before (#421, #508). Older clients are still in use, so the shorter window holds
 # the directives every turn needs and the longer one the first-work rule and the delegation
-# exchange through validation, acceptance and the rule against editing identities.
+# trigger; the exchange itself is in the delegation tools' descriptions (#734).
 OLDER_CLAUDE_CODE_WINDOW = 2048
 CLAUDE_CODE_WINDOW = 4096
 
@@ -302,6 +302,10 @@ async def test_advertised_schemas_are_renderable():
         assert not set(FORBIDDEN) & set(_walk(spec["properties"])), (name, prop)
         assert "required" not in spec
         assert spec["description"]
+        lists = {"skills_loaded", "implants_loaded", "rules_loaded"}
+        assert {k: v["type"] for k, v in spec["properties"].items()} == {
+            k: "array" if k in lists else "string" for k in keys}, (name, prop)
+        assert len(json.dumps(spec, separators=(",", ":"))) <= 480, (name, prop)
     log = schemas["log_interaction"]["properties"]
     for prop in ("persona", "persona_action", "files", "tags", "record"):
         assert log[prop]["description"]
@@ -340,25 +344,42 @@ def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
 @pytest.mark.parametrize("phrase", [
     "call describe_repo with workspace and the target repo_path before ad hoc exploration.",
     "Call validate_subagent_result for every returned or revised output",
-    "Require valid: true before accepting",
-    "Never edit identities or the contract to make a result pass.",
-    "Invalid output requires correction and revalidation",
-    "truncated.produced counts that stage's diagnostics before the cap of 20, not distinct problems.",
+    "require valid: true before accepting it.",
+    "Read both tools' descriptions before delegating: they hold the procedure and the artifact rules.",
+    "If either endpoint or native spawning is unavailable, report it and work in the parent when practical",
+    "no unprepared/full-persona worker or unvalidated result is an automatic fallback.",
+    # #734: a deferring client loads the persona tools by exact name before its first call.
+    "load route_and_load, get_agent_context and log_interaction with one exact-name selection",
 ])
-def test_first_work_and_validation_stay_inside_the_current_window(phrase):
+def test_first_work_and_the_delegation_trigger_stay_inside_the_current_window(phrase):
     """#508: current Claude Code shows 4,096 characters, enough after the per-turn directives
     for the first-work rule, which a session may need before its first activation, and the
-    delegation exchange through its validation and acceptance rules and the rule that a result
-    never passes by editing identities or the contract.
+    delegation trigger: validate every output, require valid: true, read the two tools'
+    descriptions first, and the fallback when an endpoint is unavailable.
 
-    The last two phrases are pinned because the window cut them once already: a fix for this
-    very class grew the compact variant until "and revalidation" ended at 4,114 characters and
-    the marker's own explanation at 4,203, past the window, while the four phrases above it
-    stayed inside and every gate passed. Each rule the window must deliver belongs here, not
-    only the ones that were short enough on the day the list was written.
+    Until #734 the window had to hold the exchange itself, through the rules on invalid output,
+    truncated.produced and edited identities; the window cut two of them once. Those rules now
+    live in validate_subagent_result's description, which a deferring client loads when it
+    selects the tool (test_the_validation_rules_reach_the_tool_that_needs_them). The fallback
+    stays here because a description is out of reach when its server is.
     """
     text = server.mcp.instructions
     assert phrase in text and text.index(phrase) + len(phrase) < CLAUDE_CODE_WINDOW
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phrase", [
+    "edit identity fields to make validation pass.",
+    "return the diagnostics for correction and validate the revised output again",
+    "truncated.produced counting the diagnostics that stage produced, not distinct problems.",
+    "Require valid: true before accepting, integrating, citing as verified or marking the delegated work complete",
+])
+async def test_the_validation_rules_reach_the_tool_that_needs_them(phrase):
+    """The rules the 4,096-character window held before #734 now open validate_subagent_result's
+    description, which Claude Code shows in full (16,384 characters) once tool search loads it."""
+    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    description = " ".join(tools["validate_subagent_result"].description.split())
+    assert phrase in description and phrase not in " ".join(server.mcp.instructions.split())
 
 
 @pytest.mark.asyncio
@@ -418,8 +439,7 @@ async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redact
     root = Path(__file__).resolve().parents[1]
     tool = {t.name: t for t in await server.mcp.list_tools()}["log_interaction"]
     properties = tool.inputSchema["properties"]
-    surfaces = {"APPLY_INSTRUCTION": APPLY_INSTRUCTION, "tool description": tool.description,
-                "query description": properties["query"]["description"]}
+    surfaces = {"APPLY_INSTRUCTION": APPLY_INSTRUCTION, "tool description": tool.description}
     for name in ("scripts/templates/routing-protocol-core.md", "scripts/templates/memory-routing.md",
                  "CLAUDE.md", "docs/routing_flow.md"):
         surfaces[name] = (root / name).read_text(encoding="utf-8")
@@ -428,10 +448,28 @@ async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redact
         flat = " ".join(text.split())
         assert "request verbatim" in flat, name
         assert all(term in flat for term in redactions), name
-    response = properties["response_content"]["description"]
-    assert all(term in response for term in redactions)
+    # The two text arguments defer to the tool description, which every listing carries (#734).
+    assert "request verbatim, redacted" in properties["query"]["description"]
+    assert "redacted" in properties["response_content"]["description"]
     # The server instructions are kept short and defer the redaction set to the tool description.
     assert "query verbatim, redacted as log_interaction's description says" in server.mcp.instructions
+
+
+@pytest.mark.asyncio
+async def test_the_listing_stays_small_and_points_to_the_rest_of_the_contract():
+    """A deferring client loads this tool in every session (#734): description plus compact
+    schema stay within budget, and what they leave out is in the page they name."""
+    from pathlib import Path
+    tool = {t.name: t for t in await server.mcp.list_tools()}["log_interaction"]
+    size = len(tool.description) + len(json.dumps(tool.inputSchema, separators=(",", ":")))
+    assert size <= 4500, size
+    pointer = "docs/memory-acceptance.md#the-log_interaction-call"
+    assert pointer in tool.description
+    page = (Path(__file__).resolve().parents[1] / "docs/memory-acceptance.md").read_text(encoding="utf-8")
+    assert "\n## The `log_interaction` call\n" in page
+    for detail in ("HistoryWriter", "LANGFUSE_PUBLIC_KEY", "warming_up", "workspace_inputs",
+                   'source: "fallback"', "history_last_error", "workspace_note", "not part of the hash"):
+        assert detail in page, detail
 
 
 def test_server_choice_guidance_is_visible_before_truncation():

@@ -4,7 +4,10 @@
 Except for the explicit unavailable-MCP fallback below, compose the complete final
 answer in the user's language, ending with the exact saved `footer`, including its
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
-On `keep`, reuse that footer; do not infer component lists. Before delivering this final answer, call
+On `keep`, reuse that footer; do not infer component lists. When the server
+instructions or a `SUCCESS` say that this client's Stop hook logs each turn, skip
+every `log_interaction` step of this protocol; everything else holds. Otherwise,
+before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object
 and `keep`, `switch`, `refresh`, or `restore`. Pass `persona` verbatim from the last
@@ -55,7 +58,8 @@ Save the applied persona descriptor and exact footer. Before sending the final a
 
 <!-- variant: memory -->
 Except for the unavailable-MCP fallback below, compose the answer plus saved
-footer. Before delivering it, call
+footer. Unless the server instructions or a SUCCESS report that a Stop hook
+logs the turn, call before delivering it
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
 request verbatim as `query` (except for the redactions below), the complete composed answer plus
@@ -69,3 +73,12 @@ not waive initial activation. Incomplete attribution is still logged as `unverif
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
+
+<!-- variant: hook -->
+Do not call log_interaction: this client's Stop hook records each turn from its transcript, attributed to the persona of the last SUCCESS or NO_CHANGE, and replaces the logging step that the instruction files describe.
+
+<!-- variant: server-hook -->
+Compose the answer with the saved footer and send it; a message that ends the turn is the final answer and carries the footer even when it only reports progress. Add no time line. Memory and flow tools still take workspace, the absolute working directory.
+
+<!-- variant: bundle-hook -->
+Save the applied persona descriptor and exact footer, and end every final answer with that footer: the first one after initial activation, and any message that ends the turn even when it only reports progress while other work still runs.

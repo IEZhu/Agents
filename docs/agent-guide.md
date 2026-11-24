@@ -6,7 +6,7 @@ Agents-Core supplies specialist context and reusable procedures to an AI assista
 
 | Need or example request | Start with | What to expect |
 |---|---|---|
-| "Help implement this feature" or "review this design" | `route_and_load` | A complete persona bundle, or `ROUTE_REQUIRED` with candidates for the caller to choose from |
+| "Help implement this feature" or "review this design" | `route_and_load` | A complete persona bundle, or `ROUTE_REQUIRED` with a shortlist of the closest agents for the caller to choose from (a headless session may get the leading agent loaded directly, with `alternatives`; see [a cache miss](routing_flow.md#a-cache-miss)) |
 | "Use the code reviewer role" | `get_agent_context` with `agent_name="code_reviewer"` | Direct activation of the named role |
 | "Which specialist roles are installed?" | `list_agents` | The installed catalog; discovery alone does not activate a role |
 | "Run the PR review procedure" or "refresh these docs using our procedure" | `list_flows`, then user-requested `run_flow` | Markdown instructions bound to the caller's repository; the current model continues execution |

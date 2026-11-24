@@ -232,19 +232,14 @@ def validate(value: Any) -> Tuple[Optional[Dict[str, Any]], List[str]]:
 
 
 def describe() -> str:
-    """The schema in one paragraph, for the tool argument's description."""
+    """The tool argument's description, kept short because every tool listing carries it.
+
+    The enumerated values, limits and storage rules are in docs/turn-records.md, which
+    tests/test_turn_record.py checks names every value this module accepts.
+    """
     return (
-        f"Optional structured record of this turn, schema v{VERSION}, stored whole in the journal "
-        "entry and returned by read_history in recency and entry mode. A closed JSON object, "
-        f"at most {MAX_BYTES} bytes: v={VERSION} and kind ({', '.join(KINDS)}) are required; "
-        "optional session (slug), close_ordinal (int), findings [{slug, status, cause, miss_at, level}], "
-        "patches [{id, layer, slug, state, applied_at}], verifier {claims, confirmed, refuted, "
-        "unconfirmed, invalid_rounds}, prep_failures (int), unexecutable [{step, code}], duration_s, "
-        "responses, output_tokens (ints). Slugs are lowercase letters and digits joined by . - or _; "
-        "times are ISO 8601 with an offset. No free text and no paths. status: "
-        f"{', '.join(FINDING_STATUSES)}; cause: {', '.join(CAUSES)}; level: {', '.join(LEVELS)}; "
-        f"layer: {', '.join(LAYERS)}; state: {', '.join(PATCH_STATES)}. An invalid record is "
-        "refused and nothing is logged: fix what record_errors names and call once more."
+        f"Closed turn record, at most {MAX_BYTES} bytes, no free text or paths; v={VERSION} and "
+        "kind required. Fields: docs/turn-records.md. If refused, nothing is logged."
     )
 
 

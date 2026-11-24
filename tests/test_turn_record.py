@@ -1,5 +1,6 @@
 """The closed v1 schema of a turn's structured record (#584)."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -135,9 +136,16 @@ def test_the_advertised_properties_are_the_schema_fields():
         assert tool_args.RECORD_PROPERTIES[name]["type"] == "array"
 
 
-def test_the_description_names_every_enumerated_value():
+def test_the_description_states_the_limits_and_points_to_the_documented_values():
+    """The argument description stays short (#734); the page it names lists every value."""
     text = record.describe()
+    assert str(record.MAX_BYTES) in text and f"v={record.VERSION}" in text
+    assert "docs/turn-records.md" in text
+    documented = (Path(__file__).resolve().parents[1] / "docs/turn-records.md").read_text(encoding="utf-8")
     for values in (record.KINDS, record.FINDING_STATUSES, record.CAUSES, record.LEVELS, record.LAYERS,
                    record.PATCH_STATES):
-        assert all(value in text for value in values)
-    assert str(record.MAX_BYTES) in text
+        missing = [value for value in values if f"`{value}`" not in documented]
+        assert not missing, missing
+    assert f"{record.MAX_BYTES:,}" in documented
+    kinds = tool_args.RECORD_PROPERTIES["kind"]["description"]
+    assert all(kind in kinds for kind in record.KINDS)

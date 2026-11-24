@@ -18,10 +18,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.client_paths import client_config_path, client_home  # noqa: E402
 from scripts._helpers.backup_file import backup_file  # noqa: E402
+from scripts.session_readiness import RESTORE_PARTS  # noqa: E402
 
 SCRIPT_NAME = "agents-core-session-readiness.py"
 MATCHER = "^(startup|clear)$"
 COMPACT_MATCHER = "^compact$"
+# Claude Code inlines at most 10,000 characters of one hook's context, so its compact group
+# runs one handler per part of a restored bundle. Codex keeps the single reload request.
+RESTORE_PART_CLIENTS = ("claude",)
+# Only the parts this installer writes are its own; any other value is the user's handler.
+RESTORE_PART_OPTIONS = [["--restore-part", str(part)] for part in range(2, RESTORE_PARTS + 1)]
 CLIENTS = ("claude", "codex", "cursor", "antigravity", "desktop")
 READINESS_NAME = "Agents-Readiness"
 WINDOWS_HOOKS = os.name == "nt"
@@ -80,7 +86,8 @@ def require_unchanged(path: Path, expected: bytes | None) -> None:
         raise ValueError("Hook configuration changed during setup; rerun the installer")
 
 
-def owns_handler(handler: dict, script: Path) -> bool:
+def owns_handler(handler: dict, script: Path, *, parts: bool = False) -> bool:
+    """A handler this installer wrote; restore parts count only where it writes them (parts=True)."""
     command = handler.get("command")
     if handler.get("type", "command") != "command" or not isinstance(command, str):
         return False
@@ -101,14 +108,25 @@ def owns_handler(handler: dict, script: Path) -> bool:
         arguments = [value.replace("''", "'") for value in re.findall(r"'((?:[^']|'')*)'", match[1])]
         if decoded != powershell_payload(arguments):
             return False
+    options = arguments[2:]
     return (len(arguments) in (2, 4) and arguments[1].strip('"') == str(script)
-            and (len(arguments) == 2 or arguments[2:] in (["--client", "cursor"], ["--client", "antigravity"])))
+            and (not options or options in (["--client", "cursor"], ["--client", "antigravity"])
+                 or (parts and options in RESTORE_PART_OPTIONS)))
 
 
-def owns_group(group: dict, script: Path) -> bool:
+def owns_group(group: dict, script: Path, *, parts: bool = False) -> bool:
     handlers = group.get("hooks")
-    return (isinstance(handlers, list) and len(handlers) == 1 and isinstance(handlers[0], dict)
-            and owns_handler(handlers[0], script))
+    return (isinstance(handlers, list) and bool(handlers)
+            and all(isinstance(handler, dict) and owns_handler(handler, script, parts=parts)
+                    for handler in handlers))
+
+
+def restore_handlers(handler: dict, script: Path, client: str) -> list[dict]:
+    """The compact group: the plain command returns part 1 or the reload request."""
+    if client not in RESTORE_PART_CLIENTS:
+        return [dict(handler)]
+    return [dict(handler)] + [{**handler, "command": command_for(script, "--restore-part", str(part))}
+                              for part in range(2, RESTORE_PARTS + 1)]
 
 
 def upsert(items: list, item: dict, owned) -> None:
@@ -188,9 +206,12 @@ def configure(document: dict, client: str, script: Path) -> tuple[dict, dict[Pat
         handler = {"type": "command", "command": command_for(script), "timeout": 5}
         entry = {"matcher": MATCHER, "hooks": [handler]}
         upsert(items, entry, lambda item: owns_group(item, script) and item.get("matcher") != COMPACT_MATCHER)
-        # Same command; on source "compact" the runtime asks the model to restore its persona.
-        restore = {"matcher": COMPACT_MATCHER, "hooks": [dict(handler)]}
-        upsert(items, restore, lambda item: owns_group(item, script) and item.get("matcher") == COMPACT_MATCHER)
+        # Same command; on source "compact" the runtime returns the persona the transcript shows
+        # was active, or asks the model to restore it.
+        restore = {"matcher": COMPACT_MATCHER, "hooks": restore_handlers(handler, script, client)}
+        parts = client in RESTORE_PART_CLIENTS  # only Claude's compact group holds generated parts
+        upsert(items, restore,
+               lambda item: owns_group(item, script, parts=parts) and item.get("matcher") == COMPACT_MATCHER)
         mode = "native-message"
     return entry, {script: runtime}, mode
 

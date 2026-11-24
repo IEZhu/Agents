@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from src.engine import enrichment, rules
+from src.engine import config, enrichment, rules
 from src.engine.implants import ImplantRetriever
 from src.engine.persona_bundle import ComponentSelection, _declared_ids, build_persona_bundle
 from src.engine.skills import SkillRetriever
@@ -20,6 +20,9 @@ def write_mdc(path, metadata, body):
 
 @pytest.fixture
 def bundle_tree(tmp_path, monkeypatch):
+    # The expectations below are the interactive bundle's, whatever
+    # AGENTS_CLIENT_PROFILE the test process inherited.
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "interactive")
     monkeypatch.setattr(prompt_loader, "REPO_ROOT", str(tmp_path))
     for variable, folder in (("AGENTS_DIR", "agents"), ("SKILLS_DIR", "skills"), ("IMPLANTS_DIR", "implants")):
         monkeypatch.setattr(prompt_loader, variable, str(tmp_path / folder))
@@ -468,3 +471,103 @@ def test_disabled_rules_still_validate_a_selection(bundle_tree, monkeypatch):
     assert rules.load_selected_rules(["truth"]) == []
     with pytest.raises(ValueError, match="missing"):
         rules.load_selected_rules(["missing"])
+
+
+# --- Headless client profile (#734) ------------------------------------------
+
+SESSION_RULES = (("agent-cooperation", 40), ("thread-status", 45))
+
+
+def _write_session_rules(tree):
+    for name, priority in SESSION_RULES:
+        write_mdc(tree / f"rules/rule-{name}.mdc", {"name": name, "priority": priority},
+                  f"{name} body")
+
+
+@pytest.mark.asyncio
+async def test_headless_bundle_omits_rules_a_one_shot_run_cannot_follow(bundle_tree, monkeypatch):
+    from src.engine.persona import persona_footer
+    from src.schemas.protocol import PersonaDescriptor
+
+    tree, _ = bundle_tree
+    _write_session_rules(tree)
+    interactive = await build_persona_bundle("engineer", "A", tier="standard")
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "headless")
+    headless = await build_persona_bundle("engineer", "A", tier="standard")
+
+    assert interactive.rules_loaded == ["truth", "agent-cooperation", "thread-status"]
+    assert headless.rules_loaded == ["truth"]
+    for name, _ in SESSION_RULES:
+        assert f"### Rule: {name}" in interactive.rules_block
+        assert f"### Rule: {name}" not in headless.rules_block
+        assert f"{name} body" not in headless.rules_block
+    descriptor = PersonaDescriptor(activation_id="a", **{key: getattr(headless, key) for key in (
+        "agent", "bundle_revision", "scope", "skills_loaded", "implants_loaded", "rules_loaded")})
+    footer = persona_footer(descriptor)
+    assert "**Rules**: truth ·" in footer
+    assert "thread-status" not in footer and "agent-cooperation" not in footer
+    # The revision covers what was sent; at the standard tier only the rules differ.
+    assert headless.bundle_revision != interactive.bundle_revision
+    assert (headless.skills_block, headless.implants_block) == (
+        interactive.skills_block, interactive.implants_block)
+
+
+@pytest.mark.asyncio
+async def test_headless_keeps_a_flows_exact_rule_selection(bundle_tree, monkeypatch):
+    """Like a rule switched off in the web UI, an omitted rule a flow names still loads."""
+    tree, _ = bundle_tree
+    _write_session_rules(tree)
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "headless")
+    bundle = await build_persona_bundle("engineer", "A", tier="standard",
+                                        selection=ComponentSelection(rules=("thread-status",)))
+    assert bundle.rules_loaded == ["thread-status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tier", ["deep", None])
+async def test_headless_bundle_never_exceeds_the_standard_tier(bundle_tree, monkeypatch, tier):
+    tree, agent = bundle_tree
+    # More core skills than the standard semantic pool, more declared implants than its count.
+    core = ["skill-core", "skill-a", "skill-b"]
+    pool = ["skill-extra", "skill-c", "skill-d", "skill-e"]
+    agent.update(core_skills=core, preferred_skills=pool,
+                 preferred_implants=["implant-focus", "implant-second", "implant-third"])
+    write_mdc(tree / "agents/engineer/system_prompt.mdc", agent, "Engineer persona")
+    for name in core[1:] + pool[1:]:
+        write_mdc(tree / f"skills/{name}.mdc", {"description": name}, f"{name} body")
+    for name in ("second", "third", "semantic"):
+        write_mdc(tree / f"implants/implant-{name}.mdc",
+                  {"description": name, "short_name": name.title()}, f"{name} body")
+    requested = []
+
+    def skills(query, **kwargs):
+        requested.append(("skills", kwargs["n_results"]))
+        return [{"filename": f"{name}.mdc"} for name in pool[:kwargs["n_results"]]]
+
+    def implants(query, **kwargs):
+        requested.append(("implants", kwargs["n_results"]))
+        return [{"filename": "implant-semantic.mdc"}]
+
+    monkeypatch.setattr(enrichment._skill_retriever, "retrieve", skills)
+    monkeypatch.setattr(enrichment._implant_retriever, "retrieve", implants)
+    monkeypatch.setattr(enrichment, "INTENT_CLASSIFIER_ENABLED", False)
+    query = "Review the parser design"  # the legacy rule infers deep for it
+
+    interactive = await build_persona_bundle("engineer", query, tier=tier)
+    assert interactive.tier == "deep"
+    assert len(interactive.skills_loaded) == len(core) + enrichment._n_results_for_tier("deep")
+    assert interactive.implants_loaded == ["Focus", "Second", "Third"]
+    assert "Core body" in interactive.skills_block
+
+    requested.clear()
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "headless")
+    headless = await build_persona_bundle("engineer", query, tier=tier)
+    standard_pool = enrichment._n_results_for_tier("standard")
+    assert headless.tier == "standard"
+    assert requested == [("skills", standard_pool), ("implants", 2)]
+    # Every declared core skill stays, although there are more of them than the pool.
+    assert headless.skills_loaded == core + pool[:standard_pool]
+    assert "Core summary" in headless.skills_block and "Core body" not in headless.skills_block
+    # The standard tier's two implants, filled from the declared ones in order.
+    assert headless.implants_loaded == ["Focus", "Second"]
+    assert "third body" not in headless.implants_block

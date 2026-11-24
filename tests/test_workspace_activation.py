@@ -110,6 +110,26 @@ async def test_first_activation_in_a_workspace_carries_the_describe_repo_result(
 
 
 @pytest.mark.asyncio
+async def test_a_plain_folder_workspace_is_not_asked_for_a_summary(bundle, tmp_path, monkeypatch,
+                                                                  describers):
+    folder = tmp_path / "task"
+    folder.mkdir()
+    (folder / "data.csv").write_text("a,b\n1,2\n")
+    for name in ("CLAUDE_PROJECT_DIR", "AGENTS_TRANSPORT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(folder))
+    engine_config._reset_client_repo_root_cache()
+    try:
+        response = await activate()
+    finally:
+        engine_config._reset_client_repo_root_cache()
+    assert response["status"] == "SUCCESS"
+    assert "repo_context" not in response
+    assert describers == []
+    assert sorted(path.name for path in folder.iterdir()) == ["data.csv"]
+
+
+@pytest.mark.asyncio
 async def test_a_repeated_activation_in_the_same_unchanged_workspace_carries_nothing(bundle,
                                                                                     workspace):
     _write_summary(workspace)

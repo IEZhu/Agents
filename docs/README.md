@@ -35,7 +35,7 @@ Installation, client configuration, updates, and what each client supports.
 | Configure the server and its optional integrations | [Configuration and observability](configuration.md) | `env.example`, `src/engine/config.py`, `src/model_migration.py`, `src/engine/embedding_prompts.py`, `src/utils/langfuse_compat.py` |
 | Install or refresh global client instructions | [Instruction installation and updates](install.md#codex-instruction-installation) | `scripts/install_instructions.py`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `src/client_paths.py`, `scripts/templates/` |
 | Keep a standalone installation updated | [Standalone stdio auto-update](install.md#standalone-stdio-auto-update), [model switch on update](configuration.md#model-switch-on-update) | `src/self_update.py`, `src/environments.py`, `src/daemon/update_dependencies.py`, `src/startup.py`, `src/model_migration.py`, `src/reindex.py`, `src/engine/config.py`, `tests/test_environments.py` |
-| Show local operational information through native startup/`/clear` hooks in Claude/Codex, session-start first-response delivery in Cursor/Antigravity, or the MCP first-response fallback in Claude Desktop Chat; ask Claude/Codex to restore the Agents-Core persona after a compaction | [Session readiness](session-readiness.md) | `scripts/session_readiness.py`, `scripts/session_readiness_mcp.py`, `scripts/install_session_readiness.py`, `tests/test_session_readiness.py` |
+| Show local operational information through native startup/`/clear` hooks in Claude/Codex, session-start first-response delivery in Cursor/Antigravity, or the MCP first-response fallback in Claude Desktop Chat; return the applied Agents-Core persona to Claude Code after a compaction, or ask Codex to restore it | [Session readiness](session-readiness.md) | `scripts/session_readiness.py`, `scripts/session_readiness_mcp.py`, `scripts/install_session_readiness.py`, `tests/test_session_readiness.py` |
 | Opt in to native context compaction between completed Claude Code turns without a separate API key; choose Claude Code's own auto-compact window for long autonomous turns; inspect the reserved, unsupported Cursor adapter | [Native context compaction](context-compaction.md), [plugin README](../plugins/agents-core-context-compaction/README.md) | `plugins/agents-core-context-compaction/`, `src/context_compaction/`, `scripts/install_context_compaction.py`, `tests/test_context_compaction*.py` |
 | Remove Agents-Core completely | [Uninstall](install.md#uninstall) | `src/uninstall.py`, `scripts/uninstall.sh`, `scripts/uninstall.ps1`, `tests/test_uninstall.py`, `.github/workflows/uninstall.yml` |
 
@@ -143,10 +143,10 @@ The session playbook, tests and documentation checks, the review, release and di
 | [AGENTS.md](../AGENTS.md) | Short entry point for AI contributors; links to the shared protocol and working instructions |
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
 | [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
-| [src/engine/protocol/](../src/engine/protocol/), `src/engine/protocol_text.py` | The one source of the protocol 2 text: a file per section with its variants, and the renderer of every surface below (`python -m src.engine.protocol_text --write`) |
-| `src/client_instructions.py` | Decides when the MCP initialization answers a Codex session with the pointer instead of the full instructions, from the managed sections of the checkouts' `AGENTS.md` files, and words the warnings about outdated sections |
+| [src/engine/protocol/](../src/engine/protocol/), `src/engine/protocol_text.py` | The one source of the protocol 2 text: a file per section with its variants, and the renderer of every surface below and of the procedures that the worker, cooperation and local-inference tool descriptions carry (`python -m src.engine.protocol_text --write`) |
+| `src/client_instructions.py` | Decides when the MCP initialization answers a Codex session with the pointer instead of the full instructions, and a persona `SUCCESS` with the section pointer, from the managed sections of the checkouts' `AGENTS.md` files, and words the warnings about outdated sections |
 | [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template, generated |
-| `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent at initialization (a Codex session whose checkouts hold the current section gets the pointer instead), and the apply instruction returned with a conversation's first `SUCCESS` and a restore (later ones carry the pointer), both rendered at import |
+| `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent at initialization (a Codex session whose checkouts hold the current section gets the pointer instead), and the apply instruction returned with a conversation's first `SUCCESS` and a restore (later ones carry the pointer, and so does every `SUCCESS` but a restore where the client holds the managed section), both rendered at import |
 | [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory, generated; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |
 | [`agents/`](../agents/README.md), [`skills/`](../skills/README.md), [`implants/`](../implants/README.md), [`rules/`](../rules/README.md) | Runtime prompt content, selected and assembled by the server |
 
@@ -163,6 +163,10 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
 - [Local and hosted model runners](../evals/LOCAL_MODELS.md).
 - [A/B eval flow](../flows/ab-eval.md): the whole cycle for one change, from case
   set to recommendation, on hosted models and Opus.
+- [Verifier accuracy flow](../flows/verifier-accuracy.md): the known-answer control
+  set, sandboxed verifier runs and the fit of `c` and `b`
+  (`python -m evals.scripts.verifier_accuracy`), with the
+  [pilot report](verifier-accuracy-pilot.md).
 - [Component ablation workflow](../evals/ablation/README.md) and
   [case format](../evals/ablation/CASES.md).
 - Semantic-cache routing of the embedding model:
@@ -170,6 +174,18 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
   precision at fixed coverage per language). It and
   `python -m evals.runners.run_retrieval` take `--dataset` (repeatable) for
   hand-written sets such as `evals/datasets/routing_ru.jsonl`.
+- Cold-start routing: `python -m evals.scripts.measure_cold_ranker` compares the
+  keyword, embedding and combined rankers of a semantic-cache miss on the labelled
+  routing sets and scores resolving the top agent directly per margin, the basis of
+  `ROUTER_COLD_RESOLVE_MARGIN` ([routing](routing_flow.md#a-cache-miss),
+  [`measure_cold_ranker.py`](../evals/scripts/measure_cold_ranker.py)).
+- Context size: `python evals/scripts/context_size_audit.py` (`--json`,
+  `--profile`, `--embedder`) reports, without a model, how many characters
+  activation puts into a client's context for each `AGENTS_CLIENT_PROFILE`: the
+  managed template, the server instructions and their first 4,096 characters, the
+  `SUCCESS` instruction and its pointer, a `ROUTE_REQUIRED` answer, each block of a
+  first activation, and each tool's description and schema
+  ([`context_size_audit.py`](../evals/scripts/context_size_audit.py)).
 - [Telemetry export and analysis](../evals/telemetry/README.md).
 - [Dataset sources](../evals/datasets/SOURCES.md).
 - [Cloud sessions](cloud-runs.md): the September 2026 eval-sweep procedure (check
@@ -194,6 +210,7 @@ above are authoritative for current commands and behavior.
 - [MCP proxy plan](mcp-proxy-plan.md)
 - [Delegation reliability plan](delegation-reliability-plan.md), with its
   [verifier accuracy measurement](verifier-accuracy-measurement.md) for validated claims
+  and its [pilot report](verifier-accuracy-pilot.md)
 - [Autodev plan](autodev-plan.md), with its [review appendix](autodev-plan-review.md)
 - [Instruction signing specification](instruction-signing-spec.md)
 - [Layer sensitivity proposal](layer-sensitivity-plan.md)

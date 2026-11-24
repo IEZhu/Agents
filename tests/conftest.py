@@ -332,6 +332,21 @@ def no_real_instruction_files(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_background_card_build(monkeypatch):
+    """A cold route never starts the background embedding of the agent catalog cards (#734).
+
+    ``SemanticRouter.agent_cards_ready`` starts it on the first cache miss once the embedding
+    model is loaded, and any earlier test in the process may have loaded it: the thread would
+    then embed every card for tens of seconds while later tests run. The cards stay unbuilt, so
+    the cold ranking uses keyword hits; a test of the build calls ``build_agent_cards`` itself.
+    Like ``dense_custom_models``, this looks the module up instead of importing it.
+    """
+    module = sys.modules.get("src.engine.router")
+    if module is not None:
+        monkeypatch.setattr(module.SemanticRouter, "_start_card_build", lambda self: None)
+
+
+@pytest.fixture(autouse=True)
 def dense_custom_models():
     """One test's custom-model registration never reaches the next test's catalog.
 

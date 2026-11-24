@@ -96,9 +96,13 @@ plans and catalogs out of tracked repository files.
   [routing-protocol-core.md](scripts/templates/routing-protocol-core.md) (the
   managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization
   instructions, the `instruction` of a `SUCCESS`, the pointers sent instead of
-  a text the client already holds (#433) and the installer's
-  [memory-routing.md](scripts/templates/memory-routing.md). Edit the section
-  that states the rule, never a generated surface, then run
+  a text the client already holds (#433; #734 adds the section pointer of a
+  `SUCCESS`) and the installer's
+  [memory-routing.md](scripts/templates/memory-routing.md). The procedures of
+  delegation, artifacts, cooperation and local inference are not in those
+  always-on surfaces but in the descriptions of the tools they name
+  (`TOOL_PARTS` in `src/engine/protocol_text.py`); the surfaces only trigger them.
+  Edit the section that states the rule, never a generated surface, then run
   `.venv/bin/python -m src.engine.protocol_text --write`, which regenerates the
   template, the reminder and this checkout's managed section. On every run, not
   only when the reminder changes, the command keeps the released reminder (the
@@ -110,8 +114,9 @@ plans and catalogs out of tracked repository files.
   server instruction that leaves Claude Code's windows, and
   `tests/test_instruction_pointers.py` when a pointer of the `pointer` section
   does not name a rule of the full text it replaces, or when
-  `src/client_instructions.py` sends the initialization pointer although a
-  checkout's instruction file is not current.
+  `src/client_instructions.py` sends the initialization pointer or, outside the
+  headless profile, the section pointer of a `SUCCESS` although a checkout's
+  instruction file is not current.
   Keep repository notes and Repository Memory outside the routing markers.
 - The separator rule of the plain-text worker result has one source too:
   `SEPARATORS` in [subagent_text.py](src/engine/subagent_text.py), from which

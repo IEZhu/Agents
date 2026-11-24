@@ -3,6 +3,91 @@
 `log_interaction` waits for its local memory write. It no longer acknowledges an
 in-memory history queue that can drop writes. Langfuse remains best effort.
 
+## The `log_interaction` call
+
+Every session that loads the tool reads its description, so the description keeps
+only what an ordinary turn needs: the composed answer with its footer as
+`response_content`, the current request verbatim as `query`, the redactions, the
+persona descriptor with `persona_action`, `workspace`, `files` and `tags` as JSON
+arrays, the answer timestamp, and history errors mentioned once without a retry
+loop. This section is the rest of its contract. The optional `record` argument is
+described in [turn records](turn-records.md).
+
+**Arguments.**
+
+- `persona` and `persona_action` are client-reported attribution, not proof that
+  the instructions were followed. A partial, malformed or mismatching `persona`, or
+  a `persona_action` without `persona`, never costs the turn: the entry is written
+  with an `unverified` or `mismatch` persona line, and the result carries `warnings`
+  and an `instruction`. Do not retry such a call. A compact subagent returns its
+  result without calling this tool; any other caller without a retained descriptor
+  omits both arguments and adds no footer, which does not waive the initial
+  persona activation.
+- `intent`, `action` and `outcome` default to `query`, `Agent: <agent_name>` and
+  `response_content`; pass them, `files` and `tags` to curate the entry. `reasoning`
+  is a short reason for the selection; `request_id` is correlation only.
+- `workspace` never widens the session's grant: over HTTP the workspace registered
+  for the connection decides, and over stdio the argument is checked against the
+  client's own MCP roots unless the session's root is already pinned, in which case
+  it is ignored. A workspace outside the registered root is not followed: the root
+  is used and the result's `workspace_note` says so
+  ([workspace targeting](routing_flow.md)).
+- `idempotency_key` is a fresh UUID for each logical write, reused only for retries
+  of that exact payload; see [results and retries](#results-and-retries).
+
+**Sinks.** The call writes to two sinks, independent of each other:
+
+- The project's `history.md`, through `HistoryWriter`: append-only and deduplicated
+  by a content hash of which the persona line is not part. A `record` goes under the
+  entry's `metadata.record` and is not part of the hash either, so a duplicate keeps
+  the first entry's record.
+- Langfuse: a generation trace, recorded only when `LANGFUSE_PUBLIC_KEY` and
+  `LANGFUSE_SECRET_KEY` are configured; otherwise the call is a no-op through
+  `langfuse_compat`. The trace goes through a best-effort background queue and its
+  failures are only logged. The result's `langfuse` is `{status: "queued"}`, or
+  `{status: "skipped", reason: "warming_up"}` while retrieval is still warming up,
+  when no trace is recorded, or `{status: "skipped", reason: "queue_unavailable"}`.
+
+The call waits for the journal's durable commit, not for Langfuse, semantic
+indexing or Git sync. `history` returns `status: recorded` (or the legacy
+`duplicate`) and `state: durably_accepted` only after persistence; the table under
+[results and retries](#results-and-retries) lists the other outcomes.
+
+**Result.** Besides `request_id`, `langfuse` and `history`, the result carries:
+
+- `timestamp`, the server's local time as `YYYY.MM.DD HH:MM:SS`. The delivered
+  answer starts with it on its own line when the footer lists the
+  `answer-timestamp` rule, and it is never part of `response_content`. A keyed retry
+  returns the original timestamp.
+- `workspace` (`root`, `source`), `pid`, and `workspace_note` only when the call
+  named a workspace outside the registered root.
+- `history_last_error` (`code`, `errno`, `path`, `at`) when this or an earlier
+  history write at that root failed. A failed write returns `history.status: error`,
+  with `state: unknown` when persistence is uncertain (retry the same payload with
+  the same key); it is logged once per path and errno. Mention it once in the
+  answer and do not retry logging in a loop.
+- The attribution (`attribution`, `persona`, `persona_action`), with `warnings` and
+  an `instruction` when it was incomplete.
+- `record: {status, bytes}` when the call carried a valid record. An invalid record
+  is refused before anything is written: `status: ERROR`, `record_errors` and
+  `record: {status: not_written}` ([turn records](turn-records.md)).
+
+**Fallback journal (#292).** When no project resolves, an unkeyed turn goes to the
+installation's fallback journal. `workspace` is then
+`{root: null, source: "fallback", claimed, reason, journal}`, where `claimed` is the
+directory the client named (recorded, never written), and the `instruction` says to
+mention this once in the conversation and not to retry. Keyed writes never go there:
+a keyed call whose workspace does not resolve is rejected
+([memory](memory.md) describes how such entries move into a project).
+
+**Request-level rejections.** Each returns a protocol `ERROR` without `timestamp`,
+and nothing is logged: an invalid `idempotency_key`; a keyed call whose workspace
+does not resolve; a stdio client with MCP roots that named no `workspace`, which is
+asked to retry once with it; and an unresolved workspace whose fallback journal
+directory cannot be created. Over stdio the last two also carry `pid` and
+`workspace_inputs` (`cwd`, `claude_project_dir`, `agents_client_repo_root`,
+`client`, `roots`). A later write failure is returned in `history` instead.
+
 ## Results and retries
 
 | Result | Meaning and next action |
