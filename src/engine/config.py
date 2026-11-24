@@ -559,6 +559,26 @@ AGENTS_DEBUG = os.getenv("AGENTS_DEBUG", "").lower() in ("1", "true")
 # Disable with RULES_ENABLED=0 to compare behavior with/without the layer.
 RULES_ENABLED = os.getenv("RULES_ENABLED", "1").lower() in ("1", "true")
 
+# --- Client profile (#734) ---------------------------------------------------
+# "interactive" (default) keeps today's behaviour. "headless" is for one-shot runs
+# with no chat UI and no peer sessions (benchmarks, scheduled runs) whose
+# installation already put the managed protocol section in place; there every
+# token added early in a run is re-read by each later model call. Changes that
+# cut that overhead consult headless_profile() and leave interactive sessions
+# unchanged. The setting is per server process: set it in the env of a
+# standalone stdio server entry, not in a shared daemon that also serves
+# interactive sessions.
+CLIENT_PROFILE = _choice_env("AGENTS_CLIENT_PROFILE", "interactive", ("interactive", "headless"))
+
+
+def headless_profile() -> bool:
+    """Whether this server runs the headless client profile.
+
+    Reads the module attribute at call time so tests can monkeypatch
+    ``config.CLIENT_PROFILE``.
+    """
+    return CLIENT_PROFILE == "headless"
+
 # --- Auto-update (background self-update) ------------------------------------
 # The server can keep itself current by pulling its own git repo (INSTALL_ROOT)
 # in a daemon thread — non-blocking — and preparing the vector stores; the new
