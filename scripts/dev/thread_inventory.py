@@ -20,6 +20,11 @@ session's directory (`<uuid>/subagents/`, `<uuid>/workflows/`); its items carry 
 agent's file name in `by`. Background tasks come only from the results of the tools
 that start or stop them, including commands that a timeout moved to the background.
 
+An edit-tool call whose result is a refusal or an error, such as a block by a
+PreToolUse hook, changed no file, so its path reaches none of `files_written`,
+`memory_writes`, `scratchpad_paths` and `directories`. A call with no result in
+the transcript still counts, because it may have run.
+
 Shell commands are split into simple commands at unquoted operators and line ends,
 so quoted text is never read as a command, while command substitutions and the
 scripts of `bash -c` are. A heredoc body counts as commands only when a shell reads
@@ -171,6 +176,8 @@ STARTED = {
 }
 STOPPED = re.compile(r"Successfully stopped task: (\w+)")  # in TaskStop results
 # Either separator: a Windows client records `C:\Users\u\.claude\projects\p\memory\x.md`.
+TOOL_ERROR = "<tool_use_error>"  # how the client opens the result of a call that failed
+HOOK_REFUSAL = re.compile(r"PreToolUse:\S+ hook error")  # how it opens one that a PreToolUse hook blocked
 MEMORY_PATH = re.compile(r"[/\\]projects[/\\][^/\\]+[/\\]memory[/\\]")
 SCRATCHPAD_PATH = re.compile(r"[/\\]scratchpad")  # either separator, as `MEMORY_PATH` has
 # How near an entry of the transcript a memory file's modification time must fall to count as this
@@ -1806,6 +1813,7 @@ def _new_sink() -> dict:
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
             "activity": [],  # the times of the transcript's entries, which bound the memory scan
             "unclassified_commands": [], "skipped": 0, "shell_writes": [],
+            "refused": set(),  # ids of the tool calls whose result is a refusal or an error
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
 
@@ -1816,12 +1824,37 @@ def scan(entries: list[dict], sink: dict | None = None, actor: str = "main") -> 
     stopping the inventory: the transcript format belongs to the client and can change.
     """
     sink = sink if sink is not None else _new_sink()
+    sink["refused"] |= _refused_calls(entries)
     for entry in entries:
         try:
             _entry(entry, sink, actor)
         except (AttributeError, KeyError, TypeError, ValueError):
             sink["skipped"] += 1
     return sink
+
+
+def _refused(block: dict) -> bool:
+    """Whether a tool result says its call did not run or failed: it is flagged as an error, or its
+    text opens with the client's error tag or a PreToolUse hook's refusal. Only the opening counts,
+    because the result of a successful edit quotes the lines it changed."""
+    if block.get("is_error") is True:
+        return True
+    text = _text(block.get("content")).lstrip()
+    return text.startswith(TOOL_ERROR) or HOOK_REFUSAL.match(text) is not None
+
+
+def _refused_calls(entries: list) -> set[str]:
+    """The ids of the tool calls whose result is a refusal or an error. They are read before the
+    calls, because a call's result can come first when transcript parts are given out of order."""
+    refused = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("type") != "user":
+            continue
+        for block in _content(entry):
+            if (isinstance(block, dict) and block.get("type") == "tool_result"
+                    and isinstance(block.get("tool_use_id"), str) and _refused(block)):
+                refused.add(block["tool_use_id"])
+    return refused
 
 
 def _entry(entry: dict, sink: dict, actor: str) -> None:
@@ -1979,7 +2012,8 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
     sink["tools"][block.get("id")] = {"tool": name, "ts": ts, "description": _short(description, 160)}
     if name in WRITE_TOOLS:
         path = data.get("file_path") or data.get("notebook_path")
-        if isinstance(path, str) and path:
+        # A call whose result is a refusal or an error changed no file; one without a result may have.
+        if isinstance(path, str) and path and block.get("id") not in sink["refused"]:
             path = _resolve(path, cwd) or path  # one spelling, as a path written through the shell has
             _file(sink, path, ts, actor)
             if MEMORY_PATH.search(path):  # either separator
