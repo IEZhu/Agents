@@ -440,6 +440,10 @@ class SemanticRouter:
                             metadatas=[{"card_hash": hashes[name]} for name in names])
         self._cards.save()
 
+    def agent_card_count(self) -> int:
+        """How many catalog cards the store holds, current or not."""
+        return self._cards.count()
+
     async def cold_ranking(self, query: str) -> ColdRanking:
         """Rank agents for a query the semantic cache missed.
 

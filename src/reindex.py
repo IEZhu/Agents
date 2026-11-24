@@ -50,6 +50,15 @@ def main() -> int:
     implants = ImplantRetriever()
     logger.info("Reindex: implants store ready (%d entries)", implants.store.count())
 
+    # The cold router ranks a cache miss by the embedded agent catalog cards (#734). A server
+    # builds them in the background on its first miss, which a one-shot run never waits for,
+    # so build them here, next to the other indexes, under the same model.
+    logger.info("Reindex: building agent catalog cards...")
+    from src.engine.router import SemanticRouter
+    router = SemanticRouter()
+    router.build_agent_cards()
+    logger.info("Reindex: agent catalog cards ready (%d entries)", router.agent_card_count())
+
     logger.info("Reindex complete.")
     return 0
 
