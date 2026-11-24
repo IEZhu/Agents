@@ -178,6 +178,7 @@ CONTENT_CHECKS = (
     "tests/test_skill_freshness.py",
     "tests/test_skill_invariants.py",
     "tests/test_source_check_classification.py",
+    "tests/test_data_skills.py",
 )
 SCHEDULED_BY_CALENDAR = "tests/test_skill_freshness.py"
 # pytest has to be what the command runs, not a word inside it: `echo pytest
@@ -2678,6 +2679,7 @@ CONTROL_COMMAND = (
     " tests/test_skill_freshness.py"
     " tests/test_skill_invariants.py"
     " tests/test_source_check_classification.py"
+    " tests/test_data_skills.py"
     " -q -p no:cacheprovider"
 )
 RECORDED_BYPASSES = (

@@ -45,6 +45,7 @@ capable_skills:
 - skill-dense-summarization
 - skill-consultative-intake
 - skill-epistemic-method
+- skill-clinical-lab-units
 preferred_implants:
 - implant-chain-of-verification
 - implant-uncertainty-quantification

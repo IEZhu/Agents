@@ -138,6 +138,7 @@ limits-of-verification record.
 | `skill-confidence-markers` | Calibrated confidence markers (HIGH/MEDIUM/LOW + domain variants) on findings/recommendations/solutions — deliberate, not per-sentence |
 | `skill-epistemic-method` | Epistemic gap analysis: semantic voids, time-slicing, cui bono |
 | `skill-forensic-process` | Forensic data processing: timeline reconstruction, deduplication, fact extraction, triangulation |
+| `skill-data-intake-audit` | Input audit before computing on tables: expected counts from the task, whole used range of every sheet, gaps as symptoms (displaced rows, stray columns, merged cells), duplicates, summary rows, types and units |
 | `skill-source-trust-tiers` | Source credibility tiers and triangulation |
 | `skill-web-search` | When to search, tool-selection ladder, query formulation and search operators |
 | `skill-mathematical-reasoning` | Step-by-step proofs, dimensional analysis, estimation, formal notation, verification |
@@ -221,6 +222,17 @@ holds an order of analysis rather than a figure that can go stale.
 | `skill-3d-print-search` | 3D model search strategies |
 | `skill-fitness-programming` | Exercise programming, periodization, spine-safe biomechanics |
 | `skill-engineering-management` | 1:1s, feedback, delegation by task-relevant maturity, underperformance, psychological safety, structured hiring |
+| `skill-clinical-lab-units` | Clinical lab units: conventional to SI factors for chemistry, renal, lipid, glucose and protein analytes, analyte identity traps, plausible-value windows that catch values left in the wrong unit |
+| `skill-statistical-geography` | ASGS, US Census/FIPS and NUTS classifications; residual, non-geographic and aggregate categories, and how to treat them when aggregating by state or region |
+
+`skill-data-intake-audit` is a core skill of `data_analyst` and a preferred one of
+`data_forensic`; it is unrelated to `skill-data-consistency`, which covers database
+isolation. `skill-clinical-lab-units` sits in the capable pools of both
+`medical_expert` and `data_analyst`, so a lab dataset that routing hands to
+`data_analyst` as a data task still reaches it; its keywords (lab values, units such
+as mg/dL and mmol/L, creatinine) bring it in, and it stays out of clinical questions
+that are not about units. `skill-statistical-geography` sits in `data_analyst`'s
+capable pool.
 
 ### Prompt Engineering & System
 

@@ -4,7 +4,8 @@ name: Content checks
 # skill, the calendar freshness of its figures, and the one decision in the
 # source-liveness script that needs no network. They were committed without a
 # workflow that runs them (#608), so for a while they were green on one
-# machine and never in CI.
+# machine and never in CI. The wiring and lab-table checks of the data skills
+# run here too: they read frontmatter and Markdown only.
 #
 # The schedule is not a convenience. The freshness check fails on the earlier
 # of a skill's rolling window and its pinned `review_on` date, so its failure
@@ -25,6 +26,7 @@ on:
       - tests/test_skill_freshness.py
       - tests/test_skill_invariants.py
       - tests/test_source_check_classification.py
+      - tests/test_data_skills.py
       - tests/conftest.py
       - requirements.txt
       - .github/workflows/content-checks.yml
@@ -37,6 +39,7 @@ on:
       - tests/test_skill_freshness.py
       - tests/test_skill_invariants.py
       - tests/test_source_check_classification.py
+      - tests/test_data_skills.py
       - tests/conftest.py
       - requirements.txt
       - .github/workflows/content-checks.yml
@@ -74,10 +77,11 @@ jobs:
       # passed as -c, which bounds those three and installs nothing further.
       - name: Install check dependencies
         run: python -m pip install -c requirements.txt pytest python-dotenv pyyaml
-      - name: Check skill invariants, calendar freshness and the source-check classifier
+      - name: Check skill invariants, calendar freshness, the source-check classifier and data-skill wiring
         run: >-
           python -B -m pytest
           tests/test_skill_freshness.py
           tests/test_skill_invariants.py
           tests/test_source_check_classification.py
+          tests/test_data_skills.py
           -q -p no:cacheprovider
