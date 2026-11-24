@@ -20,9 +20,10 @@ flowchart TD
     Fit -->|No, known requested role| Direct[Direct agent load]
     Fit -->|No, implicit change| Route
     Route --> Choice{Confident cached decision?}
-    Choice -->|No, substantive request| Pick[ROUTE_REQUIRED: client selects candidate]
+    Choice -->|No, substantive request| Pick[ROUTE_REQUIRED: client selects from a shortlist]
     Choice -->|No, standalone greeting or acknowledgement| Meta[Load universal_agent]
     Choice -->|Yes| Bundle[Assemble and validate full bundle]
+    Choice -->|No, headless profile and one clear leader| Bundle
     Meta --> Bundle
     Pick --> Direct
     Direct --> Bundle
@@ -50,6 +51,18 @@ or the prepare/spawn/validate exchange; see [local inference operations](shared-
 The separate [subagent API](subagent-contract.md) uses
 `agents-core/subagent/1`; it does not replace conversation persona protocol 2.
 Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Start the worker with the receipt's `launch` text and only necessary task materials and keep its `contract_revision`; with `delivery="inline"`, retain the original `contract` and forward `worker_context` unchanged ([compact exchange](subagent-contract.md#compact-exchange)). Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache. The parent rates the assignment with `complexity`, passes `client` (its host: `claude`, `codex` or `cursor`) and launches the worker with the `execution.spawn` arguments of the receipt or, with `delivery="inline"`, of the package; a returned `escalation` names the complexity for a new attempt ([model tiers](subagent-model-tiers.md)).
+
+The always-on surfaces (the managed section, the server instructions, the `SUCCESS`
+instruction and the memory reminder) state the trigger only: delegate through
+`get_subagent_context`, validate through `validate_subagent_result`, require
+`valid: true`, read both descriptions first, and the fallback when either is
+unavailable. The procedure sits in the tools' descriptions, which a client that
+defers tool definitions loads when it selects the tool (#734,
+`protocol_text.TOOL_PARTS`): how much to delegate, the complexity rubric,
+launching and keeping the contract, and the artifact rules in
+`get_subagent_context`; the result reference, repeated validation and escalation
+in `validate_subagent_result`. The cooperation and local inference procedures
+sit in `cooperation_register` and `local_context_create` the same way.
 
 The prepared package supplies the worker's task role. That worker returns its
 result in the package's format (plain text by default) without a second full
@@ -100,6 +113,13 @@ With MCP available, a conversation without a prior persona activation must load
 a persona before its first final answer. This includes greetings and ordinary
 project-status questions without any reminder about Agents-Core. An explicit
 known role loads directly; otherwise the client routes with `current_persona=null`.
+When the client lists the Agents-Core tools as deferred, it first loads
+`route_and_load`, `get_agent_context` and `log_interaction` together with one
+exact-name selection, not a keyword search (in Claude Code, ToolSearch with
+`select:` and the three names as the client lists them). The template and the
+server instructions say so, and the server instructions keep the sentence inside
+the 4,096 characters that Claude Code shows
+(`tests/test_log_interaction_contract.py`).
 `ROUTE_REQUIRED` is intermediate and must be followed by `get_agent_context` in
 the same turn. Discovery, history and workflow tools do not activate a persona.
 The first answer follows the same exact-footer and log-before-final contract as
@@ -139,7 +159,7 @@ not establish support for a client and model; see the
 
 | Call | Behavior |
 |---|---|
-| `route_and_load(query, protocol_version=2, current_persona=..., workspace=None)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
+| `route_and_load(query, protocol_version=2, current_persona=..., workspace=None)` | Uses semantic cache and keyword validation; no sticky binding or sampling. A cache miss lists a [ranked shortlist](#a-cache-miss), and under the headless profile may load the clear leader itself |
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False, workspace=None)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
 | `log_interaction(..., persona=..., persona_action=..., idempotency_key?)` | Leniently records persona attribution (`client-reported`, `unverified` or `mismatch`) and waits for the local journal commit. `history.state: durably_accepted` confirms persistence, not indexing or Git sync. Optional keys replay the original receipt and timestamp, reject changed payloads and require a trusted workspace. Unkeyed calls keep content deduplication and fallback behavior. Langfuse stays asynchronous. A history failure is returned immediately and appears in `history_last_error`. See [acceptance guarantees](memory-acceptance.md). |
@@ -154,6 +174,55 @@ Such a request returns `NO_CHANGE` only when the supplied descriptor is already
 A specialist survives acknowledgements because the client keeps it locally and
 does not route them.
 
+### A cache miss
+
+Every installation starts with an empty routing cache, so a first activation is
+usually a miss, and before #734 it listed the whole catalog (46 agents, about 7,000
+characters) that every later model call of the session then re-read. Now a miss
+that is not a meta query is ranked first (`SemanticRouter.cold_ranking`,
+`src/engine/router.py`):
+
+- By the cosine similarity between the query and each agent's embedded catalog
+  card (display name, role, slash command and domain keywords), keyword hits
+  breaking ties, once the cards are current and the embedding model is already
+  loaded in the process. The first such request starts a background build of the
+  cards, which never loads the model itself; they persist as the `agent_cards`
+  store beside the routing cache. Each card carries a hash of its text and the
+  model fingerprint, so a model or catalog change rebuilds them, and
+  `python -m src.reindex` builds them with the other indexes, which a one-shot
+  run needs because it never waits for the background build.
+- Otherwise by keyword hits alone, which lists only the agents with a hit. An
+  embedding failure, or a failed build for the rest of the process, falls back to
+  the same ranking.
+
+`ROUTE_REQUIRED` then lists the first `ROUTER_SHORTLIST_SIZE` agents (default 8; see
+[configuration](configuration.md#environment-variables)), `universal_agent`
+always among them: it takes the last place when the ranking did not include it
+within the size. Its `instruction` adds that these are the N of M agents closest
+to the request and that any other canonical agent may still be loaded with
+`get_agent_context` (`list_agents` shows all). The whole catalog is still listed
+when the size is 0, when nothing ranked (no keyword matched and the cards are not
+ready), when the shortlist would leave nobody out, and for a cache hit that the
+keyword check rejected without naming another agent.
+
+With the headless profile (`AGENTS_CLIENT_PROFILE=headless`) a miss may skip the
+round trip. When the embedding ranking exists and its first agent's similarity
+leads the second's by at least `ROUTER_COLD_RESOLVE_MARGIN` (default 0.05; 0
+turns it off), the server loads that agent as `get_agent_context` would and
+returns its `SUCCESS` with `alternatives`: the next three ranked agents, each with
+`name` and `role`. A keyword ranking alone never resolves a miss, because one
+incidental keyword can lead, and an interactive session always chooses for itself.
+The choice is the server's, so it is not learned into the routing cache; a model
+that switches to an alternative with `get_agent_context` trains it as usual. If
+the leader is already the active persona the response is `NO_CHANGE` without
+alternatives, and if its activation fails the response falls back to the
+shortlist. The protocol tells the client to treat `alternatives` as optional
+switches: load one only when it clearly fits the request better. The default
+margin is provisional: it rests on the 72-query Russian labelled set, and
+[`evals/scripts/measure_cold_ranker.py`](../evals/scripts/measure_cold_ranker.py)
+measures a ranker's precision and coverage per margin
+(`tests/test_cold_routing.py` covers both the shortlist and the resolution).
+
 Pass a relevant `chat_history` excerpt when a routed request depends on earlier
 facts. The server does not need the whole conversation. Agent slash prompts load
 explicit roles; `/ask` requests routing. Both return the same bundles as the
@@ -166,7 +235,9 @@ version message without loading a persona.
 `SUCCESS` contains `protocol_version`, `request_id`, `persona`,
 `replaces_activation_id`, `footer`, an application `instruction` with its
 `instruction_revision`, and separate
-`persona_block`, `rules_block`, `skills_block`, `implants_block`. The descriptor
+`persona_block`, `rules_block`, `skills_block`, `implants_block`, and, when the
+headless profile resolved a cache miss itself, `alternatives` (see
+[a cache miss](#a-cache-miss)). The descriptor
 contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revision`,
 metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
@@ -208,7 +279,17 @@ earlier full text (#734): under the headless client profile
 and over HTTP where the check behind the Codex initialization pointer (described
 below) verified every checkout. Claude Code is not verified that way, because
 `claude --bare` skips `CLAUDE.md` while still taking this server's entry through
-`--mcp-config`. `route_and_load` and `get_agent_context` take the optional `workspace` argument and forward it with the request context, so over HTTP and in a stdio server shared by several sessions the repository context is resolved from the caller's own workspace. A `SUCCESS` or `NO_CHANGE` carries `repo_context` only where there is something to report: the first activation of a caller in a workspace it has not been told about, a pending `needs_summary` until the summary is written, a described workspace whose repository hash moved or whose managed section was deleted, and a workspace that could not be resolved at all (`status` `unavailable`, which never describes the installation checkout in its place and is recorded like a described one, so it is reported once and not on every activation). A described checkout whose `CLAUDE.md` resolves outside it is refused before that file is opened, with `status` `workspace_unsafe` and `code` `memory_path_escapes_workspace`: a report embeds that file's managed section, so a symlink leaving the checkout would return the description of a tree outside the grant. The refusal names the path inside the checkout and not the target it resolves to, describes no repository in its place, and is recorded per caller like an unresolved workspace; it is the containment rule `describe_repo` already applies to a session's memory root, applied to the checkout a report actually reads. A later activation of the same caller in the same unchanged workspace carries nothing. Who has been told is decided per caller, the registered workspace over HTTP and the resolved context's origin over stdio, because one process serves several sessions: the Claude desktop app starts a single stdio server for all of its Code sessions, and the daemon serves every session on the machine. Two sessions can still share one identity — two HTTP sessions registered for the same workspace, or two Code sessions of one stdio server — and then a described repository is reported to one of them and not to both, which `describe_repo` answers on request. Neither transport offers anything stabler: nothing in an HTTP request separates two sessions of one workspace, and a stdio process runs a single MCP session over its one pipe pair, whose initialize handshake and per-request `_meta` carry no session identifier (`src/engine/persona.py`, `_caller_identity`). What the repository last said is a separate record, shared by those sessions and consulted before the repository is looked up again, so a repeat activation stats a handful of paths instead of hashing the tree. That record holds only what is true of the checkout; the `workspace_id`, the `registered_workspace` and the persistence advice that follows from the caller's own memory root are composed after it is read, because one checkout can be one session's registered workspace and another registration's granted checkout at the same time. A described report carries the stored section's head capped at 800 characters, `describe_repo` the whole head; a pending one carries `repo_hash`, `repo_path` and, over HTTP, the `workspace_id` its own instruction needs, and advises no write where `write_repo_summary` would refuse one. A `workspace` no authorized root covers — neither the registered root nor an owner-registered checkout grant such as a linked worktree of the same repository — is answered with the `workspace_mismatch` report, never described. A report of an owner-registered checkout that is not the memory root, which is what a linked worktree's session has, describes that checkout and not the main checkout history normalizes it to: the `repo_path`, `repo_hash` and preview are the described checkout's, `registered_workspace` names the memory root beside them, and no summary write is advised from there, because `write_repo_summary` resolves its `repo_path` inside the memory root. A first activation's `SUCCESS` also
+`--mcp-config`; over stdio, which carries no client identity to verify, only the
+headless profile sends the section pointer. The section pointer says that the
+managed routing section, headed `Agents-Core Persona Protocol — version 2`,
+holds the full rules, names the rules it stands for, and tells a client that has
+neither that section nor the full instruction of this `instruction_revision` in
+context to fetch the full text with `force_reload=True`
+(`SECTION_POINTER` and `_instruction` in `src/engine/persona.py`). The headless
+profile cannot check the file, so it relies on its installation having put the
+section in place. In every other case a first activation carries the full text and
+a later `SUCCESS` the pointer to it. With `AGENTS_TURN_LOG_HOOK=1` both pointers end by leaving the log to the
+Stop hook instead of `log_interaction`. `route_and_load` and `get_agent_context` take the optional `workspace` argument and forward it with the request context, so over HTTP and in a stdio server shared by several sessions the repository context is resolved from the caller's own workspace. A `SUCCESS` or `NO_CHANGE` carries `repo_context` only where there is something to report: the first activation of a caller in a workspace it has not been told about, a pending `needs_summary` until the summary is written, a described workspace whose repository hash moved or whose managed section was deleted, and a workspace that could not be resolved at all (`status` `unavailable`, which never describes the installation checkout in its place and is recorded like a described one, so it is reported once and not on every activation). A described checkout whose `CLAUDE.md` resolves outside it is refused before that file is opened, with `status` `workspace_unsafe` and `code` `memory_path_escapes_workspace`: a report embeds that file's managed section, so a symlink leaving the checkout would return the description of a tree outside the grant. The refusal names the path inside the checkout and not the target it resolves to, describes no repository in its place, and is recorded per caller like an unresolved workspace; it is the containment rule `describe_repo` already applies to a session's memory root, applied to the checkout a report actually reads. A later activation of the same caller in the same unchanged workspace carries nothing. Who has been told is decided per caller, the registered workspace over HTTP and the resolved context's origin over stdio, because one process serves several sessions: the Claude desktop app starts a single stdio server for all of its Code sessions, and the daemon serves every session on the machine. Two sessions can still share one identity — two HTTP sessions registered for the same workspace, or two Code sessions of one stdio server — and then a described repository is reported to one of them and not to both, which `describe_repo` answers on request. Neither transport offers anything stabler: nothing in an HTTP request separates two sessions of one workspace, and a stdio process runs a single MCP session over its one pipe pair, whose initialize handshake and per-request `_meta` carry no session identifier (`src/engine/persona.py`, `_caller_identity`). What the repository last said is a separate record, shared by those sessions and consulted before the repository is looked up again, so a repeat activation stats a handful of paths instead of hashing the tree. That record holds only what is true of the checkout; the `workspace_id`, the `registered_workspace` and the persistence advice that follows from the caller's own memory root are composed after it is read, because one checkout can be one session's registered workspace and another registration's granted checkout at the same time. A described report carries the stored section's head capped at 800 characters, `describe_repo` the whole head; a pending one carries `repo_hash`, `repo_path` and, over HTTP, the `workspace_id` its own instruction needs, and advises no write where `write_repo_summary` would refuse one. A `workspace` no authorized root covers — neither the registered root nor an owner-registered checkout grant such as a linked worktree of the same repository — is answered with the `workspace_mismatch` report, never described. A report of an owner-registered checkout that is not the memory root, which is what a linked worktree's session has, describes that checkout and not the main checkout history normalizes it to: the `repo_path`, `repo_hash` and preview are the described checkout's, `registered_workspace` names the memory root beside them, and no summary write is advised from there, because `write_repo_summary` resolves its `repo_path` inside the memory root. A first activation's `SUCCESS` also
 lists in `warnings` each managed routing section that differs from the
 installation's template among the files the client loads and the server can
 resolve: for Claude Code the registered workspace's `CLAUDE.md` and
@@ -224,7 +305,9 @@ while the running server serves an older one asks for a restart instead. The
 check only reads the files; the slash prompts and a flow's `persona_activation`
 carry the same warnings. `ROUTE_REQUIRED`
 candidates carry `name`, `display_name` and `role`; the slash command
-(`trigger_command`) is for people and stays out of them.
+(`trigger_command`) is for people and stays out of them. A workspace that is not
+inside a git repository (no `.git` at or above it) reports no `repo_context` at all,
+as `describe_repo` answers `not_a_repository` there (#734).
 
 Over HTTP the server instructions answered at `initialize` keep their opening
 lines, the rules only they state (the answer language and footer, the workspace
@@ -242,6 +325,20 @@ Every other case, stdio and Claude Code included, gets the full text: Claude Cod
 shows only the first 4,096 characters of the instructions (2,048 before v2.1.296),
 which both texts spend alike. Only the workspace file decides, since a global file
 may belong to a different profile than the client's.
+
+Over stdio, `route_and_load`, `get_agent_context`, `refresh_persona_context`,
+`log_interaction` and `describe_repo` (`SINGLE_ENCODED_TOOLS` in `src/server.py`)
+return their JSON object as structured content, with the same JSON text
+unchanged as text content (#734). FastMCP would give a handler that returns text
+the structured content `{"result": <text>}`, and Claude Code shows the model
+`JSON.stringify` of the structured content, so a bundle's Markdown would arrive
+escaped twice: every quote, backslash and newline once for the object and again
+for the text inside it. The five tools list the output schema of any object, which
+the object and the former wrapper both satisfy. The shared service keeps the
+`{"result": <text>}` form, because its clients reach a restarted process without
+listing the tools again and one holding the former schema would reject a result
+without `result`; a text that is not one finite JSON object keeps the wrapper too
+(`tests/test_single_encoded_results.py`).
 
 `route_and_load`, `get_agent_context` and `refresh_persona_context` declare
 `anthropic/maxResultSizeChars` at Claude Code's ceiling of 500,000 characters, as
@@ -298,9 +395,10 @@ message that ends the turn is the final answer, with the footer and the log that
 worker, a timer or another session is still running (#454), which also reports
 only the changes since the previous status, and a question that ends the turn to
 wait for the reply. A question asked through a host tool whose answer returns
-within the turn does not end it. The compact form follows the 2,048 and 4,096
-characters that Claude Code shows of the server instructions, so Claude Code
-reads the definition from the managed section and the `SUCCESS` instruction.
+within the turn does not end it. The compact form lies beyond the 2,048
+characters that older Claude Code shows of the server instructions and is cut by
+the 4,096 that current versions show, so Claude Code reads the definition from
+the managed section and the `SUCCESS` instruction.
 
 ## Enrichment and storage
 
@@ -327,11 +425,24 @@ suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
 (`server._load_and_enrich`) that the evaluation harnesses use, because a bundle
 persists across later requests until a switch, restore, or refresh.
 
+Under the headless client profile (`AGENTS_CLIENT_PROFILE=headless`, #734) a
+bundle is trimmed, because a one-shot run re-reads it on every later model call
+(`src/engine/persona_bundle.py`, `src/engine/rules.py`). A `deep` tier is lowered
+to `standard`; the implant count is the standard tier's two, which the agent's
+declared implants fill first in declaration order but no longer raise; and
+`agent-cooperation` and `thread-status` (`HEADLESS_OMITTED_RULES`) are left out of
+`rules_block`, `rules_loaded` and the footer as if switched off in the web UI,
+because a one-shot run has no chat title to keep and no peer sessions to coordinate
+with. A flow persona's exact rule list is unchanged
+([rules](../rules/README.md#loading)).
+
 The semantic router uses `NumpyVectorStore`, local ONNX Runtime embeddings and a
 bounded persistent routing cache. Every `SUCCESS` other than a restore, a refresh
 or a flow's `persona_activation` stores the query and the loaded agent: routed loads, `get_agent_context` calls
 (including selections after `ROUTE_REQUIRED`), agent slash prompts and the meta
-route to `universal_agent`. `route_and_load` then reuses a stored decision without
+route to `universal_agent`; an agent that the headless profile loaded from a cache
+miss without a model choice is the exception and is not stored
+([a cache miss](#a-cache-miss)). `route_and_load` then reuses a stored decision without
 `ROUTE_REQUIRED` for a query within cosine distance `1 - ROUTER_SIMILARITY_THRESHOLD`
 (0.05 by default), unless keyword validation overrides or rejects it. The cache
 keeps its 500 newest entries; [Runtime and project boundaries](#runtime-and-project-boundaries)
@@ -563,9 +674,13 @@ instructions, the `SUCCESS` instruction and the memory reminder share, and a
 surface's own wording where it needs one); the `pointer` section holds the short
 texts sent instead of one the client already holds. `src/engine/protocol_text.py` composes
 every surface, in an order that keeps the per-turn rules inside the first 2,048
-characters of the MCP instructions, all that Claude Code showed before v2.1.296,
-and the first-work rule and the delegation exchange through validation inside the
-4,096 characters it shows now.
+characters of the MCP instructions, all that Claude Code showed before v2.1.296.
+The 4,096 characters it shows now add the first-work rule, the validation trigger
+(validate every output, require `valid: true`, read both tools' descriptions, and
+the fallback when an endpoint is unavailable) and the exact-name loading sentence.
+The delegation exchange itself no longer has to fit there: its procedure is in
+the descriptions of `get_subagent_context` and `validate_subagent_result`
+(`TOOL_PARTS`), which Claude Code shows in full once tool search loads them.
 After editing a section, run
 `.venv/bin/python -m src.engine.protocol_text --write` (or use
 `.venv\Scripts\python.exe` on Windows): it regenerates the template, the memory
@@ -645,7 +760,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_flow_result_size.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_flow_result_size.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_cold_routing.py tests/test_single_encoded_results.py tests/test_readiness.py tests/test_version.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

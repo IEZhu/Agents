@@ -289,7 +289,10 @@ description updates, bot review cycles, thread replies, and merge conditions.
 The committed managed section is `scripts/templates/routing-protocol-core.md`
 (protocol 2, the only protocol), generated with the MCP instructions, the
 `SUCCESS` instruction and the memory reminder from the section files in
-`src/engine/protocol/`. Do not edit the template or the managed section by hand.
+`src/engine/protocol/`; the procedures of delegation, artifacts, cooperation and
+local inference are not in those always-on surfaces but in the descriptions of the
+tools they name (`TOOL_PARTS` in `src/engine/protocol_text.py`, #734), which the
+surfaces only trigger. Do not edit the template or the managed section by hand.
 The global installer does not modify this tracked checkout file; after editing a
 section, run `.venv/bin/python -m src.engine.protocol_text --write`, which also
 refreshes the managed section here ([README.md](README.md#persona-continuity)).
@@ -298,13 +301,21 @@ preserve them.
 
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
-  shared response schemas live in `src/schemas/protocol.py`.
-- `src/client_instructions.py` decides when the MCP initialization answers a Codex
-  session with the pointer instead of the full instructions (only when every
-  checkout the session may run in holds the current managed section in its
-  `AGENTS.md`; Claude Code and every other client keep the full text) and words
-  the warnings about outdated sections; `tests/test_instruction_pointers.py`
-  checks it.
+  shared response schemas live in `src/schemas/protocol.py`. Over stdio the
+  persona tools, `log_interaction` and `describe_repo` return their JSON object
+  once instead of inside `{"result": <text>}` (`SINGLE_ENCODED_TOOLS`), and a
+  semantic-cache miss is ranked by `SemanticRouter.cold_ranking`
+  (`src/engine/router.py`) into a shortlist, or under the headless profile into a
+  direct load ([docs/routing_flow.md](docs/routing_flow.md#a-cache-miss)).
+- `src/client_instructions.py` decides when a client already holds the managed
+  section (`holds_current_section`: only when every checkout the session may run
+  in holds the current section in its `AGENTS.md`; Claude Code and every other
+  client keep the full text), so the MCP initialization answers a Codex session
+  with the pointer instead of the full instructions and a persona `SUCCESS` sends
+  the section pointer; the headless profile (`AGENTS_CLIENT_PROFILE`, #734) sends
+  that pointer without the check (`_instruction` in `src/engine/persona.py`). It
+  also words the warnings about outdated sections;
+  `tests/test_instruction_pointers.py` checks it.
 - Agent metadata declares core, preferred and capable skills, plus preferred
   implants. General rules are versioned bundle content, governed by
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`,

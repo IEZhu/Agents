@@ -143,10 +143,10 @@ The session playbook, tests and documentation checks, the review, release and di
 | [AGENTS.md](../AGENTS.md) | Short entry point for AI contributors; links to the shared protocol and working instructions |
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
 | [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
-| [src/engine/protocol/](../src/engine/protocol/), `src/engine/protocol_text.py` | The one source of the protocol 2 text: a file per section with its variants, and the renderer of every surface below (`python -m src.engine.protocol_text --write`) |
+| [src/engine/protocol/](../src/engine/protocol/), `src/engine/protocol_text.py` | The one source of the protocol 2 text: a file per section with its variants, and the renderer of every surface below and of the procedures that the worker, cooperation and local-inference tool descriptions carry (`python -m src.engine.protocol_text --write`) |
 | `src/client_instructions.py` | Decides when the MCP initialization answers a Codex session with the pointer instead of the full instructions, and a persona `SUCCESS` with the section pointer, from the managed sections of the checkouts' `AGENTS.md` files, and words the warnings about outdated sections |
 | [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template, generated |
-| `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent at initialization (a Codex session whose checkouts hold the current section gets the pointer instead), and the apply instruction returned with a conversation's first `SUCCESS` and a restore (later ones carry the pointer), both rendered at import |
+| `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent at initialization (a Codex session whose checkouts hold the current section gets the pointer instead), and the apply instruction returned with a conversation's first `SUCCESS` and a restore (later ones carry the pointer, and so does every `SUCCESS` but a restore where the client holds the managed section), both rendered at import |
 | [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory, generated; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |
 | [`agents/`](../agents/README.md), [`skills/`](../skills/README.md), [`implants/`](../implants/README.md), [`rules/`](../rules/README.md) | Runtime prompt content, selected and assembled by the server |
 
@@ -170,6 +170,18 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
   precision at fixed coverage per language). It and
   `python -m evals.runners.run_retrieval` take `--dataset` (repeatable) for
   hand-written sets such as `evals/datasets/routing_ru.jsonl`.
+- Cold-start routing: `python -m evals.scripts.measure_cold_ranker` compares the
+  keyword, embedding and combined rankers of a semantic-cache miss on the labelled
+  routing sets and scores resolving the top agent directly per margin, the basis of
+  `ROUTER_COLD_RESOLVE_MARGIN` ([routing](routing_flow.md#a-cache-miss),
+  [`measure_cold_ranker.py`](../evals/scripts/measure_cold_ranker.py)).
+- Context size: `python evals/scripts/context_size_audit.py` (`--json`,
+  `--profile`, `--embedder`) reports, without a model, how many characters
+  activation puts into a client's context for each `AGENTS_CLIENT_PROFILE`: the
+  managed template, the server instructions and their first 4,096 characters, the
+  `SUCCESS` instruction and its pointer, a `ROUTE_REQUIRED` answer, each block of a
+  first activation, and each tool's description and schema
+  ([`context_size_audit.py`](../evals/scripts/context_size_audit.py)).
 - [Telemetry export and analysis](../evals/telemetry/README.md).
 - [Dataset sources](../evals/datasets/SOURCES.md).
 - [Cloud sessions](cloud-runs.md): the September 2026 eval-sweep procedure (check
