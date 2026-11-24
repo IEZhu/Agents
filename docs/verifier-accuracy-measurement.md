@@ -5,8 +5,10 @@ runner with its blinding, the recorder and the analysis are in
 [evals/verifier_accuracy](../evals/verifier_accuracy/__init__.py), driven by the
 [verifier accuracy flow](../flows/verifier-accuracy.md). The 20-item pilot ran on
 2026-11-23; its [report](verifier-accuracy-pilot.md) gives the cost per run, the
-blinding result and what in this design proved unworkable, and the full run waits
-for the owner. Nothing is applied to the claim filter.
+blinding result and what in this design proved unworkable. The full run goes in
+stages the owner approves one at a time: the first, 206 of its 890 runs, ran on
+2026-11-24, and its [report](verifier-accuracy-stage1.md) gives the projection of
+the whole set. Nothing is applied to the claim filter.
 It designs steps 6 to 8 of the
 [reliability plan's order of work](delegation-reliability-plan.md#order-of-work)
 (the measurement its layer 6 describes) for the parameters of
