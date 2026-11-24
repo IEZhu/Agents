@@ -993,6 +993,9 @@ def test_the_schedule_keeps_clusters_together_and_a_stage_takes_whole_ones():
     assert all(order.index(name) + order.count(name) - 1 == len(order) - 1 - order[::-1].index(name)
                for name in set(order))  # every cluster is one contiguous block
     assert runner.schedule(list(reversed(statements)), 3) == slots  # the input order does not matter
+    orders = {tuple(dict.fromkeys(cluster_of[slot.item] for slot in runner.schedule(statements, seed)))
+              for seed in range(8)}
+    assert len(orders) > 1 and orders != {tuple(sorted(set(order)))}  # a stage is a seeded cluster sample
     assert runner.stage(statements, 3, None) == slots
     for runs in (0, 5, 17, 30, len(slots)):
         taken = runner.stage(statements, 3, runs)
