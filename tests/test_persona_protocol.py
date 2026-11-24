@@ -596,7 +596,7 @@ def test_first_work_bootstrap_reaches_mcp_only_clients():
         assert "prepared agents-core/subagent/1" in worker, surface
         assert "first-work repository description" in worker, surface
         assert "per-turn log_interaction" in worker, surface
-        assert "first time you read, search or change files in a git repository" in ordinary, surface
+        assert "first time you read, search or change files in a repository or project folder" in ordinary, surface
         assert "call describe_repo with workspace and the target repo_path" in ordinary, surface
         assert "On needs_summary, follow its instruction" in ordinary, surface
         assert "call write_repo_summary only where that instruction allows a write" in ordinary, surface

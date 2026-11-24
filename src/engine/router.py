@@ -462,12 +462,14 @@ class SemanticRouter:
                 stream.write(self.cards_source_hash())
 
     def cards_source_hash(self) -> str:
-        """What the persisted cards were built from: the configured model and every card's text.
+        """What the persisted cards were built from: the model's fingerprint and every card's text.
 
-        Computed without loading the model, so reindex can skip a build that would change
-        nothing; a server still checks each card against the loaded model's fingerprint.
+        model_fingerprint() names the model snapshot (read from the model cache before the model
+        is loaded), the same value each card's own hash carries, so a new snapshot under the same
+        model name rebuilds the persisted cards instead of leaving every server to rebuild a
+        private copy (#734 review).
         """
-        digest = hashlib.sha256(EMBEDDING_MODEL.encode("utf-8"))
+        digest = hashlib.sha256(model_fingerprint().encode("utf-8"))
         for name in self.available_agents:
             digest.update(f"\n{name}\n{self.agent_card(name)}".encode("utf-8"))
         return digest.hexdigest()

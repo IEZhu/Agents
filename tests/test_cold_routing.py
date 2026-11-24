@@ -349,6 +349,10 @@ async def test_cards_persist_and_a_changed_model_rebuilds_them(isolated_router, 
     assert not (tmp_path / f"{router_module.AGENT_CARDS_STORE}.npz").exists()
     isolated_router.router.build_agent_cards(persist=True)
     assert isolated_router.router.persisted_cards_current() is True
+    # A new snapshot of the same model makes the persisted cards stale for reindex too.
+    monkeypatch.setattr(router_module, "model_fingerprint", lambda: "model-a-new-snapshot")
+    assert isolated_router.router.persisted_cards_current() is False
+    monkeypatch.setattr(router_module, "model_fingerprint", lambda: "model-a")
     start = Mock()
     monkeypatch.setattr(SemanticRouter, "_start_card_build", start)
 
