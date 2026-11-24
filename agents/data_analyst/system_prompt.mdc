@@ -23,6 +23,7 @@ routing:
 core_skills:
 - skill-content-structure
 - skill-analysis-critical
+- skill-data-intake-audit
 preferred_skills:
 - skill-web-search
 - skill-reasoning-logic
@@ -37,6 +38,8 @@ capable_skills:
 - skill-mathematical-reasoning
 - skill-dev-performance
 - skill-structured-output
+- skill-clinical-lab-units
+- skill-statistical-geography
 preferred_implants:
 - implant-causal-reasoning
 - implant-chain-of-verification

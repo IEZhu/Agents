@@ -395,7 +395,7 @@ preserve them.
 
 ### Project Identity
 
-Agents-Core is one local Model Context Protocol server that gives an AI coding assistant a task-relevant persona, Markdown workflows it executes with its own tools, bounded validated delegated workers and a memory of each project; the calling model does the work, the server supplies context and contracts. Python 3.11+ (`requires-python = ">=3.11"`), distribution `agents-private`, version read from the root `VERSION` file, setuptools with `pip`/`venv`, and both `requirements.txt` and `uv.lock` committed; the tool surface is FastMCP from `mcp`. Most of the product is data: 46 personas under `agents/*/system_prompt.mdc`, 89 skills, 57 implants, 8 always-on rules plus 6 worker rules in `rules/subagents/`, and 21 built-in flows. Clients: Claude Code, Codex, Cursor, Antigravity, Claude Desktop.
+Agents-Core is one local Model Context Protocol server that gives an AI coding assistant a task-relevant persona, Markdown workflows it executes with its own tools, bounded validated delegated workers and a memory of each project; the calling model does the work, the server supplies context and contracts. Python 3.11+ (`requires-python = ">=3.11"`), distribution `agents-private`, version read from the root `VERSION` file, setuptools with `pip`/`venv`, and both `requirements.txt` and `uv.lock` committed; the tool surface is FastMCP from `mcp`. Most of the product is data: 46 personas under `agents/*/system_prompt.mdc`, 92 skills, 57 implants, 8 always-on rules plus 6 worker rules in `rules/subagents/`, and 21 built-in flows. Clients: Claude Code, Codex, Cursor, Antigravity, Claude Desktop.
 
 ### Tech Stack
 

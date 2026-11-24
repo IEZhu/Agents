@@ -1,0 +1,51 @@
+---
+description: "Official statistical geography classifications and their non-geographic, residual and aggregate categories: Australian ASGS (states and territories, Other Territories, No usual address, Migratory - Offshore - Shipping, Outside Australia, usual residence vs enumeration), US Census and FIPS codes (states, District of Columbia, Puerto Rico and the Island Areas, summary levels, county equivalents), EU NUTS (levels, Extra-Regio codes, EU, euro-area and EFTA aggregate rows, classification versions); rules for aggregating, ranking and reporting by state or region. Role: Statistical Geography Analyst."
+compiled: "Before grouping by state or region, classify every value of the geography column as a real unit, a residual or non-geographic category, or an aggregate row. Residual categories keep totals complete; they are not regions. ASGS: state/territory code 9 'Other Territories' (Jervis Bay Territory, Christmas Island, Cocos (Keeling) Islands, Norfolk Island) is one code for several external territories, not a state or territory; each of the nine codes, Other Territories included, carries 'No usual address (NSW)' and 'Migratory - Offshore - Shipping (NSW)' style categories below state level (SA4 codes ending 99 and 97); 'Outside Australia' has code Z; overseas visitors are outside usual-residence counts. US: 'United States' is the 50 states plus DC; DC (FIPS 11) is not a state; Puerto Rico (72) shares summary level 040 with the states, so exclude it by FIPS code; the Island Areas (60, 66, 69, 78) are presented separately; county files carry state rows (SUMLEV 040, county 000), so summing every row doubles the total. NUTS: Extra-Regio codes end in Z (CCZ, CCZZ, CCZZZ); Eurostat geo columns mix countries with EU, euro-area (code changes with membership), EEA, EFTA and DE_TOT rows. Default: leave residual categories and aggregate rows out of rankings, per-region results and 'which region' answers unless the task asks for them; keep them where a total must match the published total; say in the report what was excluded and how large it was. Keep codes as text (leading zeros) and join on the classification edition the data uses."
+keywords:
+  - census
+  - by state
+  - per state
+  - us states
+  - county
+  - fips
+  - nuts
+  - asgs
+  - eurostat
+  - statistical area
+as_of: "2026-11-24"
+review_after_days: 365
+sources:
+  - https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/main-structure-and-greater-capital-city-statistical-areas/australia-and-stateterritory
+  - https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/main-structure-and-greater-capital-city-statistical-areas/special-purpose-codes
+  - https://www.census.gov/programs-surveys/geography/about/glossary.html
+  - https://www2.census.gov/programs-surveys/popest/technical-documentation/file-layouts/2020-2025/CO-EST2025-ALLDATA.pdf
+  - https://ec.europa.eu/eurostat/web/nuts/overview
+  - https://ec.europa.eu/eurostat/documents/3859598/15193590/KS-GQ-22-010-EN-N.pdf
+---
+## Role
+Statistical Geography Analyst: knows which values in a geography column are places and which exist only so that the totals add up, and keeps the second kind out of answers about places.
+
+## Rules
+- **Classify before grouping**: label every distinct value of the geography column as a real unit, a residual or non-geographic category (unknown, not stated, no usual address, offshore, migratory, outside the country, extra-territorial), or an aggregate row (national total, regional total, union or bloc). Do this from the classification's own definitions, not from whether the value happens to appear in the column.
+- **Answer about places with places**: a ranking, an average per region, a "which state" answer or a per-region chart covers only real units at the level asked. Leave residual categories and aggregate rows out unless the task names them.
+- **Totals keep everything**: where a result must reconcile with a published total (national population, a grand total in the source), include residual categories in it, or state the difference they make.
+- **Say what was excluded**: the report names each excluded category and its size (count and share of the total). A silent exclusion and a silent inclusion are the same defect.
+- **Read the level**: a residual category at one level can be part of a real unit at the level above. Grouping to a state from lower levels keeps that state's residual categories inside its total; ranking the lower-level areas leaves them out.
+- **Filter aggregates by code, not by label or level alone**: a summary-level field or a name pattern can hide a unit that belongs elsewhere (Puerto Rico carries the state summary level), and a name-to-state mapping can quietly fold "No usual address (NSW)" into New South Wales or drop it.
+- **Codes are text**: read geography codes as strings. FIPS `06` read as a number becomes `6`, and county `01001` becomes `1001`, which then fails every join.
+- **One edition per join**: boundaries and codes change between editions; join data to the classification edition it was coded to, and do not mix editions in one series without a correspondence.
+
+## Concepts
+- **ASGS (Australian Bureau of Statistics)**: Mesh Block → SA1 → SA2 → SA3 → SA4 → State and Territory → Australia, with Greater Capital City Statistical Areas (GCCSA) as a parallel split of each state into its capital and the rest. State and territory codes: 1 New South Wales, 2 Victoria, 3 Queensland, 4 South Australia, 5 Western Australia, 6 Tasmania, 7 Northern Territory, 8 Australian Capital Territory, 9 Other Territories. Other Territories puts Jervis Bay Territory, the Territory of Christmas Island, the Territory of Cocos (Keeling) Islands and Norfolk Island under one code at the state and territory level; it is not a ninth state or territory.
+- **ASGS special-purpose codes**: each of the nine codes, Other Territories included, has two non-spatial areas below state level, labelled with the state's abbreviation, for example `No usual address (NSW)` and `Migratory - Offshore - Shipping (OT)`; their SA4 codes end in 99 and 97 (199, 197 for New South Wales). They hold people with no usual address, people on ships, on oil and gas rigs, in transit or on Antarctic expeditions. A separate `Outside Australia` category uses code Z (SA4 `ZZZ`).
+- **Census counting basis**: place of usual residence counts residents where they usually live and codes overseas visitors separately; place of enumeration counts people where they were on census night. Mixing the two bases in one comparison is an error.
+- **US Census Bureau and FIPS**: 'United States' means the 50 states and the District of Columbia. Two-digit state codes run 01–56 with unused gaps; 11 is the District of Columbia, a state equivalent that is not a state; 72 is Puerto Rico, a state equivalent outside every census region and division; 60 American Samoa, 66 Guam, 69 Northern Mariana Islands and 78 U.S. Virgin Islands are the Island Areas, presented separately; 74 is the U.S. Minor Outlying Islands. Counties are five-digit state plus county codes; county equivalents include Louisiana parishes, Alaska boroughs and census areas, and independent cities.
+- **Summary levels**: the `SUMLEV` field marks a row's geography: 010 nation, 020 region, 030 division, 040 state or equivalent, 050 county or equivalent. A county file carries a 040 row for every state with county code `000` before its counties, so DC appears twice and the sum of all rows is twice the national total. Puerto Rico appears as a 040 row in state files, so excluding it needs its FIPS code.
+- **NUTS (Eurostat)**: levels 0 (country, two letters), 1, 2 and 3, each adding one character to the code. Extra-Regio codes `CCZ`, `CCZZ` and `CCZZZ` hold the parts of a country's economic territory that cannot be attached to a region: air space, territorial waters and the continental shelf, embassies, consulates and military bases abroad, and resource deposits in international waters. NUTS is revised every few years (2016, 2021, 2024; NUTS 2027 applies from 1 January 2027), and codes change between versions.
+- **Eurostat aggregate rows**: a dataset's geo column puts aggregates beside the countries: `EU27_2020`, `EU28`, euro-area codes whose number follows membership (`EA20`, then `EA21` from 2026), `EEA`, `EFTA`, and variants such as `DE_TOT` (Germany including the former GDR). Eurostat writes Greece as `EL` and the United Kingdom as `UK`, not the ISO `GR` and `GB`.
+- **Generic residual labels**: Unknown, Not stated, Not applicable, Inadequately described, Unallocated, Overseas, Outside the country, Offshore, Migratory, Shipping, Extra-Regio, Balance of state, Remainder, Other (as a catch-all), Total, All. Each needs a deliberate decision, not a default group-by.
+
+## Actions
+- `classify_geo(values, classification, level)`: map each value to real unit, residual or aggregate, citing the classification's definition.
+- `reconcile_total(groups, published_total)`: sum the real units, add the residual categories, and compare with the published total; explain any difference, including a doubled total from summary rows.
+- `exclusion_note(excluded)`: one line per excluded category with its count and share, for the report.

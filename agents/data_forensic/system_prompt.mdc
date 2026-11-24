@@ -19,6 +19,7 @@ core_skills:
 preferred_skills:
 - skill-analysis-critical
 - skill-dense-summarization
+- skill-data-intake-audit
 capable_skills:
 - skill-web-search
 - skill-reasoning-logic

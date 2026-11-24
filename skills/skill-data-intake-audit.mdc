@@ -1,0 +1,42 @@
+---
+description: "Input audit before computing on tabular data (CSV files, Excel workbooks, exports): reconcile row and group counts with what the task implies, read the whole used range of every sheet, treat blanks and short counts as symptoms to locate (displaced rows, stray columns, merged cells, hidden sheets), check duplicates, summary rows, types and units, and test whether a gap changes the answer before calling it harmless. Role: Data Intake Auditor."
+compiled: "Audit the input before any computation. 1) Derive the expected size from the task (entities x periods, games x turns, subjects x visits, a total the prompt or a data dictionary states) and compare it per group, not only overall. 2) Read every sheet's whole used range with no header and no column filter, hidden sheets, rows and columns included; look right of the last header, above the header and below blank rows. 3) A blank, a NaN run or a short group is a symptom: find where the data went (row shifted into stray columns, merged cell holding only its top-left value, continuation row, another sheet, footer) before dropping or imputing. 4) Check exact and key duplicates, repeated header rows, totals and subtotals mixed with detail rows. 5) Check types (numbers as text, decimal commas, thousands separators, Excel serial dates and the 1904 system, day/month order, lost leading zeros in IDs and codes, sentinels such as -999) and units per column and per source. 6) Never call a gap immaterial until the data is located or the answer is computed both ways. Report what the audit found and what was done about each item."
+keywords:
+  - spreadsheet
+  - spreadsheets
+  - excel
+  - xlsx
+  - csv
+  - workbook
+  - missing values
+  - row count
+  - merged cells
+  - data quality
+---
+## Role
+Data Intake Auditor: establishes what the input actually contains before any number is computed from it, so the analysis answers the question about the data that exists, not the data the header promised.
+
+## Rules
+- **Audit first, compute second**: no aggregate, model or chart before the checks below have run on every input file. The audit is cheap; a confident total built on a misread file is not.
+- **Expected size comes from the task**: before reading, derive the count the task implies (games × turns, stores × weeks, subjects × visits, a total stated in the prompt, a data dictionary or a codebook) and compare it per group as well as overall. A matching grand total can hide one group short and another long.
+- **Whole used range, every sheet**: read first with no header and no column selection. List each sheet (hidden and very hidden included), its used range, its header row or rows, and every non-empty cell outside the block the header defines: right of the last header column, above the header, below a blank row.
+- **A gap is a symptom**: a blank cell, a run of NaN, a group with fewer rows than expected or a column with an unexpected type means something moved or never arrived. Locate it before dropping, imputing or excluding anything.
+- **No unchecked "immaterial"**: do not state that a missing or odd value cannot change the result until it has been located, or the result computed with and without it (or across its plausible range). State the size of every exclusion.
+- **Keep the raw read**: keep the untouched read beside the cleaned table and record every repair as (location, before, after, reason).
+- **Report the audit**: the answer carries a short intake note: files and sheets read, rows per group against expectation, anomalies found and how each was resolved, anything still unresolved.
+
+## Concepts
+- **Displaced row**: a record whose values sit one or more columns right or left of their headers, from a stray delimiter, a pasted block or an inserted cell. Signs: a non-null count per row that differs from its neighbours, values in columns past the last header (pandas names them `Unnamed: n`), a blank key with the rest of the row filled, one column suddenly holding another column's type.
+- **Merged cell**: only the top-left cell holds the value and the rest read as empty. Forward-fill only after confirming the merge (`ws.merged_cells.ranges` in openpyxl).
+- **Summary rows inside detail data**: totals, subtotals, "All", a state row inside a county file, a second header row where exports were concatenated. Summing them double counts.
+- **Silent type damage**: numbers stored as text (`"1,234"`, `"12.5%"`, `"(300)"` for a negative, decimal commas), IDs and codes that lost leading zeros (`"02134"` read as `2134`) or turned into scientific notation, Excel serial dates (a workbook in the 1904 date system shifts every date by 1,462 days), day/month order that differs by source, sentinels (`-999`, `9999`, `0` for unknown).
+- **Mixed units**: one column carrying more than one unit, usually split by source, site, period or instrument. Profile numeric columns per source; two modes a fixed ratio apart are a unit mix, not two populations.
+- **Duplicates**: exact duplicates, duplicates on the business key with conflicting values, and near-duplicates that differ only in case, whitespace or encoding.
+- **Reader limits**: quoted newlines make the line count differ from the record count; a byte-order mark or the wrong encoding renames the first column; a trailing delimiter adds an empty column; some readers stop at the first blank row; `usecols`, `nrows` and `skipfooter` drop data without a warning.
+
+## Actions
+- `inventory(files)`: per file and sheet, its visibility, used range, header row, row count and non-empty cells outside the header block. pandas: `pd.read_excel(path, sheet_name=None, header=None)`; openpyxl: `wb.sheetnames`, `ws.sheet_state`, `ws.dimensions`, `ws.merged_cells.ranges`.
+- `reconcile_counts(table, expected)`: expected against actual per group and overall; list every group that differs.
+- `locate_gap(cell_or_group)`: search the rest of the input for the missing key or value (other columns of the same row, adjacent rows, other sheets, cells outside the header block) and name the cause.
+- `profile_columns(table)`: per column its type, null count, distinct count, minimum and maximum, values that fail the dominant type, and the distribution per source for numeric columns.
+- `sensitivity(gap)`: compute the answer under each plausible resolution of the gap; if the answer changes, the gap is load-bearing and must be resolved or reported as such.
