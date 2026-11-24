@@ -112,3 +112,59 @@ and `outcome` fields. This checkout ignores
 `history.md`, `history/`, `data/memory/` and the hidden lock files
 (`.history.md.lock`, `.CLAUDE.md.lock`, `.agents-description.lock`) before
 committing its action log.
+
+## Turn logging by a Stop hook
+
+A headless run can leave logging to its client (#734). Through `log_interaction` the model
+writes its whole answer once more as `response_content`, and one more model call re-reads the
+whole context after the tool returns. With `AGENTS_TURN_LOG_HOOK=1` and
+`AGENTS_CLIENT_PROFILE=headless`, the server instructions and the full `SUCCESS` instruction
+tell the model to end its answers with the footer and not to call `log_interaction` (the
+`finish` variants `hook`, `server-hook` and `bundle-hook` in
+[finish.md](../src/engine/protocol/finish.md)). The instruction files, the memory reminder and
+the pointer of a later `SUCCESS` stay as they are. Either switch alone changes nothing.
+
+The Claude Code Stop hook [`python -m src.memory.turn_log_hook`](../src/memory/turn_log_hook.py)
+then writes the entry that `log_interaction` writes with its defaults, through the same journal
+writer and its deduplication: the prompt that started the turn, the final answer without a time
+line, and the persona of the last `SUCCESS` or `NO_CHANGE` in the transcript with the persona
+action that follows from where it happened. It takes the final answer from the hook input's
+`last_assistant_message` when Claude Code sends one, else from the transcript, and resolves the
+project as a stdio server does: `AGENTS_CLIENT_REPO_ROOT`, then `CLAUDE_PROJECT_DIR`, then the
+session's `cwd`. It makes no model call, sends no Langfuse trace and uses no network. The same
+Stop event again is a duplicate; a turn that another, blocking Stop hook continues is logged
+again with its longer answer. Token-like secrets are masked, but no model reads the text first,
+so other details of a prompt or an answer stay as written. Without both switches, a prompt, an
+answer, a persona or a safe project it writes nothing; it always exits 0 and prints nothing, so
+a failure never blocks the client.
+
+To enable it for a headless installation, register the hook in Claude Code's managed settings
+(`managed-settings.json` in `/Library/Application Support/ClaudeCode` on macOS or
+`/etc/claude-code` on Linux and WSL, see
+[managed settings](https://code.claude.com/docs/en/managed-settings)), with the installation
+path in place of the placeholder (the one-command installer uses `~/.agents-core`):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /absolute/path/to/Agents && .venv/bin/python -m src.memory.turn_log_hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Then start each headless run with both switches in its environment and a standalone stdio
+server entry, for example `AGENTS_CLIENT_PROFILE=headless AGENTS_TURN_LOG_HOOK=1 claude -p
+"<task>"`. Claude Code starts its hook commands and its stdio servers with its own environment,
+so the hook and the server read the same switches; a switch set only in the server entry's
+`env` does not reach the hook. Interactive sessions on the same machine start without them: they
+keep logging through `log_interaction`, and the hook writes nothing for them.

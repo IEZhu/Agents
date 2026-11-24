@@ -20,6 +20,11 @@ instructions for a client whose own instruction file is current send instead of 
 client already holds (#433), and what a ``SUCCESS`` sends when the client's instructions hold
 the current managed section, its first activation included (#734).
 
+When the client's Stop hook logs each turn (``config.turn_log_hook()``: ``AGENTS_TURN_LOG_HOOK=1``
+with the headless profile, #734), the server instructions and the ``SUCCESS`` instruction finish
+with the ``finish`` variants ``hook``, ``server-hook`` and ``bundle-hook`` instead of the
+log_interaction step. The committed files never depend on it.
+
 The functions below compose each surface from these variants in a fixed order. The template
 and the memory reminder stay committed files, because installers and shell scripts read them;
 ``python -m src.engine.protocol_text --write`` regenerates them together with the managed
@@ -41,6 +46,8 @@ from collections import defaultdict
 from functools import cache
 from pathlib import Path
 from typing import Callable, Mapping, Union
+
+from src.engine import config
 
 SOURCE_DIR = Path(__file__).resolve().parent / "protocol"
 ROOT = Path(__file__).resolve().parents[2]
@@ -176,9 +183,13 @@ def server_instructions() -> str:
 
 
 def _server_opening() -> str:
-    """The per-turn lines that open the server instructions and their pointer."""
-    return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"),
-                      _sentences_of(("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
+    """The per-turn lines that open the server instructions and their pointer.
+
+    Their finish line leaves logging to the client's Stop hook when ``config.turn_log_hook()``.
+    """
+    finish = ((("finish", "hook"), ("finish", "server-hook")) if config.turn_log_hook()
+              else (("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
+    return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"), _sentences_of(*finish))
 
 
 def _server_tail() -> str:
@@ -207,6 +218,9 @@ BUNDLE_PARTS: tuple[tuple[str, str], ...] = (
     ("output-artifacts", "compact"), ("intro", "compact"), ("local-inference", "compact"),
     ("cooperation", "compact"),
 )
+# The finish rule of the SUCCESS instruction when the client's Stop hook logs each turn: the model
+# neither calls log_interaction nor redacts what it would have passed to it.
+HOOK_FINISH = {("finish", "bundle"): ("finish", "bundle-hook"), ("finish", "redaction"): ("finish", "hook")}
 
 
 def bundle_instruction() -> str:
@@ -215,9 +229,11 @@ def bundle_instruction() -> str:
     The worker exemption comes first, then the first-work and owning-session rules, which a
     client that never loaded the instruction files learns here, as it learns the definition of
     progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``, and
-    one whose client holds the managed section sends ``bundle_section_pointer``.
+    one whose client holds the managed section sends ``bundle_section_pointer``. With
+    ``config.turn_log_hook()`` the finish rule is ``HOOK_FINISH``'s.
     """
-    return _sentences_of(*BUNDLE_PARTS)
+    hook = config.turn_log_hook()
+    return _sentences_of(*(HOOK_FINISH.get(name, name) if hook else name for name in BUNDLE_PARTS))
 
 
 def bundle_pointer() -> str:

@@ -69,3 +69,12 @@ not waive initial activation. Incomplete attribution is still logged as `unverif
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
+
+<!-- variant: hook -->
+Do not call log_interaction: this client's Stop hook records each turn from its transcript, attributed to the persona of the last SUCCESS or NO_CHANGE, and replaces the logging step that the instruction files describe.
+
+<!-- variant: server-hook -->
+Compose the answer with the saved footer and send it; a message that ends the turn is the final answer and carries the footer even when it only reports progress. Add no time line. Memory and flow tools still take workspace, the absolute working directory.
+
+<!-- variant: bundle-hook -->
+Save the applied persona descriptor and exact footer, and end every final answer with that footer: the first one after initial activation, and any message that ends the turn even when it only reports progress while other work still runs.

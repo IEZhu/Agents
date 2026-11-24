@@ -579,6 +579,23 @@ def headless_profile() -> bool:
     """
     return CLIENT_PROFILE == "headless"
 
+
+# A headless run whose client records each turn itself, through the Claude Code Stop hook
+# `python -m src.memory.turn_log_hook` (#734). Logging through log_interaction makes the model
+# write its whole answer a second time and adds a final call that re-reads the context. Only
+# together with the headless profile does the server tell the model to leave logging to that
+# hook, and only then does the hook write; either switch alone changes nothing.
+TURN_LOG_HOOK = os.getenv("AGENTS_TURN_LOG_HOOK", "").strip().lower() in ("1", "true")
+
+
+def turn_log_hook() -> bool:
+    """Whether the client's Stop hook, not the model, logs each turn.
+
+    True only with ``AGENTS_TURN_LOG_HOOK=1`` and the headless profile; reads the module
+    attributes at call time so tests can monkeypatch them.
+    """
+    return TURN_LOG_HOOK and headless_profile()
+
 # --- Auto-update (background self-update) ------------------------------------
 # The server can keep itself current by pulling its own git repo (INSTALL_ROOT)
 # in a daemon thread — non-blocking — and preparing the vector stores; the new
