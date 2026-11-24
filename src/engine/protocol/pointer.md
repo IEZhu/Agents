@@ -1,11 +1,11 @@
 <!-- variant: bundle -->
-This conversation's first activation sent the full instruction, and its rules still hold:
+An earlier activation of this conversation sent the full instruction or pointed to a managed section that holds it, and its rules still hold:
 
 <!-- variant: bundle-section -->
 The managed routing section in your client's instructions, headed Agents-Core Persona Protocol — version 2, holds the full rules, so this SUCCESS sends a pointer instead of the full instruction, and they hold:
 
 <!-- variant: bundle-rules -->
-worker mode, the first-work repository description, work another session owns, the redactions before logging, history errors, progress messages, the file-receipt delegation exchange, artifacts, the tool roles, local inference and cooperation. Apply this bundle only if replaces_activation_id matches your current activation: replace all four blocks, including empty ones, then save persona and the exact footer,
+worker mode, the first-work repository description, work another session owns, the redactions before logging, history errors, progress messages, the tool roles, and the triggers for the file-receipt delegation exchange, artifacts, local inference and cooperation, whose tools' descriptions hold the procedures. Apply this bundle only if replaces_activation_id matches your current activation: replace all four blocks, including empty ones, then save persona and the exact footer,
 
 <!-- variant: bundle-finish -->
 and finish each answer with that footer and log_interaction.

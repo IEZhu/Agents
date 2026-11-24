@@ -33,6 +33,9 @@ Before the first final answer with MCP available and no prior activation, load a
 <!-- variant: server-load -->
 When the client lists these tools as deferred, load route_and_load, get_agent_context and log_interaction with one exact-name selection before the first call (in Claude Code, ToolSearch select: with the names as listed), not a keyword search.
 
+<!-- variant: server-load-hook -->
+If these tools are deferred, select route_and_load and get_agent_context by their exact names in a single request before the first call; do not search by keyword.
+
 <!-- variant: memory -->
 The following activation and logging steps apply to ordinary conversations.
 Before the first final answer, when MCP is available and there is no prior persona

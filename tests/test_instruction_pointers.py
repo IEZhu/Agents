@@ -114,7 +114,10 @@ def test_the_section_pointer_names_the_section_and_claims_no_earlier_full_instru
     # The heading it names is the managed section's own first line.
     heading = protocol_text.template().splitlines()[0].removeprefix("# ")
     assert f"headed {heading}," in pointer
-    assert "first activation sent" not in pointer and "first activation sent" in persona.INSTRUCTION_POINTER
+    # The bundle pointer allows that the earlier activation pointed to a section (#734 review).
+    assert "activation of this conversation sent" not in pointer
+    assert "activation of this conversation sent the full instruction or pointed to a managed section" in \
+        persona.INSTRUCTION_POINTER
     # Both pointers compose the shared rules and restore parts, so neither copies the other's sentences.
     for variant in ("bundle-rules", "bundle-restore"):
         shared = protocol_text.part("pointer", variant)

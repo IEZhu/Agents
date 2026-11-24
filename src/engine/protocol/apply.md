@@ -22,6 +22,9 @@
   only when it clearly fits the request better, and otherwise ignore them.
 - After a conversation's first activation, a `SUCCESS` carries a short `instruction`
   that points to the full one by `instruction_revision`; the full rules still hold.
+  Where the client already holds this section, every `SUCCESS` but a restore, the
+  first one included, points to the section instead, and the section counts as
+  the full instruction.
   Restore with `force_reload=True` when the full instruction is gone from your
   context. A first activation may carry `warnings` about outdated managed routing
   sections: mention them once to the user.

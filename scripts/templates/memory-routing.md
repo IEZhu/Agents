@@ -48,7 +48,8 @@ switch.
 Progress messages, the text shown before the turn's final answer, carry no footer or time line and are not logged. Each is one to three lines: what is done, what runs now, what the user will be asked next, if anything. Report only changes since the previous one, without pasted tool output, worker packages or file contents. A question that ends the turn to wait for the reply is a final answer; one asked through a host tool whose answer returns within the turn is not.
 
 Except for the unavailable-MCP fallback below, compose the answer plus saved
-footer. Before delivering it, call
+footer. Unless the server instructions or a SUCCESS report that a Stop hook
+logs the turn, call before delivering it
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
 request verbatim as `query` (except for the redactions below), the complete composed answer plus

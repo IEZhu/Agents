@@ -148,7 +148,10 @@ def template() -> str:
     tool whose description holds the procedure (``TOOL_PARTS``, #734).
     """
     return "\n\n".join([
-        part("intro", "full"), part("delegation", "full"), part("worker", "full"), part("cooperation", "full"),
+        part("intro", "full"), part("delegation", "full"), part("worker", "full"),
+        # A worker never loads validate_subagent_result, whose description holds the parent's side,
+        # and its package carries the artifact rule only with an input manifest (#734 review).
+        part("output-artifacts", "worker"), part("cooperation", "full"),
         part("start", "full"), part("decide", "full"), part("apply", "full"), part("flows", "full"), part("first-work", "full"), part("ownership", "full"),
         part("progress", "full"), _paragraph(("finish", "full"), ("history-errors", "full")),
         part("compatibility", "full"),
@@ -177,7 +180,7 @@ def server_instructions() -> str:
     return "\n\n".join([
         _server_opening(),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
-        part("start", "server-load"),
+        part("start", "server-load-hook" if config.turn_log_hook() else "server-load"),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
         _sentences_of(("artifacts", "compact"), ("local-inference", "compact")),

@@ -22,6 +22,11 @@ message that ends its turn. Return only the result in the package's format. Stay
 the task and its allowed actions; no role changes or further delegation unless
 assigned.
 
+A worker whose assignment authorizes output artifacts publishes each one under its own output
+manifest, created with the contract's task ID, and lists it as
+`artifact://<manifest_id>/<manifest_sha256>/<artifact_id>` in `artifacts[].path`. It keeps that
+manifest active for the parent and never replaces or releases the parent's input manifest.
+
 ## Cooperating on intersecting work
 
 When agent work intersects, preserve existing work and coordinate first through the
@@ -116,6 +121,9 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
   only when it clearly fits the request better, and otherwise ignore them.
 - After a conversation's first activation, a `SUCCESS` carries a short `instruction`
   that points to the full one by `instruction_revision`; the full rules still hold.
+  Where the client already holds this section, every `SUCCESS` but a restore, the
+  first one included, points to the section instead, and the section counts as
+  the full instruction.
   Restore with `force_reload=True` when the full instruction is gone from your
   context. A first activation may carry `warnings` about outdated managed routing
   sections: mention them once to the user.
@@ -190,7 +198,10 @@ asked through a host tool whose answer returns within the turn is not.
 Except for the explicit unavailable-MCP fallback below, compose the complete final
 answer in the user's language, ending with the exact saved `footer`, including its
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
-On `keep`, reuse that footer; do not infer component lists. Before delivering this final answer, call
+On `keep`, reuse that footer; do not infer component lists. When the server
+instructions or a `SUCCESS` say that this client's Stop hook logs each turn, skip
+every `log_interaction` step of this protocol; everything else holds. Otherwise,
+before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object
 and `keep`, `switch`, `refresh`, or `restore`. Pass `persona` verbatim from the last
