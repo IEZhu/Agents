@@ -32,6 +32,8 @@ it: its records stay in the set, and the next stage continues from them.
   floor and the stage's own `D`. It reports the projected half-widths, the share of
   simulated sets that reach ±0.03, the share in each rule case, and the slots left
   with their cost at the stage's mean.
+- **Agreeing verdicts.** When the resampled estimates do not vary, `D` now falls back
+  to the size-weighted mean cluster size instead of the plain mean (see below).
 
 ## What ran
 
@@ -69,10 +71,11 @@ bill.
 |---|---|---|---|---|---|
 | V3 arm | 114 | $0.171 | $0.169 | $0.187 | $19.45 |
 | V2 arm | 92 | $0.170 | $0.169 | $0.178 | $15.63 |
-| Canary probes | 12 | $0.042 | $0.022 | $0.153 | $0.51 |
+| Canary probes (11 in the stage, 1 before it) | 12 | $0.042 | $0.022 | $0.153 | $0.51 |
 | **All** | 218 | | | | **$35.58** |
 
-The probes include one run before the stage. A run took 8.8 seconds and 3.1 turns on
+The twelfth probe ran alone before the stage, to check the new set's blinding; it
+counts towards the set's spend. A run took 8.8 seconds and 3.1 turns on
 average. The 684 slots left would cost about $116 at the stage's mean, plus about
 $1.50 of probes, and take about 35 minutes at 4 workers.
 
@@ -101,69 +104,78 @@ pilot had 2 wrong in 64, both false positives on true numeric constants; this st
 held 8 numeric-constant verdicts per level.
 
 **The stage cannot measure `D`.** With no error, the estimates do not vary under
-resampling, and the analysis falls back to the mean cluster size: 2.375 for the
-model family and 2.0 for the execution family. That fallback is the worst case,
-every item of a cluster failing together. In practice the evidence then counts
-clusters, not items, which is why the true and the false halves of the execution
-family get the same band (13 clusters each). The stage was meant to measure `D`
-among other things; it cannot do so without errors, and the full run will not
-either while it observes none.
+resampling, and the analysis falls back to the design effect of a cluster whose items
+fail together: the size-weighted mean cluster size, the sum of squared cluster sizes
+over the item count. It is 5.28 for the model family and 4.65 for the execution family,
+against plain means of 2.375 and 2.0. The stage was meant to measure `D` among other
+things; it cannot do so without errors, and the full run will not either while it
+observes none.
+
+The analysis used the plain mean until review on this pull request: the design note
+describes the case in which a cluster's items fail together, which for clusters of
+unequal size is the size-weighted mean, and the plain mean made agreeing bands
+narrower than that case allows. The coverage simulation gives the same floor of
+1.5625 under either fallback, because its simulated sets almost never agree
+completely. Every number below uses the size-weighted fallback.
 
 Bands of the planning look (final-look quantiles, no rule case):
 
 | Parameter | Prior | Stage median | Band | Half-width |
 |---|---|---|---|---|
-| `c_model` | 0.97 | 0.973 | [0.816, 1.000] | 0.092 |
-| `b_V3` | 0.97 | 0.986 | [0.899, 1.000] | 0.051 |
-| `c_execution` | 0.98 | 0.972 | [0.809, 1.000] | 0.095 |
-| `b_V2` | 0.95 | 0.985 | [0.897, 1.000] | 0.051 |
+| `c_model` | 0.97 | 0.943 | [0.648, 1.000] | 0.176 |
+| `b_V3` | 0.97 | 0.969 | [0.788, 1.000] | 0.106 |
+| `c_execution` | 0.98 | 0.938 | [0.625, 0.999] | 0.187 |
+| `b_V2` | 0.95 | 0.967 | [0.774, 1.000] | 0.113 |
 
-The symmetry, independence and per-stratum checks found nothing, as they cannot
-without errors.
+The medians sit below 1 although no verdict was wrong, because a design effect near 5
+leaves the posterior close to its uniform prior. The symmetry, independence and
+per-stratum checks found nothing, as they cannot without errors.
 
 ## Projection of the whole set
 
 Two views, both for all 240 and 205 items under the calibrated floor or the stage's
-`D`, whichever is larger.
+`D`, whichever is larger (5.28 and 4.65).
 
 **Drawn from the stage's posterior** (200 simulated whole sets). The posterior is
 wide, so the draws include accuracies well below what the stage saw:
 
 | Parameter | Median half-width (10th to 90th percentile) | Reaches ±0.03 | Rule 2 | Rule 3 | Rule 4 |
 |---|---|---|---|---|---|
-| `c_model` | 0.047 (0.029 to 0.074) | 13 % | 13 % | 12.5 % | 74.5 % |
-| `b_V3` | 0.027 (0.015 to 0.041) | 63.5 % | 63.5 % | 2.5 % | 34 % |
-| `c_execution` | 0.048 (0.030 to 0.076) | 12.5 % | 12.5 % | 23 % | 64.5 % |
-| `b_V2` | 0.025 (0.015 to 0.036) | 72 % | 72 % | 0 % | 28 % |
+| `c_model` | 0.097 (0.063 to 0.152) | 0 % | 0 % | 19 % | 81 % |
+| `b_V3` | 0.058 (0.036 to 0.100) | 6 % | 6 % | 17 % | 77 % |
+| `c_execution` | 0.104 (0.065 to 0.156) | 0 % | 0 % | 31.5 % | 68.5 % |
+| `b_V2` | 0.058 (0.033 to 0.097) | 4 % | 4 % | 6 % | 90 % |
 
-Rule 1 (narrow, at or below the prior) occurred in no simulated set.
+Rule 1 (narrow, at or below the prior) occurred in no simulated set. The rule 3
+shares come from draws with an accuracy well below the prior, which the stage's
+wide posterior allows but its data do not point to.
 
 **If the rest of the set has no error either**, every item with two right verdicts,
-the full fit uses the fallback `D`
-of 2.64 (model) and 2.44 (execution), and every band is narrow and above its prior:
+the full fit falls back to a `D` of 4.93 (model) and 4.80 (execution):
 
 | Parameter | Prior | Band | Half-width | Case |
 |---|---|---|---|---|
-| `c_model` | 0.97 | [0.946, 1.000] | 0.027 | rule 2, stays 0.97 after the audit |
-| `b_V3` | 0.97 | [0.973, 1.000] | 0.014 | rule 2, about 0.973 after the audit |
-| `c_execution` | 0.98 | [0.942, 1.000] | 0.029 | rule 2, stays 0.98 after the audit |
-| `b_V2` | 0.95 | [0.970, 1.000] | 0.015 | rule 2, about 0.970 after the audit |
+| `c_model` | 0.97 | [0.903, 1.000] | 0.049 | rule 4 |
+| `b_V3` | 0.97 | [0.950, 1.000] | 0.025 | rule 2, stays 0.97 after the audit |
+| `c_execution` | 0.98 | [0.890, 1.000] | 0.055 | rule 4 |
+| `b_V2` | 0.95 | [0.943, 1.000] | 0.029 | rule 2, stays 0.95 after the audit |
 
-Rule 2 raises a value only after the production audit, which is not built.
+Rule 2 keeps the larger of the prior and the band's lower edge, and only after the
+production audit, which is not built. With no error, both lower edges sit below their
+priors, so no value would move.
 
 ## For the owner
 
 Continuing costs about $118 and 35 minutes. What it can buy:
 
-- **If errors stay this rare**, all four bands come out narrow and above the priors.
-  The only values that would move are `b_V2`, from 0.95 to about 0.970, and `b_V3`,
-  from 0.97 to about 0.973, and only once the audit exists. Nothing would be lowered.
-- **Under the posterior projection**, which allows errors the stage did not see, `b`
-  still narrows in about two thirds of the projected runs.
-  `c` stays wider than ±0.03 in most of them, with a 12 to 23 % chance of refuting a
-  `c` prior.
-- **What it cannot buy** is a measured `D` without errors. Narrow bands for `c` would
-  rest on the worst-case fallback, which is conservative, not wrong.
+- **If errors stay this rare**, nothing moves. The `b` bands come out narrow, but
+  their lower edges stay below the priors, and the `c` bands stay wider than ±0.03.
+- **If errors appear**, the run can refute a prior. Drawn from the stage's posterior,
+  it does so for a `c` prior in 19 to 31 % of projected runs and for a `b` prior in
+  6 to 17 %. Those shares rest on the posterior's tails, not on anything the stage
+  observed.
+- **What it cannot buy** is a measured `D` while every verdict agrees. Narrowing the
+  `c` bands to ±0.03 would need errors to measure `D` from, or many more clusters.
 
 ## Not done here
 

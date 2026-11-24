@@ -186,9 +186,11 @@ it, which is the edge a raise uses.
 
 `D` is the variance of the point estimates when source clusters are resampled, over
 their variance when items are resampled, and never below 1. When either variance is
-zero, as when every verdict agrees, `D` is the mean cluster size, the case in which a
-cluster's items fail together; the band then stays wide and the prior stays under
-rule 4.
+zero, as when every verdict agrees, `D` is the size-weighted mean cluster size, the sum
+of squared cluster sizes over the item count: the design effect when a cluster's items
+fail together, which for clusters of unequal size exceeds their plain mean. On the
+240-item set, a run with no wrong verdict would then leave every prior where it is
+([stage 1 report](verifier-accuracy-stage1.md#projection-of-the-whole-set)).
 
 Before the run, the runner simulates this whole analysis at the priors and at
 `b` = 0.995 and raises `D` until every band holds its level. The sample sizes below
