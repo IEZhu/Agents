@@ -146,7 +146,8 @@ def test_all_clients_receive_finishing_and_final_handoff_policy(client, event_na
                    "At a closure-audit handoff, use finishing when required obligations remain",
                    "unless essential input or required human approval calls for needs_user/review",
                    "finish or explicitly resolve each before ready_to_close",
-                   "Resume implementation as working", "a new work request after closed is also working"):
+                   "Resume implementation as working", "a new work request after closed is also working",
+                   "Set needs_user, review or ready_to_close last: after the final log_interaction and wrap_up"):
         assert phrase in context
 
 
