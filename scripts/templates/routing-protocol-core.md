@@ -162,6 +162,10 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
   Preserve higher-priority instructions, conversation history, facts, goals,
   constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
+- A `SUCCESS` that `route_and_load` resolved without your choice may carry
+  `alternatives`, the next candidates by name and role. Apply the response as
+  usual. The alternatives are optional switches: call `get_agent_context` for one
+  only when it clearly fits the request better, and otherwise ignore them.
 - After a conversation's first activation, a `SUCCESS` carries a short `instruction`
   that points to the full one by `instruction_revision`; the full rules still hold.
   Restore with `force_reload=True` when the full instruction is gone from your

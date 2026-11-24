@@ -63,6 +63,10 @@ class PersonaResponse(BaseModel):
     skills_block: Optional[str] = None
     implants_block: Optional[str] = None
     candidates: Optional[List[Dict[str, Any]]] = None
+    # The next ranked agents (name and role) of an activation the server resolved on a cache
+    # miss without a model choice, headless profile only (#734). Optional switches through
+    # get_agent_context; absent from every other response.
+    alternatives: Optional[List[Dict[str, Any]]] = None
     message: Optional[str] = None
     # Outdated managed routing sections in the client's instruction files, on a first activation.
     warnings: Optional[List[str]] = None

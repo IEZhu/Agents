@@ -30,6 +30,20 @@ SECTION_POINTER = protocol_text.bundle_section_pointer()
 INSTRUCTION_REVISION = protocol_text.instruction_revision()
 # What the caller needs to choose a ROUTE_REQUIRED candidate; trigger_command is for people.
 CANDIDATE_FIELDS = ("name", "display_name", "role")
+ROUTE_INSTRUCTION = ("Choose the best agent for the request and relevant conversation, then call "
+                     "get_agent_context with protocol_version=2 and the same current_persona. Keep "
+                     "the existing activation until SUCCESS.")
+# Appended when a cache miss lists a ranked shortlist instead of the whole catalog (#734).
+SHORTLIST_NOTE = ("These are the {shown} of {total} agents closest to the request; any other "
+                  "canonical agent may still be loaded with get_agent_context (list_agents shows "
+                  "all).")
+# Every shortlist keeps the general agent: a request may fit no specialist, and having no
+# keywords it never appears in a keyword ranking.
+FALLBACK_AGENT = "universal_agent"
+# What an activation resolved without a model choice lists of the next ranked agents (#734).
+ALTERNATIVES_FIELD = "alternatives"
+ALTERNATIVE_FIELDS = ("name", "role")
+MAX_ALTERNATIVES = 3
 
 
 PERSONA_KEYS = tuple(PersonaDescriptor.model_fields)
@@ -617,9 +631,13 @@ async def load_persona(
     force_reload: bool = False, refresh: bool = False,
     reasoning: str = "Explicit persona selection", request_id: str | None = None,
     selection: ComponentSelection | None = None, ctx=None, workspace: str | None = None,
+    learn: bool = True,
 ) -> str:
     """With ``selection`` (a flow's persona) bundles are compared by revision, not
     agent name, and the choice does not train the shared router cache.
+
+    ``learn=False`` keeps the choice out of that cache as well: an agent the server picked
+    without a model choice must not later be served from the cache as if a model had chosen it.
 
     ``ctx`` and ``workspace`` only locate the workspace whose repository context the first
     activation in it reports (#459); neither selects or changes a bundle."""
@@ -654,7 +672,7 @@ async def load_persona(
             persona_block=bundle.persona_block, rules_block=bundle.rules_block,
             skills_block=bundle.skills_block, implants_block=bundle.implants_block,
         )
-        if not refresh and not force_reload and selection is None:
+        if learn and not refresh and not force_reload and selection is None:
             # Learning failure cannot invalidate an already assembled bundle.
             try:
                 await router.update_cache(query, agent_name, reasoning, request_id)
@@ -681,19 +699,114 @@ async def route_persona(router, query: str, history: list[str], current_persona,
             # The bundle infers the tier and promotes lite to standard: NO_CHANGE
             # keeps this session-scoped bundle for the whole conversation.
             agent_name = "universal_agent"
-        if agent_name is None:
-            return PersonaResponse(
-                status="ROUTE_REQUIRED", request_id=request_id,
-                replaces_activation_id=current.activation_id if current else None,
-                candidates=[{key: entry[key] for key in CANDIDATE_FIELDS if key in entry}
-                            for entry in router.get_agent_catalog()],
-                instruction=("Choose the best agent for the request and relevant conversation, "
-                             "then call get_agent_context with protocol_version=2 and the same "
-                             "current_persona. Keep the existing activation until SUCCESS."),
-            ).to_json()
-        return await load_persona(
-            router, agent_name, query, history, current, request_id=request_id,
-            reasoning="Semantic routing with keyword validation", ctx=ctx, workspace=workspace,
-        )
+        if agent_name is not None:
+            return await load_persona(
+                router, agent_name, query, history, current, request_id=request_id,
+                reasoning="Semantic routing with keyword validation", ctx=ctx, workspace=workspace,
+            )
+        catalog = router.get_agent_catalog()
+        if cached is not None:
+            # A cache hit the keywords contradict ambiguously keeps the whole catalog.
+            return _route_required(request_id, current, catalog, None)
+        ranking = await _cold_ranking(router, query)
+        leader = _cold_leader(ranking, catalog)
+        if leader is not None:
+            resolved = await _load_cold_leader(
+                router, leader, _alternatives(ranking, catalog), query, history, current,
+                request_id, ctx=ctx, workspace=workspace)
+            if resolved is not None:
+                return resolved
+        return _route_required(request_id, current, catalog,
+                               _shortlist(ranking, catalog, config.ROUTER_SHORTLIST_SIZE))
     except Exception as error:
         return error_response(error, request_id)
+
+
+async def _cold_ranking(router, query: str):
+    """The router's ranking for a cache miss, or None to list the whole catalog as before (#734)."""
+    try:
+        return await router.cold_ranking(query)
+    except Exception:
+        # Shortening the list is an optimisation; it must never turn a route into an ERROR.
+        logger.warning("Cold ranking failed; listing the whole catalog", exc_info=True)
+        return None
+
+
+def _shortlist(ranking, catalog: list[dict], size: int) -> list[dict] | None:
+    """The catalog entries a cache miss lists, best first, universal_agent always among them.
+
+    None lists the whole catalog: with size 0, without a ranked agent (no keyword matched and
+    the catalog cards are not embedded yet) or when the shortlist would leave nobody out.
+    """
+    by_name = {entry["name"]: entry for entry in catalog}
+    ranked = [name for name in (ranking.agents if ranking else []) if name in by_name]
+    if size <= 0 or not ranked:
+        return None
+    chosen = ranked[:size]
+    if FALLBACK_AGENT in by_name and FALLBACK_AGENT not in chosen:
+        chosen = chosen[:size - 1] + [FALLBACK_AGENT]
+    if len(chosen) >= len(catalog):
+        return None
+    return [by_name[name] for name in chosen]
+
+
+def _cold_leader(ranking, catalog: list[dict]) -> str | None:
+    """The agent a headless cache miss loads without asking the model, or None.
+
+    Only the embedding ranking resolves, and only when its first agent's similarity leads the
+    second's by ROUTER_COLD_RESOLVE_MARGIN; interactive sessions always choose themselves.
+    """
+    margin = config.ROUTER_COLD_RESOLVE_MARGIN
+    if not config.headless_profile() or margin <= 0 or ranking is None:
+        return None
+    gap = ranking.gap
+    if gap is None or gap < margin:
+        return None
+    leader = ranking.agents[0]
+    return leader if any(entry["name"] == leader for entry in catalog) else None
+
+
+def _alternatives(ranking, catalog: list[dict]) -> list[dict]:
+    """The next ranked agents after the leader, by name and role, as optional switches."""
+    by_name = {entry["name"]: entry for entry in catalog}
+    following = [name for name in ranking.agents[1:] if name in by_name][:MAX_ALTERNATIVES]
+    return [{key: by_name[name][key] for key in ALTERNATIVE_FIELDS if key in by_name[name]}
+            for name in following]
+
+
+async def _load_cold_leader(router, leader: str, alternatives: list[dict], query: str,
+                            history: list[str], current, request_id: str, *, ctx=None,
+                            workspace: str | None = None) -> str | None:
+    """Activate ``leader`` with the alternatives beside it; None when it did not activate.
+
+    The choice is the server's, not a model's, so it does not train the router cache: a wrong
+    guess learned there would later be served as a cache hit, interactive sessions included.
+    A model that switches to an alternative trains it through get_agent_context as usual.
+    """
+    response = await load_persona(
+        router, leader, query, history, current, request_id=request_id,
+        reasoning="Cold embedding routing (headless profile)", ctx=ctx, workspace=workspace,
+        learn=False,
+    )
+    payload = json.loads(response)
+    if payload.get("status") not in _ACTIVATED_STATUSES:
+        logger.warning("Headless routing could not activate %s; listing candidates instead", leader)
+        return None
+    # NO_CHANGE: the leader is already active, and keeping it needs no list of switches.
+    if alternatives and payload["status"] == "SUCCESS":
+        payload[ALTERNATIVES_FIELD] = alternatives
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _route_required(request_id: str, current: PersonaDescriptor | None, catalog: list[dict],
+                    shortlist: list[dict] | None) -> str:
+    entries = catalog if shortlist is None else shortlist
+    instruction = ROUTE_INSTRUCTION if shortlist is None else " ".join(
+        (ROUTE_INSTRUCTION, SHORTLIST_NOTE.format(shown=len(shortlist), total=len(catalog))))
+    return PersonaResponse(
+        status="ROUTE_REQUIRED", request_id=request_id,
+        replaces_activation_id=current.activation_id if current else None,
+        candidates=[{key: entry[key] for key in CANDIDATE_FIELDS if key in entry}
+                    for entry in entries],
+        instruction=instruction,
+    ).to_json()

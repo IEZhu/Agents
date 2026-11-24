@@ -549,10 +549,12 @@ async def test_initialization_guidance_matches_success_payload(bundle):
     # actual wire payload.
     success = next(line for line in section.splitlines() if line.startswith("- SUCCESS →"))
     fields = set(re.findall(r"`(\w+)`", success))
-    assert fields <= current.keys()
+    # Only a SUCCESS that route_and_load resolved itself carries alternatives (#734);
+    # tests/test_cold_routing.py checks them on that payload.
+    assert fields - {"alternatives"} <= current.keys()
     assert fields == {
         "persona", "persona_block", "rules_block", "skills_block", "implants_block",
-        "replaces_activation_id", "footer",
+        "replaces_activation_id", "footer", "alternatives",
     }
     for removed in ("Version 1", "SUCCESS_SAMPLED", "system_prompt", "context_hash"):
         assert removed not in instructions

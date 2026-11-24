@@ -483,6 +483,28 @@ KEYWORD_OVERRIDE_MIN_HITS = 1
 # Top agent must have >= this ratio vs second-best to auto-override
 # (otherwise falls through to ROUTE_REQUIRED for LLM re-evaluation)
 KEYWORD_UNIQUENESS_RATIO = 2.0
+# On a cache miss ROUTE_REQUIRED lists at most this many agents, universal_agent
+# always among them, ranked by SemanticRouter.cold_ranking: by similarity to each
+# agent's embedded catalog card once those are built, else by keyword hits, and a
+# query no keyword matches then still gets the whole catalog. 0 always lists the
+# whole catalog. Every installation starts with an empty cache, so without this each
+# cold activation sent all of it (46 agents, about 7,000 characters) (#734).
+ROUTER_SHORTLIST_SIZE = _int_env("ROUTER_SHORTLIST_SIZE", 8, lo=0)
+if ROUTER_SHORTLIST_SIZE == 1:
+    # universal_agent takes one place, so 1 would list no ranked agent at all.
+    logger.warning("ROUTER_SHORTLIST_SIZE=1 leaves no place beside universal_agent, using default 8")
+    ROUTER_SHORTLIST_SIZE = 8
+# Headless profile only: on a cache miss, load the top agent of the embedding ranking
+# directly, without the ROUTE_REQUIRED round trip, when its cosine similarity to the
+# request leads the runner-up's by at least this much; 0 turns it off. Interactive
+# sessions never resolve a miss themselves, and keyword hits alone never resolve one:
+# a single incidental keyword can lead ("regression" is a data_analyst keyword, so
+# "add a regression test" leads with data_analyst 1:0). The default is provisional:
+# the measurement for #734 had only the 72-query Russian labelled set
+# (evals/datasets/routing_ru.jsonl), where 0.05 was the stricter of the gaps it
+# reported and resolved fewer queries at a higher precision than 0.02; re-measure on
+# a larger set before lowering it.
+ROUTER_COLD_RESOLVE_MARGIN = _float_env("ROUTER_COLD_RESOLVE_MARGIN", 0.05, lo=0.0, hi=2.0)
 # Cosine distance thresholds (1 - similarity). Calibrated for
 # paraphrase-multilingual-MiniLM-L12-v2; typical distances:
 #   skills  0.39–0.63  → threshold 0.75 (comfortable margin)

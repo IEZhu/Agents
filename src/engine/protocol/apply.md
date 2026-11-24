@@ -16,6 +16,10 @@
   Preserve higher-priority instructions, conversation history, facts, goals,
   constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
+- A `SUCCESS` that `route_and_load` resolved without your choice may carry
+  `alternatives`, the next candidates by name and role. Apply the response as
+  usual. The alternatives are optional switches: call `get_agent_context` for one
+  only when it clearly fits the request better, and otherwise ignore them.
 - After a conversation's first activation, a `SUCCESS` carries a short `instruction`
   that points to the full one by `instruction_revision`; the full rules still hold.
   Restore with `force_reload=True` when the full instruction is gone from your
@@ -38,7 +42,7 @@ not run competing activations in the background.
 
 <!-- variant: server -->
 Response statuses:
-- SUCCESS → validate the complete `persona` descriptor and `persona_block`, `rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` matches the current activation (null for initial load), replacing all four blocks, including empty blocks. Then save `persona` and `footer`.
+- SUCCESS → validate the complete `persona` descriptor and `persona_block`, `rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` matches the current activation (null for initial load), replacing all four blocks, including empty blocks. Then save `persona` and `footer`. Any `alternatives` are optional switches, loaded with get_agent_context only for a clearly better fit.
 - ROUTE_REQUIRED → select from `candidates`, then call `get_agent_context(agent_name, query, protocol_version=2, current_persona=...)`; this is an intermediate result, not an activated persona; retain the previous activation until SUCCESS.
 - NO_CHANGE → keep the current blocks, descriptor and footer unchanged.
 - ERROR → keep the previous activation, report the failed operation and follow the response's `instruction`; for persona tools the requested bundle was not applied. Do not partially activate returned content.
