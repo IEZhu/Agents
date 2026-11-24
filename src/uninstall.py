@@ -1123,6 +1123,9 @@ def _readiness_handler(handler, client: str, script: Path, installation: Path, *
         return False
     arguments = _readiness_arguments(handler.get("command"), windows=windows)
     options = ["--client", client] if client in ("cursor", "antigravity") else []
+    if (client == "claude" and arguments is not None and len(arguments) == 4
+            and arguments[2] == "--restore-part" and arguments[3].isdigit()):
+        options = arguments[2:]  # a further part of the compact group
     return (arguments is not None and len(arguments) == 2 + len(options)
             and _readiness_python(arguments[0], installation)
             and arguments[1] == str(script) and arguments[2:] == options)

@@ -1134,9 +1134,10 @@ def test_uninstall_preserves_modified_or_foreign_readiness(tmp_path, monkeypatch
     target, _ = paths[client]
     document = json.loads(target.read_bytes())
     entries = [readiness_entry(document, client)]
-    if client in ("claude", "codex"):  # the startup/clear group and the compact group
-        entries = [group["hooks"][0] for group in document["hooks"]["SessionStart"]]
-        assert len(entries) == 2
+    if client in ("claude", "codex"):  # the startup/clear group and the compact group with its parts
+        groups = document["hooks"]["SessionStart"]
+        assert len(groups) == 2
+        entries = [handler for group in groups for handler in group["hooks"]]
     for entry in entries:
         if change == "modified":
             if client == "desktop":

@@ -89,7 +89,7 @@ and the host's own worker tools.
 | [Shared local service](install.md#shared-macos-and-windows-service) | One background server holding the model for every client and session, on macOS and Windows | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ⁵ |
 | [MCP proxy](mcp-proxy.md#connect-a-server) | Your other MCP servers through the one Agents-Core connection, with per-app access and credentials in the OS secret store | ✅ ¹² | ✅ ¹² | ✅ ¹² | ✅ ¹² | 🟡 ⁶ ¹² | 🟡 ⁵ ¹² |
 | [Session readiness banner](session-readiness.md#session-readiness-banner) | A snapshot of time, directory, Git state and host when a session starts | ✅ | 🟡 ⁷ | 🟡 ⁸ | 🟡 ⁷ | 🟡 ⁷ | ❌ |
-| [Persona restore after compaction](session-readiness.md#persona-restore-after-compaction) | A reminder to reload the active persona right after the client compacts the conversation | ✅ | ❌ | 🟡 ⁹ | ❌ | ❌ | ❌ |
+| [Persona restore after compaction](session-readiness.md#persona-restore-after-compaction) | The active persona put back by the hook right after Claude Code compacts the conversation, or a reminder to reload it | ✅ | ❌ | 🟡 ⁹ | ❌ | ❌ | ❌ |
 | [Emoji thread status](thread-status.md#client-support) | One emoji in the chat title for working, waiting, review or closed | ✅ | ❌ | 🟡 ¹⁰ | 🟡 ¹¹ | ❌ | ❌ |
 | [Native context compaction](context-compaction.md#supported-surfaces) | Opt-in compaction between completed turns, through the client's own command | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | [Claude Code cloud sessions](cloud-runs.md#cloud-environment-with-agents-core) | A working server in a Claude Code cloud environment from one setup script | ✅ | ➖ | ➖ | ➖ | ➖ | ➖ |

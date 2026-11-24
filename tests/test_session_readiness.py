@@ -143,6 +143,186 @@ def test_compact_restore_is_only_for_native_clients(monkeypatch, client):
     assert "hookSpecificOutput" not in document and "Ready | snapshot" in json.dumps(document)
 
 
+def success(activation, replaces=None, *, agent="software_engineer", instruction="Full rules.",
+            revision="r1", persona_block="You are the engineer."):
+    """A SUCCESS exactly as the server serializes it."""
+    from src.schemas.protocol import PersonaDescriptor, PersonaResponse
+    persona = PersonaDescriptor(agent=agent, activation_id=activation, bundle_revision="a" * 64,
+                                scope="Engineer", skills_loaded=["skill-a"], implants_loaded=[],
+                                rules_loaded=["rule-a"])
+    return PersonaResponse(status="SUCCESS", request_id="req", persona=persona, replaces_activation_id=replaces,
+                           footer=f"**Agent**: {agent} · **Rules**: rule-a", instruction=instruction,
+                           instruction_revision=revision, persona_block=persona_block,
+                           rules_block="## Rules\n- rule-a", skills_block="", implants_block="").to_json()
+
+
+def tool_call(call_id, name="mcp__Agents-Core__get_agent_context", **fields):
+    return {"type": "assistant", **fields,
+            "message": {"role": "assistant", "content": [{"type": "tool_use", "id": call_id, "name": name,
+                                                          "input": {}}]}}
+
+
+def tool_result(call_id, text, *, wrap=True, as_list=False, **fields):
+    """A tool_result as Claude Code records it; FastMCP wraps a JSON string in {"result": ...}."""
+    body = json.dumps({"result": text}) if wrap else text
+    content = [{"type": "text", "text": body}] if as_list else body
+    return {"type": "user", **fields,
+            "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": call_id,
+                                                     "content": content}]}}
+
+
+def write_transcript(tmp_path, *entries):
+    path = tmp_path / "session.jsonl"
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries) + '{"type": "partial', encoding="utf-8")
+    return str(path)
+
+
+def far():
+    return time.monotonic() + 60
+
+
+def test_restore_keys_match_the_server_descriptor():
+    from src.engine.persona import PERSONA_KEYS
+    assert readiness.PERSONA_KEYS == PERSONA_KEYS
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("mcp__Agents-Core__get_agent_context", "get_agent_context"),
+    ("mcp__Agents-Core-Desktop__route_and_load", "route_and_load"),
+    ("mcp__plugin_agents-core_Agents-Core__run_flow", "run_flow"),
+    ("mcp__agents-core__refresh_persona_context", "refresh_persona_context"),
+    ("mcp__Other__get_agent_context", None),
+    ("mcp__Agents-Core__log_interaction", None),
+    ("get_agent_context", None),
+    (None, None),
+])
+def test_persona_tool_names(name, expected):
+    assert readiness.persona_tool(name) == expected
+
+
+def test_active_bundle_follows_the_chain_the_model_applied(tmp_path):
+    full = "Full instruction. " * 40
+    path = write_transcript(
+        tmp_path,
+        tool_call("t1"), tool_result("t1", success("a1", instruction=full)),
+        tool_call("t2", "mcp__Agents-Core__route_and_load"),
+        tool_result("t2", success("a2", "a1", agent="code_reviewer", instruction="Pointer.")),
+        # A stale SUCCESS for another activation is never applied.
+        tool_call("t3"), tool_result("t3", success("a3", "elsewhere")),
+        # NO_CHANGE and ERROR keep the active bundle.
+        tool_call("t4"), tool_result("t4", json.dumps({"protocol_version": 2, "status": "NO_CHANGE"})),
+        tool_call("t5"), tool_result("t5", json.dumps({"protocol_version": 2, "status": "ERROR"})),
+        # A worker's activation and another server's lookalike result do not count.
+        tool_call("t6", isSidechain=True), tool_result("t6", success("a6", "a2"), isSidechain=True),
+        tool_call("t7", "mcp__Other__get_agent_context"), tool_result("t7", success("a7", "a2")),
+        # A descriptor without all seven keys is not a complete SUCCESS.
+        tool_call("t8"), tool_result("t8", json.dumps({**json.loads(success("a8", "a2")),
+                                                       "persona": {"agent": "x"}})),
+        # The same first result recorded again does not replace the switch.
+        tool_result("t1", success("a1", instruction=full)),
+    )
+    bundle = readiness.active_bundle(path, far())
+    assert bundle["persona"]["activation_id"] == "a2" and bundle["tool"] == "route_and_load"
+    assert bundle["persona"]["agent"] == "code_reviewer"
+    # The later pointer is replaced by the full instruction of the same revision.
+    assert bundle["instruction"] == full
+
+
+def test_active_bundle_reads_flow_activations_and_unwrapped_content(tmp_path):
+    flow = json.dumps({"status": "needs_execution", "persona_activation": json.loads(success("f1"))})
+    path = write_transcript(
+        tmp_path,
+        tool_call("t1", "mcp__plugin_agents-core_Agents-Core__run_flow"),
+        tool_result("t1", flow, wrap=False, as_list=True),
+        tool_call("t2", "mcp__Agents-Core-Desktop__refresh_persona_context"),
+        tool_result("t2", success("f2", "f1", instruction="Only a pointer."), as_list=True),
+    )
+    bundle = readiness.active_bundle(path, far())
+    assert bundle["persona"]["activation_id"] == "f2" and bundle["tool"] == "refresh_persona_context"
+    # No full instruction of this revision was ever sent, so the pointer is kept.
+    assert bundle["instruction"] == "Only a pointer."
+
+
+def test_active_bundle_refuses_an_uncertain_state(tmp_path):
+    preview = "<persisted-output>\nOutput too large (52KB). Full output saved to: /x/tool-results/a.txt\n"
+    entries = [tool_call("t1"), tool_result("t1", success("a1")),
+               tool_call("t2"), tool_result("t2", preview, wrap=False)]
+    assert readiness.active_bundle(write_transcript(tmp_path, *entries), far()) is None
+    # A later SUCCESS ends the uncertainty.
+    later = [tool_call("t3"), tool_result("t3", success("a3", "unknown-to-the-hook"))]
+    bundle = readiness.active_bundle(write_transcript(tmp_path, *entries, *later), far())
+    assert bundle["persona"]["activation_id"] == "a3"
+    # An ordinary error text from a persona tool keeps the active bundle.
+    error = [tool_call("t4"), tool_result("t4", "Error: MCP server unavailable", wrap=False)]
+    bundle = readiness.active_bundle(write_transcript(tmp_path, *entries, *later, *error), far())
+    assert bundle["persona"]["activation_id"] == "a3"
+    assert readiness.active_bundle(str(tmp_path / "missing.jsonl"), far()) is None
+    assert readiness.active_bundle(write_transcript(tmp_path, *later), time.monotonic() - 1) is None
+    assert readiness.active_bundle(write_transcript(tmp_path, tool_call("t9")), far()) is None
+
+
+def reassemble(parts):
+    """Strip each part's header; part headers end at their first blank line."""
+    return "".join(part.split("\n\n", 1)[1] for part in parts)
+
+
+def test_restore_parts_fit_the_inline_limit_and_reassemble(tmp_path):
+    # Astral emoji take two UTF-16 code units; one line is longer than a whole part.
+    block = "\n".join(f"- 🔄 line {index} " + "word " * 30 for index in range(150)) + "\n" + "x " * 6000
+    path = write_transcript(tmp_path, tool_call("t1"), tool_result("t1", success("a1", persona_block=block,
+                                                                                 instruction="Rules. " * 1500)))
+    bundle = readiness.active_bundle(path, far())
+    parts = readiness.restore_parts(bundle)
+    total = len(parts)
+    assert 1 < total <= readiness.RESTORE_PARTS
+    assert all(readiness.code_units(part) <= readiness.PART_LIMIT for part in parts)
+    assert parts[0].startswith("Agents-Core: this conversation was just compacted")
+    assert f"This is part 1 of {total};" in parts[0] and 'persona_action="keep"' in parts[0]
+    assert all(part.startswith(f"Agents-Core restored persona, part {index} of {total} (activation a1)")
+               for index, part in enumerate(parts[1:], start=2))
+    text = reassemble(parts)
+    assert text.startswith("Descriptor (JSON): " + json.dumps(bundle["persona"], ensure_ascii=False))
+    assert "Footer: " + bundle["footer"] in text and bundle["instruction"] in text
+    for name in readiness.BLOCKS:
+        assert f"=== {name} ===\n{bundle[name]}" in text
+    assert text.endswith("=== End of the restored persona ===\n")
+    # A bundle that would need more parts than the group runs is not restored by the hook.
+    huge = write_transcript(tmp_path, tool_call("t1"), tool_result("t1", success("a1", persona_block="y\n" * 80000)))
+    assert readiness.restore_parts(readiness.active_bundle(huge, far())) is None
+
+
+def test_compact_output_returns_each_part_and_falls_back(tmp_path):
+    path = write_transcript(tmp_path, tool_call("t1"), tool_result("t1", success("a1")))
+    payload = {"source": "compact", "transcript_path": path}
+    first = readiness.hook_output(payload)
+    context = first["hookSpecificOutput"]["additionalContext"]
+    assert "This is part 1 of 1;" in context and "=== End of the restored persona ===" in context
+    assert "You are the engineer." in context
+    assert readiness.hook_output(payload, part=2) == {}
+    # Nothing to restore: part 1 asks for the reload, further parts stay silent.
+    empty = {"source": "compact", "transcript_path": str(tmp_path / "missing.jsonl")}
+    assert readiness.hook_output(empty)["hookSpecificOutput"]["additionalContext"] == readiness.restore_context(empty)
+    assert readiness.hook_output(empty, part=2) == {}
+    assert readiness.hook_output({"source": "startup", "cwd": str(tmp_path)}, part=2) == {}
+
+
+def test_compact_cli_returns_a_restore_part(tmp_path):
+    block = "\n".join("line " + "word " * 40 for _ in range(100))
+    path = write_transcript(tmp_path, tool_call("t1"), tool_result("t1", success("a1", persona_block=block)))
+    command = [sys.executable, str(ROOT / "scripts/session_readiness.py")]
+    payload = json.dumps({"source": "compact", "transcript_path": path})
+    second = subprocess.run(command + ["--restore-part", "2"], input=payload, capture_output=True,
+                            text=True, check=True)
+    context = json.loads(second.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("Agents-Core restored persona, part 2 of ")
+    last = subprocess.run(command + ["--restore-part", str(readiness.RESTORE_PARTS)], input=payload,
+                          capture_output=True, text=True, check=True)
+    assert json.loads(last.stdout) == {}
+    for invalid in ("1", str(readiness.RESTORE_PARTS + 1), "x"):
+        result = subprocess.run(command + ["--restore-part", invalid], input=payload, capture_output=True, text=True)
+        assert result.returncode == 2 and result.stdout == ""
+
+
 def test_utf8_hook_input_survives_ansi_python_stream_encoding(tmp_path):
     directory = tmp_path / "José-проект"
     directory.mkdir()
@@ -180,7 +360,19 @@ def test_install_preserves_settings_backs_up_and_is_idempotent(tmp_path, monkeyp
     handler = document["hooks"]["SessionStart"][1]["hooks"][0]
     assert shlex.split(handler["command"])[1] == result["script"]
     assert document["hooks"]["SessionStart"][1]["matcher"] == installer.MATCHER
-    assert document["hooks"]["SessionStart"][2:] == [{"matcher": installer.COMPACT_MATCHER, "hooks": [handler]}]
+    compact = document["hooks"]["SessionStart"][2:]
+    assert compact == [{"matcher": installer.COMPACT_MATCHER,
+                        "hooks": installer.restore_handlers(handler, Path(result["script"]), client)}]
+    handlers = compact[0]["hooks"]
+    assert handlers[0] == handler
+    if client == "claude":  # one handler per part of a restored bundle
+        assert len(handlers) == readiness.RESTORE_PARTS
+        assert [shlex.split(item["command"])[2:] for item in handlers[1:]] == [
+            ["--restore-part", str(part)] for part in range(2, readiness.RESTORE_PARTS + 1)]
+        assert all(item["timeout"] == 5 and installer.owns_handler(item, Path(result["script"]))
+                   for item in handlers)
+    else:  # Codex keeps the single reload request
+        assert handlers == [handler]
     before = target.read_bytes(), target.stat().st_mtime_ns
     assert not installer.install(client)["changed"]
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
@@ -205,8 +397,25 @@ def test_install_adds_the_compact_group_beside_an_existing_startup_group(tmp_pat
     target.write_text(json.dumps({"hooks": {"SessionStart": [startup]}}))
     assert installer.install("claude")["changed"]
     groups = json.loads(target.read_text())["hooks"]["SessionStart"]
-    assert groups == [startup, {"matcher": installer.COMPACT_MATCHER, "hooks": startup["hooks"]}]
+    restore = installer.restore_handlers(startup["hooks"][0], script, "claude")
+    assert groups == [startup, {"matcher": installer.COMPACT_MATCHER, "hooks": restore}]
     assert not installer.install("claude")["changed"]
+
+
+def test_install_replaces_a_single_handler_compact_group_with_the_parts(tmp_path, monkeypatch):
+    """An installation from before the parts gets them; the user's other groups stay."""
+    monkeypatch.setattr(installer, "client_home", lambda _: tmp_path)
+    target, script = tmp_path / "settings.json", tmp_path / "hooks" / installer.SCRIPT_NAME
+    handler = {"type": "command", "command": installer.command_for(script), "timeout": 5}
+    other = {"matcher": "resume", "hooks": [{"type": "command", "command": "other"}]}
+    target.write_text(json.dumps({"hooks": {"SessionStart": [
+        {"matcher": installer.MATCHER, "hooks": [handler]}, other,
+        {"matcher": installer.COMPACT_MATCHER, "hooks": [handler]}]}}))
+    assert installer.install("claude")["changed"]
+    groups = json.loads(target.read_text())["hooks"]["SessionStart"]
+    assert groups[1] == other
+    assert groups[2]["hooks"] == installer.restore_handlers(handler, script, "claude")
+    assert len(groups) == 3
 
 
 def test_only_dedicated_hook_group_is_owned(tmp_path):
@@ -215,8 +424,15 @@ def test_only_dedicated_hook_group_is_owned(tmp_path):
     assert installer.owns_group(own, script)
     other = {"hooks": [{"type": "command", "command": "audit --script " + shlex.quote(str(script))}]}
     assert not installer.owns_group(other, script)
+    parts = {"hooks": installer.restore_handlers(own["hooks"][0], script, "claude")}
+    assert len(parts["hooks"]) > 1 and installer.owns_group(parts, script)
+    assert not installer.owns_group({"hooks": []}, script)
+    for bogus in (["--restore-part", "two"], ["--restore-part"], ["--other", "2"]):
+        assert not installer.owns_handler({"command": installer.command_for(script, *bogus)}, script)
     own["hooks"].append({"type": "command", "command": "other"})
     assert not installer.owns_group(own, script)
+    parts["hooks"].append({"type": "command", "command": "other"})
+    assert not installer.owns_group(parts, script)
 
 
 @pytest.mark.parametrize("client,roots_key,model_key", [
@@ -334,6 +550,8 @@ def test_windows_commands_keep_paths_and_stdin_safe(monkeypatch, prefix):
     assert installer.owns_handler({"command": command}, script)
     cursor_command = installer.command_for(script, "--client", "cursor")
     assert installer.owns_handler({"command": cursor_command}, script)
+    part_command = installer.command_for(script, "--restore-part", "2")
+    assert installer.owns_handler({"command": part_command}, script)
     if sys.platform != "win32":
         parsed = subprocess.run(["bash", "-c", "set -- " + command + "; printf '%s\\n' \"$@\""],
                                 capture_output=True, text=True, check=True).stdout.splitlines()
