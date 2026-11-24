@@ -218,7 +218,8 @@ def test_the_module_runs_as_a_stop_hook_command(project):
 
 def _renders():
     return {name: getattr(protocol_text, name)()
-            for name in ("server_instructions", "server_pointer", "bundle_instruction", "instruction_revision")}
+            for name in ("server_instructions", "server_pointer", "bundle_instruction", "instruction_revision",
+                         "bundle_pointer", "bundle_section_pointer")}
 
 
 def test_both_switches_leave_logging_to_the_hook_in_the_server_and_success_instructions(switches):
@@ -261,3 +262,12 @@ def test_the_hook_variant_repeats_no_sentence(switches, surface):
 
 def test_the_committed_files_never_depend_on_the_switches(switches):
     assert protocol_text.stale_files() == []
+
+
+@pytest.mark.parametrize("surface", ["bundle_pointer", "bundle_section_pointer"])
+def test_the_pointers_leave_logging_to_the_hook(switches, surface):
+    """A headless first activation gets the section pointer, not the full instruction (#734), so the
+    pointers must not send the model back to log_interaction while the Stop hook logs the turn."""
+    text = getattr(protocol_text, surface)()
+    assert "Do not call log_interaction" in text
+    assert "footer and log_interaction" not in text

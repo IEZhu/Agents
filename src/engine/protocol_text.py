@@ -242,8 +242,8 @@ def bundle_instruction() -> str:
 
 def bundle_pointer() -> str:
     """The ``instruction`` of a ``SUCCESS`` after the first activation of a conversation (#433)."""
-    return _sentences_of(("pointer", "bundle"), ("pointer", "bundle-rules"), ("pointer", "bundle-reload"),
-                         ("pointer", "bundle-restore"))
+    return _sentences_of(("pointer", "bundle"), ("pointer", "bundle-rules"), _pointer_finish(),
+                         ("pointer", "bundle-reload"), ("pointer", "bundle-restore"))
 
 
 def bundle_section_pointer() -> str:
@@ -253,8 +253,13 @@ def bundle_section_pointer() -> str:
     as ``bundle_pointer`` without claiming that an earlier activation sent the full instruction:
     it is true of a conversation's first activation as well as of a later one.
     """
-    return _sentences_of(("pointer", "bundle-section"), ("pointer", "bundle-rules"),
+    return _sentences_of(("pointer", "bundle-section"), ("pointer", "bundle-rules"), _pointer_finish(),
                          ("pointer", "bundle-section-reload"), ("pointer", "bundle-restore"))
+
+
+def _pointer_finish() -> tuple[str, str]:
+    """How both pointers end the answer; with the Stop hook logging each turn, without log_interaction (#734)."""
+    return ("pointer", "bundle-finish-hook") if config.turn_log_hook() else ("pointer", "bundle-finish")
 
 
 # The procedures that the descriptions of these tools carry instead of the always-on surfaces

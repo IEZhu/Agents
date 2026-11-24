@@ -5,7 +5,13 @@ This conversation's first activation sent the full instruction, and its rules st
 The managed routing section in your client's instructions, headed Agents-Core Persona Protocol — version 2, holds the full rules, so this SUCCESS sends a pointer instead of the full instruction, and they hold:
 
 <!-- variant: bundle-rules -->
-worker mode, the first-work repository description, work another session owns, the redactions before logging, history errors, progress messages, the file-receipt delegation exchange, artifacts, the tool roles, local inference and cooperation. Apply this bundle only if replaces_activation_id matches your current activation: replace all four blocks, including empty ones, then save persona and the exact footer, and finish each answer with that footer and log_interaction.
+worker mode, the first-work repository description, work another session owns, the redactions before logging, history errors, progress messages, the file-receipt delegation exchange, artifacts, the tool roles, local inference and cooperation. Apply this bundle only if replaces_activation_id matches your current activation: replace all four blocks, including empty ones, then save persona and the exact footer,
+
+<!-- variant: bundle-finish -->
+and finish each answer with that footer and log_interaction.
+
+<!-- variant: bundle-finish-hook -->
+and finish each answer with that footer. Do not call log_interaction: this client's Stop hook records each turn.
 
 <!-- variant: bundle-reload -->
 If that instruction is no longer in your context, or its instruction_revision differs from this one or is absent, get it again with force_reload=True:
