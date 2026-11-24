@@ -248,6 +248,25 @@ def test_resolve_mine_still_lists_but_never_touches_a_resolved_thread(monkeypatc
     assert all('threadId:"T_late"' not in m for m in mutations(fake_gh))
 
 
+def test_closed_scan_keeps_a_pr_whose_only_outstanding_thread_is_resolved(monkeypatch, capsys, fake_gh):
+    per_pr = {7: [THREADS[3], LATE], 8: [THREADS[3]]}
+    answer_recorded = pr_threads.gh
+
+    def gh(*args):
+        if args[:3] == ("api", "--paginate", "--slurp") and args[3].startswith(f"repos/{REPO}/pulls?state=closed"):
+            return json.dumps([[{"number": 8}, {"number": 7}]])
+        if args[:2] == ("api", "graphql") and not args[3].startswith("query=mutation"):
+            number = int(next(arg for arg in args if arg.startswith("n="))[2:])
+            monkeypatch.setitem(globals(), "THREADS", per_pr[number])
+        return answer_recorded(*args)
+
+    monkeypatch.setattr(pr_threads, "gh", gh)
+    run(monkeypatch, "--closed")
+    out = capsys.readouterr().out
+    assert "#7 head" in out and "LAST WORD NOT YOURS src/x.py:7" in out
+    assert "#8 head" not in out
+
+
 def test_autodev_mode_marks_the_trust_of_the_last_word(monkeypatch, capsys, fake_gh):
     monkeypatch.setitem(globals(), "THREADS", [*THREADS, LATE])
     run(monkeypatch, "7", "--mode", "autodev")
