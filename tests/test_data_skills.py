@@ -133,30 +133,51 @@ def _tolerances(cell: str) -> list[float]:
 
 
 LAB_COLUMNS = 8
+SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
 
 
-def _lab_rows() -> list[list[str]]:
-    """Every row of the table under the `| Analyte` header, whatever its cell count.
+def _cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip("|").split("|")]
 
-    Nothing is filtered out here: a row with the wrong number of cells reaches
-    the checks below and fails them, instead of silently escaping all of them.
-    """
+
+def _is_separator(cells: list[str]) -> bool:
+    return all(SEPARATOR_CELL.match(c) for c in cells)
+
+
+def _lab_table() -> list[list[str]]:
+    """Every line of the table that starts at the `| Analyte` header, split into cells."""
     _, body = _skill("skill-clinical-lab-units")
     lines = body.splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("| Analyte")), None)
     if start is None:
         return []
-    rows = []
-    for line in lines[start + 2 :]:  # skip the header and its separator
+    table = []
+    for line in lines[start:]:
         if not line.startswith("|"):
             break
-        rows.append([c.strip() for c in line.strip().strip("|").split("|")])
-    return rows
+        table.append(_cells(line))
+    return table
+
+
+def _lab_rows() -> list[list[str]]:
+    """The data rows: everything after the header that is not a separator.
+
+    Nothing else is filtered out, and the separator is recognised by its own
+    cells rather than by position, so a missing separator cannot take the first
+    data row with it. A row with the wrong number of cells reaches the checks
+    below and fails them, instead of silently escaping all of them.
+    """
+    return [cells for cells in _lab_table()[1:] if not _is_separator(cells)]
 
 
 def test_lab_table_was_parsed():
+    table = _lab_table()
+    assert table, "no `| Analyte` table found in skill-clinical-lab-units; update this parser with it"
+    assert len(table) > 1 and _is_separator(table[1]), (
+        "the line after the `| Analyte` header is not a Markdown separator, so the table does not render"
+    )
     rows = _lab_rows()
-    assert rows, "no `| Analyte` table found in skill-clinical-lab-units; update this parser with it"
+    assert rows, "the lab-unit table has no data rows"
     ragged = [row[0] for row in rows if len(row) != LAB_COLUMNS]
     assert not ragged, f"lab-table rows without {LAB_COLUMNS} cells, so no check below covers them: {ragged}"
 
