@@ -735,11 +735,15 @@ async def _cold_ranking(router, query: str):
 def _shortlist(ranking, catalog: list[dict], size: int) -> list[dict] | None:
     """The catalog entries a cache miss lists, best first, universal_agent always among them.
 
-    None lists the whole catalog: with size 0, without a ranked agent (no keyword matched and
-    the catalog cards are not embedded yet) or when the shortlist would leave nobody out.
+    None lists the whole catalog: with size 0, for a ranking by keyword hits alone (the catalog
+    cards are not embedded yet), or when the shortlist would leave nobody out. Keyword hits
+    rank too few agents to cut the list: on the labelled Russian queries they matched nothing
+    for 58 of 72 and left out the right agent for 2 of the 14 they did match.
     """
     by_name = {entry["name"]: entry for entry in catalog}
-    ranked = [name for name in (ranking.agents if ranking else []) if name in by_name]
+    if ranking is None or ranking.similarities is None:
+        return None
+    ranked = [name for name in ranking.agents if name in by_name]
     if size <= 0 or not ranked:
         return None
     chosen = ranked[:size]

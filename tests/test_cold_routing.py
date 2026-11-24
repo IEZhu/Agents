@@ -74,8 +74,11 @@ def headless(monkeypatch):
 # --- ac-1: the shortlist on every client --------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_a_miss_with_keyword_signal_lists_a_capped_shortlist_with_universal_agent(bundle, monkeypatch):
+async def test_a_miss_ranked_by_embedding_lists_a_capped_shortlist_with_universal_agent(bundle, monkeypatch):
     monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
+    ranked = ["code_reviewer", "software_engineer", "security_expert", "sysadmin"]
+    monkeypatch.setattr(server.router, "cold_ranking", AsyncMock(
+        return_value=ColdRanking(agents=ranked, similarities=[0.6, 0.59, 0.58, 0.57])))
     monkeypatch.setattr(config, "ROUTER_SHORTLIST_SIZE", 3)
     response = json.loads(await server.route_and_load(MANY_HITS, protocol_version=2))
 
@@ -86,6 +89,19 @@ async def test_a_miss_with_keyword_signal_lists_a_capped_shortlist_with_universa
     total = len(server.router.get_agent_catalog())
     assert response["instruction"].endswith(persona.SHORTLIST_NOTE.format(shown=3, total=total))
     assert "list_agents shows all" in response["instruction"]
+    bundle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_miss_ranked_by_keywords_alone_lists_the_whole_catalog(bundle, monkeypatch):
+    """Keyword hits cover too few agents to cut the list without losing the right one (#734 review)."""
+    monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
+    monkeypatch.setattr(config, "ROUTER_SHORTLIST_SIZE", 3)
+    response = json.loads(await server.route_and_load(MANY_HITS, protocol_version=2))
+
+    assert response["status"] == "ROUTE_REQUIRED"
+    assert len(response["candidates"]) == len(server.router.get_agent_catalog())
+    assert response["instruction"] == persona.ROUTE_INSTRUCTION
     bundle.assert_not_awaited()
 
 
@@ -205,7 +221,8 @@ async def test_headless_keyword_ranking_never_resolves(bundle, headless):
     response = await route(FakeRouter(ColdRanking(agents=["agent_04", "agent_05"])))
 
     assert response["status"] == "ROUTE_REQUIRED"
-    assert [c["name"] for c in response["candidates"]] == ["agent_04", "agent_05", "universal_agent"]
+    # Keyword hits alone never shorten the list either (#734 review): the whole catalog.
+    assert len(response["candidates"]) == len(CATALOG)
     bundle.assert_not_awaited()
 
 
@@ -254,6 +271,7 @@ def test_alternatives_are_optional_in_the_schema():
 def isolated_router(tmp_path, monkeypatch):
     """A SemanticRouter whose stores live in tmp_path, with a one-hot embedder per agent."""
     monkeypatch.setattr(router_module, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(router_module, "CARDS_DIR", str(tmp_path))
     monkeypatch.setattr(router_module, "_ROUTER_MODEL_HASH_FILE", str(tmp_path / ".router_cache_model"))
     monkeypatch.setattr(router_module, "model_fingerprint", lambda: "model-a")
     made = SemanticRouter()
@@ -324,9 +342,13 @@ async def test_built_cards_rank_by_similarity_with_keyword_hits_breaking_ties(is
 
 
 @pytest.mark.asyncio
-async def test_cards_persist_and_a_changed_model_rebuilds_them(isolated_router, monkeypatch):
+async def test_cards_persist_and_a_changed_model_rebuilds_them(isolated_router, monkeypatch, tmp_path):
     monkeypatch.setattr(router_module, "is_loaded", lambda: True)
+    # A server's own build stays in memory: the cards are a shared index only reindex writes.
     isolated_router.router.build_agent_cards()
+    assert not (tmp_path / f"{router_module.AGENT_CARDS_STORE}.npz").exists()
+    isolated_router.router.build_agent_cards(persist=True)
+    assert isolated_router.router.persisted_cards_current() is True
     start = Mock()
     monkeypatch.setattr(SemanticRouter, "_start_card_build", start)
 
@@ -341,7 +363,7 @@ async def test_cards_persist_and_a_changed_model_rebuilds_them(isolated_router, 
 
 
 @pytest.mark.asyncio
-async def test_a_failed_build_keeps_the_keyword_ranking_for_the_process(isolated_router, monkeypatch):
+async def test_a_failed_build_keeps_the_keyword_ranking_until_a_retry(isolated_router, monkeypatch):
     monkeypatch.setattr(router_module, "is_loaded", lambda: True)
     monkeypatch.setattr(router_module, "embed_texts", Mock(side_effect=RuntimeError("no model")))
     router = isolated_router.router
@@ -350,6 +372,16 @@ async def test_a_failed_build_keeps_the_keyword_ranking_for_the_process(isolated
     assert router.agent_cards_ready() is False
     ranking = await router.cold_ranking(MANY_HITS)
     assert ranking.similarities is None and len(ranking.agents) == 6
+
+    # A transient failure (a full inference queue) is not final: after the backoff the
+    # next check starts another build.
+    start = Mock()
+    monkeypatch.setattr(router, "_start_card_build", start)
+    assert router.agent_cards_ready() is False
+    start.assert_not_called()
+    router._cards_retry_at = 0.0
+    assert router.agent_cards_ready() is False
+    start.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -361,3 +393,22 @@ async def test_a_failed_query_embedding_falls_back_to_keywords(isolated_router, 
     ranking = await router.cold_ranking(MANY_HITS)
 
     assert ranking.similarities is None and len(ranking.agents) == 6
+
+
+@pytest.mark.asyncio
+async def test_cards_reindex_wrote_reach_a_server_with_its_own_router_directory(isolated_router, monkeypatch, tmp_path):
+    """#734 review: reindex writes the cards with the installation's indexes, and a server whose
+    router cache lives in its own slot (AGENTS_ROUTER_DATA_DIR) reads them without a build."""
+    monkeypatch.setattr(router_module, "is_loaded", lambda: True)
+    isolated_router.router.build_agent_cards(persist=True)
+    slot = tmp_path / "stdio" / "0" / "router"
+    slot.mkdir(parents=True)
+    monkeypatch.setattr(router_module, "DATA_DIR", str(slot))
+    monkeypatch.setattr(router_module, "_ROUTER_MODEL_HASH_FILE", str(slot / ".router_cache_model"))
+    start = Mock()
+    monkeypatch.setattr(SemanticRouter, "_start_card_build", start)
+
+    server_router = SemanticRouter()
+    assert server_router.agent_cards_ready() is True
+    start.assert_not_called()
+    assert not (slot / f"{router_module.AGENT_CARDS_STORE}.npz").exists()

@@ -4,6 +4,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 ROUTER_CACHE_MAX_SIZE = 500
 KEYWORD_VETO_ROUTE_REQUIRED = "__ROUTE_REQUIRED__"
+# The embedded agent catalog cards are a derived index of the installation, like the skill and
+# implant stores: `python -m src.reindex` writes them into config.DATA_DIR, and every server reads
+# them there (#734). The router cache below is per server and lives in AGENTS_ROUTER_DATA_DIR.
+CARDS_DIR = DATA_DIR
+CARDS_HASH_FILE = ".agent_cards_hash"
+# A failed background build is retried after this long instead of never (#734).
+CARDS_RETRY_SECONDS = 300.0
 DATA_DIR = os.environ.get("AGENTS_ROUTER_DATA_DIR", DATA_DIR)
 _ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
 # Substring in the ValueError raised by NumpyVectorStore.query() when the
@@ -81,10 +89,12 @@ class SemanticRouter:
         self._agent_keywords: Dict[str, List[str]] = {}
         self._agent_descriptions = self._load_agent_descriptions()
         # Loading reads two small files; nothing is embedded until a cold ranking asks.
-        self._cards = NumpyVectorStore(name=AGENT_CARDS_STORE, data_dir=DATA_DIR)
+        self._cards = NumpyVectorStore(name=AGENT_CARDS_STORE, data_dir=CARDS_DIR)
         self._cards_lock = threading.Lock()
-        # unchecked → ready, or building → ready | unavailable; unavailable stays for the process.
+        # unchecked → ready, or building → ready | unavailable; unavailable is checked again
+        # once CARDS_RETRY_SECONDS have passed.
         self._cards_state = "unchecked"
+        self._cards_retry_at = 0.0
 
     def _invalidate_on_model_change(self):
         """Clear router cache when the model name changes or the marker's
@@ -401,6 +411,8 @@ class SemanticRouter:
         if not is_loaded():
             return False
         with self._cards_lock:
+            if self._cards_state == "unavailable" and time.monotonic() >= self._cards_retry_at:
+                self._cards_state = "unchecked"
             if self._cards_state == "unchecked":
                 if self._cards_current():
                     self._cards_state = "ready"
@@ -419,18 +431,24 @@ class SemanticRouter:
             state = "ready"
         except Exception:
             logger.warning("Could not embed the agent catalog cards; cold routing ranks by "
-                           "keywords", exc_info=True)
+                           "keywords until a retry", exc_info=True)
             state = "unavailable"
         with self._cards_lock:
             self._cards_state = state
+            if state == "unavailable":
+                self._cards_retry_at = time.monotonic() + CARDS_RETRY_SECONDS
 
-    def build_agent_cards(self) -> None:
-        """Embed every agent's catalog card and persist them for the next process.
+    def build_agent_cards(self, *, persist: bool = False) -> None:
+        """Embed every agent's catalog card; ``persist`` writes them for the next process.
 
         One card per inference call: the shared service runs every embedding on one worker,
         and the whole catalog in one call would hold it for as long as all cards take (about
         40 s for 46 cards on a busy machine), while single cards let other requests in between.
         The hashes are taken after embedding, under the model that produced the vectors.
+
+        Only ``python -m src.reindex`` persists (#734): the cards live with the installation's
+        indexes, which several servers read at once, so a server that finds them missing or
+        stale builds its own copy in memory instead of writing a shared file.
         """
         names = list(self.available_agents)
         cards = [self.agent_card(name) for name in names]
@@ -438,7 +456,30 @@ class SemanticRouter:
         hashes = self._card_hashes()
         self._cards.replace(ids=names, embeddings=vectors, documents=cards,
                             metadatas=[{"card_hash": hashes[name]} for name in names])
-        self._cards.save()
+        if persist:
+            self._cards.save()
+            with open(os.path.join(CARDS_DIR, CARDS_HASH_FILE), "w", encoding="utf-8") as stream:
+                stream.write(self.cards_source_hash())
+
+    def cards_source_hash(self) -> str:
+        """What the persisted cards were built from: the configured model and every card's text.
+
+        Computed without loading the model, so reindex can skip a build that would change
+        nothing; a server still checks each card against the loaded model's fingerprint.
+        """
+        digest = hashlib.sha256(EMBEDDING_MODEL.encode("utf-8"))
+        for name in self.available_agents:
+            digest.update(f"\n{name}\n{self.agent_card(name)}".encode("utf-8"))
+        return digest.hexdigest()
+
+    def persisted_cards_current(self) -> bool:
+        """Whether the cards reindex wrote match the current catalog and configured model."""
+        try:
+            with open(os.path.join(CARDS_DIR, CARDS_HASH_FILE), encoding="utf-8") as stream:
+                stored = stream.read().strip()
+        except OSError:
+            return False
+        return stored == self.cards_source_hash() and self._cards.count() == len(self.available_agents)
 
     def agent_card_count(self) -> int:
         """How many catalog cards the store holds, current or not."""
