@@ -845,6 +845,21 @@ def test_a_subagent_whose_only_edit_was_refused_wrote_nothing(tmp_path):
     assert out["files_written"] == [] and out["subagents_with_writes"] == []
 
 
+def test_a_refusal_in_one_transcript_never_hides_a_write_in_another(tmp_path):
+    """A refusal is matched within the transcript that holds it, not across the session and its subagents."""
+    main = tmp_path / f"{SESSION}.jsonl"
+    main.write_text("\n".join(json.dumps(e) for e in [
+        *edit("/work/peer/b.py", "same", "2026-10-02T09:00:00Z"),
+        refused("same", "2026-10-02T09:00:01Z", "hook error"),
+    ]) + "\n", encoding="utf-8")
+    sub = tmp_path / SESSION / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-b.jsonl").write_text("\n".join(json.dumps(e) for e in edit(
+        "/work/repo/a.py", "same", "2026-10-02T09:01:00Z")) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([main])
+    assert out["files_written"] == [{"path": "/work/repo/a.py", "ts": "2026-10-02T09:01:00Z", "by": ["agent-b"]}]
+
+
 def test_quoted_config_survives_a_multiline_message():
     command = 'git -c user.name="Alexey Zhuchkov" -c user.email=a@b commit -q -m "Subject\n\nBody line"'
     inv = thread_inventory.inventory(bash(command, "q"))

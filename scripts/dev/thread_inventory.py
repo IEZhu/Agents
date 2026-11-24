@@ -1824,7 +1824,8 @@ def scan(entries: list[dict], sink: dict | None = None, actor: str = "main") -> 
     stopping the inventory: the transcript format belongs to the client and can change.
     """
     sink = sink if sink is not None else _new_sink()
-    sink["refused"] |= _refused_calls(entries)
+    # A call's result sits in its own transcript, so refusals are matched only within these entries.
+    sink["refused"] = _refused_calls(entries)
     for entry in entries:
         try:
             _entry(entry, sink, actor)
