@@ -132,20 +132,33 @@ def _tolerances(cell: str) -> list[float]:
     ]
 
 
+LAB_COLUMNS = 8
+
+
 def _lab_rows() -> list[list[str]]:
+    """Every row of the table under the `| Analyte` header, whatever its cell count.
+
+    Nothing is filtered out here: a row with the wrong number of cells reaches
+    the checks below and fails them, instead of silently escaping all of them.
+    """
     _, body = _skill("skill-clinical-lab-units")
+    lines = body.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith("| Analyte")), None)
+    if start is None:
+        return []
     rows = []
-    for line in body.splitlines():
-        if not line.startswith("| ") or line.startswith("| Analyte") or set(line) <= set("|- "):
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 8:
-            rows.append(cells)
+    for line in lines[start + 2 :]:  # skip the header and its separator
+        if not line.startswith("|"):
+            break
+        rows.append([c.strip() for c in line.strip().strip("|").split("|")])
     return rows
 
 
 def test_lab_table_was_parsed():
-    assert len(_lab_rows()) >= 15, "the lab-unit table changed shape; update this parser with it"
+    rows = _lab_rows()
+    assert rows, "no `| Analyte` table found in skill-clinical-lab-units; update this parser with it"
+    ragged = [row[0] for row in rows if len(row) != LAB_COLUMNS]
+    assert not ragged, f"lab-table rows without {LAB_COLUMNS} cells, so no check below covers them: {ragged}"
 
 
 @pytest.mark.parametrize("row", _lab_rows(), ids=lambda r: r[0])
