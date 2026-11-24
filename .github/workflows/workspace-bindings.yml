@@ -32,6 +32,7 @@ on:
       - tests/test_turn_record.py
       - scripts/thread_close_miss_rate.py
       - tests/test_thread_close_miss_rate.py
+      - flows/thread-close.md
       - src/estimation/rate.py
       - tests/test_read_history_size.py
       - tests/test_log_interaction_contract.py
