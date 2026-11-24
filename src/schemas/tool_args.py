@@ -19,19 +19,17 @@ from pydantic import BeforeValidator, WithJsonSchema
 
 _STR = {"type": "string"}
 _STRS = {"type": "array", "items": {"type": "string"}}
+# No per-field `items`: the lists hold strings, and the budget per tool is small.
+_LIST = {"type": "array"}
 PERSONA_PROPERTIES = {
-    "agent": {"type": "string", "description": "Agent name, lowercase letters, digits, underscore."},
-    "activation_id": {"type": "string", "description": "Activation id, up to 128 characters."},
-    "bundle_revision": {"type": "string", "description": "64 lowercase hex characters."},
-    "scope": {"type": "string", "description": "Scope text of the active persona."},
-    "skills_loaded": {**_STRS, "description": "Skill ids from the bundle."},
-    "implants_loaded": {**_STRS, "description": "Implant ids from the bundle."},
-    "rules_loaded": {**_STRS, "description": "Rule ids from the bundle."},
+    "agent": _STR,
+    "activation_id": _STR,
+    "bundle_revision": _STR,
+    "scope": _STR,
+    "skills_loaded": _LIST,
+    "implants_loaded": _LIST,
+    "rules_loaded": _LIST,
 }
-PERSONA_KEYS_TEXT = (
-    "agent, activation_id, bundle_revision (64 hex characters), scope, skills_loaded, "
-    "implants_loaded, rules_loaded"
-)
 
 
 def _clean(item: Any) -> str:
@@ -147,12 +145,10 @@ def text_or_lines(description: str):
 
 # Parameter descriptions shared by the persona-carrying tools.
 CURRENT_PERSONA_DESC = (
-    "The `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim; omit or null "
-    f"on first activation. All 7 keys: {PERSONA_KEYS_TEXT}."
+    "Last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys; null at first."
 )
 REFRESH_PERSONA_DESC = (
-    "Required: the `persona` object of the active role, copied verbatim from the last "
-    f"SUCCESS/NO_CHANGE. All 7 keys: {PERSONA_KEYS_TEXT}."
+    "Required: last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys."
 )
 CHAT_HISTORY_DESC = "Optional relevant earlier conversation facts, as a JSON array of strings."
 REPO_PATH_DESC = "Optional directory within the caller workspace; defaults to the workspace."
@@ -166,9 +162,7 @@ WORKSPACE_DESC = (
 )
 
 LOG_PERSONA_DESC = (
-    "The `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim, with all 7 keys: "
-    f"{PERSONA_KEYS_TEXT}. Without a retained descriptor omit both persona and persona_action. "
-    "Incomplete values are still logged, marked unverified."
+    "Last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys; omit if none."
 )
 LOG_PERSONA_ACTION_DESC = (
     "One of keep, switch, refresh, restore; send it only together with persona."
