@@ -177,7 +177,8 @@ async def _measure(server) -> dict:
                                 "shown_chars": len(instructions[:CLAUDE_CODE_WINDOW]),
                                 "beyond_window_chars": max(0, len(instructions) - CLAUDE_CODE_WINDOW)},
         "success_instruction": {"full_chars": len(protocol_text.bundle_instruction()),
-                                "pointer_chars": len(protocol_text.bundle_pointer())},
+                                "pointer_chars": len(protocol_text.bundle_pointer()),
+                                "section_pointer_chars": len(protocol_text.bundle_section_pointer())},
     }
     # Before any activation: a SUCCESS would train the cache if its write were not stubbed.
     report["route_required"] = await _route_required(server)
@@ -207,6 +208,8 @@ def measure(*, embedder: bool = False) -> dict:
         stack.enter_context(patch.object(server.client_instructions, "drift_warnings", lambda *a, **k: []))
         stack.enter_context(patch.object(server.router, "update_cache", _no_cache_write))
         if not embedder:
+            # Keyword-only cold routing: ready agent cards would embed the query (#734 review).
+            stack.enter_context(patch.object(server.router, "agent_cards_ready", lambda: False))
             stack.enter_context(patch.object(embedding, "_get_model", guard))
             stack.enter_context(patch.object(enrichment, "_skill_retriever", SimpleNamespace(
                 retrieve=_declared_skills,
@@ -289,7 +292,9 @@ def _rows(measurement: dict) -> dict[str, int]:
             instructions["shown_chars"],
         "server instructions, beyond that window": instructions["beyond_window_chars"],
         "SUCCESS instruction, full": measurement["success_instruction"]["full_chars"],
-        "SUCCESS instruction, pointer": measurement["success_instruction"]["pointer_chars"],
+        "SUCCESS instruction, pointer (a later SUCCESS)": measurement["success_instruction"]["pointer_chars"],
+        "SUCCESS instruction, section pointer (headless or a verified section)":
+            measurement["success_instruction"]["section_pointer_chars"],
         f"route_and_load {route['status']} ({route['candidates']} candidates), response": route["response_chars"],
         f"route_and_load {route['status']}, client text": route["client_chars"],
     }

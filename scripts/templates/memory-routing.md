@@ -12,7 +12,7 @@ Every AI delegation, including reviewers, verifiers and parallel workers: call g
 
 A valid `agents-core/subagent/1` package supplies the worker's role: no full persona activation, inherited parent descriptor, footer, timestamp, first-work repository description or per-result/per-turn `log_interaction`. Return only the result in the package's format, within scope.
 
-Shared task data travels to workers as immutable artifacts pinned in a manifest (artifact_publish, artifact_manifest_create); get_subagent_context's description holds the rules for preparing with them, validate_subagent_result's those for accepting artifact-backed results and output artifacts.
+Shared task data travels to workers as immutable artifacts pinned in a manifest (artifact_publish, artifact_manifest_create); the description of get_subagent_context holds the rules for preparing with them, and the description of validate_subagent_result holds the rules for accepting artifact-backed results and output artifacts.
 
 Optional owner-enabled local inference tools run separate bounded completions through the shared HTTP daemon; they do not replace persona activation or the prepare/validate worker exchange. Read local_context_create's description before the first one.
 

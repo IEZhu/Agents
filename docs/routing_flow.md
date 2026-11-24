@@ -195,14 +195,15 @@ that is not a meta query is ranked first (`SemanticRouter.cold_ranking`,
   embedding failure, or a failed build for the rest of the process, falls back to
   the same ranking.
 
-`ROUTE_REQUIRED` then lists the first `ROUTER_SHORTLIST_SIZE` agents (default 8; see
+For an embedding ranking, `ROUTE_REQUIRED` then lists the first `ROUTER_SHORTLIST_SIZE` agents (default 8; see
 [configuration](configuration.md#environment-variables)), `universal_agent`
 always among them: it takes the last place when the ranking did not include it
 within the size. Its `instruction` adds that these are the N of M agents closest
 to the request and that any other canonical agent may still be loaded with
 `get_agent_context` (`list_agents` shows all). The whole catalog is still listed
-when the size is 0, when nothing ranked (no keyword matched and the cards are not
-ready), when the shortlist would leave nobody out, and for a cache hit that the
+when the size is 0, when the cards are not ready (a ranking by keyword hits alone,
+which matched nothing for most measured queries and left out the right agent for
+some of the rest, never shortens the list), when the shortlist would leave nobody out, and for a cache hit that the
 keyword check rejected without naming another agent.
 
 With the headless profile (`AGENTS_CLIENT_PROFILE=headless`) a miss may skip the

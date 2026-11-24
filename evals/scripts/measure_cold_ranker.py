@@ -93,6 +93,9 @@ def load_dataset(path: Path) -> tuple[list[tuple[str, str, str]], dict]:
     rows = [(s.label["id"], s.query, s.label["expected_agent"]) for s in iter_valid(samples)]
     status = {"path": str(path), "available": bool(rows), "labels": stats.total,
               "usable": len(rows), "drift": stats.drift, "fetch_errors": stats.fetch_errors}
+    if not rows:
+        status["reason"] = (f"no usable sample: {stats.total} labels, {stats.drift} drifted, "
+                            f"{stats.fetch_errors} fetch errors")
     return rows, status
 
 

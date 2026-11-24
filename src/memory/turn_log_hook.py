@@ -47,6 +47,7 @@ FLOW_TOOL = "run_flow"
 PERSONA_STATUSES = ("SUCCESS", "NO_CHANGE")
 # What Claude Code places before a typed prompt, and user rows it writes itself.
 REMINDER_OPEN, REMINDER_CLOSE = "<system-reminder>", "</system-reminder>"
+SECRET_KEYS = "capability|parent_capability|api[_-]?key|secret|token|password|passwd"
 # Formats the schedule records' mask() does not know, masked here on top of it (#734 review).
 EXTRA_SECRET_PATTERNS = (
     re.compile(r"\b(sk-(?:proj-|svcacct-)?)[A-Za-z0-9_-]{16,}"),
@@ -54,10 +55,13 @@ EXTRA_SECRET_PATTERNS = (
     re.compile(r"\b(AIza)[0-9A-Za-z_-]{30,}"),
     re.compile(r"\b(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\b(aws_secret_access_key\s*[=:]\s*[\"']?)[A-Za-z0-9/+=]{30,}"),
-    # A value under a secret-bearing key, such as a cooperation capability.
-    re.compile(r"(?i)([\"']?\b(?:capability|parent_capability|api[_-]?key|secret|token|password|passwd)"
-               r"[\"']?\s*[=:]\s*[\"']?)[A-Za-z0-9._~+/=-]{16,}"),
+    # The whole value under a secret-bearing key, quoted or not, however short (#734 review).
+    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*[\"'])[^\"'\n]+" % SECRET_KEYS),
+    re.compile(r"(?i)(\b(?:%s)\s*[=:]\s*)(?![\"'])[^\s,;}&\"']+" % SECRET_KEYS),
 )
+# A 43-character URL-safe token (secrets.token_urlsafe(32), the form of a cooperation capability)
+# in prose, without a key; mixed case and a digit tell it from a hex digest (#734 review).
+RANDOM_TOKEN = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])")
 HOST_ROW = re.compile(r"Stop hook (?:feedback|blocking error)|\[Request interrupted by user")
 # The line log_interaction's timestamp would add (``YYYY.MM.DD HH:MM:SS``), never part of the outcome.
 TIME_LINE = re.compile(r"\A\s*\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}[ \t]*\r?\n")
@@ -85,22 +89,30 @@ def _content_text(content) -> str | None:
 def prompt_text(record: dict) -> str | None:
     """The text of a main-thread user row that starts a turn, without leading system reminders.
 
-    None for tool results, sidechain, meta and compaction rows, and for the rows Claude Code
-    writes itself (Stop hook feedback, an interruption marker).
+    None for tool results, sidechain, meta and compaction rows, for the rows Claude Code
+    writes itself (Stop hook feedback, an interruption marker), and for a prompt without text.
     """
+    return _turn_start(record)[1]
+
+
+def _turn_start(record: dict) -> tuple[bool, str | None]:
+    """Whether a row starts a turn, and its prompt text (None for a prompt with no text, such
+    as an image alone, which still ends the previous turn; #734 review)."""
     if (record.get("type") != "user" or record.get("isSidechain") or record.get("isMeta")
             or record.get("isCompactSummary")):
-        return None
+        return False, None
     message = record.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, list) and any(isinstance(block, dict) and block.get("type") == "tool_result"
                                          for block in content):
-        return None
+        return False, None
     text = _content_text(content)
     if text is None:
-        return None
+        return True, None
     text = _without_leading_reminders(text).strip()
-    return text if text and not HOST_ROW.match(text) else None
+    if text and HOST_ROW.match(text):
+        return False, None
+    return True, text or None
 
 
 def _without_leading_reminders(text: str) -> str:
@@ -173,13 +185,13 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
             continue
         if not isinstance(record, dict) or record.get("isSidechain"):
             continue
-        text = prompt_text(record)
-        if text is not None:
+        starts, text = _turn_start(record)
+        if starts:
             own = prompt_id is not None and record.get("promptId") == prompt_id
             if matched and not own:
                 break  # the hook's own turn ended before this prompt
             if not matched:
-                prompt, start, matched, answer_lines = text, row, own, []
+                prompt, start, matched, answer_lines = text or "", row, own, []
             continue
         message = record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
@@ -204,8 +216,8 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                         and isinstance(response.get("persona"), dict)):
                     tool, arguments = tools[block["tool_use_id"]]
                     persona = (response["persona"], response["status"], tool, arguments, row)
-    if prompt is None:
-        return None
+    if not prompt:
+        return None  # no prompt, or a turn whose prompt has no text: nothing to attribute it to
     descriptor = action = None
     if persona is not None:
         descriptor, status, tool, arguments, row = persona
@@ -291,7 +303,14 @@ def _masked(text: str, mask) -> str:
     text = mask(text)
     for pattern in EXTRA_SECRET_PATTERNS:
         text = pattern.sub(lambda match: match[1] + "***", text)
-    return text
+    return RANDOM_TOKEN.sub(_mask_random_token, text)
+
+
+def _mask_random_token(match) -> str:
+    token = match[0]
+    random = (any(c.islower() for c in token) and any(c.isupper() for c in token)
+              and any(c.isdigit() for c in token))
+    return "***" if random else token
 
 
 def main(argv=None) -> int:

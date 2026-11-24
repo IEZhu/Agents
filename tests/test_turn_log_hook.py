@@ -313,6 +313,8 @@ def test_reminders_are_stripped_only_before_the_prompt_and_in_linear_time():
     ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U", "eyJ"),
     ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key="),
     ('"capability":"6e3_t5gNYzolREw4gp61PiE3mdDGCUbMeZO_8ZFlmcM"', '"capability":"'),
+    ('{"password":"hunter2"}', '{"password":"'),
+    ("password=short1", "password="),
     ("ghp_abcdefghijklmnop1234", "ghp_"),
 ])
 def test_the_hook_masks_common_secret_formats(secret, kept):
@@ -320,3 +322,23 @@ def test_the_hook_masks_common_secret_formats(secret, kept):
     masked = hook._masked(f"before {secret} after", mask)
     assert masked.startswith(f"before {kept}***") and masked.endswith(" after")
     assert secret[len(kept):].rstrip('"') not in masked
+
+
+def test_a_bare_capability_in_prose_is_masked_and_a_hex_digest_is_not():
+    from src.schedules.records import mask
+    capability = "6e3_t5gNYzolREw4gp61PiE3mdDGCUbMeZO_8ZFlmcM"
+    digest = "a3f1c2" * 7 + "a"
+    masked = hook._masked(f"use {capability} and commit {digest}", mask)
+    assert capability not in masked and digest in masked
+
+
+def test_a_prompt_without_text_ends_the_previous_turn(switches, project, tmp_path):
+    """#734 review: an image-only prompt must not lend the previous prompt to its answer."""
+    transcript = tmp_path / "image.jsonl"
+    rows = [{"type": "user", "promptId": "p1", "message": {"role": "user", "content": "first question"}},
+            {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "First."}]}},
+            {"type": "user", "promptId": "p2", "message": {"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AA=="}}]}},
+            {"type": "assistant", "message": {"id": "m2", "content": [{"type": "text", "text": "Second."}]}}]
+    transcript.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    assert hook.read_turn(transcript.read_text(encoding="utf-8").splitlines()) is None

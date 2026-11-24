@@ -59,7 +59,8 @@ def test_cheap_measurement_covers_every_listed_part(empty_router_cache, embeddin
     assert instructions["shown_chars"] == min(instructions["chars"], audit.CLAUDE_CODE_WINDOW)
     assert instructions["beyond_window_chars"] == instructions["chars"] - instructions["shown_chars"]
     assert report["success_instruction"] == {"full_chars": len(protocol_text.bundle_instruction()),
-                                             "pointer_chars": len(protocol_text.bundle_pointer())}
+                                             "pointer_chars": len(protocol_text.bundle_pointer()),
+                                             "section_pointer_chars": len(protocol_text.bundle_section_pointer())}
 
     route = report["route_required"]
     assert route["status"] == "ROUTE_REQUIRED"
@@ -147,7 +148,8 @@ def test_text_report_names_every_measurement_and_marks_missing_rows(empty_router
     assert "at abc12345" in text
     for expected in ("managed template, characters", "managed template, UTF-8 bytes",
                      "server instructions, full", "first 4,096 Claude Code shows",
-                     "SUCCESS instruction, full", "SUCCESS instruction, pointer",
+                     "SUCCESS instruction, full", "SUCCESS instruction, pointer (a later SUCCESS)",
+                     "SUCCESS instruction, section pointer",
                      "route_and_load ROUTE_REQUIRED", "client text backslashes",
                      "tools, description + compact inputSchema",
                      "route_and_load + get_agent_context + log_interaction", "tool log_interaction"):

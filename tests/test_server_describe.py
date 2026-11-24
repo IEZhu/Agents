@@ -406,7 +406,8 @@ def test_a_git_tracked_home_does_not_make_its_folders_repositories(tmp_path, mon
     task = home / "task"
     task.mkdir(parents=True)
     (home / ".git").mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    # The boundary reads config._home_directory(), which is USERPROFILE on Windows, not HOME.
+    monkeypatch.setattr(engine_config_for_home(), "_home_directory", lambda: home.resolve())
     assert not describer_module.in_git_work_tree(task)
     assert not describer_module.describable_project(task)
     (task / ".git").mkdir()
@@ -418,7 +419,7 @@ def test_a_folder_marked_by_its_own_instruction_file_stays_describable(tmp_path,
     the home directory with such a file does not become one."""
     project = tmp_path / "home" / "notes-project"
     project.mkdir(parents=True)
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(engine_config_for_home(), "_home_directory", lambda: (tmp_path / "home").resolve())
     assert not describer_module.describable_project(project)
     (project / "CLAUDE.md").write_text("# Notes\n")
     assert describer_module.describable_project(project)
@@ -427,3 +428,8 @@ def test_a_folder_marked_by_its_own_instruction_file_stays_describable(tmp_path,
     assert describer_module.describable_project(project)
     (tmp_path / "home" / "CLAUDE.md").write_text("# Home\n")
     assert not describer_module.describable_project(tmp_path / "home")
+
+
+def engine_config_for_home():
+    import src.engine.config as engine_config
+    return engine_config

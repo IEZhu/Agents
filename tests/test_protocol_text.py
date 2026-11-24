@@ -104,8 +104,8 @@ PINNED = {
         "no unprepared/full-persona worker or unvalidated result is an automatic fallback.")),
     ("artifacts", "compact"): (SHORT_SURFACES, (
         "Shared task data travels to workers as immutable artifacts pinned in a manifest",
-        "get_subagent_context's description holds the rules for preparing with them",
-        "validate_subagent_result's those for accepting artifact-backed results and output artifacts")),
+        "the description of get_subagent_context holds the rules for preparing with them",
+        "the description of validate_subagent_result holds the rules for accepting artifact-backed results")),
     ("local-inference", "compact"): (SHORT_SURFACES, (
         "they do not replace persona activation or the prepare/validate worker exchange.",
         "Read local_context_create's description before the first one.")),
