@@ -40,7 +40,7 @@ Factor: multiply the conventional value by it to get SI; divide an SI value by i
 | Creatinine, serum | mg/dL | µmol/L | 88.4 | 0.6–1.2 | 53–106 | 10–2000 | yes, except rare mg/dL values of 10–22 |
 | Creatinine, urine (spot) | mg/dL | mmol/L | 0.0884 | 20–300 | 1.8–26.5 | 0.5–45 | partly: mg/dL values under 45 overlap; µmol/L values are far above |
 | Urea from BUN | mg/dL (urea N) | mmol/L (urea) | 0.357 | 7–20 | 2.5–7.1 | 0.5–100 | no |
-| Urea | mg/dL (urea) | mmol/L | 0.1665 | 15–43 | 2.5–7.1 | 0.5–100 | no |
+| Urea | mg/dL (urea) | mmol/L | 0.1665 | 15–43 | 2.5–7.2 | 0.5–100 | no |
 | Phosphate (as phosphorus) | mg/dL | mmol/L | 0.323 | 2.5–4.5 | 0.81–1.45 | 0.2–5 | no |
 | Magnesium | mg/dL | mmol/L | 0.411 | 1.7–2.2 | 0.70–0.90 | 0.2–5 | no, nor mg/dL against mEq/L |
 | Calcium, total | mg/dL | mmol/L | 0.25 | 8.6–10.2 | 2.15–2.55 | 1.0–5.0 | yes |
@@ -53,7 +53,7 @@ Factor: multiply the conventional value by it to get SI; divide an SI value by i
 | Total protein | g/dL | g/L | 10 | 6.0–8.3 | 60–83 | 30–120 | yes |
 | Albumin | g/dL | g/L | 10 | 3.5–5.0 | 35–50 | 10–60 | yes |
 | Prealbumin (transthyretin) | mg/dL | mg/L | 10 | 15–40 | 150–400 | 20–600 | no (g/L, at 0.15–0.40, does separate) |
-| Uric acid | mg/dL | µmol/L | 59.5 | 3.5–7.2 | 210–430 | 50–1200 | yes |
+| Uric acid | mg/dL | µmol/L | 59.5 | 3.5–7.2 | 208–428 | 50–1200 | yes |
 | Bilirubin, total | mg/dL | µmol/L | 17.1 | 0.3–1.2 | 5–21 | 1–1000 | partly: only values under about 1 mg/dL |
 
 - **Equivalents**: for a monovalent ion (sodium, potassium, chloride, bicarbonate) mEq/L equals mmol/L; for a divalent ion (calcium, magnesium) mmol/L is mEq/L divided by 2. Magnesium in mg/dL and in mEq/L differ by only about 1.2, so no range can tell them apart.
