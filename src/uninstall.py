@@ -69,6 +69,7 @@ READINESS_SERVER = "Agents-Readiness"  # scripts/install_session_readiness.py
 READINESS_SCRIPT = "agents-core-session-readiness.py"
 READINESS_MATCHER = "^(startup|clear)$"
 READINESS_COMPACT_MATCHER = "^compact$"  # the persona-restore group
+READINESS_RESTORE_PARTS = 12  # scripts/session_readiness.py RESTORE_PARTS: parts 2 to 12 are generated
 THREAD_STATUS_SCRIPT = "agents-core-thread-status.py"
 THREAD_STATUS_INTERRUPT = "agents-core-thread-status-interrupt.py"
 THREAD_STATUS_WATCH_TIMEOUT = 6 * 3600  # scripts/install_thread_status.py WATCH_TIMEOUT
@@ -1124,7 +1125,8 @@ def _readiness_handler(handler, client: str, script: Path, installation: Path, *
     arguments = _readiness_arguments(handler.get("command"), windows=windows)
     options = ["--client", client] if client in ("cursor", "antigravity") else []
     if (client == "claude" and arguments is not None and len(arguments) == 4
-            and arguments[2] == "--restore-part" and arguments[3].isdigit()):
+            and arguments[2] == "--restore-part"
+            and arguments[3] in [str(part) for part in range(2, READINESS_RESTORE_PARTS + 1)]):
         options = arguments[2:]  # a further part of the compact group
     return (arguments is not None and len(arguments) == 2 + len(options)
             and _readiness_python(arguments[0], installation)

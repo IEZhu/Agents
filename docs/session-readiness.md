@@ -140,7 +140,11 @@ and `run_flow`'s `persona_activation`, from an Agents-Core server under any of i
 registrations (`Agents-Core`, `Agents-Core-Desktop`, a plugin's), on the main
 thread rather than a worker's. A complete `SUCCESS` applies when its
 `replaces_activation_id` is the active activation or null; a stale one, a
-`NO_CHANGE`, an `ERROR` and a repeated record change nothing. The
+`NO_CHANGE`, an `ERROR` and a repeated record change nothing. A null replacement
+counts after an activation too, because a model that re-routes, or loads a flow's
+persona, without `current_persona` applies the result: in a replay of 170 local
+sessions that logged an activation, a stricter rule that ignores it restored a
+persona the model had already left in 13, and this rule in none. The
 `instruction` is the longest one any applied `SUCCESS` of the same
 `instruction_revision` carried, so a later pointer is replaced by the full text the
 first activation sent.

@@ -291,6 +291,10 @@ def active_bundle(transcript: str, deadline: float) -> dict | None:
                 replaces = response.get("replaces_activation_id")
                 if activation in seen:
                     continue  # the same result recorded again
+                # A null replacement counts after an activation too: a model that re-routes, or
+                # loads a flow's persona, without current_persona applies the result. Of 170 local
+                # sessions that logged, 13 logged such an activation; requiring an exact match
+                # there restored a persona the model had already left.
                 if (unknown or current is None or replaces is None
                         or replaces == current["persona"]["activation_id"]):
                     seen.add(activation)

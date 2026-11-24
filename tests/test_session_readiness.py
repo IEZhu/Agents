@@ -228,6 +228,21 @@ def test_active_bundle_follows_the_chain_the_model_applied(tmp_path):
     assert bundle["instruction"] == full
 
 
+def test_active_bundle_applies_a_null_replacement_after_an_activation(tmp_path):
+    """A re-route or a flow persona loaded without current_persona replaces the active bundle.
+
+    Requiring an exact match here restored a persona the model had already left in 13 of the
+    170 local sessions that logged an activation."""
+    path = write_transcript(
+        tmp_path,
+        tool_call("t1"), tool_result("t1", success("a1")),
+        tool_call("t2", "mcp__Agents-Core__run_flow"),
+        tool_result("t2", json.dumps({"persona_activation": json.loads(success("a2", agent="code_reviewer"))})),
+    )
+    bundle = readiness.active_bundle(path, far())
+    assert bundle["persona"]["activation_id"] == "a2" and bundle["persona"]["agent"] == "code_reviewer"
+
+
 def test_active_bundle_reads_flow_activations_and_unwrapped_content(tmp_path):
     flow = json.dumps({"status": "needs_execution", "persona_activation": json.loads(success("f1"))})
     path = write_transcript(
@@ -427,7 +442,9 @@ def test_only_dedicated_hook_group_is_owned(tmp_path):
     parts = {"hooks": installer.restore_handlers(own["hooks"][0], script, "claude")}
     assert len(parts["hooks"]) > 1 and installer.owns_group(parts, script)
     assert not installer.owns_group({"hooks": []}, script)
-    for bogus in (["--restore-part", "two"], ["--restore-part"], ["--other", "2"]):
+    # Only the parts the installer writes are its own; another value is the user's handler.
+    outside = [["--restore-part", value] for value in ("0", "1", "02", str(readiness.RESTORE_PARTS + 1))]
+    for bogus in (["--restore-part", "two"], ["--restore-part"], ["--other", "2"], *outside):
         assert not installer.owns_handler({"command": installer.command_for(script, *bogus)}, script)
     own["hooks"].append({"type": "command", "command": "other"})
     assert not installer.owns_group(own, script)

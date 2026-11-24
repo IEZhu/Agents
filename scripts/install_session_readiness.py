@@ -26,6 +26,8 @@ COMPACT_MATCHER = "^compact$"
 # Claude Code inlines at most 10,000 characters of one hook's context, so its compact group
 # runs one handler per part of a restored bundle. Codex keeps the single reload request.
 RESTORE_PART_CLIENTS = ("claude",)
+# Only the parts this installer writes are its own; any other value is the user's handler.
+RESTORE_PART_OPTIONS = [["--restore-part", str(part)] for part in range(2, RESTORE_PARTS + 1)]
 CLIENTS = ("claude", "codex", "cursor", "antigravity", "desktop")
 READINESS_NAME = "Agents-Readiness"
 WINDOWS_HOOKS = os.name == "nt"
@@ -108,7 +110,7 @@ def owns_handler(handler: dict, script: Path) -> bool:
     options = arguments[2:]
     return (len(arguments) in (2, 4) and arguments[1].strip('"') == str(script)
             and (not options or options in (["--client", "cursor"], ["--client", "antigravity"])
-                 or (options[0] == "--restore-part" and options[1].isdigit())))
+                 or options in RESTORE_PART_OPTIONS))
 
 
 def owns_group(group: dict, script: Path) -> bool:

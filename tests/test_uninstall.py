@@ -1190,6 +1190,30 @@ def test_uninstall_preserves_other_handlers_and_shared_readiness_runtime(tmp_pat
     assert all(path.read_bytes() == content for path, content in shared.items())
 
 
+def test_uninstall_restore_part_range_matches_the_runtime():
+    from scripts import session_readiness
+    assert uninstall.READINESS_RESTORE_PARTS == session_readiness.RESTORE_PARTS
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+@pytest.mark.parametrize("value", ["1", "0", "13", "999"])
+def test_uninstall_keeps_a_restore_part_handler_the_installer_never_writes(tmp_path, monkeypatch, platform, value):
+    """Generated parts go; a part outside 2..12 is the user's handler and keeps its runtime."""
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform)
+    target, script = paths["claude"]
+    document = json.loads(target.read_bytes())
+    startup, compact = document["hooks"]["SessionStart"]
+    foreign = {"type": "command", "command": readiness_installer.command_for(script, "--restore-part", value),
+               "timeout": 5}
+    compact["hooks"].append(foreign)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    shared = {path: path.read_bytes() for path in runtimes["claude"]}
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    updated = json.loads(target.read_bytes())
+    assert updated["hooks"]["SessionStart"] == [{"matcher": readiness_installer.COMPACT_MATCHER, "hooks": [foreign]}]
+    assert all(path.read_bytes() == content for path, content in shared.items())
+
+
 @pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_uninstall_preserves_quoted_readiness_runtime_in_modified_mixed_handler(tmp_path, monkeypatch, platform):
     """A modified handler referencing an apostrophe-containing path keeps its runtime."""
