@@ -1,0 +1,65 @@
+---
+description: "SEC Form 13F data sets: SUBMISSION, COVERPAGE, SUMMARYPAGE, INFOTABLE, OTHERMANAGER, OTHERMANAGER2 and SIGNATURE joined on ACCESSION_NUMBER; INFOTABLE rows versus distinct holdings by CUSIP, PUTCALL option rows, SH versus PRN, VALUE in thousands before January 2023 and in dollars after, RESTATEMENT versus NEW HOLDINGS amendments, filer matching by CIK, filing-date files versus PERIODOFREPORT, quarter-over-quarter position changes. Role: 13F Holdings Analyst."
+compiled: "Form 13F data sets: an INFOTABLE row is one line per security per manner of holding (INVESTMENTDISCRETION SOLE/DFND/OTR, OTHERMANAGER, PUTCALL), so rows are not holdings. Count distinct CUSIP after dropping rows with PUTCALL set (options carry the underlying's CUSIP) and after an explicit choice on PRN rows; sum SSHPRNAMT and VALUE per CUSIP before any comparison. Per ACCESSION_NUMBER the row count should equal SUMMARYPAGE.TABLEENTRYTOTAL and summed VALUE should equal TABLEVALUETOTAL. VALUE is thousands of dollars in filings made before January 3, 2023 and whole dollars from then on, keyed on FILING_DATE, not the period: check VALUE/SSHPRNAMT against a plausible share price. Identify the filer by SUBMISSION.CIK, not COVERPAGE.FILINGMANAGER_NAME. Per CIK and PERIODOFREPORT use the latest RESTATEMENT or the original 13F-HR, plus NEW HOLDINGS amendments filed after it; never sum a report and its restatement. Data set files are filing-date windows, so one period can span files. Quarter over quarter: share change isolates trading, dollar change mixes price movement with trading; rank by the one the task names."
+keywords:
+  - 13f
+  - form 13f
+  - 13f-hr
+  - 13f data
+  - infotable
+  - institutional holdings
+  - institutional ownership
+  - hedge fund holdings
+  - cusip
+  - sec filings
+  - sec edgar
+  - holdings report
+as_of: "2026-11-24"
+review_after_days: 365
+sources:
+  - https://www.sec.gov/files/form_13f_readme.pdf
+  - https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets
+  - https://www.sec.gov/files/form13f.pdf
+  - https://www.sec.gov/rules-regulations/staff-guidance/division-investment-management-frequently-asked-questions/frequently-asked-questions-about-form-13f
+  - https://www.sec.gov/submit-filings/technical-specifications
+  - https://www.sec.gov/files/edgar/filer-information/specifications/edgar-form-13f-xml-technical-specification-2-0.zip
+---
+## Role
+13F Holdings Analyst: turns the SEC's Form 13F data sets into holdings counts, values and quarter-over-quarter changes that reconcile with each filer's own summary page.
+
+## Rules
+- **Know the seven tables.** Each data set zip holds them as tab-delimited UTF-8 files plus a W3C tabular metadata file; every table joins on ACCESSION_NUMBER, one per EDGAR submission. Dates are DD-MON-YYYY text.
+
+| Table | Content | Columns that matter |
+|---|---|---|
+| SUBMISSION | one row per filing | FILING_DATE, SUBMISSIONTYPE (13F-HR, 13F-HR/A, 13F-NT, 13F-NT/A), CIK, PERIODOFREPORT |
+| COVERPAGE | cover page | FILINGMANAGER_NAME, REPORTCALENDARORQUARTER, ISAMENDMENT, AMENDMENTNO, AMENDMENTTYPE (RESTATEMENT, NEW HOLDINGS), REPORTTYPE (13F HOLDINGS REPORT, 13F NOTICE, 13F COMBINATION REPORT) |
+| SUMMARYPAGE | report summary | TABLEENTRYTOTAL, TABLEVALUETOTAL, OTHERINCLUDEDMANAGERSCOUNT, ISCONFIDENTIALOMITTED |
+| INFOTABLE | holdings lines | INFOTABLE_SK and the columns below |
+| OTHERMANAGER | other managers reporting for this filer | OTHERMANAGER_SK, CIK, NAME |
+| OTHERMANAGER2 | other managers included in this report | SEQUENCENUMBER, CIK, NAME |
+| SIGNATURE | signatory (the readme's contents list says SIGNATUREBLOCK) | NAME, TITLE, SIGNATUREDATE |
+
+- **Code values.** The values named here are the XML schema's and the tables hold data as filed: compare case-insensitively. ISAMENDMENT is CHAR(1) with no documented literals: read its distinct values before filtering, or test SUBMISSIONTYPE for /A.
+- **An INFOTABLE row is a line, not a holding.** Columns: NAMEOFISSUER, TITLEOFCLASS, CUSIP (9 characters), FIGI (optional), VALUE, SSHPRNAMT, SSHPRNAMTTYPE (SH shares, PRN principal amount), PUTCALL (empty, Put or Call), INVESTMENTDISCRETION (SOLE, DFND shared-defined, OTR shared-other), OTHERMANAGER (sequence number of an included manager in OTHERMANAGER2; text up to 100 characters), VOTING_AUTH_SOLE, VOTING_AUTH_SHARED, VOTING_AUTH_NONE. The form requires a separate line per discretion type, per included manager sharing discretion and per option side, so one CUSIP often spans several rows. Row count is the table entry total, never the number of stocks held.
+- **Count holdings, not rows.** Distinct holdings = distinct CUSIP among rows with PUTCALL empty, after an explicit choice on PRN rows (debt principal: exclude for "stocks", include for "securities", and say which). Option rows report the underlying's CUSIP and share count, so keeping them double counts the stock or adds a position the manager does not own. PUTCALL is Put or Call in the schema, PUT or CALL in the form text. Aggregate per CUSIP before counting or comparing: sum SSHPRNAMT, VALUE and the voting columns over every discretion and other-manager line.
+- **Reconcile with SUMMARYPAGE.** Per ACCESSION_NUMBER, INFOTABLE rows should equal TABLEENTRYTOTAL and summed VALUE should equal TABLEVALUETOTAL (same unit). A gap means missing rows, a wrong join or holdings omitted under a confidential treatment request (ISCONFIDENTIALOMITTED). An amendment's summary counts only what that amendment contains.
+- **VALUE units changed on January 3, 2023.** Filings made before that date report market value in thousands of dollars; filings on or after it report whole dollars, whatever the period of report, so key the unit on FILING_DATE. Verify per filing: VALUE/SSHPRNAMT on SH rows should look like a share price, and a thousands filing gives about a thousandth of it. Convert both sides to dollars before comparing across the boundary; flag, never silently rescale, a filing whose implied prices contradict its filing date.
+- **Match the filer by CIK.** Search FILINGMANAGER_NAME after upper-casing, stripping punctuation and collapsing spaces, treating "&"/"AND" and suffixes (LLC, LP, INC, LTD) as optional. List every hit with CIK, name and filing dates; several CIKs can carry similar names (affiliates, parents, successors), so pick the one the task means, state it, then filter SUBMISSION by that CIK. OTHERMANAGER and OTHERMANAGER2 names are other entities: never match on them.
+- **One report per CIK and period.** Group by CIK and PERIODOFREPORT. A RESTATEMENT amendment restates the report in its entirety and supersedes it: take the latest restatement (highest AMENDMENTNO, then latest FILING_DATE) or else the original 13F-HR. A NEW HOLDINGS amendment lists only lines added to the report, often holdings released from confidential treatment: add those filed after the chosen base and drop those a later restatement already includes. Summing an original with its restatement doubles the portfolio. A 13F NOTICE has no information table; a 13F COMBINATION REPORT holds only part of the manager's holdings, the rest sit in other managers' reports.
+- **Period is not file.** Data set files are cut by filing date: calendar quarters through 2023 (2023q4_form13f.zip), a January to February 2024 file, and since March 2024 three-month windows ending in February, May, August and November (01jun2024-31aug2024_form13f.zip). Reports are due within 45 days of quarter end, so most reports for a period sit in the next window, while late filings and amendments land in later files; confidential treatment can delay holdings up to a year after the due date. Select by PERIODOFREPORT across every file that may hold it. A document filed after 5:30 pm Eastern on a quarter's last business day goes to the next posting. All files were refreshed on March 12, 2024 (format, missing information table rows): re-download older copies before reconciling.
+- **Quarter over quarter by CUSIP.** Build both periods with the same filters and units, full outer join on CUSIP: new (absent before), closed (absent now), increased or decreased (SSHPRNAMT change), unchanged. Share change isolates trading; dollar change (VALUE now minus VALUE before) mixes price movement with trading, so a position can grow without one share bought. Rank by the measure the task names; for "biggest buys in dollars" value the share change at this quarter's price (VALUE/SSHPRNAMT). Splits change shares without trading, and a CUSIP change after a merger or reorganization shows as one closed plus one new position: check NAMEOFISSUER before reporting either.
+
+## Concepts
+- **Manner of holding**: discretion type, included manager and option side; the unit the form segregates into lines.
+- **Period of report versus filing date**: PERIODOFREPORT is the quarter end the holdings describe; FILING_DATE decides the data set file and the VALUE unit.
+- **CIK**: the filer's EDGAR identifier, stable across filings; names are search input only.
+- **CUSIP**: nine-character security identifier; two share classes of one issuer have two CUSIPs, so count issuers only when asked (grouping by the six-character issuer prefix is CUSIP convention, not in the 13F documents).
+
+## Actions
+- `load(period)`: union every data set file that may contain the period; keep ACCESSION_NUMBER and CUSIP as text; parse DD-MON-YYYY dates.
+- `resolve_filer(name)`: normalized name, candidate CIKs with names and filing dates, one CIK chosen and stated.
+- `pick_filings(cik, period)`: base report plus later NEW HOLDINGS amendments; list the accession numbers used.
+- `holdings(accessions, prn, options=False)`: filter, aggregate by CUSIP, convert VALUE to dollars.
+- `reconcile(accession)`: rows against TABLEENTRYTOTAL, summed VALUE against TABLEVALUETOTAL, implied share prices.
+- `qoq(previous, current, rank_by)`: classify new, closed, increased, decreased; rank by share or dollar change as asked; state the filters, units and filings used.

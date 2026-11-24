@@ -224,6 +224,7 @@ holds an order of analysis rather than a figure that can go stale.
 | `skill-engineering-management` | 1:1s, feedback, delegation by task-relevant maturity, underperformance, psychological safety, structured hiring |
 | `skill-clinical-lab-units` | Clinical lab units: conventional to SI factors for chemistry, renal, lipid, glucose and protein analytes, analyte identity traps, plausible-value windows that catch values left in the wrong unit |
 | `skill-statistical-geography` | ASGS, US Census/FIPS and NUTS classifications; residual, non-geographic and aggregate categories, and how to treat them when aggregating by state or region |
+| `skill-sec-13f-holdings` | SEC Form 13F data sets: the seven tables and their join, an information-table row versus a holding, option and principal-amount rows, VALUE in thousands before 2023 and dollars after, amendments, filer matching by CIK, quarter-over-quarter changes by CUSIP |
 
 `skill-data-intake-audit` is a core skill of `data_analyst` and a preferred one of
 `data_forensic`; it is unrelated to `skill-data-consistency`, which covers database
@@ -232,7 +233,10 @@ isolation. `skill-clinical-lab-units` sits in the capable pools of both
 `data_analyst` as a data task still reaches it; its keywords (lab values, units such
 as mg/dL and mmol/L, creatinine) bring it in, and it stays out of clinical questions
 that are not about units. `skill-statistical-geography` sits in `data_analyst`'s
-capable pool.
+capable pool, and so does `skill-sec-13f-holdings`, which is about filing data, not
+the securities law `skill-investment-us` covers. Measured against a built index, a
+13F question ranks it first among `data_analyst`'s skills without the preferred
+boost, and with that boost it entered pivot-table and regression questions.
 
 ### Prompt Engineering & System
 

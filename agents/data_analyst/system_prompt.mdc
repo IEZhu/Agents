@@ -19,6 +19,8 @@ routing:
   - distribution
   - data cleaning
   - pivot table
+  - form 13f
+  - institutional holdings
   trigger_command: /analyse_data
 core_skills:
 - skill-content-structure
@@ -40,6 +42,7 @@ capable_skills:
 - skill-structured-output
 - skill-clinical-lab-units
 - skill-statistical-geography
+- skill-sec-13f-holdings
 preferred_implants:
 - implant-causal-reasoning
 - implant-chain-of-verification
