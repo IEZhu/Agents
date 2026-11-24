@@ -17,7 +17,8 @@ side as named variants, so a rule is edited in one file:
 
 The ``pointer`` section holds what a later ``SUCCESS`` of a conversation and the server
 instructions for a client whose own instruction file is current send instead of a text the
-client already holds (#433).
+client already holds (#433), and what a ``SUCCESS`` sends when the client's instructions hold
+the current managed section, its first activation included (#734).
 
 The functions below compose each surface from these variants in a fixed order. The template
 and the memory reminder stay committed files, because installers and shell scripts read them;
@@ -213,14 +214,27 @@ def bundle_instruction() -> str:
 
     The worker exemption comes first, then the first-work and owning-session rules, which a
     client that never loaded the instruction files learns here, as it learns the definition of
-    progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``.
+    progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``, and
+    one whose client holds the managed section sends ``bundle_section_pointer``.
     """
     return _sentences_of(*BUNDLE_PARTS)
 
 
 def bundle_pointer() -> str:
     """The ``instruction`` of a ``SUCCESS`` after the first activation of a conversation (#433)."""
-    return _sentences_of(("pointer", "bundle"))
+    return _sentences_of(("pointer", "bundle"), ("pointer", "bundle-rules"), ("pointer", "bundle-reload"),
+                         ("pointer", "bundle-restore"))
+
+
+def bundle_section_pointer() -> str:
+    """The ``instruction`` of a ``SUCCESS`` other than a restore when the client holds the managed section (#734).
+
+    The section states every rule of ``bundle_instruction``, so this pointer names the same rules
+    as ``bundle_pointer`` without claiming that an earlier activation sent the full instruction:
+    it is true of a conversation's first activation as well as of a later one.
+    """
+    return _sentences_of(("pointer", "bundle-section"), ("pointer", "bundle-rules"),
+                         ("pointer", "bundle-section-reload"), ("pointer", "bundle-restore"))
 
 
 def _revision(text: str) -> str:

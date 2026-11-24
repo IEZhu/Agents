@@ -10,7 +10,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.engine import protocol_text
+from src import client_instructions
+from src.engine import config, protocol_text
 from src.engine.persona_bundle import ComponentSelection, build_persona_bundle
 from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
 from pydantic import ValidationError
@@ -21,9 +22,11 @@ from src.version import agents_core_version
 logger = logging.getLogger(__name__)
 
 # Sent as the instruction of a conversation's first SUCCESS and of a restore; composed from
-# src/engine/protocol/ (#431). A later SUCCESS points to it instead (#433).
+# src/engine/protocol/ (#431). A later SUCCESS points to it instead (#433), and every SUCCESS but
+# a restore points to the managed section when the client holds it (#734).
 APPLY_INSTRUCTION = protocol_text.bundle_instruction()
 INSTRUCTION_POINTER = protocol_text.bundle_pointer()
+SECTION_POINTER = protocol_text.bundle_section_pointer()
 INSTRUCTION_REVISION = protocol_text.instruction_revision()
 # What the caller needs to choose a ROUTE_REQUIRED candidate; trigger_command is for people.
 CANDIDATE_FIELDS = ("name", "display_name", "role")
@@ -590,6 +593,24 @@ def _remember(key: str, record: "_ReportRecord") -> None:
             _reported_workspaces.pop(next(iter(_reported_workspaces)))
 
 
+async def _instruction(current: PersonaDescriptor | None, force_reload: bool) -> str:
+    """The ``instruction`` of a SUCCESS: the full text, or a pointer to rules the client already holds.
+
+    A restore always gets the full text. Otherwise the client holds the rules when the headless
+    profile says its installation put the managed section in place, or when every checkout the
+    session may run in holds the current section in the file the client loads (the check behind
+    the Codex initialization pointer); then even a first activation gets the section pointer. Else
+    a later SUCCESS points to the full text its conversation's first activation sent.
+    """
+    if force_reload:
+        return APPLY_INSTRUCTION
+    client = client_instructions.REQUEST_CLIENT.get()  # None over stdio, which never verifies a section
+    if config.headless_profile() or (
+            client is not None and await asyncio.to_thread(client_instructions.holds_current_section, client)):
+        return SECTION_POINTER
+    return INSTRUCTION_POINTER if current is not None else APPLY_INSTRUCTION
+
+
 async def load_persona(
     router, agent_name: str, query: str, history: list[str],
     current_persona: PersonaDescriptor | dict | None = None, *,
@@ -625,13 +646,10 @@ async def load_persona(
             skills_loaded=bundle.skills_loaded, implants_loaded=bundle.implants_loaded,
             rules_loaded=bundle.rules_loaded,
         )
-        # The conversation holds the full instruction from its first activation, unless this
-        # is a first activation or a restore of lost instructions.
-        repeat = current is not None and not force_reload
         result = PersonaResponse(
             status="SUCCESS", request_id=request_id, persona=persona,
             replaces_activation_id=current.activation_id if current else None,
-            footer=persona_footer(persona), instruction=INSTRUCTION_POINTER if repeat else APPLY_INSTRUCTION,
+            footer=persona_footer(persona), instruction=await _instruction(current, force_reload),
             instruction_revision=INSTRUCTION_REVISION,
             persona_block=bundle.persona_block, rules_block=bundle.rules_block,
             skills_block=bundle.skills_block, implants_block=bundle.implants_block,

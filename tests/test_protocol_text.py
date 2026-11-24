@@ -63,7 +63,8 @@ def test_bundle_instruction_is_one_paragraph_of_single_spaces():
     assert text.startswith("A worker already given a prepared agents-core/subagent/1 package")
 
 
-SURFACES = ("server_instructions", "server_pointer", "bundle_instruction", "bundle_pointer", "memory_reminder")
+SURFACES = ("server_instructions", "server_pointer", "bundle_instruction", "bundle_pointer", "bundle_section_pointer",
+            "memory_reminder")
 SHORT_SURFACES = ("server_instructions", "bundle_instruction", "memory_reminder")
 OPENING = ("server_instructions", "server_pointer")
 
@@ -198,7 +199,8 @@ def test_the_source_states_no_rule_twice():
     assert not copied, "move each copied sentence into one section and include it: " + repr(copied)
 
 
-@pytest.mark.parametrize("surface", ["template", "server_instructions", "bundle_instruction", "memory_reminder"])
+@pytest.mark.parametrize("surface", ["template", "server_instructions", "bundle_instruction", "bundle_pointer",
+                                     "bundle_section_pointer", "memory_reminder"])
 def test_no_surface_repeats_a_sentence(surface):
     text = getattr(protocol_text, surface)()
     parts = re.split(r"\n\n|(?<=\.) (?=[A-Z])", text)

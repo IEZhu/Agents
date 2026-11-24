@@ -16,7 +16,7 @@ from mcp.server.fastmcp import FastMCP
 from src import client_instructions as ci
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
-from src.engine import persona, protocol_text
+from src.engine import config, persona, protocol_text
 
 TOKEN = "x" * 48
 BEGIN, END = protocol_text.BEGIN_MARKER, protocol_text.END_MARKER
@@ -103,6 +103,24 @@ def test_the_pointer_keeps_the_obligations_of_each_answer():
         assert phrase in pointer, phrase
 
 
+def test_the_section_pointer_names_the_section_and_claims_no_earlier_full_instruction():
+    """#734: it may be a conversation's first instruction, so it must not say the full text was sent."""
+    pointer = persona.SECTION_POINTER
+    assert pointer == protocol_text.bundle_section_pointer() and "\n" not in pointer and "  " not in pointer
+    assert len(pointer) < len(persona.APPLY_INSTRUCTION) / 5
+    for phrase in ("replaces_activation_id", "all four blocks", "footer", "log_interaction", "force_reload=True",
+                   "instruction_revision", "run_flow with current_persona"):
+        assert phrase in pointer, phrase
+    # The heading it names is the managed section's own first line.
+    heading = protocol_text.template().splitlines()[0].removeprefix("# ")
+    assert f"headed {heading}," in pointer
+    assert "first activation sent" not in pointer and "first activation sent" in persona.INSTRUCTION_POINTER
+    # Both pointers compose the shared rules and restore parts, so neither copies the other's sentences.
+    for variant in ("bundle-rules", "bundle-restore"):
+        shared = protocol_text.part("pointer", variant)
+        assert shared in pointer and shared in persona.INSTRUCTION_POINTER, variant
+
+
 # Each variant the full SUCCESS instruction composes (protocol_text.BUNDLE_PARTS) and the words the
 # pointer names it by. A variant added to the instruction fails here until the pointer names it.
 BUNDLE_TOPICS = {
@@ -126,13 +144,14 @@ BUNDLE_TOPICS = {
 }
 
 
-def test_the_pointer_names_every_rule_the_full_instruction_carries():
+@pytest.mark.parametrize("pointer", [persona.INSTRUCTION_POINTER, persona.SECTION_POINTER])
+def test_the_pointer_names_every_rule_the_full_instruction_carries(pointer):
     assert set(protocol_text.BUNDLE_PARTS) == set(BUNDLE_TOPICS)
     # The instruction is exactly these parts, so a section composed some other way fails too.
     assert protocol_text.bundle_instruction() == " ".join(
         " ".join(protocol_text.part(*name).split()) for name in protocol_text.BUNDLE_PARTS)
     for name, topic in BUNDLE_TOPICS.items():
-        assert topic in persona.INSTRUCTION_POINTER, (name, topic)
+        assert topic in pointer, (name, topic)
     # #509: the delegation the pointer names is the file-receipt exchange.
     assert "The default receipt names a private package file" in protocol_text.part("delegation", "compact")
 
@@ -210,6 +229,8 @@ def test_initialization_points_only_to_the_workspace_file_the_client_loads(tmp_p
     full = protocol_text.server_instructions()
     expected = protocol_text.server_pointer() if pointer else full
     assert ci.initialization_instructions(full, context(tmp_path, client, grants=[tmp_path])) == expected
+    # The persona SUCCESS decides by the same check (#734).
+    assert ci.holds_current_section(context(tmp_path, client, grants=[tmp_path])) is pointer
 
 
 def test_an_identity_without_a_known_checkout_keeps_the_full_text(tmp_path):
@@ -399,6 +420,7 @@ def test_a_failing_check_keeps_the_full_text(tmp_path, monkeypatch):
     monkeypatch.setattr(ci, "section_info", lambda path: (_ for _ in ()).throw(RuntimeError("boom")))
     full = protocol_text.server_instructions()
     assert ci.initialization_instructions(full, context(tmp_path, "codex", grants=[tmp_path])) == full
+    assert ci.holds_current_section(context(tmp_path, "codex", grants=[tmp_path])) is False
 
 
 def test_the_server_pointer_keeps_the_opening_and_the_rules_only_the_server_states():
@@ -514,6 +536,63 @@ def test_refresh_commands_name_the_installation_and_quote_paths(tmp_path, homes,
     assert argv[1:] == expected
     if kind == "installation":
         assert command.endswith(f", run in {installation}")
+
+
+@pytest.mark.asyncio
+async def test_the_headless_profile_points_every_success_but_a_restore_to_the_section(bundle, monkeypatch):
+    """#734: a headless installation puts the managed section in place, so no SUCCESS repeats it."""
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "headless")
+    first = await activate("lawyer")
+    assert first["status"] == "SUCCESS" and first["replaces_activation_id"] is None
+    assert first["instruction"] == persona.SECTION_POINTER
+    assert first["instruction_revision"] == persona.INSTRUCTION_REVISION == protocol_text.instruction_revision()
+    switch = await activate("dba", first["persona"])
+    assert switch["instruction"] == persona.SECTION_POINTER
+    restore = await activate("dba", switch["persona"], force_reload=True)
+    assert restore["instruction"] == persona.APPLY_INSTRUCTION
+    nameless = await activate("dba", None, force_reload=True)
+    assert nameless["instruction"] == persona.APPLY_INSTRUCTION and nameless["replaces_activation_id"] is None
+    refresh = await activate("dba", restore["persona"], refresh=True, query="changed")
+    assert refresh["status"] == "SUCCESS" and refresh["instruction"] == persona.SECTION_POINTER
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "interactive")
+    assert (await activate("lawyer"))["instruction"] == persona.APPLY_INSTRUCTION
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client,name,content,section", [
+    ("codex", "AGENTS.md", CURRENT, True),
+    ("codex", "AGENTS.md", OUTDATED, False),
+    ("claude-code", "CLAUDE.md", CURRENT, False),  # `claude --bare` skips CLAUDE.md: unverifiable
+    (None, "AGENTS.md", CURRENT, False),
+])
+async def test_an_interactive_first_activation_points_only_to_a_verified_section(
+        bundle, monkeypatch, tmp_path, client, name, content, section):
+    """#734: the interactive profile sends the section pointer only where the Codex initialization
+    pointer's check verified every checkout; otherwise the first activation is unchanged."""
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "interactive")
+    (tmp_path / name).write_text(content, encoding="utf-8")
+    token = ci.REQUEST_CLIENT.set(context(tmp_path, client, grants=[tmp_path]))
+    try:
+        first = await activate("lawyer")
+        switch = await activate("dba", first["persona"])
+        restore = await activate("dba", switch["persona"], force_reload=True)
+    finally:
+        ci.REQUEST_CLIENT.reset(token)
+    assert first["instruction"] == (persona.SECTION_POINTER if section else persona.APPLY_INSTRUCTION)
+    assert switch["instruction"] == (persona.SECTION_POINTER if section else persona.INSTRUCTION_POINTER)
+    assert restore["instruction"] == persona.APPLY_INSTRUCTION
+
+
+@pytest.mark.asyncio
+async def test_a_failing_section_check_keeps_the_full_first_instruction(bundle, monkeypatch, tmp_path):
+    (tmp_path / "AGENTS.md").write_text(CURRENT, encoding="utf-8")
+    monkeypatch.setattr(ci, "section_info", lambda path: (_ for _ in ()).throw(RuntimeError("boom")))
+    token = ci.REQUEST_CLIENT.set(context(tmp_path, "codex", grants=[tmp_path]))
+    try:
+        first = await activate("lawyer")
+    finally:
+        ci.REQUEST_CLIENT.reset(token)
+    assert first["status"] == "SUCCESS" and first["instruction"] == persona.APPLY_INSTRUCTION
 
 
 @pytest.mark.asyncio
