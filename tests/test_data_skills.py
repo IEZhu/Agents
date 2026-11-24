@@ -175,9 +175,56 @@ def test_lab_window_contains_typical_interval(row):
         assert window_low <= si_low, f"{analyte}: window {window} cuts off the typical interval {si}"
 
 
+# How `compiled` names each table row's analyte. Several rows share a factor
+# (x10, x0.0259, x0.25), so finding the number somewhere in the line proves
+# nothing: the analyte has to be named in the stretch of text that leads up to
+# that factor. A row added to the table without an entry here fails below.
+COMPILED_ANALYTE = {
+    "Creatinine, serum": "creatinine",
+    "Creatinine, urine (spot)": "urine creatinine",
+    "Urea from BUN": "bun",
+    "Urea": "urea",
+    "Phosphate (as phosphorus)": "phosphate",
+    "Magnesium": "magnesium",
+    "Calcium, total": "calcium",
+    "Calcium, ionized": "calcium",
+    "Cholesterol, total": "cholesterol",
+    "HDL cholesterol": "cholesterol",
+    "LDL cholesterol": "cholesterol",
+    "Triglycerides": "triglycerides",
+    "Glucose": "glucose",
+    "Total protein": "total protein",
+    "Albumin": "albumin",
+    "Prealbumin (transthyretin)": "prealbumin",
+    "Uric acid": "uric acid",
+    "Bilirubin, total": "bilirubin",
+}
+FACTOR_TOKEN = re.compile(r"(?<![\w.])x(\d+(?:\.\d+)?)(?![\d.]*\d)")
+
+
+def _compiled_factors() -> list[tuple[str, str]]:
+    """Each factor token in `compiled` with the text between it and the previous one."""
+    compiled = _skill("skill-clinical-lab-units")[0]["compiled"]
+    pairs, previous_end = [], 0
+    for match in FACTOR_TOKEN.finditer(compiled):
+        pairs.append((match.group(1), compiled[previous_end : match.start()].lower()))
+        previous_end = match.end()
+    return pairs
+
+
+def _names(text: str, analyte: str) -> bool:
+    """The analyte as a whole word or phrase, so `albumin` does not match inside `prealbumin`."""
+    return re.search(rf"(?<![a-z]){re.escape(analyte)}(?![a-z])", text) is not None
+
+
 @pytest.mark.parametrize("row", _lab_rows(), ids=lambda r: r[0])
 def test_lab_factor_matches_compiled_line(row):
-    compiled = _skill("skill-clinical-lab-units")[0]["compiled"]
-    assert f"x{row[3]}" in compiled, (
-        f"{row[0]}: factor {row[3]} is in the table but not in `compiled`, which is all the standard tier shows"
+    analyte, factor = row[0], row[3]
+    assert analyte in COMPILED_ANALYTE, f"{analyte}: add how `compiled` names it to COMPILED_ANALYTE"
+    name = COMPILED_ANALYTE[analyte]
+    leads = [lead for token, lead in _compiled_factors() if token == factor]
+    assert leads, f"{analyte}: factor {factor} is in the table but not in `compiled`, which is all the standard tier shows"
+    assert any(_names(lead, name) for lead in leads), (
+        f"{analyte}: `compiled` gives x{factor}, but not after naming {name!r}; "
+        "the standard tier would teach this factor for another analyte"
     )
