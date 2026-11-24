@@ -50,7 +50,9 @@ or any subset to choose adapters. The installer honors `CLAUDE_CONFIG_DIR`,
 `src/client_paths.py`. It copies the standalone standard-library runtime into
 each native profile's `hooks/agents-core-session-readiness.py`. The Claude and
 Codex profiles get two groups running the same command: one matches
-`^(startup|clear)$`, the other `^compact$`. Reinstalling adds the compact group
+`^(startup|clear)$`, the other `^compact$`. In the Claude profile the compact
+group also runs that command with `--restore-part 2` to `--restore-part 12`
+([the restored bundle](#the-restored-bundle)). Reinstalling adds the compact group
 beside an existing startup/clear group and leaves that group as it is. Cursor uses a direct `sessionStart` list;
 Antigravity uses a direct `SessionStart` list under `agents-core-readiness`.
 The recorded interpreter path must remain installed.
@@ -124,25 +126,93 @@ lost the descriptor's `scope`, and the next `log_interaction` was stored as
 
 On `SessionStart` with source `compact`, the runtime returns no banner and probes
 nothing. It returns `hookSpecificOutput.additionalContext`, which Claude Code and
-Codex add to the model's context before the next model request. The text asks the
+Codex add to the model's context before the next model request.
+
+### The restored bundle
+
+A reload costs the first answer after a compaction a tool search and a
+`get_agent_context` call before any work starts, so in Claude Code the hook puts
+the bundle back itself. Claude Code appends to its transcript, and the activation
+from before the compaction stays in the file the event's `transcript_path` names.
+The runtime replays that file's persona responses as the protocol applies them:
+only results of `get_agent_context`, `route_and_load`, `refresh_persona_context`
+and `run_flow`'s `persona_activation`, from an Agents-Core server under any of its
+registrations (`Agents-Core`, `Agents-Core-Desktop`, a plugin's), on the main
+thread rather than a worker's. A complete `SUCCESS` applies when its
+`replaces_activation_id` is the active activation or null; a stale one, a
+`NO_CHANGE`, an `ERROR` and a repeated record change nothing. A null replacement
+counts after an activation too, because a model that re-routes, or loads a flow's
+persona, without `current_persona` applies the result: in a replay of 170 local
+sessions that logged an activation, a stricter rule that ignores it restored a
+persona the model had already left in 13, and this rule in none. The server sends
+the full instruction only to a first activation (a null `replaces_activation_id`)
+or a `force_reload`; a later `SUCCESS` carries a pointer to it. Under the headless
+profile even a first activation gets a pointer to the managed section of the
+client's instruction file instead; Claude Code attaches that file again after a
+compaction, so the section the pointer names is still in context. The bundle takes
+the instruction of its own `instruction_revision` from those. When the transcript holds
+only a pointer for that revision, which happens after a server update changes the
+revision mid-conversation, the pointer itself asks for a reload, so the hook asks
+for it too.
+
+The hook returns that `SUCCESS` unchanged: its descriptor, exact footer, full
+instruction and four blocks, then an end marker, with a header that tells the model
+the bundle is applied and retained, to continue with `keep` and not to call
+`get_agent_context` or `route_and_load` to recover it. Claude Code 2.1.330 keeps
+one hook's `additionalContext` inline only up to 10,000 UTF-16 code units and
+writes longer text to a file the model sees as a preview, while a bundle runs to
+29,000 to 69,000 characters, most of the spread in the skills block. The Claude
+compact group therefore runs `RESTORE_PARTS` (12) handlers: the plain command
+returns part 1, and `--restore-part 2` to `--restore-part 12` return the further
+parts, each at most 9,500 code units, about 114,000 in all. The client collects
+every handler's context into one entry, not necessarily in the handlers' order (one
+run delivered 3, 1, 4, 5, 2), so each part is labelled `part K of N` with the
+activation it belongs to. A part the bundle does not need returns `{}`.
+
+When nothing certain is found, part 1 returns the reload request below and the
+other parts return nothing. That covers no transcript, no applied `SUCCESS`, a
+persona result saved to a file (its bundle is unreadable, so the state is unknown
+until a later `SUCCESS`), no full instruction of the bundle's revision, a bundle
+larger than twelve parts, and a scan that runs past its 3-second budget. If a part
+or the end marker is missing from the model's context, the header asks for the
+same reload.
+
+Measured on this machine's Claude Code transcripts, 170 of which logged an
+activation: 149 restored the activation the model last passed to
+`log_interaction`; 20 fell back to the reload request, each a long conversation
+whose revision had changed with a server update; one restored a `force_reload`
+activation newer than that session's last log, written while it was still running.
+The 151 restored bundles took four to eight parts, 29,204 to 68,668 code units; the
+three eight-part ones were `purchase_researcher` activations with skills blocks of
+25,931 to 27,345 characters. No scan took longer
+than 0.19 s, and all twelve handlers started together on the largest transcript,
+57 MB, finished in 0.37 s. A headless Claude Code 2.1.325 session given five parts
+from a real transcript saw all of them inline, in the order 3, 1, 4, 5, 2, found
+the end marker and answered that it would keep the persona without a reload.
+
+### The reload request
+
+Codex, and Claude when the hook finds nothing to restore, get a request instead.
+The text asks the
 model, if a persona was active, to call `get_agent_context` with the agent name,
 `force_reload=True` and its last complete 7-key descriptor, to use the returned
 descriptor and footer from then on, and to log that turn with
 `persona_action="restore"`. When the summary lost descriptor fields, the model
 recovers them from the last successful activation result in the transcript by its
 `activation_id`, or omits `current_persona`: the server rejects a partial
-descriptor. The event's `transcript_path` is quoted as data; the runtime itself
-reads no transcript content. A session without a persona ignores the text.
+descriptor. The event's `transcript_path` is quoted as data. A session without a
+persona ignores the text.
 
 | Client | Compact handler |
 |---|---|
-| Claude Code; Desktop Code tab | Yes: `SessionStart` source `compact`, `hookSpecificOutput.additionalContext` |
-| Codex | Yes: Codex documents the same source and field; not yet verified on an installed client |
+| Claude Code; Desktop Code tab | Yes: `SessionStart` source `compact`, `hookSpecificOutput.additionalContext`; the restored bundle in up to twelve parts, else the reload request |
+| Codex | Yes: Codex documents the same source and field; the reload request only: the runtime scans the rollout, but its entries (`response_item`, `event_msg`) carry no Claude Code `message`, so no activation is found, and with one handler in its compact group a bundle could only arrive as part 1 of several, whose header asks for the reload; not yet verified on an installed client |
 | Cursor | No: `sessionStart` has no source, and `preCompact` can only show a user message |
 | Antigravity | No: its hooks document no compaction event |
 | Claude Desktop Chat | No: the MCP fallback has no lifecycle hook |
 
-Existing installations get the compact group when the installer runs again.
+Existing installations get the compact group, and Claude its parts, when the
+installer runs again.
 
 Cursor uses `workspace_roots` and Antigravity uses `workspacePaths`/`modelName`.
 When a workspace is missing, these adapters show `(workspace not bound)` instead
@@ -210,4 +280,11 @@ background-session suppression, unbound workspaces, and a real stdio MCP handsha
 tool listing and tool calls. Compact checks cover the restore context and its key
 list against the server's descriptor, the unchanged startup/clear output, adding
 the compact group to an existing installation, and the uninstaller removing it.
-No test calls a model.
+Restore checks replay transcripts built from the server's own `PersonaResponse`:
+the applied chain past a stale `SUCCESS`, `NO_CHANGE`, `ERROR`, a worker's
+activation, another server's lookalike result, an incomplete descriptor and a
+repeated record; flow and wrapped results; the unknown state after a result saved
+to a file; parts within the limit with astral characters and a line longer than a
+part, reassembling to the whole bundle; the fallback; the `--restore-part` command
+line; and replacing a single-handler compact group with the parts. No test calls a
+model.

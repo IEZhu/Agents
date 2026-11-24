@@ -135,7 +135,8 @@ bearing on the client's retained instructions.
 It requires a previously applied bundle, descriptor and exact footer, so it cannot
 replace initial activation. The optional
 [session readiness hook](session-readiness.md#persona-restore-after-compaction)
-reminds Claude Code and Codex to restore right after a compaction.
+returns the applied bundle to Claude Code right after a compaction, so the model
+keeps it without a reload, and reminds Codex to restore.
 
 When the user names a flow, workflow or ritual, or asks for work by one ("flow",
 "workflow", "флоу", "по флоу X", "ритуал", a flow ID), the client calls
