@@ -38,6 +38,14 @@ def _control(arguments) -> Path:
     return control.default_control_dir(arguments.installation)
 
 
+def _positive(value: str) -> int:
+    """A count of at least 1: zero or a negative value would run or simulate nothing and still succeed."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, not {number}")
+    return number
+
+
 def _print(value) -> None:
     print(json.dumps(value, indent=2, sort_keys=True, default=str))
 
@@ -206,7 +214,7 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--batch-size", type=int, default=20)
             command.add_argument("--max-total-usd", type=float, default=40.0)
             command.add_argument("--seed", type=int, default=0)
-            command.add_argument("--stage-runs", type=int,
+            command.add_argument("--stage-runs", type=_positive,
                                  help="Stop at the leading complete clusters of the schedule whose slots fit "
                                       "this many runs; a later run with a larger value or none continues.")
             command.add_argument("--pipeline-check", action="store_true",
@@ -217,7 +225,7 @@ def parser() -> argparse.ArgumentParser:
     analyzing.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
     analyzing.add_argument("--seed", type=int, default=0)
     analyzing.add_argument("--resamples", type=int, default=400)
-    analyzing.add_argument("--projection-sets", type=int, default=200,
+    analyzing.add_argument("--projection-sets", type=_positive, default=200,
                            help="Simulated whole sets behind the planning look's projection.")
     analyzing.add_argument("--output", help="Also write the report (aggregates only) to this file.")
     analyzing.set_defaults(handler=analyze)

@@ -1072,3 +1072,12 @@ def test_the_projection_reports_the_whole_set_and_never_a_rule_case_of_the_stage
     assert plan["slots"] == {"set": 480, "launched": 120, "remaining": 360}
     assert plan["remaining_usd"] == pytest.approx(36.0)
     assert "execution" not in projection["families"]
+
+
+def test_counts_that_would_run_or_simulate_nothing_are_refused(capsys):
+    from evals.scripts import verifier_accuracy as cli
+    for argv in (["run", "--stage-runs", "0"], ["run", "--stage-runs", "-1"], ["analyze", "--projection-sets", "0"]):
+        with pytest.raises(SystemExit):
+            cli.parser().parse_args(argv)
+        assert "must be at least 1" in capsys.readouterr().err
+    assert cli.parser().parse_args(["run", "--stage-runs", "220"]).stage_runs == 220
