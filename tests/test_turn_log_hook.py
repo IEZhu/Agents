@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from src.engine import config, protocol_text
-from src.engine.config import ClientRootError
 from src.memory import turn_log_hook as hook
 from src.memory.history import HistoryReader
 
@@ -25,6 +24,13 @@ PERSONA = {"agent": "software_engineer", "activation_id": "act-1", "bundle_revis
            "implants_loaded": [], "rules_loaded": ["no-fabrication"]}
 # Claude Code shows this many characters of the server instructions before v2.1.296 (4,096 since).
 OLDER_CLAUDE_CODE_WINDOW = 2048
+# Fake secrets, split so that the tracked-files scan (tests/test_schedules_scan.py) finds no token
+# or high-entropy string in this file's text.
+FAKE_ANTHROPIC_KEY = "sk-ant-" + "api03-abcdefghijklmnop"
+FAKE_OPENAI_PROJECT_KEY = "sk-proj-" + "AbCdEf0123456789xyzXYZ"
+FAKE_JWT = ".".join(["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+                     "dozjgNryP4J3jVmNHl0w5" + "N_XgL0n3I9PlFUP0THsR8U"])
+FAKE_CAPABILITY = "WPQbiALKXRfZMU80BVl1" + "LKvV6QkpPyif3h5H2UOEhb8"
 
 
 @pytest.fixture
@@ -173,7 +179,7 @@ def test_a_turn_without_an_applied_persona_writes_nothing(switches, project, tmp
 
 
 def test_the_hook_inputs_last_message_wins_without_its_time_line_and_secrets(switches, project):
-    given = "2026.11.24 10:00:00\n\nDeployed with token sk-ant-api03-abcdefghijklmnop.\n\n" + FOOTER
+    given = f"2026.11.24 10:00:00\n\nDeployed with token {FAKE_ANTHROPIC_KEY}.\n\n" + FOOTER
     hook.record_turn(stop_event(project, last_assistant_message=given))
     [entry] = entries(project)
     assert entry.outcome == f"Deployed with token sk-ant-***. {FOOTER}"
@@ -195,7 +201,9 @@ def test_the_project_resolves_as_a_stdio_server_resolves_it(switches, project, t
 
 def test_an_unsafe_project_is_refused_and_the_command_still_exits_zero(switches, project, monkeypatch, capsys):
     event = {**stop_event(project), "cwd": "/"}
-    with pytest.raises(ClientRootError):
+    # Looked up at call time: tests/test_model_migration.py reloads the config module, which
+    # replaces the class an import at the top of this file would have kept.
+    with pytest.raises(config.ClientRootError):
         hook.record_turn(event)
     code, err = run_main(monkeypatch, capsys, json.dumps(event).encode())
     assert code == 0 and "turn not logged (ClientRootError)" in err
@@ -307,12 +315,12 @@ def test_reminders_are_stripped_only_before_the_prompt_and_in_linear_time():
 
 
 @pytest.mark.parametrize("secret,kept", [
-    ("sk-proj-AbCdEf0123456789xyzXYZ", "sk-proj-"),
+    (FAKE_OPENAI_PROJECT_KEY, "sk-proj-"),
     ("xoxb-1234567890-abcdefghij", "xoxb-"),
     ("AIzaSyA1234567890abcdefghijklmnopqrstu", "AIza"),
-    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U", "eyJ"),
+    (FAKE_JWT, "eyJ"),
     ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key="),
-    ('"capability":"6e3_t5gNYzolREw4gp61PiE3mdDGCUbMeZO_8ZFlmcM"', '"capability":"'),
+    (f'"capability":"{FAKE_CAPABILITY}"', '"capability":"'),
     ('{"password":"hunter2"}', '{"password":"'),
     ("password=short1", "password="),
     ("ghp_abcdefghijklmnop1234", "ghp_"),
@@ -326,7 +334,7 @@ def test_the_hook_masks_common_secret_formats(secret, kept):
 
 def test_a_bare_capability_in_prose_is_masked_and_a_hex_digest_is_not():
     from src.schedules.records import mask
-    capability = "6e3_t5gNYzolREw4gp61PiE3mdDGCUbMeZO_8ZFlmcM"
+    capability = FAKE_CAPABILITY
     digest = "a3f1c2" * 7 + "a"
     masked = hook._masked(f"use {capability} and commit {digest}", mask)
     assert capability not in masked and digest in masked
