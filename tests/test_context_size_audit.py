@@ -65,7 +65,9 @@ def test_cheap_measurement_covers_every_listed_part(empty_router_cache, embeddin
     assert route["status"] == "ROUTE_REQUIRED"
     assert route["router_cache_entries"] == 0
     assert route["candidates"] > 0
-    assert route["client_chars"] >= route["response_chars"] > 0
+    assert route["response_chars"] > 0 and route["client_chars"] > 0
+    if route["wrapped"]:
+        assert route["client_chars"] >= route["response_chars"]
 
     assert set(report["first_activation"]) == set(audit.ACTIVATIONS)
     for agent, activation in report["first_activation"].items():
@@ -74,8 +76,14 @@ def test_cheap_measurement_covers_every_listed_part(empty_router_cache, embeddin
         assert activation["blocks"]["persona"] > 0
         # The response holds every block, JSON-escaped, plus the descriptor and footer.
         assert activation["response_chars"] > sum(activation["blocks"].values())
-        assert activation["client_chars"] >= activation["response_chars"]
-        assert activation["client_backslashes"] >= activation["response_backslashes"] > 0
+        assert activation["response_backslashes"] > 0
+        if activation["wrapped"]:
+            # A string result wrapped as {"result": text} reaches the client escaped twice.
+            assert activation["client_chars"] >= activation["response_chars"]
+            assert activation["client_backslashes"] >= activation["response_backslashes"]
+        else:
+            # The object itself, compact: nothing is escaped a second time (#734).
+            assert activation["client_backslashes"] <= activation["response_backslashes"]
 
 
 def test_tool_sizes_add_up(empty_router_cache, embedding_calls):

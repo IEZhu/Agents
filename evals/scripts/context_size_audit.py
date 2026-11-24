@@ -32,8 +32,9 @@ Kept out on purpose, because they depend on the machine rather than on the code:
 the ``repo_context`` a first activation in a workspace carries, the outdated-section
 ``warnings``, the personal library's rules and switches, and the router cache write
 a ``SUCCESS`` triggers. The client text is modelled as the compact JSON of the
-result's ``structuredContent`` when the tool returns one, which is how a string
-result arrives escaped twice; otherwise it is the text content. No size here is a
+result's ``structuredContent`` when the tool returns one, otherwise the text content.
+A string result FastMCP wraps as ``{"result": text}`` arrives escaped twice
+(``wrapped``); the persona tools deliver the object itself over stdio (#734). No size here is a
 budget: other changes are still moving these numbers.
 
 Usage (from the repository root):
@@ -116,7 +117,9 @@ async def _call_tool(server, name: str, arguments: dict) -> tuple[str, str, bool
     text = "".join(block.text for block in content if getattr(block, "type", None) == "text")
     if structured is None:
         return text, text, False
-    return text, json.dumps(structured, ensure_ascii=False, separators=(",", ":")), True
+    wrapped = isinstance(structured, dict) and set(structured) == {"result"} and isinstance(
+        structured["result"], str)
+    return text, json.dumps(structured, ensure_ascii=False, separators=(",", ":")), wrapped
 
 
 def _sizes(text: str, client: str, wrapped: bool) -> dict:
