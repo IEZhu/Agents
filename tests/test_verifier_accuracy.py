@@ -1117,3 +1117,20 @@ def test_the_projection_uses_the_units_analyze_fits(monkeypatch):
     monkeypatch.setattr(analysis, "project", lambda stage_fit, units, **options: seen.append(len(units)) or {})
     analysis.planning(rows, statements, report, d_floor=1.0, sets=2, resamples=5, grid=GRID, coarse=COARSE)
     assert report["mixed_configuration_items"]["model"] == 1 and seen == [10]
+
+
+
+def test_analysis_needs_this_set_s_final_simulation(tmp_path, repo, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    for look in ("final", "planning"):
+        assert cli.main([*arguments, "analyze", "--look", look]) == 1  # no simulation at all
+    (control_dir / control.SIMULATION).write_text(json.dumps({"set": "other@0", "held": True, "look": "final",
+                                                              "d_floor": 1.0}), encoding="utf-8")
+    assert cli.main([*arguments, "analyze", "--look", "planning"]) == 1  # another set's floor
+    assert "Run `simulate` for this set first" in capsys.readouterr().err
+    (control_dir / control.SIMULATION).write_text(json.dumps({"set": manifest["set"], "held": False, "look": "final",
+                                                              "d_floor": 1.25}), encoding="utf-8")
+    assert cli.main([*arguments, "analyze", "--look", "final"]) == 0  # a pipeline check still reads its report
+    assert json.loads(capsys.readouterr().out)["d_floor"] == 1.25

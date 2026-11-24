@@ -106,16 +106,24 @@ def probe(arguments) -> int:
     return 0 if result.blind else 2
 
 
-def run(arguments) -> int:
-    control_dir = _control(arguments)
-    loaded = runner.load(control_dir, installation_roots=_roots(arguments))
+def _simulation(control_dir: Path, loaded: runner.LoadedSet) -> dict | None:
+    """This set's final-look simulation, or None after saying why there is none to use."""
     path = control_dir / control.SIMULATION
     simulation = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if simulation.get("set") != loaded.set_id:
-        print("Run `simulate` for this set first: the run needs its floor under D.", file=sys.stderr)
-        return 1
+        print("Run `simulate` for this set first: its floor under D comes from that run.", file=sys.stderr)
+        return None
     if simulation.get("look") != "final":
-        print("The run needs the final look's simulation; this one is for the interim quantiles.", file=sys.stderr)
+        print("This needs the final look's simulation; this one is for the interim quantiles.", file=sys.stderr)
+        return None
+    return simulation
+
+
+def run(arguments) -> int:
+    control_dir = _control(arguments)
+    loaded = runner.load(control_dir, installation_roots=_roots(arguments))
+    simulation = _simulation(control_dir, loaded)
+    if simulation is None:
         return 1
     if not simulation.get("held") and not arguments.pipeline_check:
         print("The coverage simulation did not hold for this set; its bands would not hold their level.",
@@ -140,8 +148,9 @@ def analyze(arguments) -> int:
     control_dir = _control(arguments)
     loaded = runner.load(control_dir, installation_roots=_roots(arguments))
     rows, probes = _records(control_dir)
-    simulation = json.loads((control_dir / control.SIMULATION).read_text(encoding="utf-8")) \
-        if (control_dir / control.SIMULATION).exists() else {"d_floor": 1.0}
+    simulation = _simulation(control_dir, loaded)  # a missing or another set's floor would mislabel every band
+    if simulation is None:
+        return 1
     report = analysis.analyze(rows, loaded.statements, look=arguments.look, d_floor=simulation["d_floor"],
                               seed=arguments.seed, resamples=arguments.resamples, probes=probes)
     report["set"] = loaded.set_id

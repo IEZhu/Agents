@@ -140,7 +140,8 @@ times 1.5.
 python -m evals.scripts.verifier_accuracy --installation <path> analyze --output <file outside the repository>
 ```
 
-Use `--look interim` for the first half of a full run (it applies only rule 3).
+It reads the floor under `D` from this set's final-look simulation and refuses to
+analyze without one. Use `--look interim` for the first half of a full run (it applies only rule 3).
 After a stage, use `--look planning`: the final look's bands with no
 replacement-rule case, and a `planning` section that projects the whole set. The
 projection draws `(c, b)` from the stage's posterior, simulates the full design
