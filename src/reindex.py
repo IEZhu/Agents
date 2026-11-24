@@ -50,6 +50,22 @@ def main() -> int:
     implants = ImplantRetriever()
     logger.info("Reindex: implants store ready (%d entries)", implants.store.count())
 
+    # The cold router ranks a cache miss by the embedded agent catalog cards (#734). Servers
+    # read them from config.DATA_DIR, next to the other indexes, and only build a private copy
+    # in memory when they are missing or stale, which a one-shot run never waits for. A server
+    # that started this process (the stdio auto-updater) passes its own router directory in
+    # AGENTS_ROUTER_DATA_DIR; drop it so the router this builds with never touches that
+    # server's live cache.
+    os.environ.pop("AGENTS_ROUTER_DATA_DIR", None)
+    from src.engine.router import SemanticRouter
+    router = SemanticRouter()
+    if router.persisted_cards_current():
+        logger.info("Reindex: agent catalog cards current (%d entries)", router.agent_card_count())
+    else:
+        logger.info("Reindex: building agent catalog cards...")
+        router.build_agent_cards(persist=True)
+        logger.info("Reindex: agent catalog cards ready (%d entries)", router.agent_card_count())
+
     logger.info("Reindex complete.")
     return 0
 

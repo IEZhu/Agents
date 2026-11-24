@@ -284,6 +284,11 @@ def reset_model():
         _model_fingerprint = None
 
 
+def is_loaded() -> bool:
+    """Whether this process has loaded the model, so an embedding call costs no model load."""
+    return _model is not None
+
+
 def model_fingerprint() -> str:
     """Embedding fingerprint of the snapshot the loaded model came from.
 

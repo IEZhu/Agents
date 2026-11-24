@@ -336,8 +336,10 @@ ablation runbook and the issue agent flow still say not to route, even where the
 environment connects Agents-Core.
 What the server writes during a session, such as `history.md` and the routing
 cache, lives only as long as the session VM. The routing cache therefore starts
-empty in each session, and `route_and_load` returns `ROUTE_REQUIRED` with the
-agent catalog until the session has selected an agent for a similar request. Do not
+empty in each session, and `route_and_load` returns `ROUTE_REQUIRED` with a
+shortlist of the agents closest to the request (the whole catalog when nothing
+ranks; [a cache miss](routing_flow.md#a-cache-miss)) until the session has selected
+an agent for a similar request. Do not
 commit `history.md`: once tracked, it changes on every turn and the cloud session's
 check for uncommitted changes reports it.
 `describe_repo` only reads repository context and returns an instruction when a

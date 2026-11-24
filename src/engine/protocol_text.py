@@ -13,11 +13,19 @@ side as named variants, so a rule is edited in one file:
   shows of them, the ``SUCCESS`` instruction is sent with a conversation's first activation
   and a restore, and the memory reminder states the conversation steps in its own prose; a
   short rule that two of them state alike (``finish:turn-end``, ``finish:redaction``) is its
-  own variant.
+  own variant;
+- ``tool`` and ``tool-*``: a procedure that a tool's description carries instead of the
+  always-on surfaces, which state only its trigger (``TOOL_PARTS``, #734).
 
 The ``pointer`` section holds what a later ``SUCCESS`` of a conversation and the server
 instructions for a client whose own instruction file is current send instead of a text the
-client already holds (#433).
+client already holds (#433), and what a ``SUCCESS`` sends when the client's instructions hold
+the current managed section, its first activation included (#734).
+
+When the client's Stop hook logs each turn (``config.turn_log_hook()``: ``AGENTS_TURN_LOG_HOOK=1``
+with the headless profile, #734), the server instructions and the ``SUCCESS`` instruction finish
+with the ``finish`` variants ``hook``, ``server-hook`` and ``bundle-hook`` instead of the
+log_interaction step. The committed files never depend on it.
 
 The functions below compose each surface from these variants in a fixed order. The template
 and the memory reminder stay committed files, because installers and shell scripts read them;
@@ -30,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import os
 import re
 import shutil
@@ -40,6 +49,8 @@ from collections import defaultdict
 from functools import cache
 from pathlib import Path
 from typing import Callable, Mapping, Union
+
+from src.engine import config
 
 SOURCE_DIR = Path(__file__).resolve().parent / "protocol"
 ROOT = Path(__file__).resolve().parents[2]
@@ -131,12 +142,17 @@ def _sentences_of(*pieces: Piece) -> str:
 
 
 def template() -> str:
-    """The managed routing section of CLAUDE.md and AGENTS.md (scripts/templates/routing-protocol-core.md)."""
+    """The managed routing section of CLAUDE.md and AGENTS.md (scripts/templates/routing-protocol-core.md).
+
+    Delegation, artifacts, local inference and cooperation appear here as triggers that name the
+    tool whose description holds the procedure (``TOOL_PARTS``, #734).
+    """
     return "\n\n".join([
-        part("intro", "full"), part("delegation", "full"), part("artifacts", "full"),
-        part("output-artifacts", "full"), part("local-inference", "full"), part("delegation", "full-fallback"),
-        part("worker", "full"), part("cooperation", "full"), part("start", "full"), part("decide", "full"),
-        part("apply", "full"), part("flows", "full"), part("first-work", "full"), part("ownership", "full"),
+        part("intro", "full"), part("delegation", "full"), part("worker", "full"),
+        # A worker never loads validate_subagent_result, whose description holds the parent's side,
+        # and its package carries the artifact rule only with an input manifest (#734 review).
+        part("output-artifacts", "worker"), part("cooperation", "full"),
+        part("start", "full"), part("decide", "full"), part("apply", "full"), part("flows", "full"), part("first-work", "full"), part("ownership", "full"),
         part("progress", "full"), _paragraph(("finish", "full"), ("history-errors", "full")),
         part("compatibility", "full"),
     ]) + "\n"
@@ -149,25 +165,25 @@ def server_instructions() -> str:
     The shorter window holds what every turn needs: the opening lines (protocol, server choice,
     worker exemption, first-answer activation, logging) and the delegation request through
     ``Require status: prepared.``. The longer window adds the first-work rule, which a session may
-    need before its first activation, and the delegation exchange from the launch through
-    validation, acceptance and new attempts to ``Never edit identities or the contract to make a
-    result pass.``; the exchange's fallback, what the worker reads from its package, nested
-    delegation and the bound on how much to delegate follow it and may fall outside. Both windows
-    end within a few dozen characters of a rule they must hold, so text moved in front of one
-    pushes that rule out: the volume bound stays behind them and reaches a client through the
-    managed instruction section, the memory reminder and the ``SUCCESS`` instruction instead. The
-    keep/switch rules also appear in the
-    descriptions of the persona tools, and the describe_repo fallback, the owning-session rules and
-    the definition of progress messages, which follow the windows, arrive with the full
-    ``SUCCESS`` instruction. tests/test_log_interaction_contract.py checks both windows.
+    need before its first activation, and the delegation trigger: validate every output, require
+    ``valid: true``, read the descriptions of get_subagent_context and validate_subagent_result
+    before the first delegation, the fallback when an endpoint is unavailable, and the exact-name
+    selection that loads the persona tools when a client defers them (#734). The exchange
+    itself, the bound on how much to delegate, artifacts, local inference and the cooperation
+    mailbox live in tool descriptions (``TOOL_PARTS``, #734), which a deferring client loads only
+    when it selects the tool. Both windows end within a few hundred characters of a rule they must
+    hold, so text moved in front of one may push that rule out. The keep/switch rules also appear
+    in the descriptions of the persona tools, and the owning-session rules and the definition of
+    progress messages, which may follow the windows, arrive with the full ``SUCCESS`` instruction
+    too. tests/test_log_interaction_contract.py checks both windows.
     """
     return "\n\n".join([
         _server_opening(),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
+        part("start", "server-load-hook" if config.turn_log_hook() else "server-load"),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
         _sentences_of(("artifacts", "compact"), ("local-inference", "compact")),
-        part("output-artifacts", "compact"),
         part("cooperation", "compact"),
         _paragraph(("apply", "server"), _sentences_of(("intro", "compact"), ("apply", "server-prompts"))),
         _server_tail(),
@@ -175,9 +191,13 @@ def server_instructions() -> str:
 
 
 def _server_opening() -> str:
-    """The per-turn lines that open the server instructions and their pointer."""
-    return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"),
-                      _sentences_of(("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
+    """The per-turn lines that open the server instructions and their pointer.
+
+    Their finish line leaves logging to the client's Stop hook when ``config.turn_log_hook()``.
+    """
+    finish = ((("finish", "hook"), ("finish", "server-hook")) if config.turn_log_hook()
+              else (("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
+    return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"), _sentences_of(*finish))
 
 
 def _server_tail() -> str:
@@ -203,9 +223,11 @@ BUNDLE_PARTS: tuple[tuple[str, str], ...] = (
     ("ownership", "compact"), ("apply", "bundle"), ("apply", "bundle-pointer"), ("finish", "bundle"),
     ("finish", "redaction"), ("history-errors", "compact"), ("progress", "compact"),
     ("delegation", "compact-request"), ("delegation", "compact"), ("artifacts", "compact"),
-    ("output-artifacts", "compact"), ("intro", "compact"), ("local-inference", "compact"),
-    ("cooperation", "compact"),
+    ("intro", "compact"), ("local-inference", "compact"), ("cooperation", "compact"),
 )
+# The finish rule of the SUCCESS instruction when the client's Stop hook logs each turn: the model
+# neither calls log_interaction nor redacts what it would have passed to it.
+HOOK_FINISH = {("finish", "bundle"): ("finish", "bundle-hook"), ("finish", "redaction"): ("finish", "hook")}
 
 
 def bundle_instruction() -> str:
@@ -213,14 +235,69 @@ def bundle_instruction() -> str:
 
     The worker exemption comes first, then the first-work and owning-session rules, which a
     client that never loaded the instruction files learns here, as it learns the definition of
-    progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``.
+    progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``, and
+    one whose client holds the managed section sends ``bundle_section_pointer``. With
+    ``config.turn_log_hook()`` the finish rule is ``HOOK_FINISH``'s.
     """
-    return _sentences_of(*BUNDLE_PARTS)
+    hook = config.turn_log_hook()
+    return _sentences_of(*(HOOK_FINISH.get(name, name) if hook else name for name in BUNDLE_PARTS))
 
 
 def bundle_pointer() -> str:
     """The ``instruction`` of a ``SUCCESS`` after the first activation of a conversation (#433)."""
-    return _sentences_of(("pointer", "bundle"))
+    return _sentences_of(("pointer", "bundle"), ("pointer", "bundle-rules"), _pointer_finish(),
+                         ("pointer", "bundle-reload"), ("pointer", "bundle-restore"))
+
+
+def bundle_section_pointer() -> str:
+    """The ``instruction`` of a ``SUCCESS`` other than a restore when the client holds the managed section (#734).
+
+    The section states every rule of ``bundle_instruction``, so this pointer names the same rules
+    as ``bundle_pointer`` without claiming that an earlier activation sent the full instruction:
+    it is true of a conversation's first activation as well as of a later one.
+    """
+    return _sentences_of(("pointer", "bundle-section"), ("pointer", "bundle-rules"), _pointer_finish(),
+                         ("pointer", "bundle-section-reload"), ("pointer", "bundle-restore"))
+
+
+def _pointer_finish() -> tuple[str, str]:
+    """How both pointers end the answer; with the Stop hook logging each turn, without log_interaction (#734)."""
+    return ("pointer", "bundle-finish-hook") if config.turn_log_hook() else ("pointer", "bundle-finish")
+
+
+# The procedures that the descriptions of these tools carry instead of the always-on surfaces
+# (#734). Every model call re-reads the managed section and the server instructions, while a
+# deferring client (Claude Code) loads a tool's description only when it selects that tool. Each
+# always-on surface keeps a trigger that names the tool to read before the first use. A rule that
+# must hold while MCP is unavailable, or for a worker that never loads these tools, stays on the
+# always-on surfaces.
+TOOL_PARTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "get_subagent_context": (("delegation", "compact-request"), ("delegation", "tool-prepare"),
+                             ("artifacts", "tool-prepare")),
+    "validate_subagent_result": (("delegation", "tool-validate"), ("artifacts", "tool-validate"),
+                                 ("output-artifacts", "tool")),
+    "cooperation_register": (("cooperation", "tool"),),
+    "local_context_create": (("local-inference", "tool"),),
+}
+
+
+def tool_procedure(name: str) -> str:
+    """The protocol text that the description of tool ``name`` carries; empty for any other tool."""
+    return "\n".join(part(*piece) for piece in TOOL_PARTS.get(name, ()))
+
+
+def tool_description(name: str, docstring: str | None) -> str:
+    """The description of tool ``name``: its docstring with the tool's procedure after the summary.
+
+    The summary paragraph stays first, as a client lists it; the procedure follows, ahead of the
+    tool's limits and errors, so a client that cuts a long description loses the mechanics before
+    a rule. A tool without a procedure keeps its docstring unchanged.
+    """
+    procedure = tool_procedure(name)
+    if not procedure:
+        return docstring or ""
+    summary, _, details = inspect.cleandoc(docstring or "").partition("\n\n")
+    return "\n\n".join(text for text in (summary, procedure, details) if text)
 
 
 def _revision(text: str) -> str:
@@ -252,7 +329,7 @@ def memory_reminder() -> str:
     return "\n\n".join([
         _paragraph(("header", "memory"), ("intro", "compact")),
         _sentences_of(("delegation", "compact-request"), ("delegation", "compact")),
-        part("worker", "memory"), part("artifacts", "compact"), part("output-artifacts", "compact"),
+        part("worker", "memory"), part("artifacts", "compact"),
         part("local-inference", "compact"), part("cooperation", "compact"), part("ownership", "compact"),
         _sentences_of(("first-work", "compact"), ("first-work", "compact-unavailable")),
         part("start", "memory"), part("decide", "memory"), part("apply", "memory"), part("progress", "compact"),

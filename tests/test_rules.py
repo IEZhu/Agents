@@ -381,6 +381,33 @@ def test_answer_timestamp_rule_follows_toggle(monkeypatch):
     assert "answer-timestamp" not in {r.name for r in get_rules(strict=True, apply_toggles=True)}
 
 
+def test_headless_profile_omits_session_rules_on_the_toggle_path_only(monkeypatch):
+    """A one-shot run has no chat title and no peers; the switch path drops those rules."""
+    from src import component_toggles
+    from src.engine import config
+    from src.engine.rules import HEADLESS_OMITTED_RULES, get_rules
+
+    def built_in(rules):
+        return {r.name for r in rules if not r.name.startswith("user:")}
+
+    assert HEADLESS_OMITTED_RULES == {"agent-cooperation", "thread-status"}
+    assert HEADLESS_OMITTED_RULES <= _EXPECTED_RULE_NAMES
+    monkeypatch.setattr(component_toggles, "disabled", lambda kind: frozenset())
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "interactive")
+    assert built_in(get_rules(strict=True, apply_toggles=True)) == _EXPECTED_RULE_NAMES
+
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "headless")
+    assert built_in(get_rules(strict=True, apply_toggles=True)) == (
+        _EXPECTED_RULE_NAMES - HEADLESS_OMITTED_RULES)
+    # Like the web UI switches, the profile leaves the evaluation path alone.
+    assert built_in(get_rules(strict=True)) == _EXPECTED_RULE_NAMES
+    assert built_in(get_rules()) == _EXPECTED_RULE_NAMES
+    # And it combines with them.
+    monkeypatch.setattr(component_toggles, "disabled", lambda kind: frozenset({"answer-timestamp"}))
+    assert built_in(get_rules(strict=True, apply_toggles=True)) == (
+        _EXPECTED_RULE_NAMES - HEADLESS_OMITTED_RULES - {"answer-timestamp"})
+
+
 def test_protocol_ties_time_line_to_the_rule():
     root = Path(RULES_DIR).parent
     for path in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):

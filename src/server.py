@@ -64,7 +64,7 @@ from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS,
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.utils import debug_logger
-from src.memory.describer import RepoDescriber
+from src.memory.describer import RepoDescriber, describable_project
 from src.memory import fallback
 from src.memory import record as turn_record
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
@@ -159,16 +159,65 @@ _history_stores = HistoryStores()
 
 from src.daemon.mcp_proxy.exposure import ProxyToolsMixin
 
+# Tools whose handlers return one JSON object as text (#734). FastMCP gives a str-returning
+# tool the output schema {"result": string} and the structured content {"result": <text>},
+# and Claude Code shows the model JSON.stringify(structuredContent) (src/result_size.py):
+# the object escaped twice. Over stdio these tools answer with the object itself as
+# structured content and the same JSON text, unchanged, as text content, so the model
+# reads it encoded once. The shared service keeps the {"result": <text>} form: its
+# clients reach a restarted process without listing the tools again (stateless HTTP),
+# and one still holding the former schema would reject anything without "result".
+SINGLE_ENCODED_TOOLS = frozenset({
+    "route_and_load", "get_agent_context", "refresh_persona_context", "log_interaction", "describe_repo",
+})
+
+
+def _object_output_schema(name: str) -> dict:
+    """The listed output schema of a single-encoded tool: any object, so both forms validate."""
+    return {"type": "object", "title": f"{name}Output",
+            "description": "The tool's JSON response object; the shared service may still return it "
+                           "as {\"result\": <its JSON text>}."}
+
+
+def _reject_constant(constant: str):
+    raise ValueError(f"non-finite JSON number {constant}")
+
+
+def _single_encoded(result):
+    """FastMCP's (content, {"result": text}) as (content, the object the text holds).
+
+    Anything else (a text that is not one JSON object, a non-finite number, another
+    result shape) is returned unchanged; the listed schema accepts that form too.
+    """
+    if not (isinstance(result, tuple) and len(result) == 2):
+        return result
+    content, structured = result
+    if not (isinstance(structured, dict) and set(structured) == {"result"}
+            and isinstance(structured["result"], str)):
+        return result
+    try:
+        payload = json.loads(structured["result"], parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        return result
+    return (content, payload) if isinstance(payload, dict) else result
+
 
 class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
     """Preserve strict worker/local inference inputs before FastMCP conversion."""
 
+    async def list_tools(self):
+        tools = await super().list_tools()
+        return [tool.model_copy(update={"outputSchema": _object_output_schema(tool.name)})
+                if tool.name in SINGLE_ENCODED_TOOLS else tool for tool in tools]
+
     async def call_tool(self, name: str, arguments: dict):
         from src import stdio_workspace
         from src.daemon.workspaces import _http_request
-        enabled = os.environ.get("AGENTS_TRANSPORT") != "http" and _http_request(self.get_context()) is None
-        with stdio_workspace.bind(arguments, enabled=enabled) as sanitized:
-            return await self._call_tool_bound(name, sanitized)
+        stdio = os.environ.get("AGENTS_TRANSPORT") != "http" and _http_request(self.get_context()) is None
+        with stdio_workspace.bind(arguments, enabled=stdio) as sanitized:
+            result = await self._call_tool_bound(name, sanitized)
+        # A stdio client listed the tools from this very process: it holds the object schema.
+        return _single_encoded(result) if stdio and name in SINGLE_ENCODED_TOOLS else result
 
     async def _call_tool_bound(self, name: str, arguments: dict):
         if name in artifact_tools.TOOL_NAMES:
@@ -591,7 +640,20 @@ TOOL_HINTS = {
     "artifact_manifest_release": tool_hints("Release artifact manifest", read_only=False, destructive=True, idempotent=True),
 }
 
-local_inference_tools.register_tools(mcp, TOOL_HINTS)
+
+def protocol_tool(name: str):
+    """``mcp.tool`` with the tool's hints, for a tool whose description carries a protocol procedure.
+
+    protocol_text.tool_description puts the procedure that the always-on surfaces only trigger
+    (protocol_text.TOOL_PARTS, #734) after the docstring's summary.
+    """
+    def register(function):
+        description = protocol_text.tool_description(name, function.__doc__)
+        return mcp.tool(**TOOL_HINTS[name], description=description)(function)
+    return register
+
+
+local_inference_tools.register_tools(mcp, TOOL_HINTS, describe=protocol_text.tool_description)
 artifact_tools.register_tools(mcp, TOOL_HINTS)
 
 
@@ -659,7 +721,7 @@ async def _cooperation_call(operation, request, ctx, workspace):
         return _cooperation_error("store_unavailable", "Cooperation operation is unavailable.")
 
 
-@mcp.tool(**TOOL_HINTS["cooperation_register"])
+@protocol_tool("cooperation_register")
 async def cooperation_register(
     request: ta.unparsed_arg("object", "Closed agents-core/cooperation/1 registration object or raw JSON. Required: protocol, checkout_path (absolute physical checkout), root_task_id, task_id, attempt_id, scope (1..50 resources with resource_type, resource_key, access). Optional contract_revision, parent_id and parent_capability, role, communication_mode (mcp/native/parent_relay/checkpoint; default mcp), artifact_access, execution_mode (independent/parent_relay). Maximum 32768 UTF-8 bytes, depth 8; no unknown fields or duplicate keys."),
     workspace: ta.unparsed_arg("string", ta.WORKSPACE_DESC) = None,
@@ -1322,7 +1384,7 @@ async def _with_drift_warnings(response: str) -> str:
         return response
 
 
-@mcp.tool(**TOOL_HINTS["get_subagent_context"])
+@protocol_tool("get_subagent_context")
 async def get_subagent_context(
     agent_name: ta.unparsed_arg("string", "Required canonical existing persona name; at most 80 characters."),
     task: ta.unparsed_arg("string", "Required nonempty assignment; at most 4000 characters."),
@@ -1346,23 +1408,13 @@ async def get_subagent_context(
     """Prepare a stateless task-scoped worker package without switching your persona.
 
     Unknown arguments are rejected; a request sent as one unnamed field instead of named
-    arguments is reported as arguments_wrapped with the accepted fields. Total original request limit: 48000 canonical
-    JSON characters, including unknown fields. This tool does not spawn workers.
-    Require status: prepared before spawning. By default (delivery file) the result is a
-    receipt: launch a fresh native worker with its launch text (the worker reads the package
-    file itself) and keep contract_revision; the server keeps the contract. With delivery
-    inline, retain the returned contract and forward worker_context unchanged. The worker uses
-    this role without another activation or conversation footer/log and returns only its
-    result in the package's format. For every returned or revised output call
-    validate_subagent_result; require valid: true before accepting or integrating it, then
-    assess evidence/acceptance criteria yourself. Endpoint failure does not authorize an
-    unprepared worker or unvalidated result. Missing compact sources or an insufficient
-    mandatory-context budget return an error with no partial package; a receipt's omitted
-    names every component the budget dropped. With complexity, the
-    package carries execution: the tier after floors, the newest model of that tier for the
-    client, and spawn, the arguments for the host's launching tool (Agent, spawn_agent or
-    Task; a Claude Code Workflow agent takes the same model in agent() options). Floors may
-    raise a tier, never lower it.
+    arguments is reported as arguments_wrapped with the accepted fields. Total original request
+    limit: 48000 canonical JSON characters, including unknown fields. This tool does not spawn
+    workers. Missing compact sources or an insufficient mandatory-context budget return an
+    error with no partial package; a receipt's omitted names every component the budget
+    dropped. With complexity, the package carries execution: the tier after floors, the newest
+    model of that tier for the client, and spawn, the arguments for the host's launching tool.
+    Floors may raise a tier, never lower it.
     """
     if delivery not in ("file", "inline"):
         return PreparationResponse(PreparationError(errors=diagnostics(
@@ -1396,7 +1448,7 @@ async def get_subagent_context(
     return PreparationResponse(receipt if delivery == "file" else result)
 
 
-@mcp.tool(**TOOL_HINTS["validate_subagent_result"])
+@protocol_tool("validate_subagent_result")
 async def validate_subagent_result(
     contract: ta.unparsed_arg("object", "The contract object retained from an inline package. Give this or contract_revision, never a worker replacement.") = None,
     contract_revision: ta.unparsed_arg("string", "The receipt's contract_revision: the server validates against the contract it stored at preparation. Give this or contract.") = None,
@@ -1405,9 +1457,6 @@ async def validate_subagent_result(
 ) -> ValidationResponse:
     """Validate worker output structurally against the retained or server-stored contract.
 
-    Required for every returned or revised worker output before acceptance or
-    integration. Require valid: true, then independently assess its evidence.
-    Correct and revalidate invalid output; never rewrite its original contract.
     Prefer contract_revision and result_ref: nothing is retyped, and the server checks the
     exact bytes the worker produced; result_sha256 identifies them. Rejects unknown tool
     arguments. Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
@@ -1420,8 +1469,7 @@ async def validate_subagent_result(
     distinct problems. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
     establishes truth, authorization or issue completion. For a contract prepared with
     complexity, escalation names the next tier when the result is invalid, failed, partial or
-    has a failed check. Prepare a new attempt with that complexity and a new attempt_id; for
-    an invalid result, only after one correction failed.
+    has a failed check.
     """
     try:
         if (contract is None) == (contract_revision is None):
@@ -1736,94 +1784,33 @@ def _short_action(value: str) -> str:
 @mcp.tool(**TOOL_HINTS["log_interaction"])
 async def log_interaction(
     agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
-    query: Annotated[str, Field(description="The current user request verbatim, except that secrets and capability values become safe references and prohibited personal details are omitted.")],
-    response_content: Annotated[str, Field(description="The exact final answer text, without any time line, with secrets and capability values replaced by safe references and prohibited personal details omitted.")],
-    request_id: ta.opt_str("Optional request id for correlation.") = None,
-    reasoning: ta.opt_str("Optional short reason for the selection.") = None,
-    intent: ta.opt_str("Optional curated intent; defaults to query.") = None,
-    action: ta.opt_str("Optional curated action; defaults to the agent name.") = None,
-    outcome: ta.opt_str("Optional curated outcome; defaults to response_content.") = None,
+    query: Annotated[str, Field(description="The current user request verbatim, redacted as described.")],
+    response_content: Annotated[str, Field(description="The exact final answer with its footer, redacted, no time line.")],
+    request_id: ta.opt_str("Correlation id.") = None,
+    reasoning: ta.opt_str("Why this agent.") = None,
+    intent: ta.opt_str("Curated intent; default query.") = None,
+    action: ta.opt_str("Curated action; default the agent name.") = None,
+    outcome: ta.opt_str("Curated outcome; default response_content.") = None,
     files: ta.str_list(ta.LOG_FILES_DESC) = None,
     tags: ta.str_list(ta.LOG_TAGS_DESC, separators=r"[,\s]+") = None,
     persona: ta.persona_arg(ta.LOG_PERSONA_DESC) = None,
     persona_action: ta.opt_str(ta.LOG_PERSONA_ACTION_DESC) = None,
     ctx: Context | None = None,
-    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+    workspace: ta.opt_str(ta.LOG_WORKSPACE_DESC) = None,
     idempotency_key: Annotated[str | None, Field(min_length=1, max_length=256,
-        description="Generate a fresh UUID for each logical memory write and reuse it only for retries of that exact payload, across chats in the trusted Personal workspace. Changed payloads conflict. Retained with the journal; request_id is only correlation."),
+        description="Fresh UUID per logical write; reuse it only for its retries."),
         WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 256})] = None,
     record: ta.record_arg(turn_record.describe()) = None,
 ) -> str:
-    """End-of-turn logger. Compose the answer including its footer, call this tool
-    with that exact response_content (redacted as below), then deliver the final
-    answer. Pass the current user request verbatim as query, except for the
-    redactions below; do not paraphrase or substitute a different request or summary. Before this
-    call, replace secrets and capability values in every field with safe references
-    and omit prohibited personal details. Pass workspace, your working directory.
-
-    persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
-    with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
-    implants_loaded, rules_loaded); persona_action (keep/switch/refresh/restore)
-    only together with it. Compact subagents return their data envelope without
-    calling this tool. Other callers without a retained descriptor omit both and
-    add no footer; this does not waive initial activation. files/tags are JSON arrays.
-    Persona and persona_action are client-reported attribution, not proof of
-    instruction compliance. A partial, malformed or mismatching persona never
-    costs the turn: it is written marked ``unverified`` or ``mismatch`` and the
-    response carries ``warnings``. Do not retry such a call.
-
-    Two sinks, independent of each other:
-
-    * **history.md** — written via ``HistoryWriter`` (append-only, content-hash
-      deduped; the persona line is not part of the hash). Defaults:
-      ``intent=query``, ``action="Agent: {agent_name}"``, ``outcome=response_content``.
-      Pass ``intent``/``action``/``outcome``/``files``/``tags`` to curate the entry.
-      ``record`` (#584) adds a closed, typed map under ``metadata.record``; it is
-      not part of the content hash, so a duplicate keeps the first entry's record.
-      An invalid record is refused before anything is written: ``status: ERROR``,
-      ``record_errors`` and ``record: {status: not_written}``. Otherwise the
-      result reports ``record: {status, bytes}``.
-
-    * **Langfuse** — generation trace recorded only when ``LANGFUSE_PUBLIC_KEY`` /
-      ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
-      ``langfuse_compat``.
-
-    Waits for the local journal's durable commit, without waiting for Langfuse,
-    semantic indexing or Git sync. ``history`` returns ``status: recorded`` (or
-    legacy ``duplicate``) and ``state: durably_accepted`` only after persistence.
-    An optional ``idempotency_key`` replays the original history receipt and
-    answer timestamp for the same canonical payload; changes return
-    ``history: {status: error, state: rejected, error: idempotency_conflict}``.
-    Keys are scoped to the trusted Personal workspace and log operation, retained
-    with its complete local journal including archives and deletion receipts.
-    They have no automatic TTL; deleting journal storage ends retry protection.
-    This single-owner boundary does not provide Hosted multi-tenant authorization.
-    ``request_id`` remains correlation only. Keyed writes reject unresolved
-    workspaces instead of redirecting them to the fallback journal.
-    Results also carry ``workspace`` (``root``, ``source``), ``workspace_note`` (only when
-    the call named a workspace outside the registered root: that argument was ignored
-    and the root was used), ``pid``, ``history_last_error``
-    (``code``, ``errno``, ``path``, ``at``; when this or an earlier history write
-    failed) and the attribution (with ``warnings`` and an ``instruction`` when it
-    was incomplete). While retrieval is still warming up, ``langfuse`` is
-    ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
-    (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
-    and it is not part of ``response_content``. Memory is written to the journal
-    before acceptance; only Langfuse uses a best-effort background queue.
-    A failed history write returns ``history.status: error`` and ``state: unknown``
-    when persistence is uncertain (retry with the same key). It is logged once per
-    path and errno and reported as ``history_last_error`` on this result;
-    Langfuse failures are only logged. When no project
-    resolves, the turn goes to the installation's fallback journal (#292):
-    ``workspace`` is ``{root: null, source: "fallback", claimed, reason, journal}``,
-    ``claimed`` the directory the client named (recorded, never written), and the
-    ``instruction`` says to mention it once. Keyed calls reject invalid keys or
-    unresolved workspaces. Other request-level rejections include a stdio client
-    with MCP roots that named no workspace, asked to retry once
-    with it, or a fallback journal directory that cannot be created (a later write
-    failure is returned in ``history``): a protocol ERROR without
-    ``timestamp``, over stdio with ``pid`` and ``workspace_inputs`` (``cwd``,
-    ``claude_project_dir``, ``agents_client_repo_root``, ``client``, ``roots``).
+    """End-of-turn logger: log the composed final answer, footer included, as
+    response_content, then deliver it. query: the current user request verbatim. In
+    every field replace secrets and capability values with safe references and omit
+    prohibited personal details. persona: the last SUCCESS/NO_CHANGE descriptor
+    verbatim, all 7 keys, plus persona_action; without one omit both and add no
+    footer. Pass workspace; outside the grant it is ignored (workspace_note).
+    files/tags: JSON arrays. The returned timestamp starts the delivered answer on
+    its own line. Mention history_last_error once; never retry in a loop.
+    Details: docs/memory-acceptance.md#the-log_interaction-call
     """
     if idempotency_key is not None and (not isinstance(idempotency_key, str)
                                        or not 1 <= len(idempotency_key) <= 256
@@ -2079,6 +2066,7 @@ async def describe_repo(
       up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
       needs_summary (refresh required; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
+      not_a_repository (no .git at or above repo_path): {status, repo_path, instruction}
       error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
         and, from a server the Claude desktop app started, hint; a workspace outside
         the registered root adds code=workspace_mismatch, registered_workspace,
@@ -2095,6 +2083,17 @@ async def describe_repo(
             "repo_path": repo_path,
             "force_refresh": force_refresh,
         })
+        if not describable_project(repo_path):
+            payload = {
+                "status": "not_a_repository",
+                "repo_path": repo_path,
+                "instruction": (
+                    "This folder is not inside a git repository, so no repository description "
+                    "applies; continue your task without one."
+                ),
+            }
+            debug_log("describe_repo", "res", payload)
+            return json.dumps(payload, ensure_ascii=False)
         loop = asyncio.get_running_loop()
         describer = RepoDescriber(repo_path=repo_path)
 
@@ -2164,6 +2163,7 @@ async def write_repo_summary(
 
     Returns JSON whose fields depend on status:
       refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
+      error, no .git at or above repo_path: {status, code=not_a_repository, error}; writes nothing
       rejected, protected installation/source root or stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
@@ -2185,6 +2185,15 @@ async def write_repo_summary(
             "repo_hash": repo_hash,
             "summary_len": len(summary),
         })
+        if not describable_project(repo_path):
+            payload = {
+                "status": "error",
+                "code": "not_a_repository",
+                "error": (f"not_a_repository: {repo_path} is not inside a git repository, "
+                          "so no summary was written"),
+            }
+            debug_log("write_repo_summary", "error", payload)
+            return json.dumps(payload, ensure_ascii=False)
         loop = asyncio.get_running_loop()
         describer = RepoDescriber(repo_path=repo_path)
         payload = await loop.run_in_executor(

@@ -20,18 +20,14 @@ from pydantic import BeforeValidator, WithJsonSchema
 _STR = {"type": "string"}
 _STRS = {"type": "array", "items": {"type": "string"}}
 PERSONA_PROPERTIES = {
-    "agent": {"type": "string", "description": "Agent name, lowercase letters, digits, underscore."},
-    "activation_id": {"type": "string", "description": "Activation id, up to 128 characters."},
-    "bundle_revision": {"type": "string", "description": "64 lowercase hex characters."},
-    "scope": {"type": "string", "description": "Scope text of the active persona."},
-    "skills_loaded": {**_STRS, "description": "Skill ids from the bundle."},
-    "implants_loaded": {**_STRS, "description": "Implant ids from the bundle."},
-    "rules_loaded": {**_STRS, "description": "Rule ids from the bundle."},
+    "agent": _STR,
+    "activation_id": _STR,
+    "bundle_revision": _STR,
+    "scope": _STR,
+    "skills_loaded": _STRS,
+    "implants_loaded": _STRS,
+    "rules_loaded": _STRS,
 }
-PERSONA_KEYS_TEXT = (
-    "agent, activation_id, bundle_revision (64 hex characters), scope, skills_loaded, "
-    "implants_loaded, rules_loaded"
-)
 
 
 def _clean(item: Any) -> str:
@@ -114,23 +110,24 @@ def persona_arg(description: str):
 
 
 _RECORD_ITEM = {"type": "object"}
+# Every tool listing carries these, so a field gets a phrase only where its name and type do not
+# say its shape. The values, limits and meanings are in docs/turn-records.md.
 RECORD_PROPERTIES = {
-    "v": {"type": "integer", "description": "Schema version, 1."},
+    "v": {"type": "integer"},
     "kind": {"type": "string", "description": "report, patch-apply or status."},
-    "session": {"type": "string", "description": "Session id as a slug."},
-    "close_ordinal": {"type": "integer", "description": "Which close of this session, from 1."},
+    "session": {"type": "string"},
+    "close_ordinal": {"type": "integer"},
     "findings": {"type": "array", "items": _RECORD_ITEM,
-                 "description": "Tool-usage rows: {slug, status, cause, miss_at, level}."},
+                 "description": "[{slug,status,cause,miss_at,level}]"},
     "patches": {"type": "array", "items": _RECORD_ITEM,
-                "description": "Patches: {id, layer, slug, state, applied_at}."},
+                "description": "[{id,layer,slug,state,applied_at}]"},
     "verifier": {"type": "object",
-                 "description": "Counts: claims, confirmed, refuted, unconfirmed, invalid_rounds."},
-    "prep_failures": {"type": "integer", "description": "Worker preparations that failed."},
-    "unexecutable": {"type": "array", "items": _RECORD_ITEM,
-                     "description": "Flow steps that could not run as written: {step, code}."},
-    "duration_s": {"type": "integer", "description": "Seconds from the first to the last transcript entry."},
-    "responses": {"type": "integer", "description": "Model responses, deduplicated."},
-    "output_tokens": {"type": "integer", "description": "Output tokens of those responses."},
+                 "description": "{claims,confirmed,refuted,unconfirmed,invalid_rounds}"},
+    "prep_failures": {"type": "integer"},
+    "unexecutable": {"type": "array", "items": _RECORD_ITEM, "description": "[{step,code}]"},
+    "duration_s": {"type": "integer"},
+    "responses": {"type": "integer"},
+    "output_tokens": {"type": "integer"},
 }
 
 
@@ -147,12 +144,10 @@ def text_or_lines(description: str):
 
 # Parameter descriptions shared by the persona-carrying tools.
 CURRENT_PERSONA_DESC = (
-    "The `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim; omit or null "
-    f"on first activation. All 7 keys: {PERSONA_KEYS_TEXT}."
+    "Last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys; null at first."
 )
 REFRESH_PERSONA_DESC = (
-    "Required: the `persona` object of the active role, copied verbatim from the last "
-    f"SUCCESS/NO_CHANGE. All 7 keys: {PERSONA_KEYS_TEXT}."
+    "Required: last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys."
 )
 CHAT_HISTORY_DESC = "Optional relevant earlier conversation facts, as a JSON array of strings."
 REPO_PATH_DESC = "Optional directory within the caller workspace; defaults to the workspace."
@@ -166,15 +161,17 @@ WORKSPACE_DESC = (
 )
 
 LOG_PERSONA_DESC = (
-    "The `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim, with all 7 keys: "
-    f"{PERSONA_KEYS_TEXT}. Without a retained descriptor omit both persona and persona_action. "
-    "Incomplete values are still logged, marked unverified."
+    "Last SUCCESS/NO_CHANGE `persona`, verbatim, all 7 keys; omit if none."
 )
-LOG_PERSONA_ACTION_DESC = (
-    "One of keep, switch, refresh, restore; send it only together with persona."
+LOG_PERSONA_ACTION_DESC = "keep, switch, refresh or restore; only together with persona."
+LOG_FILES_DESC = 'Files touched, a JSON array, e.g. ["src/a.py"].'
+LOG_TAGS_DESC = 'Tags, a JSON array, e.g. ["bug", "fix"].'
+# log_interaction's own, shorter than WORKSPACE_DESC: its docstring says what happens to a path
+# outside the grant (workspace_note), and the full rule is in docs/memory-acceptance.md.
+LOG_WORKSPACE_DESC = (
+    "Absolute working directory; never widens the grant (HTTP registration, pinned root or "
+    "MCP roots)."
 )
-LOG_FILES_DESC = 'Optional files touched, as a JSON array of paths, e.g. ["src/a.py"].'
-LOG_TAGS_DESC = 'Optional tags, as a JSON array of strings, e.g. ["bug", "fix"].'
 
 
 def unparsed_arg(schema_type: str, description: str, *, items: dict | None = None):

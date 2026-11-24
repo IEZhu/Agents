@@ -1,16 +1,21 @@
 import asyncio
+import hashlib
 import logging
 import os
 import tempfile
 import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple
+
+import numpy as np
 
 from src.engine.config import (
     ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL,
     KEYWORD_OVERRIDE_MIN_HITS, KEYWORD_UNIQUENESS_RATIO,
 )
-from src.engine.embedder import embed_query
+from src.engine.embedder import embed_query, embed_texts, is_loaded, model_fingerprint
 from src.engine.fingerprint import fingerprint
 from src.engine.vector_store import NumpyVectorStore
 from src.schemas.protocol import RouterDecision, AgentRequest
@@ -21,12 +26,41 @@ logger = logging.getLogger(__name__)
 
 ROUTER_CACHE_MAX_SIZE = 500
 KEYWORD_VETO_ROUTE_REQUIRED = "__ROUTE_REQUIRED__"
+# The embedded agent catalog cards are a derived index of the installation, like the skill and
+# implant stores: `python -m src.reindex` writes them into config.DATA_DIR, and every server reads
+# them there (#734). The router cache below is per server and lives in AGENTS_ROUTER_DATA_DIR.
+CARDS_DIR = DATA_DIR
+CARDS_HASH_FILE = ".agent_cards_hash"
+# A failed background build is retried after this long instead of never (#734).
+CARDS_RETRY_SECONDS = 300.0
 DATA_DIR = os.environ.get("AGENTS_ROUTER_DATA_DIR", DATA_DIR)
 _ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
 # Substring in the ValueError raised by NumpyVectorStore.query() when the
 # query vector and stored vectors disagree on dimensionality. Matched in
 # query_nearest() to trigger lazy self-heal.
 _DIM_MISMATCH_ERROR_FRAGMENT = "Dimension mismatch"
+# The embedded catalog cards the cold ranker compares a query with (#734).
+AGENT_CARDS_STORE = "agent_cards"
+
+
+@dataclass(frozen=True)
+class ColdRanking:
+    """Agents ranked for a query the semantic cache missed, best first (#734).
+
+    ``similarities`` holds each agent's cosine similarity to the query when the
+    catalog cards were embedded and is None for the keyword fallback, which lists
+    only the agents with a keyword hit and is empty when no keyword matched.
+    """
+
+    agents: List[str]
+    similarities: Optional[List[float]] = None
+
+    @property
+    def gap(self) -> Optional[float]:
+        """How far the first agent's similarity leads the second's; None without two."""
+        if self.similarities is None or len(self.similarities) < 2:
+            return None
+        return self.similarities[0] - self.similarities[1]
 
 
 class SemanticRouter:
@@ -54,6 +88,13 @@ class SemanticRouter:
         self.available_agents = self._scan_agents()
         self._agent_keywords: Dict[str, List[str]] = {}
         self._agent_descriptions = self._load_agent_descriptions()
+        # Loading reads two small files; nothing is embedded until a cold ranking asks.
+        self._cards = NumpyVectorStore(name=AGENT_CARDS_STORE, data_dir=CARDS_DIR)
+        self._cards_lock = threading.Lock()
+        # unchecked → ready, or building → ready | unavailable; unavailable is checked again
+        # once CARDS_RETRY_SECONDS have passed.
+        self._cards_state = "unchecked"
+        self._cards_retry_at = 0.0
 
     def _invalidate_on_model_change(self):
         """Clear router cache when the model name changes or the marker's
@@ -337,6 +378,137 @@ class SemanticRouter:
         if second_hits == 0 or (top_hits / max(second_hits, 1)) >= KEYWORD_UNIQUENESS_RATIO:
             return top_agent
         return KEYWORD_VETO_ROUTE_REQUIRED
+
+    # --- Cold ranking: a cache miss before any model has chosen (#734) -----------------
+
+    def agent_card(self, name: str) -> str:
+        """What the cold ranker embeds for an agent: display name, role, slash command, keywords."""
+        description = self._agent_descriptions.get(name, {})
+        parts = [description.get("display_name") or name, description.get("role", ""),
+                 description.get("trigger_command", ""), ", ".join(self._agent_keywords.get(name, []))]
+        return "\n".join(part for part in parts if part)
+
+    def _card_hashes(self) -> Dict[str, str]:
+        """Each agent's card hash under the loaded model; a stored vector with another is stale."""
+        model = model_fingerprint()
+        return {name: hashlib.sha256(f"{model}\n{self.agent_card(name)}".encode("utf-8")).hexdigest()
+                for name in self.available_agents}
+
+    def _cards_current(self) -> bool:
+        expected = self._card_hashes()
+        found = self._cards.get(list(expected))
+        return (self._cards.count() == len(found.ids) == len(expected)
+                and all(meta.get("card_hash") == expected[name]
+                        for name, meta in zip(found.ids, found.metadatas)))
+
+    def agent_cards_ready(self) -> bool:
+        """Whether the embedded catalog cards are current; the first check starts their build.
+
+        Only with the model already loaded: neither the check nor the build may load it on a
+        request. Until the build finishes, and for good after it failed, this answers False
+        and the cold ranking uses keyword hits alone.
+        """
+        if not is_loaded():
+            return False
+        with self._cards_lock:
+            if self._cards_state == "unavailable" and time.monotonic() >= self._cards_retry_at:
+                self._cards_state = "unchecked"
+            if self._cards_state == "unchecked":
+                if self._cards_current():
+                    self._cards_state = "ready"
+                else:
+                    self._cards_state = "building"
+                    self._start_card_build()
+            return self._cards_state == "ready"
+
+    def _start_card_build(self) -> None:
+        threading.Thread(target=self._build_cards_in_background, name="agent-cards",
+                         daemon=True).start()
+
+    def _build_cards_in_background(self) -> None:
+        try:
+            self.build_agent_cards()
+            state = "ready"
+        except Exception:
+            logger.warning("Could not embed the agent catalog cards; cold routing ranks by "
+                           "keywords until a retry", exc_info=True)
+            state = "unavailable"
+        with self._cards_lock:
+            self._cards_state = state
+            if state == "unavailable":
+                self._cards_retry_at = time.monotonic() + CARDS_RETRY_SECONDS
+
+    def build_agent_cards(self, *, persist: bool = False) -> None:
+        """Embed every agent's catalog card; ``persist`` writes them for the next process.
+
+        One card per inference call: the shared service runs every embedding on one worker,
+        and the whole catalog in one call would hold it for as long as all cards take (about
+        40 s for 46 cards on a busy machine), while single cards let other requests in between.
+        The hashes are taken after embedding, under the model that produced the vectors.
+
+        Only ``python -m src.reindex`` persists (#734): the cards live with the installation's
+        indexes, which several servers read at once, so a server that finds them missing or
+        stale builds its own copy in memory instead of writing a shared file.
+        """
+        names = list(self.available_agents)
+        cards = [self.agent_card(name) for name in names]
+        vectors = np.vstack([embed_texts([card])[0] for card in cards])
+        hashes = self._card_hashes()
+        self._cards.replace(ids=names, embeddings=vectors, documents=cards,
+                            metadatas=[{"card_hash": hashes[name]} for name in names])
+        if persist:
+            self._cards.save()
+            with open(os.path.join(CARDS_DIR, CARDS_HASH_FILE), "w", encoding="utf-8") as stream:
+                stream.write(self.cards_source_hash())
+
+    def cards_source_hash(self) -> str:
+        """What the persisted cards were built from: the model's fingerprint and every card's text.
+
+        model_fingerprint() names the model snapshot (read from the model cache before the model
+        is loaded), the same value each card's own hash carries, so a new snapshot under the same
+        model name rebuilds the persisted cards instead of leaving every server to rebuild a
+        private copy (#734 review).
+        """
+        digest = hashlib.sha256(model_fingerprint().encode("utf-8"))
+        for name in self.available_agents:
+            digest.update(f"\n{name}\n{self.agent_card(name)}".encode("utf-8"))
+        return digest.hexdigest()
+
+    def persisted_cards_current(self) -> bool:
+        """Whether the cards reindex wrote match the current catalog and configured model."""
+        try:
+            with open(os.path.join(CARDS_DIR, CARDS_HASH_FILE), encoding="utf-8") as stream:
+                stored = stream.read().strip()
+        except OSError:
+            return False
+        return stored == self.cards_source_hash() and self._cards.count() == len(self.available_agents)
+
+    def agent_card_count(self) -> int:
+        """How many catalog cards the store holds, current or not."""
+        return self._cards.count()
+
+    async def cold_ranking(self, query: str) -> ColdRanking:
+        """Rank agents for a query the semantic cache missed.
+
+        By the cosine similarity of the query to each agent's embedded catalog card when
+        those are current and the model is loaded, keyword hits breaking ties; otherwise by
+        keyword hits alone. An embedding failure falls back to the keyword ranking.
+        """
+        hits = dict(self.match_keywords(query))  # keeps match_keywords' order, best first
+        if not self.agent_cards_ready():
+            return ColdRanking(agents=list(hits))
+        try:
+            loop = asyncio.get_running_loop()
+            vector = await loop.run_in_executor(None, embed_query, query)
+            nearest = self._cards.query(query_embedding=vector, n_results=self._cards.count())
+        except Exception:
+            logger.warning("Cold embedding ranking failed; ranking by keywords", exc_info=True)
+            return ColdRanking(agents=list(hits))
+        ranked = sorted(((1.0 - distance, hits.get(name, 0), name)
+                         for name, distance in zip(nearest.ids, nearest.distances)),
+                        key=lambda entry: (-entry[0], -entry[1]))
+        return ColdRanking(agents=[name for _, _, name in ranked],
+                           similarities=[similarity for similarity, _, _ in ranked])
 
     async def query_nearest(
         self, query: str, context: Dict[str, Any] = None

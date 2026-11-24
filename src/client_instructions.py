@@ -3,10 +3,11 @@
 A client such as Claude Code or Codex loads an instruction file whose managed routing section
 the installers write from ``scripts/templates/routing-protocol-core.md``. When the workspace's
 own file holds the current template, the full server instructions repeat what the model already
-reads, so ``initialization_instructions`` keeps only what the file lacks and points to it. Any
-doubt (an unknown client, no workspace, an unknown physical checkout, a linked worktree whose
-file differs, worktrees that cannot be listed, a project override, a section Codex may cut off,
-a missing, unreadable or different section) keeps the full text.
+reads, so ``initialization_instructions`` keeps only what the file lacks and points to it, and a
+persona ``SUCCESS`` sends a pointer instead of the full instruction (``holds_current_section``,
+#734). Any doubt (an unknown client, no workspace, an unknown physical checkout, a linked
+worktree whose file differs, worktrees that cannot be listed, a project override, a section Codex
+may cut off, a missing, unreadable or different section) keeps the full text.
 
 ``drift_warnings`` names the managed sections the server can resolve that differ from this
 installation's template, with the command that refreshes each, so an outdated file is reported
@@ -41,9 +42,12 @@ LEGACY_END = "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
 # The file each managed client loads from the workspace root (src/daemon/clients.py APPS).
 WORKSPACE_FILES = {"claude-code": "CLAUDE.md", "codex": "AGENTS.md"}
-# The clients whose initialize answer may be the pointer. Claude Code shows only the first 4,096
-# characters of the instructions (2,048 before v2.1.296), which the full text and the pointer
-# spend alike, so it keeps the full text and takes no risk; Codex reads all of them.
+# The clients whose initialize answer and persona SUCCESS may be a pointer. Claude Code shows only
+# the first 4,096 characters of the instructions (2,048 before v2.1.296), which the full text and
+# the pointer spend alike, so it keeps the full text and takes no risk; Codex reads all of them.
+# Claude Code stays out of the persona pointer as well: `claude --bare` skips CLAUDE.md
+# auto-discovery yet still takes this server's entry, X-Agents-Client header included, through
+# `--mcp-config`, so a current CLAUDE.md does not show that the session read it (#734).
 POINTER_FILES = {"codex": "AGENTS.md"}
 # Codex reads at most this many bytes of a project AGENTS.md (its project_doc_max_bytes default,
 # recalled rather than read from Codex; a user setting may lower it). A section that ends later
@@ -259,37 +263,47 @@ def _session_checkouts(checkouts: Iterable[Path]) -> list[Path] | None:
     return list(dict.fromkeys(found))
 
 
-def initialization_instructions(full: str, context=None) -> str:
-    """``full``, or the pointer when every checkout's file for this client holds the current template.
+def holds_current_section(context=None) -> bool:
+    """Whether every checkout's file for this client holds the current template, so a pointer may stand in.
 
-    Only workspace files decide: they are the ones this client is known to load. Every checkout
-    the session may run in must hold it: the registered root, its physical grants and the linked
-    worktrees of their repositories, since a fixed identity serves a linked worktree whose own
-    file may differ from the main checkout's. A global file might belong to another profile than
-    the client's.
+    ``context`` defaults to the HTTP request's client; over stdio there is none and the answer is
+    False. Only workspace files decide: they are the ones this client is known to load. Every
+    checkout the session may run in must hold it: the registered root, its physical grants and the
+    linked worktrees of their repositories, since a fixed identity serves a linked worktree whose
+    own file may differ from the main checkout's. A global file might belong to another profile
+    than the client's. A failing check answers False.
     """
     context = REQUEST_CLIENT.get() if context is None else context
     client = getattr(context, "client", None)
     name = POINTER_FILES.get(client)
     root, grants = _root(context), _grants(context)
     if name is None or root is None or not grants:
-        return full
+        return False
     checkouts = list(dict.fromkeys([root, *grants]))
     try:
         sessions = _session_checkouts(checkouts)
         if sessions is None:
-            return full  # the linked worktrees cannot be listed
+            return False  # the linked worktrees cannot be listed
         infos = [section_info(checkout / name) for checkout in sessions]
         if any(info is None or info.state != "current" for info in infos):
-            return full
+            return False
         if client == "codex":
             if any(_nonempty(checkout / "AGENTS.override.md") for checkout in sessions):
-                return full  # Codex reads a project override instead of AGENTS.md
+                return False  # Codex reads a project override instead of AGENTS.md
             if any(info.end is None or info.end > CODEX_PROJECT_DOC_MAX_BYTES for info in infos):
-                return full  # Codex may cut the section off
-        return protocol_text.server_pointer()
-    except Exception:  # never fail an initialize over a pointer
+                return False  # Codex may cut the section off
+        return True
+    except Exception:  # never fail an initialize or an activation over a pointer
         logger.warning("Could not check the managed sections of %s", checkouts, exc_info=True)
+        return False
+
+
+def initialization_instructions(full: str, context=None) -> str:
+    """``full``, or the server pointer when ``holds_current_section`` holds for ``context``."""
+    try:
+        return protocol_text.server_pointer() if holds_current_section(context) else full
+    except Exception:  # never fail an initialize over a pointer
+        logger.warning("Could not render the server pointer", exc_info=True)
         return full
 
 

@@ -30,7 +30,8 @@ removed, renamed or reprioritized.
 ## Loading
 
 - Every protocol 2 persona bundle includes all enabled rules, whatever the agent
-  or tier, in `rules_block`, which follows `persona_block` and precedes the skill and
+  or tier (under the headless client profile, all but `agent-cooperation` and
+  `thread-status`, see below), in `rules_block`, which follows `persona_block` and precedes the skill and
   implant blocks. There is no semantic retrieval or index. The block states that a
   rule wins where persona, skill or implant text conflicts with it. The descriptor's
   `rules_loaded` and the footer's `Rules` list the rule names. The footer's last
@@ -50,6 +51,13 @@ removed, renamed or reprioritized.
 - `RULES_ENABLED=0` in the environment or the installation `.env` disables the
   layer for diagnostics: bundles carry an empty `rules_block`, and the footer shows
   `—` for `Rules`. See [environment variables](../docs/configuration.md#environment-variables).
+- Under the headless client profile (`AGENTS_CLIENT_PROFILE=headless`, for one-shot
+  runs with no chat UI and no peer sessions), bundles also leave out
+  `agent-cooperation` and `thread-status`, `HEADLESS_OMITTED_RULES` in
+  [`src/engine/rules.py`](../src/engine/rules.py), as if they were switched off in
+  the web UI: they leave `rules_block`, `rules_loaded` and the footer. A flow
+  persona's exact rule list and the per-query evaluation path are not affected.
+  See [environment variables](../docs/configuration.md#environment-variables).
 - With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`,
   tab *Rules*) can switch single rules off for the whole installation. A switched-off
   built-in rule leaves persona bundles and the footer unless a flow persona names it; its

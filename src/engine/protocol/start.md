@@ -6,7 +6,11 @@ activate a persona before the first final answer, including a greeting or a
 project-status question. Do this without waiting for the user to mention
 Agents-Core, a role, the footer, or logging. Load an explicitly requested known
 role with `get_agent_context`; otherwise call `route_and_load` with the user's
-request, `protocol_version=2` and `current_persona=null`.
+request, `protocol_version=2` and `current_persona=null`. When the client lists
+the Agents-Core tools as deferred, load `route_and_load`, `get_agent_context` and
+`log_interaction` together with one exact-name selection before the first call,
+instead of a keyword search; in Claude Code that is ToolSearch with `select:` and
+the three names exactly as the client lists them.
 
 The Claude desktop app adds its own `Agents-Core-Desktop` server to its Code
 sessions; Claude Code denies it there but may still list its tools. When both
@@ -25,6 +29,12 @@ that failure and follow the error or unavailable-MCP instructions below.
 
 <!-- variant: server -->
 Before the first final answer with MCP available and no prior activation, load an explicitly requested known role with get_agent_context, otherwise route_and_load with current_persona=null, even for greetings and project-status questions. Complete ROUTE_REQUIRED with get_agent_context in the same turn before answering; do not ask permission. Discovery and memory tools activate no persona. Report activation failures; follow the fallback below.
+
+<!-- variant: server-load -->
+When the client lists these tools as deferred, load route_and_load, get_agent_context and log_interaction with one exact-name selection before the first call (in Claude Code, ToolSearch select: with the names as listed), not a keyword search.
+
+<!-- variant: server-load-hook -->
+If these tools are deferred, select route_and_load and get_agent_context by their exact names in a single request before the first call; do not search by keyword.
 
 <!-- variant: memory -->
 The following activation and logging steps apply to ordinary conversations.

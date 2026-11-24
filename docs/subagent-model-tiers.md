@@ -226,19 +226,29 @@ evaluation that runs the same assignments per tier is separate work.
 
 ## Protocol text
 
-The delegation section, `src/engine/protocol/delegation.md`, gains one step in
-Delegated worker mode, and `python -m src.engine.protocol_text --write` renders it
-into every surface: the template `scripts/templates/routing-protocol-core.md`, the
-MCP initialization instructions, `APPLY_INSTRUCTION` and the memory reminder:
+The delegation section, `src/engine/protocol/delegation.md`, holds the steps that
+tiering adds. They no longer render into every surface: since #734 the always-on
+surfaces (the template `scripts/templates/routing-protocol-core.md`, the MCP
+initialization instructions, `APPLY_INSTRUCTION` and the memory reminder) state
+only the trigger, and the steps live in the descriptions of the two worker tools,
+which `protocol_text.tool_description` composes from `protocol_text.TOOL_PARTS`
+and which a client that defers tool definitions loads when it selects the tool.
+`python -m src.engine.protocol_text --write` regenerates the committed surfaces;
+the descriptions are built at import.
 
-- rate the assignment `complexity` (the three-line rubric) when preparing;
-- launch the worker with the `execution.spawn` arguments of the receipt (or of an
-  inline package); for Codex this
-  is the user's explicit request to set `model` and `reasoning_effort`;
-- on a returned `escalation`, prepare a new attempt at that complexity.
+- `get_subagent_context` (its `tool-prepare` variant): rate the assignment
+  `complexity` (low, standard or high, each with a one-line rubric) and pass `client`
+  when preparing, and launch the worker with the `execution.spawn` arguments of the
+  receipt (or of an inline package); for Codex this is the user's explicit request
+  to set `model` and `reasoning_effort`;
+- `validate_subagent_result` (its `tool-validate` variant): on a returned
+  `escalation`, prepare a new attempt at that complexity.
 
-The details live in the tool descriptions and the response, so sessions that never
-delegate do not pay for them.
+Sessions that never delegate do not pay for any of it, and a deferring client
+reads it only when it first selects the tool. A rule that must hold while MCP is
+unavailable, or for a worker that never loads these tools, stays on the always-on
+surfaces: the fallback when either endpoint is unavailable. The resolved tier,
+model, `spawn` arguments and escalation target are in the response.
 
 ## Tests
 

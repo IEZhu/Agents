@@ -489,7 +489,7 @@ async def test_legacy_client_call_with_context_hash_reaches_protocol_2_routing(m
 
     _, result = await server.mcp.call_tool("route_and_load", {"query": "SQL?", "context_hash": "0123abcd"})
 
-    assert json.loads(result["result"])["protocol_version"] == 2
+    assert result["protocol_version"] == 2
     route.assert_awaited_once()
     assert route.await_args.args[1] == "SQL?"
 
@@ -549,10 +549,12 @@ async def test_initialization_guidance_matches_success_payload(bundle):
     # actual wire payload.
     success = next(line for line in section.splitlines() if line.startswith("- SUCCESS →"))
     fields = set(re.findall(r"`(\w+)`", success))
-    assert fields <= current.keys()
+    # Only a SUCCESS that route_and_load resolved itself carries alternatives (#734);
+    # tests/test_cold_routing.py checks them on that payload.
+    assert fields - {"alternatives"} <= current.keys()
     assert fields == {
         "persona", "persona_block", "rules_block", "skills_block", "implants_block",
-        "replaces_activation_id", "footer",
+        "replaces_activation_id", "footer", "alternatives",
     }
     for removed in ("Version 1", "SUCCESS_SAMPLED", "system_prompt", "context_hash"):
         assert removed not in instructions
@@ -594,7 +596,7 @@ def test_first_work_bootstrap_reaches_mcp_only_clients():
         assert "prepared agents-core/subagent/1" in worker, surface
         assert "first-work repository description" in worker, surface
         assert "per-turn log_interaction" in worker, surface
-        assert "first time you read, search or change repository files" in ordinary, surface
+        assert "first time you read, search or change files in a repository or project folder" in ordinary, surface
         assert "call describe_repo with workspace and the target repo_path" in ordinary, surface
         assert "On needs_summary, follow its instruction" in ordinary, surface
         assert "call write_repo_summary only where that instruction allows a write" in ordinary, surface
