@@ -305,7 +305,7 @@ async def test_advertised_schemas_are_renderable():
         lists = {"skills_loaded", "implants_loaded", "rules_loaded"}
         assert {k: v["type"] for k, v in spec["properties"].items()} == {
             k: "array" if k in lists else "string" for k in keys}, (name, prop)
-        assert len(json.dumps(spec, separators=(",", ":"))) <= 400, (name, prop)
+        assert len(json.dumps(spec, separators=(",", ":"))) <= 480, (name, prop)
     log = schemas["log_interaction"]["properties"]
     for prop in ("persona", "persona_action", "files", "tags", "record"):
         assert log[prop]["description"]

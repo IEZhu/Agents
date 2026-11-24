@@ -19,16 +19,14 @@ from pydantic import BeforeValidator, WithJsonSchema
 
 _STR = {"type": "string"}
 _STRS = {"type": "array", "items": {"type": "string"}}
-# No per-field `items`: the lists hold strings, and the budget per tool is small.
-_LIST = {"type": "array"}
 PERSONA_PROPERTIES = {
     "agent": _STR,
     "activation_id": _STR,
     "bundle_revision": _STR,
     "scope": _STR,
-    "skills_loaded": _LIST,
-    "implants_loaded": _LIST,
-    "rules_loaded": _LIST,
+    "skills_loaded": _STRS,
+    "implants_loaded": _STRS,
+    "rules_loaded": _STRS,
 }
 
 
