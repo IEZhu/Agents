@@ -1,8 +1,11 @@
 """The runner: every scheduled attempt through the exchange, a canary probe before each batch.
 
 docs/verifier-accuracy-measurement.md, "The runs" and "Recording path". The schedule is two
-V3-arm slots per item and two V2-arm slots per item of the execution subset, shuffled so arms
-and items interleave. Before each batch a probe worker, launched exactly like a verifier,
+V3-arm slots per item and two V2-arm slots per item of the execution subset, in blocks: clusters
+in a seeded order, every slot of a cluster's items together. A run may stop at a stage, the
+complete clusters whose slots fit a run count, so a stage is a cluster sample of the set and its
+design effect estimates the whole set's; within what a run takes, slots are shuffled so arms and
+items interleave. Before each batch a probe worker, launched exactly like a verifier,
 tries to read the canary file; a read that succeeds, or a probe that never tried, stops the
 run. Every scheduled attempt gets one ``control_attempt`` line, including those a stop or the
 budget left unrun (``unfinished`` with a reason). Printed progress names item IDs and
@@ -46,11 +49,44 @@ class Slot:
         return (self.item, self.arm, self.slot)
 
 
+def _slots(row: dict) -> list[Slot]:
+    arms = ("V3", "V2") if row["v2"] else ("V3",)
+    return [Slot(row["item"], arm, number) for arm in arms for number in control.SLOTS]
+
+
 def schedule(statements: list[dict], seed: int) -> list[Slot]:
-    slots = [Slot(row["item"], "V3", number) for row in statements for number in control.SLOTS]
-    slots += [Slot(row["item"], "V2", number) for row in statements if row["v2"] for number in control.SLOTS]
-    random.Random(seed).shuffle(slots)
+    """Every slot of the set, cluster by cluster in a seeded order; statements only, never labels."""
+    rng = random.Random(seed)
+    clusters: dict[str, list[dict]] = {}
+    for row in sorted(statements, key=lambda row: row["item"]):
+        clusters.setdefault(row["cluster"], []).append(row)
+    names = sorted(clusters)
+    rng.shuffle(names)
+    slots = []
+    for name in names:
+        members = clusters[name]
+        rng.shuffle(members)
+        slots += [slot for row in members for slot in _slots(row)]
     return slots
+
+
+def stage(statements: list[dict], seed: int, runs: int | None) -> list[Slot]:
+    """The leading complete clusters of the schedule whose slots fit ``runs``; all of them for None."""
+    slots = schedule(statements, seed)
+    if runs is None:
+        return slots
+    cluster_of = {row["item"]: row["cluster"] for row in statements}
+    taken, current, block = [], None, []
+    for slot in slots + [None]:
+        cluster = None if slot is None else cluster_of[slot.item]
+        if cluster != current:
+            if len(taken) + len(block) > runs:
+                break
+            taken += block
+            current, block = cluster, []
+        if slot is not None:
+            block.append(slot)
+    return taken
 
 
 @dataclass
@@ -156,8 +192,8 @@ def record_probe(loaded: LoadedSet, result: ProbeResult, *, model: str, batch: i
 class Runner:
     def __init__(self, loaded: LoadedSet, launcher: Callable, *, concurrency: int = 4, batch_size: int = 20,
                  timeout: float = 900.0, max_total_usd: float = 40.0, seed: int = 0,
-                 prepare: Callable = worker.prepare, validate: Callable = worker.validate,
-                 log: Callable[[str], None] = print):
+                 stage_runs: int | None = None, prepare: Callable = worker.prepare,
+                 validate: Callable = worker.validate, log: Callable[[str], None] = print):
         self.loaded = loaded
         self.launcher = launcher
         self.concurrency = concurrency
@@ -165,6 +201,7 @@ class Runner:
         self.timeout = timeout
         self.max_total_usd = max_total_usd
         self.seed = seed
+        self.stage_runs = stage_runs
         self.prepare = prepare
         self.validate = validate
         self.log = log
@@ -270,7 +307,9 @@ class Runner:
         # and stays in the file, so the earlier stop remains on record.
         done = {(row["item"], row["arm"], row["slot"]) for row in self.recorder.recorded()
                 if not control.is_placeholder(row)}
-        pending = [slot for slot in schedule(list(self.loaded.statements.values()), self.seed) if slot.key not in done]
+        selected = stage(list(self.loaded.statements.values()), self.seed, self.stage_runs)
+        pending = [slot for slot in selected if slot.key not in done]
+        random.Random(self.seed).shuffle(pending)  # arms and items interleave within what this run takes
         probes = []
         for start in range(0, len(pending), self.batch_size):
             batch = pending[start:start + self.batch_size]
@@ -294,7 +333,7 @@ class Runner:
                 for slot in pending[start + self.batch_size:]:  # every scheduled attempt keeps a record
                     self._write({**self._base(slot), "reason": "runner_stopped"})
                 raise
-        return {"scheduled": len(done) + len(pending), "run": len(pending), "probes": probes,
+        return {"scheduled": len(selected), "run": len(pending), "probes": probes,
                 "spent_usd": round(self.spent, 4)}
 
     def _run_batch(self, batch: list[Slot]) -> None:

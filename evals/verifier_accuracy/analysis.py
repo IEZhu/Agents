@@ -10,7 +10,10 @@ point estimates under cluster resampling over their variance under item resampli
 below 1, and the mean cluster size when either variance is zero; the coverage simulation
 raises a floor under it until every band holds its level. Bands are marginal quantiles:
 0.00625/0.99375 at the final look (Bonferroni over c_model, b_V3, c_execution, b_V2) and
-0.0005/0.9995 at the interim look. The symmetry, independence and per-stratum checks use
+0.0005/0.9995 at the interim look. The planning look, after a first stage of the run, reports
+the final look's bands with no replacement-rule case at all, and projects what the whole set
+would show: the full design simulated at values drawn from the stage's posterior, with the
+stage's design effect and verdict yield. The symmetry, independence and per-stratum checks use
 plain 95 % bands and produce findings for the owner, never values. Nothing here writes to
 `src/claims/model.py` or the claim store.
 """
@@ -23,9 +26,11 @@ import statistics
 
 import numpy as np
 
+from evals.verifier_accuracy.control import SLOTS, is_placeholder
 from src.claims import model as claims_model
 
-QUANTILES = {"final": (0.00625, 0.99375), "interim": (0.0005, 0.9995)}
+QUANTILES = {"final": (0.00625, 0.99375), "interim": (0.0005, 0.9995), "planning": (0.00625, 0.99375)}
+SIMULATED_LOOKS = ("final", "interim")  # the planning look applies nothing, so no floor is calibrated for it
 PLAIN = (0.025, 0.975)
 NARROW = 0.03
 FAMILY_LEVEL = {"model": "V3", "execution": "V2"}
@@ -56,10 +61,13 @@ class Grid:
         index = np.argmax(counts @ self.terms, axis=1)
         return np.stack([self.c[index // len(self.b)], self.b[index % len(self.b)]], axis=1)
 
-    def marginals(self, counts: np.ndarray, design_effect: float) -> tuple[np.ndarray, np.ndarray]:
+    def posterior(self, counts: np.ndarray, design_effect: float) -> np.ndarray:
         log = (counts @ self.terms) / design_effect
         weights = np.exp(log - log.max()).reshape(len(self.c), len(self.b))
-        weights /= weights.sum()
+        return weights / weights.sum()
+
+    def marginals(self, counts: np.ndarray, design_effect: float) -> tuple[np.ndarray, np.ndarray]:
+        weights = self.posterior(counts, design_effect)
         return weights.sum(axis=1), weights.sum(axis=0)
 
 
@@ -119,6 +127,8 @@ def design_effect(units: list[Unit], coarse: Grid, rng: np.random.Generator, res
 
 def _rule(look: str, prior: float, estimate: float, low: float, high: float) -> dict:
     """Which of the replacement rule's four cases the band falls in; a finding, nothing applied."""
+    if look == "planning":  # a stage decides whether to go on, never what a value should be
+        return {"rule": None, "proposed": None}
     narrow = (high - low) / 2 <= NARROW
     if look == "interim":
         return {"rule": 3, "proposed": high} if high < prior else {"rule": None, "proposed": None}
@@ -419,13 +429,18 @@ def analyze(rows: list[dict], statements: dict[str, dict], *, look: str = "final
 
 
 def _simulated_units(c: float, b: float, cluster_sizes: list[int], rng: np.random.Generator,
-                     verdicts: int = 2) -> list[Unit]:
+                     verdicts: int = 2, verdict_yield: float = 1.0) -> list[Unit]:
+    """Independent items in the given clusters; below a yield of 1 each verdict is lost with
+    probability 1 − yield, and an item left with none is dropped, as an invalid run is."""
     units = []
     for index, size in enumerate(cluster_sizes):
         right = rng.random(size) < c
         correct_probability = np.where(right, b, 1 - b)
-        hits = (rng.random((size, verdicts)) < correct_probability[:, None]).sum(axis=1)
-        units += [Unit(f"s{index}-{j}", f"k{index}", True, verdicts, int(hit)) for j, hit in enumerate(hits)]
+        hit = rng.random((size, verdicts)) < correct_probability[:, None]
+        kept = (np.ones((size, verdicts), dtype=bool) if verdict_yield >= 1.0
+                else rng.random((size, verdicts)) < verdict_yield)
+        units += [Unit(f"s{index}-{j}", f"k{index}", True, int(n), int(r))
+                  for j, (n, r) in enumerate(zip(kept.sum(axis=1), (hit & kept).sum(axis=1))) if n]
     return units
 
 
@@ -498,3 +513,87 @@ def calibrate(planned: list[dict], *, sets: int | None = None, resamples: int = 
         if floor * step > ceiling:
             return {"d_floor": round(floor, 4), "look": look, "held": False, "scenarios": results}
         floor *= step
+
+
+# --- Projection from a stage ------------------------------------------------------------------
+
+
+def ran(rows: list[dict]) -> list[dict]:
+    """Each slot's latest row, where an attempt was launched: a placeholder never ran."""
+    return [row for row in effective(rows) if not is_placeholder(row)]
+
+
+def stage_yield(rows: list[dict], family: str) -> float | None:
+    """Of the launched slots of the family's arm, the share that became a usable verdict at the
+    family's level; invalid results, unfinished runs and a V3-arm verdict filed as unsupported
+    (or a V2-arm one filed at V1) all lower it. Pooled over configurations."""
+    level = FAMILY_LEVEL[family]
+    launched = [row for row in ran(rows) if row["arm"] == level]
+    if not launched:
+        return None
+    return sum(1 for row in usable(launched) if row["level"] == level) / len(launched)
+
+
+def project(stage_fit: dict, units: list[Unit], *, family: str, cluster_sizes: list[int], verdict_yield: float,
+            d_floor: float, sets: int, resamples: int, rng: np.random.Generator, grid: Grid,
+            coarse: Grid) -> dict:
+    """What the whole set would show: the full design simulated at (c, b) drawn from the stage's
+    posterior, under the larger of the calibrated floor and the stage's own design effect."""
+    floor = max(d_floor, stage_fit["design_effect"]["D"])
+    weights = grid.posterior(counts(units), stage_fit["design_effect"]["used"]).ravel()
+    drawn = rng.choice(len(weights), size=sets, p=weights)
+    widths = {"c": [], "b": []}
+    rules = {"c": Counter(), "b": Counter()}
+    for index in drawn:
+        c, b = float(grid.c[index // len(grid.b)]), float(grid.b[index % len(grid.b)])
+        result = fit(_simulated_units(c, b, cluster_sizes, rng, verdict_yield=verdict_yield), family=family,
+                     look="final", grid=grid, coarse=coarse, rng=rng, resamples=resamples, d_floor=floor)
+        for name in ("c", "b"):
+            parameter = result["parameters"][name]
+            widths[name].append(parameter["half_width"])
+            rules[name][str(parameter["rule"])] += 1
+    out = {"items": sum(cluster_sizes), "clusters": len(cluster_sizes), "verdict_yield": round(verdict_yield, 4),
+           "d_floor": round(floor, 4), "sets": sets}
+    for name in ("c", "b"):
+        values = np.array(widths[name])
+        out[name] = {"stage_median": stage_fit["parameters"][name]["median"],
+                     "half_width": {"median": round(float(np.median(values)), 4),
+                                    "p10": round(float(np.quantile(values, 0.1)), 4),
+                                    "p90": round(float(np.quantile(values, 0.9)), 4)},
+                     "narrow_share": round(float(np.mean(values <= NARROW)), 4),
+                     "rule_shares": {rule: round(count / sets, 4) for rule, count in sorted(rules[name].items())}}
+    return out
+
+
+def planning(rows: list[dict], statements: dict[str, dict], report: dict, *, d_floor: float, sets: int = 200,
+             resamples: int = 100, seed: int = 0, grid: Grid | None = None, coarse: Grid | None = None) -> dict:
+    """The planning look's projection for every family of every configuration, plus the cost of
+    the slots the stage left: aggregates only."""
+    rng = np.random.default_rng(seed)
+    grid, coarse = grid or Grid(), coarse or Grid(100, 200)
+    clusters = {item: row["cluster"] for item, row in statements.items()}
+    fitted = usable(effective(rows))
+    sizes = {"model": Counter(row["cluster"] for row in statements.values()),
+             "execution": Counter(row["cluster"] for row in statements.values() if row["v2"])}
+    yields = {family: stage_yield(rows, family) for family in FAMILY_LEVEL}
+    projections = []
+    for entry in report["configurations"]:
+        key = tuple(entry["configuration"][name] for name in CONFIG_KEYS)
+        families = {}
+        for family, subsets in entry["families"].items():
+            stage_fit = subsets["all"]
+            units = family_units([row for row in fitted if configuration(row) == key], family, clusters)[0].get(key, [])
+            verdict_yield = yields[family]
+            if not units or not verdict_yield:
+                continue
+            families[family] = project(stage_fit, units, family=family, cluster_sizes=sorted(sizes[family].values()),
+                                       verdict_yield=verdict_yield, d_floor=d_floor, sets=sets, resamples=resamples,
+                                       rng=rng, grid=grid, coarse=coarse)
+        projections.append({"configuration": entry["configuration"], "families": families})
+    launched = len(ran(rows))
+    total = sum(len(SLOTS) * (2 if row["v2"] else 1) for row in statements.values())
+    mean = report["cost"]["all_runs"].get("mean_usd")
+    return {"projections": projections, "yields": {family: None if value is None else round(value, 4)
+                                                   for family, value in yields.items()},
+            "slots": {"set": total, "launched": launched, "remaining": total - launched},
+            "remaining_usd": None if mean is None else round(mean * (total - launched), 2)}

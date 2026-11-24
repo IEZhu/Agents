@@ -8,8 +8,10 @@ output without unblinding itself.
   build      export the pinned commit and write a new set into the control directory
   simulate   coverage simulation at the priors and at b = 0.995; sets the floor under D
   probe      one canary probe: a sandboxed worker must fail to read the canary file
-  run        every scheduled attempt not yet recorded, a probe before each batch
-  analyze    the report: fits per configuration and family, checks, strata, cost
+  run        every scheduled attempt not yet recorded, a probe before each batch;
+             --stage-runs stops at the leading complete clusters that fit
+  analyze    the report: fits per configuration and family, checks, strata, cost;
+             --look planning adds the projection of the whole set from a stage
   status     attempt counts and cost so far
   discard    move the current set aside inside the control directory
 """
@@ -114,7 +116,7 @@ def run(arguments) -> int:
     worker_runner = runner.Runner(loaded, _launcher(arguments, loaded), concurrency=arguments.concurrency,
                                   batch_size=arguments.batch_size, timeout=arguments.timeout,
                                   max_total_usd=arguments.max_total_usd, seed=arguments.seed,
-                                  log=lambda line: print(line, flush=True))
+                                  stage_runs=arguments.stage_runs, log=lambda line: print(line, flush=True))
     _print(worker_runner.run())
     return 0
 
@@ -136,6 +138,9 @@ def analyze(arguments) -> int:
                               seed=arguments.seed, resamples=arguments.resamples, probes=probes)
     report["set"] = loaded.set_id
     report["simulation_held"] = simulation.get("held")
+    if arguments.look == "planning":
+        report["planning"] = analysis.planning(rows, loaded.statements, report, d_floor=simulation["d_floor"],
+                                               sets=arguments.projection_sets, seed=arguments.seed)
     if arguments.output:
         Path(arguments.output).write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n",
                                           encoding="utf-8")
@@ -181,7 +186,7 @@ def parser() -> argparse.ArgumentParser:
                             help="Simulated sets per scenario; by default 1000 for the final look and 8080 "
                                  "for the interim one, whose 99.9 %% level needs at least 4040.")
     simulating.add_argument("--resamples", type=int, default=200)
-    simulating.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
+    simulating.add_argument("--look", choices=analysis.SIMULATED_LOOKS, default="final")
     simulating.add_argument("--seed", type=int, default=0)
     simulating.add_argument("--plan-items", type=int, help="Simulate a planned design instead of the current set.")
     simulating.add_argument("--plan-v2-items", type=int, default=200)
@@ -201,6 +206,9 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--batch-size", type=int, default=20)
             command.add_argument("--max-total-usd", type=float, default=40.0)
             command.add_argument("--seed", type=int, default=0)
+            command.add_argument("--stage-runs", type=int,
+                                 help="Stop at the leading complete clusters of the schedule whose slots fit "
+                                      "this many runs; a later run with a larger value or none continues.")
             command.add_argument("--pipeline-check", action="store_true",
                                  help="Run although the coverage simulation did not hold: a check of the "
                                       "runner whose bands are not a measurement.")
@@ -209,6 +217,8 @@ def parser() -> argparse.ArgumentParser:
     analyzing.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
     analyzing.add_argument("--seed", type=int, default=0)
     analyzing.add_argument("--resamples", type=int, default=400)
+    analyzing.add_argument("--projection-sets", type=int, default=200,
+                           help="Simulated whole sets behind the planning look's projection.")
     analyzing.add_argument("--output", help="Also write the report (aggregates only) to this file.")
     analyzing.set_defaults(handler=analyze)
 
