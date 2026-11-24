@@ -98,7 +98,9 @@ def test_malformed_input_exits_zero_without_writing(switches, project, monkeypat
 
 def test_a_malformed_transcript_writes_nothing(switches, project, tmp_path):
     transcript = tmp_path / "broken.jsonl"
-    transcript.write_text('{"type":"user"\nnot json\n[1, 2]\n{"type": "assistant", "message": 7}\n', encoding="utf-8")
+    transcript.write_text('{"type":"user"\nnot json\n[1, 2]\n{"type": "assistant", "message": 7}\n'
+                          '{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": ["t"]}]}}\n',
+                          encoding="utf-8")
     assert hook.record_turn(stop_event(project, transcript))["status"] == "skipped"
     assert not (project / "history.md").exists()
 

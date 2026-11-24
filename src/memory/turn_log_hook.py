@@ -163,7 +163,7 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
         elif record.get("type") == "user":
             for block in content if isinstance(content, list) else []:
                 if not (isinstance(block, dict) and block.get("type") == "tool_result"
-                        and block.get("tool_use_id") in tools):
+                        and isinstance(block.get("tool_use_id"), str) and block["tool_use_id"] in tools):
                     continue
                 response = _tool_payload(block)
                 if (response is not None and response.get("status") in PERSONA_STATUSES
