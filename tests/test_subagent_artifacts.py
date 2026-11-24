@@ -263,9 +263,10 @@ def test_a_worker_without_a_manifest_still_gets_the_output_artifact_rule(artifac
     destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     package = prepare_subagent(request(max_context_chars=64000))
     assert isinstance(package, PreparedPackage), package
-    for text in ("Output artifacts only when the scope authorizes them", "artifact_publish",
-                 "artifact_manifest_create", "artifact://<manifest_id>/<manifest_sha256>/<artifact_id>",
-                 "keep that manifest active", "leave the parent's input manifest untouched"):
+    for text in ("report a file by its path", "Publish to the artifact store only text the scope authorizes",
+                 "artifact_publish", "artifact_manifest_create", "(32 entries each)",
+                 "artifact://<manifest_id>/<manifest_sha256>/<artifact_id>", "keep those manifests active",
+                 "leave the parent's input manifest untouched"):
         assert text in package.worker_context, text
     assert subagent.ARTIFACT_WORKER_RULE_ID not in package.descriptor.rules_loaded
     assert "artifact_read(" not in package.worker_context

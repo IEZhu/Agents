@@ -127,6 +127,23 @@ def test_the_prompt_id_selects_the_hooks_own_turn(switches, project):
     assert entry.action.endswith("action=switch")  # activated in that turn
 
 
+def test_a_prompt_id_missing_from_the_transcript_logs_nothing(switches, project, tmp_path):
+    """#734 review: the hook's prompt not yet written must not lend an earlier prompt its answer."""
+    transcript = write_transcript(tmp_path / "t.jsonl", ("route_and_load", {"query": "x"}))
+    result = hook.record_turn(stop_event(project, transcript, prompt_id="p3",
+                                         last_assistant_message="The third answer."))
+    assert result == {"status": "skipped", "reason": "no_prompt"}
+    assert not (project / "history.md").exists()
+    assert hook.read_turn(transcript.read_text(encoding="utf-8").splitlines(), "p3") is None
+
+
+def test_a_transcript_without_prompt_ids_still_falls_back_to_its_last_prompt(tmp_path):
+    rows = [{"type": "user", "message": {"role": "user", "content": "only question"}},
+            {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "Only."}]}}]
+    lines = [json.dumps(row) for row in rows]
+    assert hook.read_turn(lines, "p9").prompt == "only question"
+
+
 def write_transcript(path, persona_call, status="SUCCESS", activate_in_turn=True):
     """A two-turn transcript whose activation is ``persona_call`` (tool name, input)."""
     tool, arguments = persona_call

@@ -173,13 +173,16 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     """The last turn of a Claude Code transcript, given its lines; None without a prompt.
 
     With ``prompt_id`` (the hook input's), the turn starts at the first prompt row carrying that
-    ``promptId`` and ends before a later prompt; without it, or when no row carries it, the
-    last prompt row starts it. Sidechain rows are skipped.
+    ``promptId`` and ends before a later prompt. Without it, or in a transcript whose prompt rows
+    carry no ``promptId`` at all (an older client), the last prompt row starts it. A ``prompt_id``
+    that the transcript's ids do not include gives None: the hook's own prompt is not written
+    yet, and an earlier prompt must not take its answer (#734 review). Sidechain rows are skipped.
     """
     from src.engine.subagent_exchange import final_message
 
     tools: dict[str, tuple[str, dict]] = {}
     prompt = start = matched = None
+    prompt_ids = False
     persona = None  # (descriptor, status, tool, arguments, row)
     answer_lines: list[str] = []
     for row, line in enumerate(lines):
@@ -193,6 +196,7 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
             continue
         starts, text = _turn_start(record)
         if starts:
+            prompt_ids = prompt_ids or isinstance(record.get("promptId"), str)
             own = prompt_id is not None and record.get("promptId") == prompt_id
             if matched and not own:
                 break  # the hook's own turn ended before this prompt
@@ -222,6 +226,8 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                         and isinstance(response.get("persona"), dict)):
                     tool, arguments = tools[block["tool_use_id"]]
                     persona = (response["persona"], response["status"], tool, arguments, row)
+    if prompt_id is not None and prompt_ids and not matched:
+        return None
     if not prompt:
         return None  # no prompt, or a turn whose prompt has no text: nothing to attribute it to
     descriptor = action = None
