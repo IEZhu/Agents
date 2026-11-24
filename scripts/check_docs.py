@@ -106,6 +106,12 @@ def declared_tools(root: Path) -> set[str]:
                     name = next((kw.value.value for kw in decorator.keywords
                                  if kw.arg == "name" and isinstance(kw.value, ast.Constant)), node.name)
                     names.add(name)
+                # protocol_tool("name") registers a tool whose description carries a protocol
+                # procedure (#734); it wraps mcp.tool, so the name is its first argument.
+                elif (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Name)
+                        and decorator.func.id == "protocol_tool" and decorator.args
+                        and isinstance(decorator.args[0], ast.Constant)):
+                    names.add(decorator.args[0].value)
     # These two registrars use add_tool in a loop, not decorators in server.py.
     for filename, variable in [("src/local_inference/tools.py", "TOOL_NAMES"),
                                ("src/artifacts/service.py", "REQUEST_MODELS")]:
