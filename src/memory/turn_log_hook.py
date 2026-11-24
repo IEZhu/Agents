@@ -56,18 +56,17 @@ EXTRA_SECRET_PATTERNS = (
     re.compile(r"\b(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\b(aws_secret_access_key\s*[=:]\s*[\"']?)[A-Za-z0-9/+=]{30,}"),
     # The whole value under a secret-bearing key, quoted or not, however short (#734 review). A
-    # quoted value runs to its own closing quote: the other quote character and escaped quotes
-    # are part of it.
-    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*\")(?:[^\"\\\n]|\\.)+" % SECRET_KEYS),
-    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*')(?:[^'\\\n]|\\.)+" % SECRET_KEYS),
+    # quoted value runs to its own closing quote, across lines: the other quote character and
+    # escaped quotes are part of it, and an unclosed one masks the rest of the text.
+    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*\")(?:[^\"\\]|\\[\s\S])+" % SECRET_KEYS),
+    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*')(?:[^'\\]|\\[\s\S])+" % SECRET_KEYS),
     re.compile(r"(?i)(\b(?:%s)\s*[=:]\s*)(?![\"'])[^\s,;}&\"']+" % SECRET_KEYS),
 )
 # A 43-character URL-safe token (secrets.token_urlsafe(32), the form of a cooperation capability)
-# in prose, without a key (#734 review). Such a token may lack a digit or either case, so every
-# one is masked except a lowercase hex string, which is a digest; an identifier of exactly this
-# length is masked too, a loss the journal accepts.
+# in prose, without a key (#734 review). Any mix of its characters is a valid encoding, so every
+# such run is masked; an identifier of exactly this length is masked too, a loss the journal
+# accepts. Git object names (40) and SHA-256 digests (64) have other lengths and stay.
 RANDOM_TOKEN = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])")
-HEX_DIGEST = re.compile(r"[0-9a-f]+")
 HOST_ROW = re.compile(r"Stop hook (?:feedback|blocking error)|\[Request interrupted by user")
 # The line log_interaction's timestamp would add (``YYYY.MM.DD HH:MM:SS``), never part of the outcome.
 TIME_LINE = re.compile(r"\A\s*\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}[ \t]*\r?\n")
@@ -173,16 +172,14 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     """The last turn of a Claude Code transcript, given its lines; None without a prompt.
 
     With ``prompt_id`` (the hook input's), the turn starts at the first prompt row carrying that
-    ``promptId`` and ends before a later prompt. Without it, or in a transcript whose prompt rows
-    carry no ``promptId`` at all (an older client), the last prompt row starts it. A ``prompt_id``
-    that the transcript's ids do not include gives None: the hook's own prompt is not written
-    yet, and an earlier prompt must not take its answer (#734 review). Sidechain rows are skipped.
+    ``promptId`` and ends before a later prompt; without it, the last prompt row starts it. A
+    ``prompt_id`` that no row carries gives None: the hook's own prompt may not be written yet,
+    and an earlier prompt must not take its answer (#734 review). Sidechain rows are skipped.
     """
     from src.engine.subagent_exchange import final_message
 
     tools: dict[str, tuple[str, dict]] = {}
     prompt = start = matched = None
-    prompt_ids = False
     persona = None  # (descriptor, status, tool, arguments, row)
     answer_lines: list[str] = []
     for row, line in enumerate(lines):
@@ -196,7 +193,6 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
             continue
         starts, text = _turn_start(record)
         if starts:
-            prompt_ids = prompt_ids or isinstance(record.get("promptId"), str)
             own = prompt_id is not None and record.get("promptId") == prompt_id
             if matched and not own:
                 break  # the hook's own turn ended before this prompt
@@ -226,7 +222,7 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                         and isinstance(response.get("persona"), dict)):
                     tool, arguments = tools[block["tool_use_id"]]
                     persona = (response["persona"], response["status"], tool, arguments, row)
-    if prompt_id is not None and prompt_ids and not matched:
+    if prompt_id is not None and not matched:
         return None
     if not prompt:
         return None  # no prompt, or a turn whose prompt has no text: nothing to attribute it to
@@ -315,12 +311,7 @@ def _masked(text: str, mask) -> str:
     text = mask(text)
     for pattern in EXTRA_SECRET_PATTERNS:
         text = pattern.sub(lambda match: match[1] + "***", text)
-    return RANDOM_TOKEN.sub(_mask_random_token, text)
-
-
-def _mask_random_token(match) -> str:
-    token = match[0]
-    return token if HEX_DIGEST.fullmatch(token) else "***"
+    return RANDOM_TOKEN.sub("***", text)
 
 
 def main(argv=None) -> int:

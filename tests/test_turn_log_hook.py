@@ -137,11 +137,12 @@ def test_a_prompt_id_missing_from_the_transcript_logs_nothing(switches, project,
     assert hook.read_turn(transcript.read_text(encoding="utf-8").splitlines(), "p3") is None
 
 
-def test_a_transcript_without_prompt_ids_still_falls_back_to_its_last_prompt(tmp_path):
+def test_without_a_prompt_id_the_last_prompt_starts_the_turn_and_with_one_it_must_match():
     rows = [{"type": "user", "message": {"role": "user", "content": "only question"}},
             {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "Only."}]}}]
     lines = [json.dumps(row) for row in rows]
-    assert hook.read_turn(lines, "p9").prompt == "only question"
+    assert hook.read_turn(lines).prompt == "only question"
+    assert hook.read_turn(lines, "p9") is None  # #734 review: no fallback for an unmatched id
 
 
 def write_transcript(path, persona_call, status="SUCCESS", activate_in_turn=True):
@@ -349,12 +350,11 @@ def test_the_hook_masks_common_secret_formats(secret, kept):
     assert secret[len(kept):].rstrip('"') not in masked
 
 
-def test_a_bare_capability_in_prose_is_masked_and_a_hex_digest_is_not():
+def test_a_bare_capability_in_prose_is_masked_and_commit_and_digest_hashes_are_not():
     from src.schedules.records import mask
-    capability = FAKE_CAPABILITY
-    digest = "a3f1c2" * 7 + "a"
-    masked = hook._masked(f"use {capability} and commit {digest}", mask)
-    assert capability not in masked and digest in masked
+    commit, digest = "a3f1c2" * 6 + "a3f1", "b7" * 32
+    masked = hook._masked(f"use {FAKE_CAPABILITY} at commit {commit} with digest {digest}", mask)
+    assert FAKE_CAPABILITY not in masked and commit in masked and digest in masked
 
 
 @pytest.mark.parametrize("token", [
@@ -362,6 +362,7 @@ def test_a_bare_capability_in_prose_is_masked_and_a_hex_digest_is_not():
     "q7" * 21 + "z",    # no uppercase
     "Q7" * 21 + "Z",    # no lowercase
     "Ab_-" * 10 + "Cde",  # no digit, with the URL-safe punctuation
+    "a" * 42 + "0",     # lowercase hex only
 ])
 def test_a_capability_missing_a_character_class_is_still_masked(token):
     """#734 review: secrets.token_urlsafe(32) can lack a digit or a case."""
@@ -375,6 +376,8 @@ def test_a_capability_missing_a_character_class_is_still_masked(token):
     ('{"password":"ab\\"cd456 tail"}', "cd456"),
     ("password='x\"yz789 tail'", "yz789"),
     ("token: 'it\\'s-sec456'", "s-sec456"),
+    ('password="abc\ndef456" after', "def456"),
+    ("password='abc\ndef456' after", "def456"),
 ])
 def test_a_quoted_secret_is_masked_up_to_its_own_closing_quote(text, leak):
     """#734 review: the other quote character or an escaped quote must not end the value."""
