@@ -162,6 +162,11 @@ class TestDerivedAliases:
         assert report.derive_aliases(["ccd-session.mark-chapter", "other.mark-chapter", "mark-chapter",
                                       "claude-md.mark-chapter"], CATALOGUE) == {}
 
+    def test_a_slug_with_more_than_one_dot_is_neither_a_target_nor_derived(self):
+        """The schema accepts ``foo.bar.baz``; step 4.2 never writes it, so nothing merges through it."""
+        assert report.derive_aliases(["foo.bar.baz", "claude-md.bar.baz", "bar.baz", "rule.x", "claude-md.rule.x",
+                                      "memory.a.x"], CATALOGUE) == {}
+
     def test_a_bare_catalogue_slug_or_cooperation_clause_is_canonical_as_it_stands(self):
         written = ["rule.history", "history", "ccd-x.log", "log", "rule.cooperation-claim", "cooperation-claim",
                    "rule.cooperation", "cooperation"]

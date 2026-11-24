@@ -132,6 +132,16 @@ def catalogue_slugs(flow: Path | None = None) -> frozenset[str]:
     return slugs
 
 
+def _two_parts(slug: str) -> tuple[str, str] | None:
+    """The first and second part of a slug with exactly one dot, or None for any other slug.
+
+    The record schema also accepts slugs with several dots, which step 4.2 never writes, so
+    such a slug takes no part in derivation either way.
+    """
+    first, dot, part = slug.partition(".")
+    return (first, part) if dot and "." not in part else None
+
+
 def derive_aliases(slugs: Iterable[str], catalogue: frozenset[str]) -> dict[str, tuple[str, str]]:
     """Each old spelling among ``slugs`` with the canonical slug it is read under and the alias kind.
 
@@ -139,22 +149,27 @@ def derive_aliases(slugs: Iterable[str], catalogue: frozenset[str]) -> dict[str,
     and so is a bare catalogue slug or cooperation clause. A bare slug or a
     ``<source>.<part>`` spelling is derived only when exactly one canonical two-part slug
     ends in that part, among those written and the table's targets: two such slugs are two
-    rules, so their shared part stays as written. A bare ``cooperation`` is left to
-    ``read_as``, since its clause depends on the close.
+    rules, so their shared part stays as written. A slug with more than one dot is neither a
+    target nor derived. A bare ``cooperation`` is left to ``read_as``, since its clause
+    depends on the close.
     """
     written = set(slugs)
     by_part: dict[str, set[str]] = {}
     for slug in written | set(ALIAS_TABLE.values()):
-        first, dot, part = slug.partition(".")
-        if dot and first not in INSTRUCTION_SOURCES:
-            by_part.setdefault(part, set()).add(slug)
+        parts = _two_parts(slug)
+        if parts and parts[0] not in INSTRUCTION_SOURCES:
+            by_part.setdefault(parts[1], set()).add(slug)
     bare_canonical = catalogue | CLAUSE_SLUGS | {COOPERATION}
     aliases = {slug: (ALIAS_TABLE[slug], TABLE) for slug in written if slug in ALIAS_TABLE}
     for slug in written - aliases.keys():
-        first, dot, part = slug.partition(".")
-        if (dot and first not in INSTRUCTION_SOURCES) or (not dot and slug in bare_canonical):
+        parts = _two_parts(slug)
+        if "." not in slug and slug not in bare_canonical:
+            part = slug
+        elif parts and parts[0] in INSTRUCTION_SOURCES:
+            part = parts[1]
+        else:
             continue
-        targets = by_part.get(part if dot else slug, set())
+        targets = by_part.get(part, set())
         if len(targets) == 1:
             aliases[slug] = (next(iter(targets)), DERIVED)
     return aliases
