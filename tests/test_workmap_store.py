@@ -1136,6 +1136,10 @@ RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "status": "vali
     {"op": "update_node", "id": "a", "status": "planned", "reason": "No reason needed", "rev": 4},
     {"op": "update_node", "id": "a", "reason": "Without a status", "rev": 4},
     {"op": "add_edge", "from": "a", "to": "a", "type": "depends_on", "rev": 4},
+    # workmap_update refuses an edge from a node to itself whatever its type.
+    {"op": "add_edge", "from": "a", "to": "a", "type": "verifies", "rev": 4},
+    {"op": "add_edge", "from": "a", "to": "a", "type": "supersedes", "rev": 4},
+    {"op": "add_edge", "from": "a", "to": "a", "type": "contradicts", "rev": 4},
     {"op": "verdict", "id": "a", "status": "verified", "rev": 4},
     # record_invalid writes no status below the limit, and nothing but needs_attention at it.
     {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": [], "status": "accepted", "rev": 4},

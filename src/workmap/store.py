@@ -249,10 +249,13 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if op == "remove_edge":
             if edge not in workmap.edges:
                 raise ValueError("remove_edge of a missing edge")
+        # _parent_event's rules for add_edge: no edge from a node to itself, of any type; no
+        # duplicate; and a depends_on edge neither onto a goal nor closing a cycle.
+        elif source == target:
+            raise ValueError(f"{kind} edge from a node to itself")
         elif edge in workmap.edges:
             raise ValueError("duplicate edge")
-        elif kind == "depends_on" and (source == target or workmap.nodes[target]["kind"] == "goal"
-                                       or _reaches(workmap, target, source)):
+        elif kind == "depends_on" and (workmap.nodes[target]["kind"] == "goal" or _reaches(workmap, target, source)):
             raise ValueError("depends_on edge the writer refuses")
     elif op == "prepared":
         node = workmap.nodes[event["id"]]
