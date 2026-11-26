@@ -1,7 +1,7 @@
 # Verifier accuracy: the 20-item pilot
 
-**Status:** run on 2026-11-23; the pilot set is discarded and the full run waits for the
-owner's decision. This is the pilot that
+**Status:** run on 2026-11-23; the pilot set is discarded, and the full run's first
+stage is in the [stage 1 report](verifier-accuracy-stage1.md). This is the pilot that
 [the measurement design](verifier-accuracy-measurement.md#the-control-set) asks for
 before the 880-run measurement: it checks the runner, the blinding and the cost of a
 run. Its bands are a check of the pipeline, not estimates. The code is

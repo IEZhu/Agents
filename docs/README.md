@@ -166,7 +166,8 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
 - [Verifier accuracy flow](../flows/verifier-accuracy.md): the known-answer control
   set, sandboxed verifier runs and the fit of `c` and `b`
   (`python -m evals.scripts.verifier_accuracy`), with the
-  [pilot report](verifier-accuracy-pilot.md).
+  [pilot report](verifier-accuracy-pilot.md) and the
+  [stage 1 report](verifier-accuracy-stage1.md).
 - [Component ablation workflow](../evals/ablation/README.md) and
   [case format](../evals/ablation/CASES.md).
 - Semantic-cache routing of the embedding model:
@@ -209,8 +210,9 @@ above are authoritative for current commands and behavior.
 
 - [MCP proxy plan](mcp-proxy-plan.md)
 - [Delegation reliability plan](delegation-reliability-plan.md), with its
-  [verifier accuracy measurement](verifier-accuracy-measurement.md) for validated claims
-  and its [pilot report](verifier-accuracy-pilot.md)
+  [verifier accuracy measurement](verifier-accuracy-measurement.md) for validated claims,
+  its [pilot report](verifier-accuracy-pilot.md) and its
+  [stage 1 report](verifier-accuracy-stage1.md)
 - [Autodev plan](autodev-plan.md), with its [review appendix](autodev-plan-review.md)
 - [Instruction signing specification](instruction-signing-spec.md)
 - [Layer sensitivity proposal](layer-sensitivity-plan.md)

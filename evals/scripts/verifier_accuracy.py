@@ -8,8 +8,10 @@ output without unblinding itself.
   build      export the pinned commit and write a new set into the control directory
   simulate   coverage simulation at the priors and at b = 0.995; sets the floor under D
   probe      one canary probe: a sandboxed worker must fail to read the canary file
-  run        every scheduled attempt not yet recorded, a probe before each batch
-  analyze    the report: fits per configuration and family, checks, strata, cost
+  run        every scheduled attempt not yet recorded, a probe before each batch;
+             --stage-runs stops at the leading complete clusters that fit
+  analyze    the report: fits per configuration and family, checks, strata, cost;
+             --look planning adds the projection of the whole set from a stage
   status     attempt counts and cost so far
   discard    move the current set aside inside the control directory
 """
@@ -34,6 +36,14 @@ def _control(arguments) -> Path:
     if arguments.control_dir:
         return Path(arguments.control_dir).resolve()
     return control.default_control_dir(arguments.installation)
+
+
+def _positive(value: str) -> int:
+    """A count of at least 1: zero or a negative value would run or simulate nothing and still succeed."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, not {number}")
+    return number
 
 
 def _print(value) -> None:
@@ -96,16 +106,24 @@ def probe(arguments) -> int:
     return 0 if result.blind else 2
 
 
-def run(arguments) -> int:
-    control_dir = _control(arguments)
-    loaded = runner.load(control_dir, installation_roots=_roots(arguments))
+def _simulation(control_dir: Path, loaded: runner.LoadedSet) -> dict | None:
+    """This set's final-look simulation, or None after saying why there is none to use."""
     path = control_dir / control.SIMULATION
     simulation = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if simulation.get("set") != loaded.set_id:
-        print("Run `simulate` for this set first: the run needs its floor under D.", file=sys.stderr)
-        return 1
+        print("Run `simulate` for this set first: its floor under D comes from that run.", file=sys.stderr)
+        return None
     if simulation.get("look") != "final":
-        print("The run needs the final look's simulation; this one is for the interim quantiles.", file=sys.stderr)
+        print("This needs the final look's simulation; this one is for the interim quantiles.", file=sys.stderr)
+        return None
+    return simulation
+
+
+def run(arguments) -> int:
+    control_dir = _control(arguments)
+    loaded = runner.load(control_dir, installation_roots=_roots(arguments))
+    simulation = _simulation(control_dir, loaded)
+    if simulation is None:
         return 1
     if not simulation.get("held") and not arguments.pipeline_check:
         print("The coverage simulation did not hold for this set; its bands would not hold their level.",
@@ -114,7 +132,7 @@ def run(arguments) -> int:
     worker_runner = runner.Runner(loaded, _launcher(arguments, loaded), concurrency=arguments.concurrency,
                                   batch_size=arguments.batch_size, timeout=arguments.timeout,
                                   max_total_usd=arguments.max_total_usd, seed=arguments.seed,
-                                  log=lambda line: print(line, flush=True))
+                                  stage_runs=arguments.stage_runs, log=lambda line: print(line, flush=True))
     _print(worker_runner.run())
     return 0
 
@@ -130,12 +148,16 @@ def analyze(arguments) -> int:
     control_dir = _control(arguments)
     loaded = runner.load(control_dir, installation_roots=_roots(arguments))
     rows, probes = _records(control_dir)
-    simulation = json.loads((control_dir / control.SIMULATION).read_text(encoding="utf-8")) \
-        if (control_dir / control.SIMULATION).exists() else {"d_floor": 1.0}
+    simulation = _simulation(control_dir, loaded)  # a missing or another set's floor would mislabel every band
+    if simulation is None:
+        return 1
     report = analysis.analyze(rows, loaded.statements, look=arguments.look, d_floor=simulation["d_floor"],
                               seed=arguments.seed, resamples=arguments.resamples, probes=probes)
     report["set"] = loaded.set_id
     report["simulation_held"] = simulation.get("held")
+    if arguments.look == "planning":
+        report["planning"] = analysis.planning(rows, loaded.statements, report, d_floor=simulation["d_floor"],
+                                               sets=arguments.projection_sets, seed=arguments.seed)
     if arguments.output:
         Path(arguments.output).write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n",
                                           encoding="utf-8")
@@ -181,7 +203,7 @@ def parser() -> argparse.ArgumentParser:
                             help="Simulated sets per scenario; by default 1000 for the final look and 8080 "
                                  "for the interim one, whose 99.9 %% level needs at least 4040.")
     simulating.add_argument("--resamples", type=int, default=200)
-    simulating.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
+    simulating.add_argument("--look", choices=analysis.SIMULATED_LOOKS, default="final")
     simulating.add_argument("--seed", type=int, default=0)
     simulating.add_argument("--plan-items", type=int, help="Simulate a planned design instead of the current set.")
     simulating.add_argument("--plan-v2-items", type=int, default=200)
@@ -201,6 +223,9 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--batch-size", type=int, default=20)
             command.add_argument("--max-total-usd", type=float, default=40.0)
             command.add_argument("--seed", type=int, default=0)
+            command.add_argument("--stage-runs", type=_positive,
+                                 help="Stop at the leading complete clusters of the schedule whose slots fit "
+                                      "this many runs; a later run with a larger value or none continues.")
             command.add_argument("--pipeline-check", action="store_true",
                                  help="Run although the coverage simulation did not hold: a check of the "
                                       "runner whose bands are not a measurement.")
@@ -209,6 +234,8 @@ def parser() -> argparse.ArgumentParser:
     analyzing.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
     analyzing.add_argument("--seed", type=int, default=0)
     analyzing.add_argument("--resamples", type=int, default=400)
+    analyzing.add_argument("--projection-sets", type=_positive, default=200,
+                           help="Simulated whole sets behind the planning look's projection.")
     analyzing.add_argument("--output", help="Also write the report (aggregates only) to this file.")
     analyzing.set_defaults(handler=analyze)
 

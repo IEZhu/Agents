@@ -26,6 +26,7 @@ against an Agents-Core checkout on macOS.
 ```text
 Run flows/verifier-accuracy.md: pilot.
 Run flows/verifier-accuracy.md: full run, approved by the owner after the pilot report of <date>.
+Run flows/verifier-accuracy.md: stage of 220 runs of the full set, approved by the owner.
 Run flows/verifier-accuracy.md: analyze the current set.
 ```
 
@@ -34,13 +35,18 @@ Run flows/verifier-accuracy.md: analyze the current set.
 - **Stage.** `pilot` builds a 20-item set and runs it (about 80 worker runs).
   `full` builds the 240-item set and runs it (880 runs); it needs the owner's
   explicit go-ahead in the conversation, given after the pilot report and naming
-  the cost it accepts. `analyze` only reads the current set's records.
+  the cost it accepts. The owner may approve the full set in stages instead: a
+  stage runs the leading complete clusters of the set's schedule that fit a run
+  count, is analyzed with the planning look, and decides only whether the next
+  stage starts. A stage is part of the full run, never a replacement for it, and
+  it proposes no value. `analyze` only reads the current set's records.
 - **The owner decides** the labels that no deterministic check settles (the
   manifest's `owner_review` count), whether to accept the statements the builder
   skipped to keep one configuration, a raise of the floor under `D`, and every
   value that would later be applied.
 - **Never** apply a value to `src/claims/model.py` or the store, and never start a
-  second stage in the turn that reports the first.
+  second stage in the turn that reports the first. A pilot, a stage and the rest
+  of the full run are each a stage in this sense.
 
 ## Blinding rules for the parent
 
@@ -79,8 +85,10 @@ python -m evals.scripts.verifier_accuracy --installation <path> build --name <pi
 Pin a commit of `dev` that holds no measurement code under test. Check the
 printed manifest: classes balanced, at least half of each class
 `command_checkable`, `owner_review` zero or handed to the owner, and the
-`skipped` counts (`risk_floor`, `bundle_change`) for the report. A set already in
-the control directory must be discarded first (step 7).
+`skipped` counts (`risk_floor`, `bundle_change`) for the report. Build a new set
+only when the control directory holds none; a set already there must be discarded
+first (step 7). A later stage of the full set builds nothing: it continues the
+existing set, its simulation and its seed at step 5.
 
 ## 3. Simulate coverage
 
@@ -111,6 +119,13 @@ stops the flow: the blinding is broken, and no verdict may be collected.
 python -m evals.scripts.verifier_accuracy --installation <path> run --concurrency 4 --batch-size 20 --max-total-usd <cap>
 ```
 
+For a stage, add `--stage-runs <n>`. The schedule orders the set's clusters by the
+seed and keeps every slot of a cluster's items together; the stage takes the
+leading complete clusters whose slots fit `n`, so it is a cluster sample of the
+set and its design effect estimates the whole set's. Keep the seed of the first
+stage for every later one; a later run with a larger `--stage-runs`, or none,
+continues where the stage stopped.
+
 Run it in the background; wait for it to finish instead of polling. A probe
 precedes each batch, and a failed probe stops the run with every remaining
 attempt recorded `unfinished` (`probe_failed`). A failed attempt record stops it
@@ -127,7 +142,15 @@ times 1.5.
 python -m evals.scripts.verifier_accuracy --installation <path> analyze --output <file outside the repository>
 ```
 
-Use `--look interim` for the first half of a full run (it applies only rule 3).
+It reads the floor under `D` from this set's final-look simulation and refuses to
+analyze without one. Use `--look interim` for the first half of a full run (it applies only rule 3).
+After a stage, use `--look planning`: the final look's bands with no
+replacement-rule case, and a `planning` section that projects the whole set. The
+projection draws `(c, b)` from the stage's posterior, simulates the full design
+(every item of the set, its clusters, the stage's verdict yield per arm) under the
+larger of the calibrated floor and the stage's own `D`, and reports the projected
+half-widths, the share of simulated sets that reach ±0.03 and the share in each
+rule case, with the slots left and their cost at the stage's mean.
 The pilot's 20 items give wide bands; read its analysis as a check of the
 pipeline, not as an estimate.
 
@@ -142,7 +165,13 @@ Report from the analysis and `status` output, never from the control files:
   V2-arm verdicts counted as V1), runs set aside (`excluded`, `discarded`) and
   items left out for mixed configurations;
 - for a full run, the bands, the replacement rule's case per parameter and the
-  findings; for the pilot, what in the design proved unworkable.
+  findings; for a stage, the bands, the measured `D` and yields, and the
+  projection, with no rule case; for the pilot, what in the design proved
+  unworkable.
+
+After a stage, end with one question to the owner: whether to start the next stage
+or the rest of the set, with the projection and its cost. Keep the set: the next
+stage continues it.
 
 After a pilot, end with one question to the owner: whether to start the full run,
 with its projected cost. Then move the pilot set aside, which keeps it inside the
@@ -156,7 +185,7 @@ python -m evals.scripts.verifier_accuracy --installation <path> discard
 
 - The probe before every batch was blind, or the run stopped at the first one
   that was not.
-- Every scheduled slot has exactly one current record, its latest; the placeholders
+- Every slot the stage scheduled has exactly one current record, its latest; the placeholders
   a resume superseded stay in the file as the record of the stop.
 - The report states cost, blinding, statuses and findings, and nothing in it
   names a statement or a label.

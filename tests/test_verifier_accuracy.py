@@ -970,3 +970,167 @@ def test_the_probe_method_is_the_executable_not_a_word_in_the_path():
     assert runner.probe_method(call(f"python3 -c \"print(open('{canary}').read())\"")) == "python"
     assert runner.probe_method(call(f"cd /tmp && /usr/bin/cat {canary}")) == "cat"
     assert runner.probe_method(transcript.ToolCall("Read", {"file_path": canary}, "/", False)) == "read"
+
+
+# --- Staged run --------------------------------------------------------------------------------
+
+
+def _statements(sizes: dict[str, int]) -> list[dict]:
+    rows, index = [], 0
+    for cluster, size in sizes.items():
+        for _ in range(size):
+            rows.append({"item": f"i{index:03d}", "cluster": cluster, "v2": index % 3 != 0, "stratum": "path"})
+            index += 1
+    return rows
+
+
+def test_the_schedule_keeps_clusters_together_and_a_stage_takes_whole_ones():
+    statements = _statements({"a": 3, "b": 1, "c": 4, "d": 2, "e": 5})
+    cluster_of = {row["item"]: row["cluster"] for row in statements}
+    slots = runner.schedule(statements, 3)
+    assert sorted(slot.key for slot in slots) == sorted(slot.key for row in statements for slot in runner._slots(row))
+    order = [cluster_of[slot.item] for slot in slots]
+    assert all(order.index(name) + order.count(name) - 1 == len(order) - 1 - order[::-1].index(name)
+               for name in set(order))  # every cluster is one contiguous block
+    assert runner.schedule(list(reversed(statements)), 3) == slots  # the input order does not matter
+    orders = {tuple(dict.fromkeys(cluster_of[slot.item] for slot in runner.schedule(statements, seed)))
+              for seed in range(8)}
+    assert len(orders) > 1 and orders != {tuple(sorted(set(order)))}  # a stage is a seeded cluster sample
+    assert runner.stage(statements, 3, None) == slots
+    for runs in (0, 5, 17, 30, len(slots)):
+        taken = runner.stage(statements, 3, runs)
+        assert len(taken) <= runs and taken == slots[:len(taken)]
+        clusters = {cluster_of[slot.item] for slot in taken}
+        assert all(sum(cluster_of[slot.item] == name for slot in taken)
+                   == sum(cluster_of[slot.item] == name for slot in slots) for name in clusters)  # whole clusters
+        following = slots[len(taken):]
+        assert not following or len(taken) + sum(
+            cluster_of[slot.item] == cluster_of[following[0].item] for slot in following) > runs  # nothing more fits
+
+
+def test_a_staged_run_takes_its_clusters_and_a_later_run_continues(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
+                                     stage_runs=10)
+    statements = list(loaded.statements.values())
+    expected = runner.stage(statements, 0, 10)
+    summary = work.run()
+    assert 0 < summary["run"] == summary["scheduled"] == len(expected) <= 10
+    assert {(row["item"], row["arm"], row["slot"]) for row in work.recorder.recorded()} == {
+        slot.key for slot in expected}
+    rest = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None,
+                         concurrency=2, batch_size=4)
+    assert rest.run()["run"] == len(runner.schedule(statements, 0)) - len(expected)
+    assert len(rest.recorder.recorded()) == len(runner.schedule(statements, 0))  # each slot once
+
+
+def test_the_planning_look_applies_no_replacement_rule():
+    rng = np.random.default_rng(5)
+    units = analysis._simulated_units(0.9, 0.85, [1] * 600, rng)
+    final, planned = (analysis.fit(units, family="model", look=look, grid=GRID, coarse=COARSE,
+                                   rng=np.random.default_rng(6), resamples=50) for look in ("final", "planning"))
+    assert final["parameters"]["c"]["rule"] == 3  # the prior 0.97 lies above the band
+    assert {planned["parameters"][name]["rule"] for name in ("c", "b")} == {None}
+    assert {planned["parameters"][name]["proposed"] for name in ("c", "b")} == {None}
+    assert planned["parameters"]["c"]["band"] == final["parameters"]["c"]["band"]  # the final look's quantiles
+    assert "planning" not in analysis.SIMULATED_LOOKS
+
+
+def test_a_lost_verdict_leaves_one_and_an_item_without_any_is_dropped():
+    rng = np.random.default_rng(1)
+    whole = analysis._simulated_units(0.9, 0.9, [2] * 500, rng)
+    assert {unit.n for unit in whole} == {2} and len(whole) == 1000
+    thinned = analysis._simulated_units(0.9, 0.9, [2] * 500, rng, verdict_yield=0.5)
+    assert {unit.n for unit in thinned} == {1, 2} and 650 < len(thinned) < 850  # 3/4 keep at least one
+
+
+def test_the_yield_counts_launched_slots_of_the_arm_only():
+    rows = _rows([(f"i{i}", True, "V3", "confirmed") for i in range(6)] + [("j0", True, "unsupported", "confirmed")])
+    rows += [{**rows[0], "item": "x", "status": "invalid", "level": None},
+             {**rows[0], "item": "y", "status": "unfinished", "reason": "budget"}]  # a placeholder never ran
+    assert analysis.stage_yield(rows, "model") == pytest.approx(6 / 8)
+    assert analysis.stage_yield(rows, "execution") is None
+
+
+def test_the_projection_reports_the_whole_set_and_never_a_rule_case_of_the_stage():
+    spec = []
+    for i in range(60):
+        wrong = i % 10 == 0
+        spec += [(f"i{i}", True, "V3", "refuted" if wrong else "confirmed")] * 2
+    rows = _rows(spec)
+    for index, row in enumerate(rows):
+        row["slot"] = 1 + index % 2
+    statements = {f"i{i}": {"cluster": f"k{i // 2}", "stratum": "path", "v2": False} for i in range(240)}
+    report = analysis.analyze(rows, statements, look="planning", resamples=30, grid=GRID, coarse=COARSE)
+    plan = analysis.planning(rows, statements, report, d_floor=1.0, sets=20, resamples=20, grid=GRID, coarse=COARSE)
+    (projection,) = plan["projections"]
+    model = projection["families"]["model"]
+    assert model["items"] == 240 and model["clusters"] == 120 and model["verdict_yield"] == 1.0
+    stage_width = report["configurations"][0]["families"]["model"]["all"]["parameters"]["b"]["half_width"]
+    assert model["b"]["half_width"]["median"] < stage_width  # four times the items narrow the band
+    assert sum(model["b"]["rule_shares"].values()) == pytest.approx(1.0)
+    assert plan["slots"] == {"set": 480, "launched": 120, "remaining": 360}
+    assert plan["remaining_usd"] == pytest.approx(36.0)
+    assert "execution" not in projection["families"]
+
+
+def test_counts_that_would_run_or_simulate_nothing_are_refused(capsys):
+    from evals.scripts import verifier_accuracy as cli
+    for argv in (["run", "--stage-runs", "0"], ["run", "--stage-runs", "-1"], ["analyze", "--projection-sets", "0"]):
+        with pytest.raises(SystemExit):
+            cli.parser().parse_args(argv)
+        assert "must be at least 1" in capsys.readouterr().err
+    assert cli.parser().parse_args(["run", "--stage-runs", "220"]).stage_runs == 220
+
+
+
+# --- Review round 2 of the staged run ----------------------------------------------------------
+
+
+def test_agreeing_verdicts_in_unequal_clusters_fall_back_to_the_size_weighted_mean():
+    units = [analysis.Unit("a0", "a", True, 2, 2)] + [analysis.Unit(f"b{j}", "b", True, 2, 2) for j in range(10)]
+    result = analysis.fit(units, family="model", look="final", grid=GRID, coarse=COARSE,
+                          rng=np.random.default_rng(0), resamples=50)
+    effect = result["design_effect"]
+    assert effect["mean_cluster_size"] == pytest.approx(5.5)
+    assert effect["D"] == pytest.approx((1 + 100) / 11)  # a cluster's items failing together
+
+
+def test_a_projection_whose_simulated_sets_lose_every_verdict_reports_no_band():
+    rng = np.random.default_rng(3)
+    units = analysis._simulated_units(0.9, 0.9, [1] * 40, rng)
+    stage_fit = analysis.fit(units, family="model", look="planning", grid=GRID, coarse=COARSE, rng=rng, resamples=20)
+    out = analysis.project(stage_fit, units, family="model", cluster_sizes=[1, 1, 1], verdict_yield=1e-12,
+                           d_floor=1.0, sets=5, resamples=10, rng=rng, grid=GRID, coarse=COARSE)
+    assert out["empty_sets"] == 5
+    assert out["c"]["half_width"] is None and out["b"]["rule_shares"] == {} and out["b"]["narrow_share"] == 0.0
+
+
+def test_the_projection_uses_the_units_analyze_fits(monkeypatch):
+    spec = [(f"i{i}", True, "V3", "confirmed") for i in range(10)] + [("mixed", True, "V3", "confirmed")]
+    rows = _rows(spec) + [{**row, "slot": 2} for row in _rows(spec)]
+    rows[-1]["model"] = "other"  # the mixed item's second verdict comes from another configuration
+    statements = {item: {"cluster": f"k{index}", "stratum": "path", "v2": False}
+                  for index, item in enumerate([f"i{i}" for i in range(10)] + ["mixed"])}
+    report = analysis.analyze(rows, statements, look="planning", resamples=20, grid=GRID, coarse=COARSE)
+    seen = []
+    monkeypatch.setattr(analysis, "project", lambda stage_fit, units, **options: seen.append(len(units)) or {})
+    analysis.planning(rows, statements, report, d_floor=1.0, sets=2, resamples=5, grid=GRID, coarse=COARSE)
+    assert report["mixed_configuration_items"]["model"] == 1 and seen == [10]
+
+
+
+def test_analysis_needs_this_set_s_final_simulation(tmp_path, repo, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    for look in ("final", "planning"):
+        assert cli.main([*arguments, "analyze", "--look", look]) == 1  # no simulation at all
+    (control_dir / control.SIMULATION).write_text(json.dumps({"set": "other@0", "held": True, "look": "final",
+                                                              "d_floor": 1.0}), encoding="utf-8")
+    assert cli.main([*arguments, "analyze", "--look", "planning"]) == 1  # another set's floor
+    assert "Run `simulate` for this set first" in capsys.readouterr().err
+    (control_dir / control.SIMULATION).write_text(json.dumps({"set": manifest["set"], "held": False, "look": "final",
+                                                              "d_floor": 1.25}), encoding="utf-8")
+    assert cli.main([*arguments, "analyze", "--look", "final"]) == 0  # a pipeline check still reads its report
+    assert json.loads(capsys.readouterr().out)["d_floor"] == 1.25
