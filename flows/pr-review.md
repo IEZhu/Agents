@@ -97,13 +97,19 @@ Write committed documentation in English under the
   `mergeStateStatus` do not: a request can be `MERGEABLE` and `BLOCKED` at the
   same time for a missing approval. Record the gating before reporting a
   blocker, or reporting that there is none. Where the Agents-Core
-  validated-claims store is available, call `claim_lookup` for the
-  repository's merge gating before reading it: a `supported` claim whose
-  `usable_for` covers `load_bearing` is reused as it stands, and anything else
-  is read as above and then recorded with `claim_record`, naming the endpoints
-  read as its evidence. Every pull request of the repository reads the same
-  gating and it changes rarely, so it is the fact a later session would
-  otherwise check again.
+  validated-claims store is available, call `claim_lookup` first for the gating
+  of this repository and target branch, both named in the claim's subject,
+  because protection and rulesets differ by branch. A `supported` claim whose
+  `usable_for` covers `load_bearing` says which ruleset and rules gate that
+  branch, so the read narrows to the rulesets listing, which shows whether one
+  was added, the endpoint of each ruleset the claim names and `reviewDecision`,
+  instead of every ruleset's endpoint; a claim for another
+  branch, or none, means the full read. Rulesets change without notice and the
+  store has no invalidation for that, so a claim never replaces the read before
+  reporting a blocker or that there is none: when the endpoint or
+  `reviewDecision` disagrees with the claim, the live answer wins. Record what
+  you read with `claim_record`, a refutation included, naming the endpoints as
+  its evidence.
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 - Check the scope before the first review round. Each bot pass reports a few
@@ -194,7 +200,9 @@ opening the pull request, or marking a draft ready, because that starts the
 reviewers and puts both changes in front of the owner. When no agreement can be
 recorded, because the other session cannot be reached or its participant is not
 live (a `propose` answers `stale_generation` while any participant it binds is
-`suspect`), say so and ask the user before opening it. When the other pull
+`suspect`), say so and ask the user before opening it, or before marking an
+existing draft ready: the user's consent stands in for the agreement in both
+cases. When the other pull
 request merges first, the overlap is gone, and the branch is updated as
 [keep the branch current](#keep-the-branch-current-and-git-healthy) describes.
 
