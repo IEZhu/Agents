@@ -730,6 +730,22 @@ def test_a_resumed_run_starts_from_the_recorded_spend(tmp_path, repo, monkeypatc
     assert again.spent == pytest.approx(runner.recorded_spend(loaded)) and again.spent > 0
 
 
+def test_a_run_reads_the_spend_again_once_it_holds_the_lock(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
+                                     stage_runs=10)
+    late = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None)
+    assert late.spent == 0.0  # constructed before the stage ran
+    work.run()
+    spent = runner.recorded_spend(loaded)
+    late.max_total_usd = late.run_reserve_usd + spent / 2  # affordable at the old spend, not at the new one
+    before, calls = len(work.recorder.recorded()), len(launcher.calls)
+    late.run()
+    added = late.recorder.recorded()[before:]
+    assert len(launcher.calls) == calls  # no probe and no worker beyond the budget
+    assert added and {row["reason"] for row in added} == {"budget"}
+
+
 def test_a_runner_error_records_the_later_batches_too(tmp_path, repo, monkeypatch):
     monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
 

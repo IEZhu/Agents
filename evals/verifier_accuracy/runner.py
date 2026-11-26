@@ -373,6 +373,7 @@ class Runner:
                 stack.enter_context(file_lock(self.loaded.control_dir / control.RUN_LOCK, blocking=False))
             except BlockingIOError:
                 raise ScheduleError("Another run of this set is in progress; wait for it to finish.") from None
+            self.spent = recorded_spend(self.loaded)  # a run that finished since __init__ has spent more
             return self._run()
 
     def _run(self) -> dict:
