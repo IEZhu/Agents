@@ -382,7 +382,7 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 - `mcp==1.30.0` — FastMCP tool registration; exact pin.
 - `onnxruntime>=1.24.4`, `huggingface-hub`, `tokenizers` — direct ONNX embedding inference (`src/engine/onnx_embedding.py`), keeping FastEmbed's catalog and conventions (`src/engine/embedding_catalog.json`) without its source; first setup downloads about 1.1 GB.
 - `numpy>=1.24` — the vector store (`src/engine/vector_store.py`).
-- `pydantic>=2.0`, `PyYAML>=6.0`, `cryptography==50.0.2` (signing), `uvicorn==0.48.0` (shared service), `langfuse>=3.0` (optional tracing), plus `cachetools`, `python-dotenv`, `langdetect`, `anthropic`, `pdf2image`, `Pillow`.
+- `pydantic>=2.0`, `PyYAML>=6.0`, `cryptography==50.0.2` (signing), `uvicorn==0.48.0` (shared service), `langfuse>=3.0` (optional tracing).
 - Extras: `thread-status`, `signing-tests`, `local-inference` (`-redis`), `evals`.
 
 ### Entry Points
@@ -395,7 +395,6 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 | `src/schedules/`, `src/user_sync/`, `src/context_compaction/`, `src/instruction_signing/` | subsystem command lines (`__main__.py`) |
 | `src/reindex.py`, `src/model_migration.py`, `src/update_channel.py`, `src/uninstall.py` | index rebuild, model switch, update channel, removal |
 | `install.sh`, `scripts/init_repo.sh`, `scripts/init_repo.bat`, `scripts/install_instructions.py` | install, setup, instructions-only refresh |
-| `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` | contributor instructions, managed protocol plus repository notes, the GitHub index |
 | `plugins/agents-core/`, `plugins/agents-core-context-compaction/` | the plugin registering this server; the optional compaction mod |
 | `scripts/check_docs.py`, `scripts/validate_agents.py`, `scripts/check_skill_sources.py`, `scripts/thread_close_miss_rate.py` | documentation, persona-metadata and skill-source checks; per-rule miss rates from thread-close records |
 | `.github/workflows/` | 14 workflows, led by shared-runtime, documentation-quality, instruction-signing, user-sync |
@@ -409,25 +408,25 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 - `src/daemon/` — the shared service, its CLI, web UI pages and `mcp_proxy/`; importing it never loads the engine.
 - `src/artifacts/`, `src/cooperation/` — pinned text artifacts for workers; the mailbox, claims, requests, agreements and shared review quotas between sessions.
 - `src/instruction_signing/`, `src/local_inference/`, `src/schedules/`, `src/user_sync/`, `src/context_compaction/` — local signing (runtime enforcement planned), disabled-by-default local completions, scheduled runs and the autodev runner, personal library sync, opt-in client compaction.
-- Top-level modules cover flows (`flows.py`, `user_flows.py`, `flow_execution.py`, `flow_persona.py`), the personal library (`user_rules.py`, `rule_sources.py`, `component_toggles.py`, `component_catalog.py`) and client integration (`client_instructions.py`, `client_paths.py`, `mcp_registry.py`, `mcp_secrets.py`).
+- Top-level modules cover flows (`flows.py`, `user_flows.py`, `flow_execution.py`), the personal library (`user_rules.py`, `component_toggles.py`) and client integration (`client_instructions.py`, `client_paths.py`, `mcp_registry.py`).
 - `agents/`, `skills/`, `implants/`, `rules/`, `flows/` — the content library; `agents/common/agent-schema.json` validates persona frontmatter. `docs/README.md` maps the documentation, including the install, configuration, architecture, memory and development guides.
 
 ### Conventions
 
 - Components are Markdown with YAML frontmatter and an `.mdc` extension; a persona folder holds `system_prompt.mdc` and `subagent.mdc` (46 of each).
 - Conventional commits: `type(scope): subject`, imperative, body wrapped at 72, one change per commit. New work uses an `agent/<slug>` branch unless the user or flow names another; issue implementation uses `claude/issue-<number>-<short-slug>`.
-- Every committed document is in English. A record under "Plans, research and recorded results" in `docs/README.md` opens, on the line after its title, with a `**Status:**` line, the only place for its state; a maintained reference has none and states it in prose.
-- The protocol text has one source, `src/engine/protocol/`, composed by `src/engine/protocol_text.py` into `scripts/templates/routing-protocol-core.md` (the managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization text, the `SUCCESS` instruction and the client pointers. Never hand-edit a generated surface: change the section, then `python3 -m src.engine.protocol_text --write` (`--check` lists stale files). Keep repository notes outside both marker pairs.
+- Every committed document is in English. A record under "Plans, research and recorded results" in `docs/README.md` opens, on the line after its title, with a `**Status:**` line, the only place for its state; the generated `evals/reports/baseline.md` and `evals/reports/implants_preferred_ab.md` are exempt, since their next run overwrites the file. A maintained reference has none and states its state in prose.
+- The protocol text has one source, `src/engine/protocol/`, composed by `src/engine/protocol_text.py` into `scripts/templates/routing-protocol-core.md` (the managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization text, the `SUCCESS` instruction, the client pointers and the installer's `scripts/templates/memory-routing.md`. Never hand-edit a generated surface: change the section, then `python3 -m src.engine.protocol_text --write` (`--check` lists stale files). Keep repository notes outside both marker pairs.
 - The worker result's separator rule lives in `SEPARATORS` (`src/engine/subagent_text.py:62`), regenerated into `docs/subagent-contract.md` by `python -m src.engine.subagent_contract_text --write`.
 - A handler returning a JSON string is wrapped by FastMCP as `{"result": <text>}` and counted twice-escaped; `src/result_size.py:22-23` sets `INLINE_LIMIT = 50_000` and `RESULT_SIZE_CEILING = 500_000`, so result size is a design constraint.
 
 ### Key Workflows
 
 - `install.sh` — clone or fast-forward `~/.agents-core`, then `scripts/init_repo.sh --yes`: venv, dependencies, indexes, client registration, managed instructions, hooks.
-- `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q` — the regular suite; `-m ''` adds slow tests.
+- `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q` — the regular suite, after `pip install -r requirements.txt -e '.[evals]'`: `requirements.txt` lacks `openai`, which `tests/test_openrouter_provider.py` imports at module scope; `-m ''` adds slow tests.
 - `.venv/bin/python scripts/check_docs.py` — offline navigation and public tool index, as in CI.
 - `python3 -m src.reindex` — rebuild the skill and implant stores.
-- `python3 scripts/bump_plugin_version.py --base origin/main` — the next calendar version into `VERSION` and the plugin manifest before a promotion; run it in the tree being promoted.
+- `python3 scripts/bump_plugin_version.py --base origin/main` — bump `VERSION` and the plugin manifest to the next calendar version, in the tree being promoted.
 - `list_flows()`/`run_flow()` over `flows/*.md` — pr-review, pr-queue, documentation-refresh, thread-close, orchestrate, issue-agent, autodev and others.
 
 ### Architecture Patterns
@@ -447,7 +446,6 @@ Delegation is a contract, not a prompt. `get_subagent_context` writes a task-sco
 - Never edit, commit, reset or switch branches in the checkout the daemon runs from; cut a linked worktree from `origin/dev` with `--no-track` and open the PR against `dev`.
 - The shared checkout can lag `origin/dev` by hundreds of commits; a script reading the working tree describes that tree, not the release ref.
 - `scripts/check_docs.py` lists files with `git ls-files`: stage a new document before trusting a local run. It imports `markdown-it-py`, which only the documentation-quality workflow installs.
-- `requirements.txt` lacks `openai` (the `evals` extra), which `tests/test_openrouter_provider.py` and `tests/test_prompt_ab.py` need.
 - Worker packages, session locks and indexes live in the installation's `data/` (`src/engine/config.py:22`); losing it makes `validate_subagent_result` answer `contract_unknown`. The claims store and work maps sit in the workspace's `data/`, the artifact store in the service-state directory. `git worktree remove` deletes ignored files, so check `git status --short --ignored` first.
 - A non-POSIX run drops every `tests/test_local_inference_*` file (`tests/conftest.py:65`).
 - The personal flow library is the installation's git-ignored `flows/.user`; `KIND_GROUPS` in `src/user_sync/scope.py:43` names the synced groups.
