@@ -1,5 +1,7 @@
 # Redis live acceptance and controlled-restart evaluation
 
+**Status:** recorded Redis live acceptance and controlled-restart measurements, 2026-10-15; they retain their original arms, denominators and limitations. Current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference).
+
 The subsequent [resident deployment report](resident-deployment-report.md)
 records fresh real TCP checks and the worktree archive/recovery incident. The
 historical results below were recorded before the archive; their ignored raw

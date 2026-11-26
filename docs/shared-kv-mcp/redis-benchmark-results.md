@@ -1,5 +1,7 @@
 # Redis controlled-restart per-task results
 
+**Status:** recorded per-task measurements, 2026-10-15, of the run interpreted in the [Redis live report](redis-live-report.md); they retain their original arms, denominators and limitations. Current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference).
+
 Five observations per task/arm/transport; identical frozen tasks, temperature 0, seed 42, cap 384 and 180-second deadline. All arms use the same owned engine restart before shared-context follow-up requests. The primary full-arm comparison and interpretation are in the [Redis live report](redis-live-report.md).
 
 The client clock below starts before submit and ends after terminal validation; it excludes context/grant setup, preceding eviction and later cleanup. Model time includes adapter validation/private audit I/O. Full-arm times include these costs. p95 is the largest of five observations, not a population estimate. No repair calls were made.

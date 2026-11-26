@@ -1,9 +1,13 @@
 # Evaluation and acceptance
 
-Status: acceptance specification with a historical research delivery record below.
-The [implementation validation results](validation-results.md) report actual runtime checks.
-No runtime test, paid model evaluation or concurrency benchmark was performed by
-the research task; adding fixtures is not a model-evaluation result.
+**Status:** acceptance specification of 2026-10-15, with a historical research delivery
+record below. Its deterministic checks were run and the
+[implementation validation results](validation-results.md) report them; the
+[model behavior evaluation](#model-behavior-evaluation) was not run, so its release
+gates are unmet. Current behavior is documented in the
+[agent cooperation reference](README.md) and the [runtime guide](runtime.md). No
+runtime test, paid model evaluation or concurrency benchmark was performed by the
+research task; adding fixtures is not a model-evaluation result.
 
 ## Deterministic scenario matrix
 

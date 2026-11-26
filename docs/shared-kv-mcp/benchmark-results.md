@@ -1,5 +1,7 @@
 # Local benchmark per-task results
 
+**Status:** recorded per-task measurements, 2026-10-15, of the run interpreted in the [implementation report](implementation-report.md); they retain their original arms, denominators and limitations. Current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference).
+
 Five repetitions of each task per performed arm/transport; temperature 0, seed 42, output cap 384, deadline 180 s. Redis arms were unperformed. All 220 requests completed operationally; 180 passed the frozen strict checker. There were no repair calls.
 
 Client time here starts before submit and ends after terminal validation. It excludes prior context/grant creation and later cleanup. The primary whole-arm comparison in the [implementation report](implementation-report.md) includes setup, model startup, contexts/grants, all requests and cleanup. Model time includes adapter validation/private audit I/O; native prefill/decode spans remain in the private source report. p95 is the largest of five observations, not a population estimate.

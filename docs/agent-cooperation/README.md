@@ -1,6 +1,6 @@
 # Agent cooperation
 
-Status: **implemented in source, disabled by default**. These references describe the source contract, not the current state of an installation. See [validation results](validation-results.md) for the implementation's recorded checks and remaining rollout limits.
+The coordinator is **implemented in source and disabled by default**. These references describe the source contract, not the current state of an installation. See [validation results](validation-results.md) for the implementation's recorded checks and remaining rollout limits.
 
 The optional local coordinator lets workers of one parent and independent sessions discover overlapping work, negotiate a bounded agreement, order artifact dependencies, and exchange messages through a durable MCP mailbox. Different AI clients and model providers can use the same protocol when they connect to the same enabled installed daemon, directly over HTTP or through its existing stdio bridge. It serves one trusted local OS user, one installation and one machine. Linked worktrees share their Git common-directory domain; independent clones and submodules do not.
 

@@ -1,8 +1,9 @@
 # Draft instruction changes
 
-Status: retained instruction design, with refined rules now distributed in source.
-The operative bodies are [agent-cooperation](../../rules/rule-agent-cooperation.mdc)
-and [worker-cooperation](../../rules/subagents/rule-worker-cooperation.mdc);
+**Status:** instruction design of 2026-10-15, implemented: the operative bodies are
+[agent-cooperation](../../rules/rule-agent-cooperation.mdc)
+and [worker-cooperation](../../rules/subagents/rule-worker-cooperation.mdc), and
+current behavior is documented in the [agent cooperation reference](README.md);
 the candidate blocks below record the design rather than duplicate those sources.
 This source update does not install instructions or refresh already active bundles.
 Keep the state-machine details in the reference protocol and API documentation;
