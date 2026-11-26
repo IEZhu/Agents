@@ -59,7 +59,7 @@ One command installs the server on macOS or Linux (Python 3.11+, about 1.1 GB mo
 | A specialist approach to implementation, review, architecture or writing | A task-relevant persona with selected skills and rules | `route_and_load` or `get_agent_context` |
 | A repeatable PR review, documentation refresh or other repository procedure | Markdown workflows for your current model to execute | `list_flows`, then `run_flow` |
 | A bounded assignment for a reviewer or parallel worker | A compact role, acceptance criteria and a structured result contract | `get_subagent_context`, then `validate_subagent_result` |
-| Staged work across several workers without every result in your context | A per-task work map on the server: each bound worker submits its result to its node, and you read the map instead | `workmap_update`, `get_subagent_context` with `workmap_node`, `workmap_view`; the [orchestrate flow](flows/orchestrate.md) and the [work map](docs/workmap-plan.md) |
+| Staged work across several workers without every result in your context | A per-task work map on the server: each bound worker submits its result to its node, and you read the map instead | `workmap_update`, `get_subagent_context` with `workmap_node`, the worker's `workmap_submit`, then `workmap_view`; the [orchestrate flow](flows/orchestrate.md) and the [work map](docs/workmap-plan.md) |
 | Context from earlier work on the same project | Repository description and interaction history | `describe_repo` and `read_history` |
 | Shared exact inputs across workers | Persistent artifacts and pinned manifests | [Shared artifacts](docs/shared-artifacts.md) |
 
