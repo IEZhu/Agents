@@ -34,7 +34,7 @@ One command installs the server on macOS or Linux (Python 3.11+, about 1.1 GB mo
 |---|---|---|
 | 🎭 | [Specialist personas](docs/features.md#core-features) | Routes each task to an expert role (reviewer, architect, technical writer and more) with its skills and rules, and keeps that role across turns |
 | 🔁 | [Repeatable workflows](flows/README.md) | PR review, documentation refresh, thread close and your own procedures, run by your model against your repository |
-| 🤝 | [Delegated workers](docs/subagent-contract.md) | Bounded tasks for fresh reviewers or parallel workers, a fixed result format and validation, simple work on a lighter model |
+| 🤝 | [Delegated workers](docs/subagent-contract.md) | Bounded tasks for fresh reviewers or parallel workers, a fixed result format and validation, simple work on a lighter model, and for staged work a [work map](docs/workmap-plan.md) that keeps each stage's result on the server and a line per stage in your context |
 | 🧠 | [Project memory](docs/memory.md) | A short description of each repository, a searchable log of earlier turns, what Claude Code and Codex remember in their own memory ([shared memory](docs/shared-memory.md)), and facts checked once that stay checked until they go stale ([validated claims](docs/validated-claims.md)) |
 | 🔌 | [One server for every client](docs/features.md#client-integration) | A shared local service on macOS and Windows, managed instruction files, and your other MCP servers through one connection |
 | 🔄 | [Sync and updates](docs/features.md#running-and-maintaining-the-installation) | Your personal flows and settings on every machine, and releases or every merged change through the update channel |
@@ -59,6 +59,7 @@ One command installs the server on macOS or Linux (Python 3.11+, about 1.1 GB mo
 | A specialist approach to implementation, review, architecture or writing | A task-relevant persona with selected skills and rules | `route_and_load` or `get_agent_context` |
 | A repeatable PR review, documentation refresh or other repository procedure | Markdown workflows for your current model to execute | `list_flows`, then `run_flow` |
 | A bounded assignment for a reviewer or parallel worker | A compact role, acceptance criteria and a structured result contract | `get_subagent_context`, then `validate_subagent_result` |
+| Staged work across several workers without every result in your context | A per-task work map on the server: each bound worker submits its result to its node, and you read the map instead | `workmap_update`, `get_subagent_context` with `workmap_node`, `workmap_view`; the [orchestrate flow](flows/orchestrate.md) and the [work map](docs/workmap-plan.md) |
 | Context from earlier work on the same project | Repository description and interaction history | `describe_repo` and `read_history` |
 | Shared exact inputs across workers | Persistent artifacts and pinned manifests | [Shared artifacts](docs/shared-artifacts.md) |
 

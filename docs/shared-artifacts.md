@@ -127,7 +127,11 @@ nor permission to execute, publish, send messages or expose secrets.
 3. Call `get_subagent_context` with that manifest as `artifact_manifest`, plus
    the ordinary role, task, acceptance criteria, context, scope, non-goals and
    result type. Omit `task_id` to inherit the manifest's task ID, or pass the
-   same ID explicitly; a mismatch is refused.
+   same ID explicitly; a mismatch is refused. A package bound to a
+   [work-map](workmap-plan.md) node can name `workmap_inputs` instead: the
+   server publishes those nodes' stored results and pins them under a manifest
+   bound into the contract, and refuses `workmap_inputs` together with
+   `artifact_manifest` ([work-map binding](subagent-contract.md#work-map-binding)).
 4. Require `status: prepared`, keep the receipt's `contract_revision` and start a
    fresh native worker with its `launch` text (inline delivery: retain the
    returned contract and pass `worker_context` unchanged). The host must make the

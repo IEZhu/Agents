@@ -359,6 +359,12 @@ preserve them.
   volatilities are priors, not measurements
   ([docs/validated-claims.md](docs/validated-claims.md)). `src/estimation/` holds
   the Kalman filter behind the warmup hint and the ledger's recent acceptance rate.
+- `workmap_update`, `workmap_view` and `workmap_submit` keep a per-task,
+  append-only map of delegated stages in the workspace's `data/workmap/`
+  (`src/workmap/`, whose safe-file helpers in `src/safe_store.py` the claims store
+  shares). A package prepared with `workmap_node` is bound to a node, and its worker
+  submits its result there and hands back one line
+  ([docs/workmap-plan.md](docs/workmap-plan.md), [flows/orchestrate.md](flows/orchestrate.md)).
 - Preserve unrelated Repository Memory sections and user instructions when
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
   for the current contracts, compatibility behavior and migration procedure.

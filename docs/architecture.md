@@ -60,7 +60,7 @@ Agents/
 │   │   └── language.py   # Language detection
 │   ├── memory/           # Repository summary, journal and typed turn records, managed sections, the native-memory reader (read_shared_memory), the headless Stop-hook turn logger
 │   ├── claims/           # Validated-claims store: verdicts filtered into a confidence (claim_record, claim_lookup)
-│   ├── workmap/          # Per-task work maps of delegated stages, folded from events (workmap_update, workmap_view)
+│   ├── workmap/          # Per-task work maps of delegated stages, folded from events (workmap_update, workmap_view, workmap_submit)
 │   ├── safe_store.py     # Private append-only JSON-lines files under data/ that claims/ and workmap/ share
 │   ├── estimation/       # Scalar Kalman filter and the drifting-rate estimator
 │   ├── schemas/          # protocol.py (request, response, persona), tool_args.py (MCP argument types)
@@ -95,3 +95,4 @@ Agents/
 | **Flows** | [Markdown workflows](../flows/README.md) served to the caller's repository through `run_flow`, optionally with their own persona |
 | **Memory** | Per-project summary and action history with optional [turn records](turn-records.md), and a read-only view of what the AI clients keep in their own memory ([shared memory](shared-memory.md)) |
 | **Validated claims** | Per-workspace verdicts about factual claims, filtered into the probability that each still holds ([validated claims](validated-claims.md)) |
+| **Work map** | A per-task, append-only map of delegated stages in the workspace, on which bound workers record their results so that the parent reads one line per stage ([work map](workmap-plan.md)) |

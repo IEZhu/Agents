@@ -46,6 +46,7 @@ and the host's own worker tools.
 | [Workflows](../flows/README.md#through-agents-core-mcp) | Built-in procedures, such as PR review or a documentation refresh, run against your repository with your model's own tools | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Personal and repository workflows](../flows/README.md#personal-and-repository-flows) | Your own procedures, saved globally or per project, each with the persona it runs as | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Delegated workers](subagent-contract.md#compact-exchange) | A bounded task for a fresh worker with a fixed result format, validated against its contract | ✅ | 🟡 ⁴ | ✅ | 🟡 ⁵ | 🟡 ⁴ | 🟡 ⁴ |
+| [Work map](workmap-plan.md) | Staged work split across several workers, with a per-task map of its stages on the server: each bound worker submits its result to its node, and the parent reads a line per stage instead of every result | ✅ | 🟡 ³ ¹⁰ | 🟡 ¹⁰ | 🟡 ¹⁰ | 🟡 ¹⁰ | 🟡 ³ ¹⁰ |
 | [Worker model tiers](subagent-model-tiers.md#model-resolution) | Simple delegated tasks on a lighter model, moved up one tier at a time when a result falls short | ✅ | ❌ | ✅ | 🟡 ⁶ | ❌ | ❌ |
 | [Repository memory](memory.md) | A short description of each project, returned when work starts | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Shared memory](shared-memory.md) | What Claude Code and Codex keep in their own memory files, searchable from any client with each fact's source | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
@@ -78,6 +79,11 @@ and the host's own worker tools.
    alone is off by default.
 9. Owner-enabled and off by default; needs the shared service, and native
    inference runs on POSIX hosts only.
+10. The map's tools need the project a call belongs to, as in note 3. A worker
+    submits its own result only where the host's workers reach the server's tools,
+    which was checked in Claude Code alone on 2026-11-25
+    ([spike](workmap-plan.md#spike-of-2026-11-25)); elsewhere the worker hands back
+    its full result and the parent records it with `workmap_submit` by `result_ref`.
 
 ## Client integration
 
