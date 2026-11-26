@@ -115,7 +115,7 @@ and reviewed it. `evals/datasets/english_pivot_cases.json` is one, for
 `rule-english-pivot`: 19 Russian cases, 2 English requests with Russian
 instructions and 3 English controls. That rule was not adopted and exists only on
 branch `feat/english-pivot-rule`, so build its contexts in a checkout of that branch
-([results](../../docs/english-pivot-eval-results.md)).
+([results](../../docs/records/english-pivot-eval-results.md)).
 `evals/datasets/embedding_ab_cases.json` (component `embed-model`) holds the same
 requests grouped by language, for `--arm` builds of two embedding models.
 

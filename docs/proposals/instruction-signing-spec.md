@@ -9,7 +9,7 @@ Tracks [#234](https://github.com/IEZhu/Agents/issues/234), part of
 [#233](https://github.com/IEZhu/Agents/issues/233).
 
 This is an implementation contract, including the proposed files, interfaces and
-commands below. The [core API](instruction-signing-core.md) describes the bounded
+commands below. The [core API](../instruction-signing-core.md) describes the bounded
 OMS and inventory primitives currently available; this is not shipped runtime
 protection. The interoperability
 observation from 2026-10-07 remains historical; it does not validate this amendment.
@@ -288,7 +288,7 @@ A verifier of this profile rejects a seal in any of these cases:
 ## 7. Keys and trust
 
 The #236 local backend and owner CLI are documented in
-[Local signing authority](instruction-signing-authority.md). Its controls require
+[Local signing authority](../instruction-signing-authority.md). Its controls require
 an already trusted runtime; the #237 startup integration remains separate.
 
 Machine key material and the trust store live in the daemon state directory
@@ -310,7 +310,7 @@ library file.
   published key counts only when it is pinned.
 - `python -m src.instruction_signing seal-release` produces the release seal, which
   is committed with the change.
-- Follow the [release procedure](releases.md#procedure): feature PRs target `dev`;
+- Follow the [release procedure](../releases.md#procedure): feature PRs target `dev`;
   release PRs promote `dev` to `main` with a merge commit. Seal the final intended
   release resource tree and verify the actual activation/publication tree again.
   Branch protection must require an up-to-date release PR and a seal/coverage
@@ -552,7 +552,7 @@ approval.
 
 ## 13. Implementation ownership and shared contracts
 
-The [core API](instruction-signing-core.md) implements the #235 OMS and inventory
+The [core API](../instruction-signing-core.md) implements the #235 OMS and inventory
 primitives. Other names below remain proposed implementation responsibilities.
 Keep OMS operations in `src/instruction_signing/oms.py`, key/trust/policy logic in
 the same package, instruction acquisition in `reader.py`, and a shared

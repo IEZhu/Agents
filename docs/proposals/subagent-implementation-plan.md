@@ -1,9 +1,9 @@
 # Subagent contract implementation plan
 
 **Status:** implementation plan of 2026-10-11, implemented; the delivered API is
-the [subagent contract](subagent-contract.md).
+the [subagent contract](../subagent-contract.md).
 Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291).
-Specification: [Task-scoped subagent contract](subagent-contract.md).
+Specification: [Task-scoped subagent contract](../subagent-contract.md).
 Branch: `codex/subagent-personas`, based on `e67bf32` (`origin/main`).
 
 ## 1. Freeze the contract and track the work
