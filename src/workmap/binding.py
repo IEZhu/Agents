@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 from functools import partial
+import hashlib
 
 from pydantic import ValidationError
 
 from src.artifacts import tools as artifact_tools
 from src.artifacts.store import ArtifactError
 from src.daemon.workspaces import WorkspaceError, resolve_client_context
+from src.engine import subagent_exchange
 from src.engine.subagent_validation import canonical_json, parsed_report
 from src.schemas.subagent import PreparationRequest, ValidationResponse, WorkmapReceipt
 from src.workmap.store import QUESTION_MAX, SUMMARY_MAX, WorkmapError, WorkmapStore
@@ -48,15 +50,57 @@ async def prepare(ctx, arguments: dict, node: str | None, inputs: list | None,
                                                 result_type=arguments.get("result_type") or "generic"))
     except OSError:
         raise WorkmapError("workmap_unavailable", "The work map could not be read; try again.") from None
-    manifest, pins = await _pin(ctx, task_id, texts) if texts else (None, None)
+    if not texts:
+        return str(root), None, None
+    pins = {node_id: hashlib.sha256(text.encode("utf-8")).hexdigest() for node_id, text in texts}
+    reused = await _reusable_manifest(ctx, client, root, task_id, node, arguments.get("attempt_id") or "1", pins)
+    if reused is not None:
+        return str(root), reused, pins
+    manifest, pins = await _pin(ctx, task_id, texts, client)
     return str(root), manifest, pins
 
 
-async def _pin(ctx, task_id: str, texts: list[tuple[str, str]]) -> tuple[dict, dict]:
-    """Publish each input node's stored result and pin them in one manifest for the task."""
+async def _reusable_manifest(ctx, client, root, task_id: str, node_id: str, attempt_id: str,
+                             pins: dict) -> dict | None:
+    """The manifest of the node's current contract when a retry may reuse it, else None.
+
+    A parent that retries preparation with the same attempt_id while the same input results are
+    pinned gets that attempt's manifest again, so the contract and its fingerprint stay the same
+    instead of turning the retry into a new attempt. A manifest that no longer verifies is not reused.
+    """
+    try:
+        workmap = await asyncio.to_thread(WorkmapStore(root).load, task_id)
+    except (OSError, WorkmapError):
+        return None
+    node = workmap.nodes.get(node_id) if workmap is not None else None
+    refs = (node or {}).get("refs") or {}
+    if (node is None or node["status"] != "prepared" or refs.get("attempt_id") != attempt_id
+            or refs.get("inputs") != pins):
+        return None
+    try:
+        manifest = subagent_exchange.load_contract(refs.get("contract_revision")).get("artifact_manifest")
+    except Exception:  # an unreadable or missing contract only means there is nothing to reuse
+        return None
+    if not isinstance(manifest, dict):
+        return None
     owned, service = False, None
     try:
-        client, service, owned = await artifact_tools.resolve_service(ctx)
+        client, service, owned = await artifact_tools.resolve_service(ctx, client)
+        return await service.verify_snapshot(client, manifest)
+    except (ArtifactError, WorkspaceError, OSError, ValueError, ValidationError):
+        return None
+    finally:
+        if owned and service is not None:
+            await service.close()
+
+
+async def _pin(ctx, task_id: str, texts: list[tuple[str, str]], client=None) -> tuple[dict, dict]:
+    """Publish each input node's stored result and pin them in one manifest for the task.
+
+    ``client`` is the one prepare resolved and checked for the selected workspace."""
+    owned, service = False, None
+    try:
+        client, service, owned = await artifact_tools.resolve_service(ctx, client)
         entries, pins = [], {}
         for node_id, text in texts:
             published = _data(await service.call("artifact_publish", client, {

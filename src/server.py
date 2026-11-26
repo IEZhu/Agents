@@ -2804,7 +2804,7 @@ async def workmap_update(
     superseded and blocked (the last three with a reason), and level V4 only with accepted,
     when the user accepted the node; a critical node below V3 is accepted only with that V4.
     prepared, validated, needs_attention, verified and
-    disputed come from get_subagent_context and validate_subagent_result and are refused here
+    disputed come from get_subagent_context and workmap_submit and are refused here
     with status_reserved. A depends_on cycle is refused, and so is a depends_on edge onto a
     goal, which never settles. The first call creates the map.
 

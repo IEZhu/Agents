@@ -525,7 +525,7 @@ def test_read_records_drops_what_keep_refuses_as_it_parses(tmp_path, monkeypatch
 
 
 # json.dumps(ensure_ascii=False) leaves these raw, and str.splitlines() breaks a line at each.
-LINE_BREAKS = "    \u0085"
+LINE_BREAKS = "\u2028 \u2029 \u0085"
 
 
 def test_read_records_splits_only_at_newlines(tmp_path):

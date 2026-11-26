@@ -1,6 +1,6 @@
 # Work map implementation plan
 
-**Status:** implementation plan of 2026-11-25 for the [work map plan](workmap-plan.md); implemented in one pull request that lands all six groups below together. Line numbers refer to `origin/dev` at `ce2bfc22`; re-locate a quoted line by its
+**Status:** implementation plan of 2026-11-25 for the [work map plan](workmap-plan.md); implemented in one pull request that lands all six groups below together, and superseded in part by what shipped: bound workers submit with `workmap_submit` while `validate_subagent_result` stays read-only, `read_records` splits only on newlines, the store writes its own `.gitignore`, and the pull-request grouping below was not followed. The shipped source and [the subagent contract](subagent-contract.md) are authoritative; the rest of this plan is kept as a historical record. Line numbers refer to `origin/dev` at `ce2bfc22`; re-locate a quoted line by its
 text if it has moved.
 
 **Goal:** a parent session keeps a server-side map of its delegated stages, workers submit

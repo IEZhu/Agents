@@ -32,9 +32,12 @@ stays with the workers, the server and, where the risk warrants one, a verifier.
    you read>)` and trust the node, never the line. A worker that could not reach the
    server, or whose submission the map refused twice with a code that is not final
    (step 4), hands back its full result instead: read its node first, and validate the
-   result by `result_ref`; while the node is still `prepared`, `workmap_submit` with the
-   same `result_ref` validates it the same way and records it with `hand-back: full`. A
-   node that has moved on already holds what the worker submitted.
+   result by `result_ref`; while the map is open, the node is `prepared` or
+   `needs_attention` and it holds no result, `workmap_submit` with the same `result_ref`
+   validates it the same way and records it with `hand-back: full`, and refuses it as
+   `stale_contract` when that contract is no longer the node's current attempt. Count the
+   result recorded only when `workmap_submit` answers `valid: true` without
+   `workmap.refused`. A node that has moved on already holds what the worker submitted.
    `validate_subagent_result` records nothing.
 4. **Handle what needs you.** The view's `needs attention:` list names nodes in
    `needs_attention` or `disputed`, and every `validated`, `verified` or `accepted` node
@@ -98,7 +101,12 @@ stays with the workers, the server and, where the risk warrants one, a verifier.
    V2 is the worker's own report of a passed check, which the server does not rerun.
    Record a fact that outlives the task with `claim_record`, citing the node's
    `contract_revision` and `result_sha256`.
-7. **Report and close.** Report to the user from the view, then `close` the map.
+7. **Repeat until settled.** Go back to step 2 after every completed node, accepted node
+   or new verifier: wait for the active workers, read the view since the last revision,
+   handle what each completed node needs (steps 3 to 6), and launch the stages and
+   verifiers that became ready. Stop when every node the goal depends on is settled, or
+   when a blocker needs the user; a map with a single stage passes through this step once.
+8. **Report and close.** Report to the user from the view, then `close` the map.
 
 ## Rules
 

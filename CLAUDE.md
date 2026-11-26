@@ -11,8 +11,9 @@ Its tools return instructions and contracts, never the answer, and launch no wor
 
 Delegate to any AI worker (subagent, reviewer, verifier) only through
 `get_subagent_context` before spawning and `validate_subagent_result` (`valid: true`)
-before accepting its output; first read both descriptions, which hold the procedure
-and the artifact rules. If either is unavailable, work in the parent and say so,
+before accepting its output (a work-map worker's one-line `submitted` hand-back holds
+no result: read its node with `workmap_view`); first read both descriptions, which hold
+the procedure and the artifact rules. If either is unavailable, work in the parent and say so,
 never with an unprepared, full-persona or unvalidated worker.
 
 A worker given a valid `agents-core/subagent/1` prepared package already has its

@@ -15,8 +15,11 @@ from .store import ArtifactError
 TOOL_NAMES = tuple(REQUEST_MODELS)
 
 
-async def resolve_service(ctx):
-    client = await resolve_client_context(ctx, allow_install_fallback=False)
+async def resolve_service(ctx, client=None):
+    """The session's client and its artifact service; ``client`` is one a caller already resolved
+    and checked for an explicitly selected workspace, so a session with several roots keeps it."""
+    if client is None:
+        client = await resolve_client_context(ctx, allow_install_fallback=False)
     try:
         request = ctx.request_context.request
     except (AttributeError, ValueError):

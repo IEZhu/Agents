@@ -256,11 +256,17 @@ def render_result_format(contract: dict) -> str:
     revision = contract["contract_revision"][:CONTRACT_PREFIX_CHARS]
     short_lists = "items, limitations or remaining_work items" if payload == "items" else \
         "limitations or remaining_work items"
+    intro = ("Write the result as plain text in this form, lines 1 and 2 exactly as shown: no JSON, "
+             "no code fence, nothing above line 1. It is the text you submit; reply with it only where "
+             "the submission rule below says so, and then with nothing above line 1, since a character "
+             "above it discards a result read from the reply text."
+             if contract.get("workmap") else
+             "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
+             "no code fence, nothing above line 1, and a character above it discards a result read from "
+             "the reply text.")
     return "\n".join([
         "## Result format",
-        "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
-        "no code fence, nothing above line 1, and a character above it discards a result read from "
-        "the reply text.",
+        intro,
         submission_rule(contract),
         "```text",
         f"task: {contract['task_id']}",

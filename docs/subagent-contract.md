@@ -210,7 +210,9 @@ receipt of under 2,000 characters instead of the package: `protocol`, `status`,
 a skill was traded for the budget). The parent starts the worker with `launch` as its prompt (the worker
 reads the package file itself), keeps `contract_revision`, and never holds the
 package or the contract. If the files cannot be written, file delivery returns
-`exchange_unwritable`; retry with `delivery="inline"`. `delivery="inline"` returns
+`exchange_unwritable`. An unbound package can then retry with `delivery="inline"`; a
+package bound with `workmap_node` needs its stored contract in either delivery, so retry it
+only once the exchange storage can be written again. `delivery="inline"` returns
 the full package as before, for a worker that cannot read the server's files
 (another machine); the parent then retains `contract` and forwards
 `worker_context` unchanged. The server still stores the files when it can, so

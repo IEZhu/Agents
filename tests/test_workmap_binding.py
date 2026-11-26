@@ -505,7 +505,7 @@ async def test_a_failing_artifact_service_while_pinning_is_a_diagnostic(artifact
                                                                         monkeypatch, failure):
     settle_map_code(served)
 
-    async def broken(ctx):
+    async def broken(ctx, client=None):
         raise failure
 
     monkeypatch.setattr(server.artifact_tools, "resolve_service", broken)
@@ -675,3 +675,41 @@ async def test_the_tool_accepts_a_workspace_argument(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code", workspace=str(served)))
     assert receipt["status"] == "prepared", receipt
     assert node_of(served)["refs"]["contract_revision"] == receipt["contract_revision"]
+
+
+@pytest.mark.asyncio
+async def test_a_retry_with_the_same_attempt_and_inputs_keeps_its_contract(artifact_worker_tree, served):
+    settle_map_code(served)
+    first = await call("get_subagent_context", request(workmap_node="write", workmap_inputs=["map-code"]))
+    again = await call("get_subagent_context", request(workmap_node="write", workmap_inputs=["map-code"]))
+    assert first["status"] == again["status"] == "prepared", (first, again)
+    assert again["contract_revision"] == first["contract_revision"]
+    assert node_of(served, "write")["refs"]["contract_revision"] == first["contract_revision"]
+    renewed = await call("get_subagent_context", request(workmap_node="write", workmap_inputs=["map-code"],
+                                                          attempt_id="2"))
+    assert renewed["status"] == "prepared" and renewed["contract_revision"] != first["contract_revision"]
+
+
+@pytest.mark.asyncio
+async def test_a_session_with_two_roots_pins_inputs_from_the_workspace_it_names(artifact_worker_tree, two_roots):
+    ctx, (_, second) = two_roots
+    applied = json.loads(await server.workmap_update(task_id=TASK, ops=[
+        {"op": "add_node", "id": "map-code", "title": "Map the code"},
+        {"op": "add_node", "id": "write", "title": "Write it"},
+        {"op": "add_edge", "from": "write", "to": "map-code", "type": "depends_on"}], ctx=ctx,
+        workspace=str(second)))
+    assert applied["status"] == "applied", applied
+    settle_map_code(second)
+    receipt = (await server.get_subagent_context(**request(workmap_node="write", workmap_inputs=["map-code"]),
+                                                 ctx=ctx, workspace=str(second))).model_dump(mode="json")
+    assert receipt["status"] == "prepared", receipt
+    assert WorkmapStore(second).load(TASK).nodes["write"]["refs"]["inputs"]
+
+
+@pytest.mark.asyncio
+async def test_a_bound_package_asks_for_the_receipt_not_also_for_the_full_result(worker_tree, served):
+    bound = await call("get_subagent_context", request(workmap_node="map-code"))
+    text = open(bound["context_path"], encoding="utf-8").read()
+    assert "Reply with only a plain-text result" not in text and "It is the text you submit" in text
+    unbound = await call("get_subagent_context", request(task_id="unbound-task"))
+    assert "Reply with only a plain-text result" in open(unbound["context_path"], encoding="utf-8").read()
