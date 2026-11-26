@@ -1,8 +1,8 @@
 """Wiring and internal consistency of the data skills.
 
-Three skills carry narrow knowledge the data personas lacked: an input audit
-before computing on tables, clinical laboratory units, and statistical
-geography. Two failures are cheap to catch from the files alone and expensive
+Four skills carry narrow knowledge the data personas lacked: an input audit
+before computing on tables, clinical laboratory units, statistical geography
+and the SEC Form 13F data sets. Two failures are cheap to catch from the files alone and expensive
 to notice any other way:
 
 * a skill no agent lists is never loaded, however good its text, and a skill
@@ -32,6 +32,7 @@ DATA_SKILLS = (
     "skill-data-intake-audit",
     "skill-clinical-lab-units",
     "skill-statistical-geography",
+    "skill-sec-13f-holdings",
 )
 
 # (agent, skill list, skill): the attachment each skill was added for.
@@ -41,6 +42,7 @@ WIRING = (
     ("data_analyst", "capable_skills", "skill-clinical-lab-units"),
     ("medical_expert", "capable_skills", "skill-clinical-lab-units"),
     ("data_analyst", "capable_skills", "skill-statistical-geography"),
+    ("data_analyst", "capable_skills", "skill-sec-13f-holdings"),
 )
 SKILL_LISTS = ("core_skills", "preferred_skills", "capable_skills")
 CORE_BUDGET = 3
