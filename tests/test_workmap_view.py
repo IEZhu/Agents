@@ -145,17 +145,16 @@ def test_a_node_record_shows_the_optional_result_fields_when_present(store):
     assert "result status" not in plain and "question" not in plain and "escalation" not in plain
     store.apply(TASK, [{"op": "update_node", "id": "map-code", "status": "planned"}])  # a new attempt
     store.record_prepared(TASK, "map-code", contract_revision="c" * 64, attempt_id="2", complexity=None)
-    name = f"{map_key(TASK)}.jsonl"
-    with store._writing(name) as (handle, records):  # the fields a later writer adds to a result event
-        event = next(record for record in records if record.get("op") == "result")
-        revision = fold(records).revision + 1
-        store._commit(handle, name, [{**event, "rev": revision, "contract_revision": "c" * 64,
-                                      "result_status": "input_required", "question": "Which\nbranch? " + "q" * 400,
-                                      "escalation": {"complexity": "high", "tier": "inherit"}}])
+    # The binding cuts a question to one line of 300 characters before the store sees it.
+    question = "Which branch? " + "q" * 286
+    store.record_result(TASK, "map-code", contract_revision="c" * 64, attempt_id="2", text="asks",
+                        sha256="d" * 64, outcome={"status": "validated", "level": "V2", "summary": "Asks",
+                                                  "result_status": "input_required", "question": question,
+                                                  "escalation": {"complexity": "high", "tier": "inherit"}},
+                        handback="line")
     lines = render_node(store.load(TASK), "map-code").splitlines()
     assert "result status: input_required" in lines
-    question = next(line for line in lines if line.startswith("question: "))
-    assert question.startswith("question: Which branch? qqq") and len(question) == len("question: ") + 300
+    assert f"question: {question}" in lines
     assert "escalation: complexity high, tier inherit" in lines
 
 

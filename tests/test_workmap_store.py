@@ -535,11 +535,15 @@ def test_a_result_holding_unicode_line_breaks_reads_back(store):
     prepare(store)
     text = f"first {LINE_BREAKS} last"
     store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text=text,
-                        sha256="b" * 64, outcome={**OUTCOME, "summary": f"Mapped {LINE_BREAKS}"},
-                        handback="line")
+                        sha256="b" * 64, outcome=OUTCOME, handback="line")
     assert store.result_text(TASK, "map-code") == text
-    assert store.load(TASK).nodes["map-code"]["summary"] == f"Mapped {LINE_BREAKS}"
     assert store.check_preparable(TASK, "write", ["map-code"]) == [("map-code", text)]
+    # A summary is one line, as the binding cuts it: one holding line breaks is refused, not stored.
+    prepare(store, node="write", revision=SECOND)
+    with pytest.raises(WorkmapError) as raised:
+        store.record_result(TASK, "write", contract_revision=SECOND, attempt_id="1", text=text, sha256="c" * 64,
+                            outcome={**OUTCOME, "summary": f"Mapped {LINE_BREAKS}"}, handback="line")
+    assert raised.value.code == "invalid_request"
 
 
 CREATE = os.O_RDWR | os.O_CREAT | os.O_APPEND
@@ -1127,6 +1131,19 @@ RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "status": "vali
     {**RESULT, "level": "V3", "rev": 4},
     {**RESULT, "status": "needs_attention", "rev": 4},
     {**RESULT, "contract_revision": SECOND, "rev": 4},
+    # Text the views put on one line is held to what the writers leave: a node id of NODE_ID's
+    # form, one line of single spaces within its limit, and a hand-back of "full" or "line".
+    {"op": "add_node", "id": "B C", "kind": "stage", "title": "B", "summary": "", "risk": "routine", "rev": 4},
+    {"op": "add_node", "id": "b", "kind": "stage", "title": "Line\nbreak", "summary": "", "risk": "routine", "rev": 4},
+    {"op": "add_node", "id": "b", "kind": "stage", "title": "t" * 121, "summary": "", "risk": "routine", "rev": 4},
+    {"op": "add_node", "id": "b", "kind": "stage", "title": "B", "summary": "two\nlines", "risk": "routine", "rev": 4},
+    {"op": "update_node", "id": "a", "title": "Line break", "rev": 4},
+    {"op": "update_node", "id": "a", "status": "blocked", "reason": "two\nlines", "rev": 4},
+    {**RESULT, "summary": "two\nlines", "rev": 4},
+    {**RESULT, "question": "two\nlines", "rev": 4},
+    {**RESULT, "handback": "forged", "rev": 4},
+    {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": ["schema\nforged: line"], "status": None,
+     "rev": 4},
     {"op": "update_node", "id": "a", "level": None, "rev": 4},
     # The parent sets only its own statuses, accepts only a settled node, and gives a reason exactly
     # with refuted, superseded and blocked.
@@ -1155,6 +1172,13 @@ def test_a_committed_event_the_writers_would_refuse_is_skipped(damaged):
     assert workmap.revision == 3 and workmap.nodes["a"]["status"] == "prepared" and workmap.nodes["a"]["level"] == "V0"
     assert workmap.nodes["a"]["refs"] == {"contract_revision": FIRST, "attempt_id": "1"}
     assert workmap.edges == [] and workmap.invalid == {} and render_map(workmap)
+
+
+def test_an_invalid_count_keeps_its_codes_as_one_line_each(store):
+    plan(store)
+    prepare(store)
+    store.record_invalid(TASK, "map-code", contract_revision=FIRST, codes=["schema\nforged: line", "x" * 100, " "])
+    assert store.load(TASK).invalid_codes[FIRST] == ["schema forged: line", "x" * 80]
 
 
 def test_nothing_applies_after_the_map_is_closed():

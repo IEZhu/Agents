@@ -185,8 +185,44 @@ def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _is_line(value: object, limit: int, *, allow_empty: bool = False) -> bool:
+    """Text as the writers leave it (_text, and the binding's _cut): one line of single spaces, at
+    most ``limit`` characters, encodable as UTF-8, and not empty unless the field may be. A view
+    renders each such field on one line, so anything else would break or forge the lines around it."""
+    if not isinstance(value, str) or value != " ".join(value.split()) or len(value) > limit:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return allow_empty or bool(value)
+
+
 # The status and level a result gives its node, as outcome_of chooses them.
 _RESULT_OUTCOMES = {("validated", "V1"), ("validated", "V2"), ("needs_attention", "V0")}
+# What workmap_submit records as the way a result came back: the full hand-back or the one line.
+HANDBACKS = ("full", "line")
+# An invalid submission keeps at most this many validation codes, each as long as
+# ValidationError.code allows (src/schemas/subagent.py); the node view joins them on one line.
+CODES_KEPT = 20
+CODE_MAX = 80
+
+
+def _codes_ok(codes: object) -> bool:
+    return (isinstance(codes, list) and len(codes) <= CODES_KEPT
+            and all(_is_line(code, CODE_MAX) for code in codes))
+
+
+def _result_fields(summary: object, question: object, handback: object) -> str | None:
+    """Why a result's text fields are not the writers' own, or None: a summary of up to SUMMARY_MAX
+    and a question of up to QUESTION_MAX, both cut to one line, and one of HANDBACKS."""
+    if not _is_line(summary, SUMMARY_MAX, allow_empty=True):
+        return f"a result summary is one line of at most {SUMMARY_MAX} characters"
+    if question is not None and not _is_line(question, QUESTION_MAX):
+        return f"a result question is one line of at most {QUESTION_MAX} characters"
+    if handback not in HANDBACKS:
+        return f"a result hand-back is one of {', '.join(HANDBACKS)}"
+    return None
 
 
 def _takes_submission(workmap: WorkMap, node: dict, contract_revision: object) -> bool:
@@ -197,11 +233,12 @@ def _takes_submission(workmap: WorkMap, node: dict, contract_revision: object) -
 
 
 def _check_update(workmap: WorkMap, event: dict) -> None:
-    """The rules of workmap_update's update_node: parent statuses only, accepted only from a settled
-    node, a critical node accepted below V3 only with V4, a reason exactly with the statuses that
-    need one, and level V4 only together with accepted."""
+    """The rules of workmap_update's update_node: text as _text leaves it, parent statuses only,
+    accepted only from a settled node, a critical node accepted below V3 only with V4, a reason
+    exactly with the statuses that need one, and level V4 only together with accepted."""
     node = workmap.nodes[event["id"]]
-    if any(key in event and not _is_text(event[key], optional=key == "reason") for key in ("title", "summary", "reason")):
+    if ("title" in event and not _is_line(event["title"], TITLE_MAX)) or (
+            "summary" in event and not _is_line(event["summary"], SUMMARY_MAX, allow_empty=True)):
         raise ValueError("update_node text fields")
     if "status" in event:
         status = event["status"]
@@ -213,7 +250,7 @@ def _check_update(workmap: WorkMap, event: dict) -> None:
                 and LEVELS.index(node["level"]) < LEVELS.index("V3")):
             raise ValueError("update_node accepts a critical node below V3")
         reason = event.get("reason")
-        if (status in REASONED) != (isinstance(reason, str) and bool(reason.strip())):
+        if not (_is_line(reason, REASON_MAX) if status in REASONED else reason is None):
             raise ValueError("update_node reason")
     elif "reason" in event:
         raise ValueError("update_node reason without a status")
@@ -237,8 +274,11 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if key in event and not (event[key] is None and (op, key) in _NULLABLE) and event[key] not in allowed:
             raise ValueError(f"{op} {key} {event[key]!r}")
     if op == "add_node":
-        if not all(_is_text(event.get(key)) for key in ("id", "title", "summary")):
-            raise ValueError("add_node needs text id, title and summary")
+        # _parent_event's rules: an id of NODE_ID's form, a title and a summary as _text leaves them.
+        if not (isinstance(event.get("id"), str) and NODE_ID.fullmatch(event["id"])
+                and _is_line(event.get("title"), TITLE_MAX)
+                and _is_line(event.get("summary"), SUMMARY_MAX, allow_empty=True)):
+            raise ValueError("add_node id, title or summary the writer refuses")
     elif op == "update_node":
         _check_update(workmap, event)
     elif op in ("add_edge", "remove_edge"):
@@ -281,7 +321,10 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if (event.get("status"), event.get("level")) not in _RESULT_OUTCOMES:
             raise ValueError("result status and level")
         checks, findings = event.get("checks"), event.get("findings")
-        if not (_is_text(event.get("summary")) and _is_text(event.get("handback")) and _is_text(event.get("result_sha256"))
+        problem = _result_fields(event.get("summary"), event.get("question"), event.get("handback"))
+        if problem is not None:
+            raise ValueError(problem)
+        if not (_is_text(event.get("result_sha256"))
                 and (event.get("limitations") is None or _is_count(event.get("limitations")))):
             raise ValueError("result event text and counts")
         if checks is not None and not (isinstance(checks, dict) and set(checks) == {"passed", "failed", "not_run"}
@@ -290,12 +333,12 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if findings is not None and not (isinstance(findings, dict)
                                          and all(_is_text(key) and _is_count(value) for key, value in findings.items())):
             raise ValueError("result findings")
-        if not (_is_text(event.get("question"), optional=True) and _is_text(event.get("result_status"), optional=True)
+        if not (_is_text(event.get("result_status"), optional=True)
                 and (event.get("escalation") is None or isinstance(event.get("escalation"), dict))):
             raise ValueError("result optional fields")
     elif op == "invalid":
         node, contract = workmap.nodes[event["id"]], event.get("contract_revision")
-        if not isinstance(event.get("codes", []), list) or not _takes_submission(workmap, node, contract):
+        if not _codes_ok(event.get("codes", [])) or not _takes_submission(workmap, node, contract):
             raise ValueError("invalid event for a node that takes no submission")
         # record_invalid sends the node to needs_attention exactly when this count reaches the limit.
         limit_reached = node["status"] == "prepared" and workmap.invalid.get(contract, 0) + 1 >= INVALID_LIMIT
@@ -865,9 +908,12 @@ class WorkmapStore:
         invalid results: a worker may still submit a valid one after them.
         """
         task_id = _task_id(task_id)
+        # The fold would skip such an event, so it is never written.
         if (outcome.get("status"), outcome.get("level")) not in _RESULT_OUTCOMES:
-            # The fold would skip such an event, so it is never written.
             raise WorkmapError("invalid_request", "a result is validated at V1 or V2, or needs_attention at V0")
+        problem = _result_fields(outcome.get("summary"), outcome.get("question"), handback)
+        if problem is not None:
+            raise WorkmapError("invalid_request", problem)
         name = f"{map_key(task_id)}.jsonl"
         with self._writing(name) as (handle, records):
             workmap = self._existing_map(records, task_id)
@@ -934,9 +980,12 @@ class WorkmapStore:
                                                         "submission is not counted")
             _require_open(workmap, node, contract_revision)
             count = workmap.invalid.get(contract_revision, 0) + 1
+            # Each code as one line of at most CODE_MAX characters, which is what the fold accepts.
+            kept = [" ".join(code.split())[:CODE_MAX].rstrip() for code in codes if isinstance(code, str)]
+            kept = [code for code in kept if _is_line(code, CODE_MAX)][:CODES_KEPT]
             self._commit(handle, name, [{
                 "op": "invalid", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
-                "contract_revision": contract_revision, "codes": list(codes)[:20], "escalation": escalation,
+                "contract_revision": contract_revision, "codes": kept, "escalation": escalation,
                 "status": "needs_attention" if node["status"] == "prepared" and count >= INVALID_LIMIT
                 else None}])
         return count
