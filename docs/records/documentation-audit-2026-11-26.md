@@ -1,7 +1,9 @@
 # Documentation audit — 2026-11-26
 
 **Status:** recorded audit, 2026-11-26, taken before the `dev` to `main`
-promotion. It is evidence for the revisions named below; repeat the
+promotion. Its review covered `origin/dev` at `43a1d121`; a
+[delta](#delta-for-756-and-762) then covered #756 and #762 at `3a8c624a`. It is
+evidence for the revisions named below; repeat the
 [documentation refresh](../../flows/documentation-refresh.md) for a later one. The
 [documentation map](../README.md) lists the current reader entry points.
 
@@ -66,7 +68,45 @@ scope** and **unverified** (with the reason).
 | CI selection: the pytest bound, journal tests, inventory tests (#671, #703, #755) | [Test guide](../../tests/README.md), [quality checks](../quality-checks.md), [memory acceptance](../memory-acceptance.md) | `.github/workflows/*.yml` run steps | Corrected and added: see the rows above |
 | Plugin directory refusal of `26.11.14.1328` (#672) | [Claude plugin](../claude-plugin.md), [distribution ledger](../distribution.md) | The owner's portal evidence as recorded | Unverified: the owner-only portal cannot be read from this session; the dated record stands |
 | Repository Memory block of `CLAUDE.md` | `CLAUDE.md` | `describe_repo(force_refresh=True)` and `write_repo_summary` for this worktree, hash `ab1c6470` | Corrected: the block of 2026-11-19 counted 89 skills, 21 flows, 34 tools in `src/server.py` and four memory tools. The writer names the block after the worktree directory; its heading was set back to `Agents` |
-| The work map, [#756](https://github.com/IEZhu/Agents/pull/756) | Its own documentation on `agent/workmap` | `gh pr view 756`: open against `dev`, head `e696517541bff96a911823881691f419a044abc0` on 2026-11-26 | Out of scope: pending, not merged, and carries its own guides; nothing here documents it |
+| The work map, [#756](https://github.com/IEZhu/Agents/pull/756) | Its own documentation on `agent/workmap` | `gh pr view 756`: open against `dev`, head `e696517541bff96a911823881691f419a044abc0` on 2026-11-26 | Out of scope at `43a1d121`: not merged yet. It merged later that day; see the [delta](#delta-for-756-and-762) |
+
+## Delta for #756 and #762
+
+`6d6213f6` merged `origin/dev` at `3a8c624a13cd861d7171c3187e927295cb849e32` into this
+branch, adding two pull requests to the review above:
+[#756](https://github.com/IEZhu/Agents/pull/756), the work map (`workmap_update`,
+`workmap_view`, `workmap_submit`, `src/workmap/`, `src/safe_store.py`, the `orchestrate`
+flow, [the plan](../workmap-plan.md) and its
+[implementation plan](../proposals/workmap-implementation-plan.md)), and
+[#762](https://github.com/IEZhu/Agents/pull/762), which moved the documents no source
+file names into `docs/proposals/` and `docs/records/`, this record among them. The
+merge itself brought the tool index, the architecture tree, the worker contract, the
+model-tier guide and the moved links; this pass covered the rest of the reader-facing
+references.
+
+| Surface | Change in this pass | Source checked |
+|---|---|---|
+| [README](../../README.md) | Added: the work map in the delegated-workers row and a task-table row with its tools and the `orchestrate` flow | `src/server.py` (`workmap_update`, `workmap_view`, `workmap_submit`, the `workmap_node` and `workmap_inputs` arguments of `get_subagent_context`) |
+| [Features](../features.md) | Added: a Work map row and note 10; partial outside Claude Code, the only client where a worker was seen to reach the server's tools | `_workmap_call` (`require_root`), the [spike](../workmap-plan.md#spike-of-2026-11-25) |
+| [Agent guide](../agent-guide.md) | Added: a task row, the bound-package steps and `data/workmap/` in the persistence line | `src/workmap/store.py` (`DIRECTORY`), `src/workmap/binding.py`, `flows/orchestrate.md` |
+| [Architecture](../architecture.md) | Corrected: the tree listed two of the three work-map tools. Added: a Work map component | `src/server.py`, `src/workmap/` |
+| [Documentation map](../README.md), [shared artifacts](../shared-artifacts.md) | Added: a delegation row for the map; `workmap_inputs` and its refusal with `artifact_manifest` | `src/workmap/binding.py` (`invalid_request`) |
+| [Test guide](../../tests/README.md) | Added: a Work map row and the CI steps that run its tests; the single-encoded row names the work-map tools | `tests/test_workmap_*.py`, `.github/workflows/shared-runtime.yml`, `.github/workflows/documentation-quality.yml`, `SINGLE_ENCODED_TOOLS` |
+| `CLAUDE.md` | Added: a repository note on the map. Regenerated: the Repository Memory block (hash `3598eef5`), whose previous text counted 34 `@mcp.tool` handlers, 51 tools, 22 flows and 268 test files; the writer heads it with the worktree name, `docs-refresh`, and it is left as written | `describe_repo(force_refresh=True)` and `write_repo_summary` for this worktree |
+| [AGENTS.md](../../AGENTS.md), [agent catalog](../../agents/README.md), the six artifact tools of [shared artifacts](../shared-artifacts.md) | Verified unchanged: no tool count or list the merge made stale | `src/artifacts/tools.py`, `src/server.py` |
+
+Tool count at `3a8c624a`: 37 handlers decorated `@mcp.tool` and 3 registered through
+`protocol_tool` in `src/server.py`, 6 from `TOOL_NAMES` in `src/artifacts/tools.py`
+(the keys of `REQUEST_MODELS` in `src/artifacts/service.py`) and 8 from `TOOL_NAMES` in
+`src/local_inference/tools.py`: 54, three more than the review above found. Built-in
+flows are 23 with `orchestrate`.
+
+Checks of the delta, run from the worktree root with the installation's Python
+environment and `markdown-it-py` on `PYTHONPATH`, which that environment lacks:
+`scripts/check_docs.py` reported "Checked 198 Markdown files; 0 navigation/tool-index
+errors.", `python -m src.engine.protocol_text --check` listed nothing, and
+`tests/test_check_docs.py` gave 9 passed. The full suite and the work-map tests were
+not run; this pass changed documentation only.
 
 ## Before the promotion
 
@@ -74,8 +114,9 @@ scope** and **unverified** (with the reason).
   `python scripts/bump_plugin_version.py --check --base origin/main` answers
   that it must be greater than `main`'s; the promotion needs the bump of
   [step 3](../releases.md#prepare-a-promotion).
-- [#756](https://github.com/IEZhu/Agents/pull/756) was open when this ran. If it
-  merges first, re-check its guides against the integrated tree.
+- [#756](https://github.com/IEZhu/Agents/pull/756) was open when the review ran;
+  it merged first, and the [delta](#delta-for-756-and-762) re-checked the guides
+  against the integrated tree.
 - Still owed at the frozen promotion head: the release checks, current-head CI,
   the bot reviews and the owner's decision. After the merge: the tag and GitHub
   Release at the exact merge commit, the release run's own scan and the raw
