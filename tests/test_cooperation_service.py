@@ -1395,3 +1395,15 @@ def test_an_allowance_assigned_to_a_peer_that_recovered_before_consenting_still_
     taker = h.register("taker", scope=[allowance])
     assert h.acquire(taker, allowance)["error"] == "claim_conflict"
     assert h.acquire(owner, allowance, agreement_id="agreement")["status"] == "ok"
+
+
+def test_a_party_that_recovers_after_the_commit_cannot_execute_on_its_old_consent(h):
+    writer, reviewer = h.register("writer"), h.register("reviewer")
+    proposed = h.apply(writer, h.proposal([writer, reviewer]))["agreement"]
+    assert h.ack(writer, proposed)["status"] == "ok"
+    assert h.ack(reviewer, proposed)["agreement"]["state"] == "committed"
+    # A recovery from a live state leaves the agreement committed, but the new
+    # generation never consented to it, so it cannot work under it.
+    assert h.recover(writer)["status"] == "ok"
+    refused = h.acquire(writer, agreement_id="agreement")
+    assert (refused.get("error"), refused.get("participant_id")) == ("stale_generation", writer["participant_id"]), refused
