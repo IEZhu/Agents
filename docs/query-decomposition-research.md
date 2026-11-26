@@ -1,5 +1,3 @@
-<!-- Generated 2026-09-23 by a research workflow: 7 literature sweeps + 3 gap sweeps, 81 citations verified against the opened source (9 rejected), synthesis revised after a rigor critic. Claims about our eval set and code were re-checked by hand. -->
-
 # Ideas I1–I7 and a multidimensional query classifier: research evidence and its relationship to our measurements F1–F10
 
 **Status:** research synthesis of 2026-09-23 (branch `feat/factuality-layer`). It
@@ -10,6 +8,8 @@ F1–F6 are the measurements recorded in the
 listed in section 4. Current settings:
 [implants](../implants/README.md#1-agent-preferences-and-semantic-retrieval) and
 [intent classifier](intent-classifier.md).
+
+<!-- Generated 2026-09-23 by a research workflow: 7 literature sweeps + 3 gap sweeps, 81 citations verified against the opened source (9 rejected), synthesis revised after a rigor critic. Claims about our eval set and code were re-checked by hand. -->
 
 ## 1. Summary
 

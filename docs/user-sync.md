@@ -2,7 +2,7 @@
 
 The [MCP proxy and host-inventory guide](mcp-proxy.md) describes the `mcp` sync scope for shared HTTP/stdio definitions and host selections. Server/host JSON can sync, while credentials, runtime catalogs and local execution confirmation stay on each host. Upgrade all syncing installations before using the scope; older versions reject an unknown scope group. A received host record never grants local execution consent.
 
-Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
+The engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
 runs, the stdio trigger and the terminal wizard (#168), the sync loop of the macOS daemon (#167),
 the merge of each repository's history across machines (#172,
 [Repository history](#repository-history)), the status, Sync page and wizard of the web UI (#170)

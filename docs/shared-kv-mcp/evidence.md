@@ -1,6 +1,6 @@
 # Evidence and source map
 
-Preparation date: 2026-10-14. This source map records code inspection and the historical experiments below. New implementation checks and model evidence are recorded separately in [implementation-report.md](implementation-report.md) and the follow-up [Redis live report](redis-live-report.md).
+**Status:** recorded source map and evidence, 2026-10-14, of the base that predates the implementation; current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference). This source map records code inspection and the historical experiments below. New implementation checks and model evidence are recorded separately in [implementation-report.md](implementation-report.md) and the follow-up [Redis live report](redis-live-report.md).
 
 ## Recorded revisions
 

@@ -1,6 +1,6 @@
 # Redis snapshot backend
 
-Status: implemented optional backend, disabled by default. Real Redis storage and native lifecycle acceptance are recorded in the [Redis live report](redis-live-report.md), separately from the earlier resident-only evaluation. This design uses ordinary Redis binary strings as opaque storage. It does not assume Redis understands attention tensors or makes llama.cpp slots concurrent.
+**Status:** design of 2026-10-14 for the optional Redis snapshot backend, implemented and disabled by default; current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference). Real Redis storage and native lifecycle acceptance are recorded in the [Redis live report](redis-live-report.md), separately from the earlier resident-only evaluation. This design uses ordinary Redis binary strings as opaque storage. It does not assume Redis understands attention tensors or makes llama.cpp slots concurrent.
 
 ## Chosen version 1 integration
 

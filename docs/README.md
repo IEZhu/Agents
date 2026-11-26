@@ -197,19 +197,24 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
 
 ## Plans, research and recorded results
 
-Each of these documents opens with a **Status:** line: what it is, its date, how much of
-it is implemented, and, where a maintained reference exists, where current behavior is
-documented. Recorded measurements of something never adopted have no such reference and
-say so by leaving it out. The exception is
+Each of these documents opens, right after its title, with a **Status:** line: what it is,
+its date, how much of it is implemented, and, where a maintained reference exists, where
+current behavior is documented. Recorded measurements of something never adopted have no
+such reference and say so by leaving it out. The exception is
 the two generated reports at the end of the last list: a run of the script that writes
 one would overwrite such a line, so the entry notes its provenance instead. They all
 retain their original scope, measurements and limitations; the maintained references
-above are authoritative for current commands and behavior.
+above are authoritative for current commands and behavior and carry no status line of
+their own.
 
-The documents that no source file names live in `docs/proposals/` (designs and
+The standalone documents that no source file names live in `docs/proposals/` (designs and
 contracts) and `docs/records/` (audits, validations and measurements). The rest stay in
 `docs/` because code, tests, CI or a configuration file reads them by path, so moving
-one would break a check rather than tidy a folder.
+one would break a check rather than tidy a folder. Two sets keep a folder of their own
+instead: `docs/agent-cooperation/` and `docs/shared-kv-mcp/` are each one package with an
+entry point, cross-links between its members and a `source-manifest.json` pinning the
+revision it was written against, so their records are listed below by kind but stay where
+that package reads them.
 
 ### Proposals and implementation contracts
 
@@ -219,18 +224,31 @@ one would break a check rather than tidy a folder.
   its [pilot report](records/verifier-accuracy-pilot.md) and its
   [stage 1 report](records/verifier-accuracy-stage1.md)
 - [Autodev plan](autodev-plan.md), with its [review appendix](records/autodev-plan-review.md)
+  and the [phase 1a and 1b acceptance procedure](autodev-acceptance.md)
 - [Instruction signing specification](proposals/instruction-signing-spec.md)
 - [Layer sensitivity proposal](layer-sensitivity-plan.md)
 - [Subagent implementation plan](proposals/subagent-implementation-plan.md)
 - [Work map plan](workmap-plan.md), with its
   [implementation plan](proposals/workmap-implementation-plan.md)
-- [Shared local inference and KV cache handoff](shared-kv-mcp/START_HERE.md)
+- [Shared local inference and KV cache handoff](shared-kv-mcp/START_HERE.md), whose contract
+  package is the [proposed MCP contract](shared-kv-mcp/api-contract.md), the
+  [architecture and invariants](shared-kv-mcp/architecture.md), the
+  [ordered implementation plan](shared-kv-mcp/implementation-plan.md) and the
+  [validation and acceptance protocol](shared-kv-mcp/validation.md)
+- Agent cooperation, whose contract package is the
+  [research and architecture decisions](agent-cooperation/research.md), the
+  [cooperation protocol](agent-cooperation/protocol.md), the
+  [implementation plan](agent-cooperation/implementation.md) and the
+  [evaluation and acceptance specification](agent-cooperation/evaluation.md); the
+  maintained reference is [Agent cooperation](agent-cooperation/README.md) above
 
 ### Implemented design records
 
 - [Personal flow library](proposals/user-flows-design.md)
 - [Persona switching plan](proposals/persona-switch-plan.md)
 - [Memory subsystem specification](memory-subsystem-spec.md)
+- [Cooperation instruction design](agent-cooperation/draft-instructions.md)
+- [Redis snapshot backend](shared-kv-mcp/redis.md)
 
 ### Recorded audits and validations
 
@@ -240,6 +258,12 @@ one would break a check rather than tidy a folder.
 - [Subagent validation results](records/subagent-validation-results.md)
 - [Daemon validation](records/shared-mcp-daemon-validation.md)
 - [Persona switching results](records/persona-switch-eval-results.md)
+- [Cooperation implementation validation](agent-cooperation/validation-results.md)
+- [Shared-KV evidence and source map](shared-kv-mcp/evidence.md)
+- [Local inference acceptance report](shared-kv-mcp/implementation-report.md)
+- [Shared-KV source reconciliation](shared-kv-mcp/reconciliation-report.md)
+- [Redis live acceptance](shared-kv-mcp/redis-live-report.md)
+- [Resident service deployment](shared-kv-mcp/resident-deployment-report.md)
 
 ### Research and recorded measurements
 
@@ -248,6 +272,8 @@ one would break a check rather than tidy a folder.
 - [English pivot A/B](records/english-pivot-eval-results.md)
 - [Outbound timing A/B](records/outbound-timing-eval-results.md)
 - [Embedding models A/B](embedding-models-eval-results.md)
+- [Local inference benchmark per-task results](shared-kv-mcp/benchmark-results.md)
+- [Redis controlled-restart per-task results](shared-kv-mcp/redis-benchmark-results.md)
 - [Evaluation baseline](../evals/reports/baseline.md) — the committed comparison base for
   `./scripts/eval.sh diff`, generated by `python -m evals.runners.run_all --baseline`, so it
   carries no status line of its own. The baseline in the tree is the one recorded in

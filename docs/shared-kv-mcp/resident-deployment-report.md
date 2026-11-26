@@ -1,5 +1,9 @@
 # Resident service deployment and Redis acceptance
 
+**Status:** recorded deployment checkpoint and Redis acceptance, 2026-10-15; it retains its
+original scope, measurements and limitations. Current behavior is documented in
+[local inference operations](../shared-mcp-daemon.md#local-inference).
+
 This is a historical checkpoint recorded before the persistent-artifact integration
 PR. References to uncommitted code, the serving worktree and paused updates
 describe that checkpoint, not the deployment state of a later merged revision.

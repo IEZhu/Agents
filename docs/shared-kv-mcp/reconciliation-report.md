@@ -1,7 +1,8 @@
 # Shared-KV source reconciliation
 
-Recorded on 2026-10-15 against integrated `dev` revision
-`d503b39d01f69ac92e4cc44c3bbf5e1621260b7e`.
+**Status:** recorded source reconciliation, 2026-10-15, against integrated `dev` revision
+`d503b39d01f69ac92e4cc44c3bbf5e1621260b7e`; current behavior is documented in
+[local inference operations](../shared-mcp-daemon.md#local-inference).
 
 ## Scope and result
 
