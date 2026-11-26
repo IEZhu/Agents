@@ -1,4 +1,5 @@
 """Work-map views: dependency order, budgets, deltas and node records."""
+import hashlib
 import time
 
 import pytest
@@ -20,6 +21,10 @@ def store(tmp_path):
     ])
     return store
 
+
+def digest(text: str) -> str:
+    """The hash a result text is kept under: the SHA-256 of its UTF-8 bytes."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def test_the_view_lists_dependencies_first_and_says_what_is_ready(store):
     lines = render_map(store.load(TASK)).splitlines()
@@ -59,7 +64,7 @@ def test_a_budget_too_small_for_every_node_says_how_many_are_left(tmp_path):
 def test_a_validated_node_below_its_level_needs_attention(store):
     store.record_prepared(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", complexity=None)
     store.record_result(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", text="mapped",
-                        sha256="b" * 64, outcome={"status": "validated", "level": "V1", "summary": "Mapped",
+                        sha256=digest("mapped"), outcome={"status": "validated", "level": "V1", "summary": "Mapped",
                                                   "checks": {"passed": 0, "failed": 0, "not_run": 1},
                                                   "findings": None, "limitations": 0},
                         handback="line")
@@ -71,7 +76,7 @@ def test_an_accepted_critical_node_below_v3_needs_attention(store):
     store.apply(TASK, [{"op": "update_node", "id": "map-code", "risk": "critical"}])
     store.record_prepared(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", complexity=None)
     store.record_result(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", text="mapped",
-                        sha256="b" * 64, outcome={"status": "validated", "level": "V2", "summary": "Mapped",
+                        sha256=digest("mapped"), outcome={"status": "validated", "level": "V2", "summary": "Mapped",
                                                   "checks": {"passed": 1, "failed": 0, "not_run": 0},
                                                   "findings": None, "limitations": 0},
                         handback="line")
@@ -104,7 +109,7 @@ def test_long_ready_and_attention_lists_are_cut_to_the_budget(tmp_path):
         revision = f"{index:02d}".ljust(64, "a")
         store.record_prepared(task, node_id, contract_revision=revision, attempt_id="1", complexity=None)
         store.record_result(task, node_id, contract_revision=revision, attempt_id="1", text="t",
-                            sha256=revision[::-1], handback="line",
+                            sha256=digest("t"), handback="line",
                             outcome={"status": "validated", "level": "V1", "summary": "", "checks": None,
                                      "findings": None, "limitations": 0})
     text = render_map(store.load(task), budget=500)
@@ -138,7 +143,7 @@ def test_a_node_record_says_why_its_submissions_were_invalid_in_any_status(store
 def test_a_node_record_shows_the_optional_result_fields_when_present(store):
     store.record_prepared(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", complexity=None)
     store.record_result(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", text="mapped",
-                        sha256="b" * 64, outcome={"status": "validated", "level": "V2", "summary": "Mapped",
+                        sha256=digest("mapped"), outcome={"status": "validated", "level": "V2", "summary": "Mapped",
                                                   "checks": {"passed": 1, "failed": 0, "not_run": 0},
                                                   "findings": None, "limitations": 0}, handback="line")
     plain = render_node(store.load(TASK), "map-code")
@@ -148,7 +153,7 @@ def test_a_node_record_shows_the_optional_result_fields_when_present(store):
     # The binding cuts a question to one line of 300 characters before the store sees it.
     question = "Which branch? " + "q" * 286
     store.record_result(TASK, "map-code", contract_revision="c" * 64, attempt_id="2", text="asks",
-                        sha256="d" * 64, outcome={"status": "validated", "level": "V2", "summary": "Asks",
+                        sha256=digest("asks"), outcome={"status": "validated", "level": "V2", "summary": "Asks",
                                                   "result_status": "input_required", "question": question,
                                                   "escalation": {"complexity": "high", "tier": "inherit"}},
                         handback="line")

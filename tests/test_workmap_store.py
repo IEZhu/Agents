@@ -18,6 +18,11 @@ from src.workmap.view import render_map
 TASK = "task-1"
 # The hash of the default result text, "mapped code": the store reads a text back only under its own hash.
 MAPPED = hashlib.sha256(b"mapped code").hexdigest()
+
+
+def digest(text: str) -> str:
+    """The hash a result text is kept under: the SHA-256 of its UTF-8 bytes."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 FIRST = "a" * 64
 SECOND = "d" * 64
 OUTCOME = {"status": "validated", "level": "V2", "summary": "Mapped",
@@ -43,11 +48,11 @@ def prepare(store, node="map-code", revision=FIRST, attempt="1"):
     return store.record_prepared(TASK, node, contract_revision=revision, attempt_id=attempt, complexity=None)
 
 
-def submit(store, node="map-code", revision=FIRST, sha=MAPPED, text="mapped code", attempt=None):
+def submit(store, node="map-code", revision=FIRST, sha=None, text="mapped code", attempt=None):
     """Submit under the node's current attempt, as the binding does with its own contract's attempt."""
     attempt = attempt or store.load(TASK).nodes[node]["refs"].get("attempt_id", "1")
     return store.record_result(TASK, node, contract_revision=revision, attempt_id=attempt, text=text,
-                               sha256=sha, outcome=OUTCOME, handback="line")
+                               sha256=digest(text) if sha is None else sha, outcome=OUTCOME, handback="line")
 
 
 def map_file(tmp_path):
@@ -207,7 +212,7 @@ def test_an_accepted_node_settles_a_routine_or_load_bearing_need_whatever_its_le
     plan(store)
     prepare(store)
     # A completed stage with no passed check is validated V1: below the V2 a dependant needs.
-    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped",
+    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped code",
                         sha256=MAPPED, outcome={**OUTCOME, "level": "V1",
                                                   "checks": {"passed": 0, "failed": 0, "not_run": 1}},
                         handback="line")
@@ -260,7 +265,7 @@ def test_a_second_different_result_for_one_contract_is_refused(store):
     submit(store)
     assert submit(store)["duplicate"] is True
     with pytest.raises(WorkmapError) as raised:
-        submit(store, sha="c" * 64)
+        submit(store, text="another map")
     assert raised.value.code == "already_submitted"
 
 
@@ -341,7 +346,7 @@ def test_a_verifier_waits_for_a_target_whose_result_needs_attention(store):
     store.apply(TASK, [{"op": "add_node", "id": "check", "title": "Check the map"},
                        {"op": "add_edge", "from": "check", "to": "map-code", "type": "verifies"}])
     prepare(store)
-    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="partial map",
+    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped code",
                         sha256=MAPPED, handback="line",
                         outcome={**OUTCOME, "status": "needs_attention", "level": "V0"})
     workmap = store.load(TASK)
@@ -360,7 +365,7 @@ def test_a_verifier_waits_for_a_target_whose_result_needs_attention(store):
 def test_a_prepared_again_node_drops_the_previous_results_fields(store):
     plan(store)
     prepare(store, node="write")
-    store.record_result(TASK, "write", contract_revision=FIRST, attempt_id="1", text="half done",
+    store.record_result(TASK, "write", contract_revision=FIRST, attempt_id="1", text="mapped code",
                         sha256=MAPPED, handback="line",
                         outcome={**OUTCOME, "status": "needs_attention", "level": "V0", "summary": "Half done",
                                  "findings": {"high": 1}, "limitations": 2, "result_status": "input_required",
@@ -381,7 +386,7 @@ def test_a_prepared_again_node_shows_the_parents_latest_summary(store):
     plan(store)
     store.apply(TASK, [{"op": "update_node", "id": "write", "summary": "The change itself"}])
     prepare(store, node="write")
-    store.record_result(TASK, "write", contract_revision=FIRST, attempt_id="1", text="half done",
+    store.record_result(TASK, "write", contract_revision=FIRST, attempt_id="1", text="mapped code",
                         sha256=MAPPED, handback="line",
                         outcome={**OUTCOME, "status": "needs_attention", "level": "V0", "summary": "Half done"})
     assert store.load(TASK).nodes["write"]["summary"] == "Half done"
@@ -421,7 +426,7 @@ def test_a_full_store_refuses_a_result_and_changes_neither_file(store, tmp_path,
     plan(store)
     prepare(store)
     text = "r" * (100 if full == "map" else 5000)
-    submit(store, node="map-code", revision=FIRST, sha="e" * 64, text=text)  # one record in each file
+    submit(store, node="map-code", revision=FIRST, text=text)  # one record in each file
     prepare(store, node="write", revision=SECOND, attempt="2")
     before = (contents(map_file(tmp_path)), contents(results_file(tmp_path)))
     # map: the short text still fits its file, but the event no longer fits the map;
@@ -430,7 +435,7 @@ def test_a_full_store_refuses_a_result_and_changes_neither_file(store, tmp_path,
     assert limit > max(len(before[0]), 2 * len(before[1]) if full == "map" else len(before[1]))
     monkeypatch.setattr(store_module, "MAX_STORE_BYTES", limit)
     with pytest.raises(WorkmapError) as raised:
-        submit(store, node="write", revision=SECOND, sha="f" * 64, text=text)
+        submit(store, node="write", revision=SECOND, text=text)
     assert raised.value.code == "store_full"
     assert (contents(map_file(tmp_path)), contents(results_file(tmp_path))) == before
 
@@ -547,7 +552,7 @@ def test_a_result_holding_unicode_line_breaks_reads_back(store):
     # A summary is one line, as the binding cuts it: one holding line breaks is refused, not stored.
     prepare(store, node="write", revision=SECOND)
     with pytest.raises(WorkmapError) as raised:
-        store.record_result(TASK, "write", contract_revision=SECOND, attempt_id="1", text=text, sha256="c" * 64,
+        store.record_result(TASK, "write", contract_revision=SECOND, attempt_id="1", text=text, sha256=digest(text),
                             outcome={**OUTCOME, "summary": f"Mapped {LINE_BREAKS}"}, handback="line")
     assert raised.value.code == "invalid_request"
 
@@ -712,7 +717,7 @@ ATTENTION = {**OUTCOME, "status": "needs_attention", "level": "V0"}
 def test_a_contract_that_already_has_a_result_is_not_prepared_again(store):
     plan(store)
     prepare(store)
-    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="partial",
+    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped code",
                         sha256=MAPPED, outcome=ATTENTION, handback="line")
     assert store.load(TASK).nodes["map-code"]["status"] == "needs_attention"
     for call in (lambda: store.check_preparable(TASK, "map-code", [], contract_revision=FIRST),
@@ -756,7 +761,7 @@ def test_an_invalid_submission_for_a_node_that_no_longer_takes_one_writes_nothin
     if settle == "result":
         submit(store)
     elif settle == "attention_result":
-        store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="partial",
+        store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped code",
                             sha256=MAPPED, outcome=ATTENTION, handback="line")
     elif settle == "reprepared":
         prepare(store, revision=SECOND, attempt="2")
@@ -779,7 +784,7 @@ def verify(store, findings, *, verifier="check", pins=None, revision=SECOND):
     store.record_prepared(TASK, verifier, contract_revision=revision, attempt_id="1", complexity=None,
                           inputs={"map-code": MAPPED} if pins is None else pins)
     return store.record_result(TASK, verifier, contract_revision=revision, attempt_id="1", text="review",
-                               sha256="e" * 64, handback="line",
+                               sha256=digest("review"), handback="line",
                                outcome={**OUTCOME, "summary": "Reviewed", "findings": findings})
 
 
@@ -838,7 +843,7 @@ def test_an_accepted_target_stays_accepted_at_v4(store):
 def test_a_target_that_needs_attention_gets_no_verdict(store):
     plan(store)
     prepare(store)
-    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="partial",
+    store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped code",
                         sha256=MAPPED, outcome=ATTENTION, handback="line")
     verify(store, {})
     assert target(store)["status"] == "needs_attention"
@@ -856,10 +861,10 @@ def test_a_target_re_attempted_after_the_verifier_was_prepared_gets_no_verdict(s
     verify(store, {"high": 1})  # a first verifier disputes the target, which takes a new attempt
     assert target(store)["status"] == "disputed"
     prepare(store, revision="c" * 64, attempt="2")
-    submit(store, revision="c" * 64, sha="c" * 64, text="remapped")
+    submit(store, revision="c" * 64, text="remapped")
     assert target(store)["status"] == "validated"
     store.record_result(TASK, "late", contract_revision="f" * 64, attempt_id="1", text="review",
-                        sha256="9" * 64, handback="line",
+                        sha256=digest("review"), handback="line",
                         outcome={**OUTCOME, "summary": "Reviewed", "findings": {"high": 1}})
     assert target(store)["status"] == "validated"  # the dispute would have certified text it never saw
     assert store.load(TASK).nodes["late"]["status"] == "validated"
@@ -892,12 +897,12 @@ def test_a_generic_result_gives_no_verdict_through_a_verifies_edge_added_later(s
                           inputs={"map-code": MAPPED})
     store.apply(TASK, [{"op": "add_edge", "from": "generic", "to": "map-code", "type": "verifies"}])
     store.record_result(TASK, "generic", contract_revision=SECOND, attempt_id="1", text="generic",
-                        sha256="e" * 64, handback="line", outcome=OUTCOME)  # findings None: not a review
+                        sha256=digest("generic"), handback="line", outcome=OUTCOME)  # findings None: not a review
     assert target(store)["status"] == "validated" and target(store)["level"] == "V2"
     assert store.load(TASK).nodes["generic"]["status"] == "validated"
 
 
-REVIEW = {"contract_revision": SECOND, "attempt_id": "1", "text": "review", "sha256": "e" * 64,
+REVIEW = {"contract_revision": SECOND, "attempt_id": "1", "text": "review", "sha256": digest("review"),
           "handback": "line", "outcome": {**OUTCOME, "summary": "Reviewed", "findings": {"low": 1}}}
 
 
@@ -1244,6 +1249,19 @@ def test_a_server_write_the_fold_would_skip_is_refused_before_anything_is_kept(s
     assert not (tmp_path / "data" / "workmap" / f"{map_key(TASK)}.results.jsonl").exists()  # no orphan text
 
 
+def test_a_result_whose_hash_is_not_its_texts_is_refused(store, tmp_path):
+    # The text is served only under its own hash: accepted, it would leave the node validated
+    # with a result that neither the view nor a dependant's inputs could read.
+    plan(store)
+    prepare(store)
+    revision = store.load(TASK).revision
+    with pytest.raises(WorkmapError) as raised:
+        submit(store, text="mapped code", sha=digest("other code"))
+    assert raised.value.code == "invalid_request" and store.load(TASK).revision == revision
+    assert target(store)["status"] == "prepared"
+    assert not (tmp_path / "data" / "workmap" / f"{map_key(TASK)}.results.jsonl").exists()
+
+
 def test_invalid_submissions_past_the_limit_keep_the_node_needing_attention(store):
     plan(store)
     prepare(store)
@@ -1316,7 +1334,7 @@ def test_a_result_outcome_the_fold_would_skip_is_never_written(store):
     prepare(store)
     revision = store.load(TASK).revision
     with pytest.raises(WorkmapError) as raised:
-        store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped",
+        store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped code",
                             sha256=MAPPED, handback="line", outcome={**OUTCOME, "level": "V3"})
     assert raised.value.code == "invalid_request"
     assert store.load(TASK).revision == revision and store.load(TASK).nodes["map-code"]["status"] == "prepared"

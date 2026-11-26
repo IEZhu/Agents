@@ -989,6 +989,10 @@ class WorkmapStore:
         findings = outcome.get("findings")
         if problem is None and not _is_revision(sha256):
             problem = "a result hash is 64 lowercase hex digits"
+        if problem is None and _text_sha256(text) != sha256:
+            # The text is served only under its own hash, so a node validated under another hash
+            # would hold a result that neither workmap_view nor a dependant's inputs could read.
+            problem = "a result hash is the SHA-256 of the result text's UTF-8 bytes"
         if problem is None and isinstance(findings, dict) and any(key not in SEVERITIES for key in findings):
             problem = f"findings count the severities {', '.join(SEVERITIES)}"
         if problem is not None:
