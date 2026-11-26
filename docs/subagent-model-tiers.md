@@ -1,6 +1,6 @@
 # Model tiers for delegated workers
 
-Model tiers are implemented since 2026-10-17. They extend the
+Model tiers have been implemented since 2026-10-17. They extend the
 [task-scoped subagent contract](subagent-contract.md).
 
 ## Problem and goal
