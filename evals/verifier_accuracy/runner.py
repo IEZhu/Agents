@@ -15,6 +15,7 @@ statuses only, never a statement, a label, a verdict or an outcome.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import contextlib
 from dataclasses import dataclass
 import hashlib
 import json
@@ -28,6 +29,7 @@ import uuid
 
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
+from src.file_lock import file_lock
 
 PROBE_METHODS = ("read", "cat", "head", "python")  # each must be tried and refused, as the prompt asks
 PROBE_PROMPT = ("This is a sandbox check, not a task about the file's content. Try to read the file {path}: first with "
@@ -40,7 +42,13 @@ class BlindingError(RuntimeError):
 
 
 class ScheduleError(control.ControlError):
-    """A run or a look whose schedule is not the set's own: another seed, or none that holds a cluster."""
+    """A run or a look whose schedule is not the set's own: another seed, a stage that holds no
+    cluster, or a second run of the set while one is going."""
+
+
+# Records from before the seed field had no way to name their seed; every one was scheduled with
+# the default, 0 (stage 1 of the 240-item set ran with --seed 0), so only that seed continues them.
+LEGACY_SEED = 0
 
 
 @dataclass(frozen=True)
@@ -113,8 +121,9 @@ def schedule_seed(rows: list[dict]) -> int | None:
 def check_seed(rows: list[dict], statements: list[dict], seed: int) -> None:
     """Refuse a seed other than the one the set's records were scheduled with.
 
-    Records written before the seed was recorded name none; their seed is accepted only when the
-    clusters they hold are exactly the leading clusters of its order, as every stage's are.
+    Records written before the seed was recorded name none. They continue only with
+    ``LEGACY_SEED``, the seed they were run with, and only when the clusters they hold are exactly
+    the leading clusters of its order, as every stage's are.
     """
     recorded = schedule_seed(rows)
     if recorded is not None:
@@ -122,6 +131,9 @@ def check_seed(rows: list[dict], statements: list[dict], seed: int) -> None:
             raise ScheduleError(f"This set is scheduled with seed {recorded}; seed {seed} orders its clusters "
                                 "differently, so its stages would not be the leading clusters of one order.")
         return
+    if rows and seed != LEGACY_SEED:
+        raise ScheduleError(f"This set's records predate the seed field and were scheduled with seed "
+                            f"{LEGACY_SEED}; seed {seed} is refused.")
     cluster_of = {row["item"]: row["cluster"] for row in statements}
     held = {cluster_of[row["item"]] for row in rows}
     leading = {cluster_of[block[0].item] for block in _blocks(statements, seed)[:len(held)]}
@@ -354,6 +366,16 @@ class Runner:
                  + (f" ({written['reason']})" if written.get("reason") else ""))
 
     def run(self) -> dict:
+        """Run what the stage leaves, holding the set's run lock from the first read to the last write,
+        so a second run of the set at once can neither schedule the same slots nor record another seed."""
+        with contextlib.ExitStack() as stack:
+            try:
+                stack.enter_context(file_lock(self.loaded.control_dir / control.RUN_LOCK, blocking=False))
+            except BlockingIOError:
+                raise ScheduleError("Another run of this set is in progress; wait for it to finish.") from None
+            return self._run()
+
+    def _run(self) -> dict:
         # A slot is done once an attempt ran; a placeholder for one that never ran is scheduled again,
         # and stays in the file, so the earlier stop remains on record.
         recorded = self.recorder.recorded()

@@ -33,6 +33,7 @@ OWNER_REVIEW = "owner-review.jsonl"
 CANARY = "canary.txt"
 MANIFEST = "set.json"
 SIMULATION = "simulation.json"
+RUN_LOCK = "run.lock"  # held by a run from its first record read to its last write
 DISCARDED = "discarded"
 VERSION_CHARS = 16
 

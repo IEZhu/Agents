@@ -1084,13 +1084,42 @@ def test_records_without_a_seed_accept_only_the_seed_whose_leading_clusters_they
     cluster_of = {row["item"]: row["cluster"] for row in statements}
     leading = lambda seed: {cluster_of[slot.item] for slot in runner.stage(statements, seed, 10)}
     other = next(seed for seed in range(1, 50) if leading(seed) != leading(0))
-    with pytest.raises(runner.ScheduleError, match="not the leading clusters"):
+    with pytest.raises(runner.ScheduleError, match="predate the seed field"):
         runner.check_seed(legacy, statements, other)
+    elsewhere = [{"item": slot.item} for slot in runner.stage(statements, other, 10)]  # not seed 0's lead
+    with pytest.raises(runner.ScheduleError, match="not the leading clusters"):
+        runner.check_seed(elsewhere, statements, 0)
     rest = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None)
     rest.run()
     assert runner.schedule_seed(rest.recorder.recorded()) == 0  # the continuation records the seed
     with pytest.raises(runner.ScheduleError, match="2 schedule seeds"):
         runner.schedule_seed([{"seed": 0}, {"seed": 1}])
+
+
+def test_records_without_a_seed_continue_only_with_the_seed_they_were_run_with():
+    statements = _statements({"a": 2, "b": 1, "c": 3})
+    every_cluster = [{"item": row["item"]} for row in statements]  # any seed's leading clusters match these
+    runner.check_seed(every_cluster, statements, runner.LEGACY_SEED)
+    with pytest.raises(runner.ScheduleError, match="predate the seed field"):
+        runner.check_seed(every_cluster, statements, 7)
+    runner.check_seed([], statements, 7)  # a set with no records takes any seed, and records it
+
+
+def test_a_second_run_of_the_set_at_once_is_refused(tmp_path, repo, monkeypatch, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    from src.file_lock import file_lock
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+    (loaded.control_dir / control.SIMULATION).write_text(json.dumps({"set": loaded.set_id, "held": True,
+                                                                     "look": "final", "d_floor": 1.0}))
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    with file_lock(loaded.control_dir / control.RUN_LOCK, blocking=False):  # the other run's lock
+        with pytest.raises(runner.ScheduleError, match="Another run of this set"):
+            work.run()
+        assert cli.main([*arguments, "run"]) == 1
+    assert "Another run of this set" in capsys.readouterr().err
+    assert not launcher.calls and not work.recorder.recorded()  # no probe, no record
+    assert work.run()["run"] == len(runner.schedule(list(loaded.statements.values()), 0))  # free again
 
 
 def _slot_rows(statements: list[dict], seed: int, wrong: set[tuple]) -> list[dict]:

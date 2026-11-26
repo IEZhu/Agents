@@ -139,8 +139,9 @@ stop fitting `n` would leave out the cluster that crosses the limit, more often 
 one, and would never take a cluster with more slots than `n`. The price is that a
 stage's slots vary with the clusters drawn and can exceed `n`; `--max-total-usd` still
 caps the spend. [Stage 1](records/verifier-accuracy-stage1.md) was cut the old way, and
-its records predate the seed field: a later run accepts a seed for them only when they hold exactly the leading
-clusters of its order.
+its records predate the seed field: a later run continues them only with seed 0, the seed
+they ran with, and only when they hold exactly the leading clusters of its order. One run
+of a set goes at a time: a second is refused while the first holds the set's run lock.
 
 ## Recording path
 
