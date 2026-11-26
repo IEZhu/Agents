@@ -41,7 +41,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import TextContent, ToolAnnotations
 from typing import Annotated, Optional, List
-from pydantic import Field, WithJsonSchema
+from pydantic import Field, ValidationError, WithJsonSchema
 
 # Setup logging
 logging.basicConfig(
@@ -72,6 +72,9 @@ from src.memory.history_results import listing, to_json
 from src.memory import shared as shared_memory
 from src.claims.store import (ClaimError, ClaimStore, claim_key, history_view as claim_history_view,
                                view as claim_view)
+from src.workmap import binding as workmap_binding
+from src.workmap import view as workmap_text
+from src.workmap.store import WorkmapError, WorkmapStore
 from src.result_size import INLINE_LIMIT, RESULT_SIZE_CEILING, shown_size
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
                                    WorkspaceError, WorkspaceMismatch, HistoryStores, calling_app)
@@ -541,6 +544,9 @@ FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
 # 2 KB preview it has to read back in parts before it can apply it: the persona tools declare
 # the ceiling (#520).
 PERSONA_RESULT_META = {"anthropic/maxResultSizeChars": RESULT_SIZE_CEILING}
+# workmap_view with detail="result" returns a whole stored worker result, up to 128,000
+# characters before JSON escaping: it declares the ceiling too, so the result stays inline.
+WORKMAP_VIEW_META = {"anthropic/maxResultSizeChars": RESULT_SIZE_CEILING}
 
 
 def tool_hints(title: str, *, read_only: bool, destructive: bool | None = None,
@@ -586,10 +592,14 @@ TOOL_HINTS = {
     "set_flow_persona": tool_hints("Choose a flow's persona", read_only=False, destructive=True, idempotent=True,
                                    open_world=True),
     "clear_session_cache": tool_hints("Clear session caches", read_only=False, destructive=True, idempotent=True),
-    # Writes the package and contract to the installation's private exchange directory.
+    # Writes the package and contract to the installation's private exchange directory, and marks a
+    # bound work-map node prepared: a repeat is a new package, or refused.
     "get_subagent_context": tool_hints("Prepare a subagent package", read_only=False, destructive=False,
-                                       idempotent=True),
-    "validate_subagent_result": tool_hints("Validate a subagent result", read_only=True),
+                                       idempotent=False),
+    # Writes nothing except a bound contract's submissions on its work-map node: a valid result
+    # once, an invalid one counted toward the limit while the node still takes one.
+    "validate_subagent_result": tool_hints("Validate a subagent result", read_only=False, destructive=False,
+                                           idempotent=False),
     "cooperation_register": tool_hints("Register cooperation scope", read_only=False, destructive=False,
                                       idempotent=False),
     "cooperation_read": tool_hints("Read cooperation state", read_only=True),
@@ -624,6 +634,9 @@ TOOL_HINTS = {
     # Appends a verdict to the workspace's claims store; nothing is overwritten or deleted.
     "claim_record": tool_hints("Record a claim verdict", read_only=False, destructive=False, idempotent=False),
     "claim_lookup": tool_hints("Look up validated claims", read_only=True),
+    # Appends events to the workspace's work map of one task; nothing is overwritten or deleted.
+    "workmap_update": tool_hints("Update a work map", read_only=False, destructive=False, idempotent=False),
+    "workmap_view": tool_hints("View a work map", read_only=True),
     "local_inference_status": tool_hints("Read local inference status", read_only=True, idempotent=True),
     "local_context_create": tool_hints("Capture local inference context", read_only=False, destructive=False, idempotent=False),
     "local_context_grant": tool_hints("Grant local context access", read_only=False, destructive=False, idempotent=False),
@@ -1403,6 +1416,8 @@ async def get_subagent_context(
     client: ta.unparsed_arg("string", "Optional claude (Claude Code), codex or cursor: the host you run in, which launches the worker. Pass it with complexity: otherwise the server falls back to the X-Agents-Client header or, over stdio, MCP clientInfo, which often identify nothing.") = None,
     delivery: ta.unparsed_arg("string", "file (default): the server writes the worker package to a private file and keeps the contract, and returns a short receipt with the file's path and the worker's launch text. inline: return the whole package (worker_context, contract, result_schema), only for a worker that cannot read the server's files.") = "file",
     result_format: ta.unparsed_arg("string", "text (default): plain-text assignment and result. json: JSON contract, result schema and result, for structured-output runners.") = "text",
+    workmap_node: ta.unparsed_arg("string", "Optional work-map node this package serves; needs task_id, the map's task ID. The node becomes prepared, and the worker submits its result to the map. The map is the one in the session's registered workspace (no workspace argument).") = None,
+    workmap_inputs: ta.unparsed_arg("array", "Optional 1..10 work-map nodes whose stored results the worker needs, pinned as artifacts by the server. Needs workmap_node; not with artifact_manifest.", items={"type": "string"}) = None,
     ctx: Context | None = None,
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.
@@ -1426,26 +1441,61 @@ async def get_subagent_context(
                      non_goals=non_goals, result_type=result_type, max_skills=max_skills,
                      max_implants=max_implants, max_context_chars=max_context_chars,
                      complexity=complexity, client=client, result_format=result_format)
-    if artifact_manifest is not None:
+    workmap_root = None
+    inputs_manifest = None
+    pinned_inputs = None
+    if workmap_node is not None or workmap_inputs is not None:
+        try:
+            workmap_root, inputs_manifest, pinned_inputs = await workmap_binding.prepare(
+                ctx, arguments, workmap_node, workmap_inputs, artifact_manifest)
+        except (WorkmapError, ArtifactError) as error:
+            return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
+                error.code, getattr(error, "message", None) or str(error), "$.workmap_node"))))
+        except ValidationError as error:
+            return PreparationResponse(PreparationError(errors=diagnostics(error)))
+        except WorkspaceError as error:
+            return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
+                "workspace", str(error), "$.workmap_node"))))
+        arguments["workmap_node"] = workmap_node
+        if inputs_manifest is not None:
+            arguments["artifact_manifest"] = inputs_manifest
+    if inputs_manifest is None and artifact_manifest is not None:
         try:
             arguments["artifact_manifest"] = await artifact_tools.verify_preparation(ctx, artifact_manifest)
         except ArtifactError as error:
             return PreparationResponse(PreparationError(errors=diagnostics(
                 ContractError(error.code, error.message, "$.artifact_manifest"))))
-    result = await asyncio.to_thread(prepare_subagent, arguments)
+    result = await asyncio.to_thread(prepare_subagent, arguments, workmap_root=workmap_root)
     if not isinstance(result, PreparedPackage):
         return PreparationResponse(result)
     await asyncio.to_thread(subagent_ledger.record_prepared, result)
     try:
         receipt = await asyncio.to_thread(subagent_exchange.store, result)
     except (OSError, ContractError) as error:
+        if workmap_root is not None:
+            # A bound package is submitted by contract_revision, which needs the stored contract:
+            # an inline package could only be checked, never recorded, so neither delivery falls back.
+            return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
+                "exchange_unwritable", f"The package could not be stored ({type(error).__name__}); a package "
+                "bound to a work-map node needs its stored contract, so retry later.", "$.delivery"))))
         if delivery == "file":
             return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
                 "exchange_unwritable", f"The package could not be stored ({type(error).__name__}); "
                 "retry with delivery inline.", "$.delivery"))))
         logger.warning("Subagent exchange store failed; inline package only: %s", error)
-        return PreparationResponse(result)
-    return PreparationResponse(receipt if delivery == "file" else result)
+        receipt = None
+    if workmap_root is not None:
+        try:
+            await asyncio.to_thread(WorkmapStore(workmap_root).record_prepared, task_id, workmap_node,
+                                    contract_revision=result.contract_revision, attempt_id=result.attempt_id,
+                                    complexity=complexity, inputs=pinned_inputs)
+        except WorkmapError as error:
+            return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
+                error.code, str(error), "$.workmap_node"))))
+        except OSError:
+            return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
+                "workmap_unavailable", "The work map could not be written; try again.", "$.workmap_node"))))
+    return PreparationResponse(receipt if delivery == "file" and receipt is not None else result)
 
 
 @protocol_tool("validate_subagent_result")
@@ -1466,8 +1516,10 @@ async def validate_subagent_result(
     128000 characters, nesting 12, 10000 JSON nodes, 100 items per result array (50 for text
     lists), strings 4000 characters, and at most 20 diagnostics, with identity and status ones
     reported first and truncated.produced counting the diagnostics that stage produced, not
-    distinct problems. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
-    establishes truth, authorization or issue completion. For a contract prepared with
+    distinct problems. Reads only the stored contract and result_ref, reruns no checks, writes no memory, and
+    writes nothing except a bound contract's submissions on its work-map node: a valid result once, an
+    invalid one counted toward the limit while the node still takes one; a valid result the node refuses
+    is reported as workmap.refused. It never establishes truth, authorization or issue completion. For a contract prepared with
     complexity, escalation names the next tier when the result is invalid, failed, partial or
     has a failed check.
     """
@@ -1485,6 +1537,11 @@ async def validate_subagent_result(
         return ValidationResponse(valid=False, errors=diagnostics(error))
     response, outcome = assess_result(contract, result)
     await asyncio.to_thread(subagent_ledger.record_validation, outcome)
+    # Only a contract the server stored may name a workspace to write to: a caller can
+    # fingerprint an inline contract it wrote itself.
+    if contract_revision is not None and isinstance(contract, dict) and contract.get("workmap"):
+        response = await asyncio.to_thread(workmap_binding.record_submission, contract, result, response,
+                                           handback="full" if result_ref is not None else "line")
     return response
 
 
@@ -2640,6 +2697,130 @@ async def claim_lookup(
         payload = {"status": "error", "code": "internal", "error": str(error)}
         debug_log("claim_lookup", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
+
+async def _workmap_call(tool: str, ctx: Context | None, workspace: Optional[str], *, writing: bool,
+                        work) -> str:
+    """Run ``work(store)`` in the registered workspace's work-map store and answer as JSON."""
+    try:
+        client = await resolve_client_context(ctx, workspace)
+        root = client.require_root()
+        if writing:
+            # A map of another repository must not land in this one's store (#576).
+            client.require_workspace_match()
+        result = await asyncio.get_running_loop().run_in_executor(None, work, WorkmapStore(root))
+        result.update(_workspace_report(client, root))
+        debug_log(tool, "res", {key: result[key] for key in ("status", "mode", "revision") if key in result})
+        return to_json(result)
+    except WorkmapError as error:
+        payload = {"status": "error", "code": error.code, "error": str(error)}
+        debug_log(tool, "error", payload)
+        return to_json(payload)
+    except WorkspaceError as error:
+        payload = {"status": "error", "code": "workspace", "error": str(error),
+                   **_workspace_error_details(workspace_inputs(ctx), error)}
+        debug_log(tool, "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as error:
+        logger.error("%s failed: %s", tool, error, exc_info=True)
+        payload = {"status": "error", "code": "internal", "error": str(error)}
+        debug_log(tool, "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+@mcp.tool(**TOOL_HINTS["workmap_update"])
+async def workmap_update(
+    task_id: Annotated[str, Field(description="The map's task ID, the one its packages use.")],
+    ops: ta.unparsed_arg("array", "1 to 50 operations applied together or not at all.",
+                         items={"type": "object"}),
+    expected_revision: ta.unparsed_arg("integer", "Optional revision the map must be at.") = None,
+    ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+) -> str:
+    """Write the work map of one task: the parent's top-down view of staged, delegated work.
+
+    Operations: add_node {id, kind (goal, stage, decision, question), title, summary?, risk?
+    (routine, load_bearing, critical)}; update_node {id, title?, summary?, risk?, status?,
+    reason?, level?}; add_edge and remove_edge {from, to, type (depends_on, verifies,
+    supersedes, contradicts)}; close {}. The parent sets only planned, accepted, refuted,
+    superseded and blocked (the last three with a reason), and level V4 only with accepted,
+    when the user accepted the node; a critical node below V3 is accepted only with that V4.
+    prepared, validated, needs_attention, verified and
+    disputed come from get_subagent_context and validate_subagent_result and are refused here
+    with status_reserved. A depends_on cycle is refused, and so is a depends_on edge onto a
+    goal, which never settles. The first call creates the map.
+
+    The map is append-only in data/workmap/ of this workspace. A workspace argument outside
+    the registered root is refused with workspace_mismatch, and nothing is written.
+
+    Returns JSON: {status: applied, task_id, revision, changed, workspace}. Errors: {status:
+    error, code (invalid_request, unknown_node, status_reserved, invalid_transition, cycle,
+    revision_conflict, map_closed, key_collision, store_full, unsafe_store, workspace), error}.
+    """
+    debug_log("workmap_update", "req", {"ops": len(ops) if isinstance(ops, list) else None})
+    return await _workmap_call("workmap_update", ctx, workspace, writing=True,
+                               work=lambda store: store.apply(task_id, ops, expected_revision))
+
+
+def _workmap_read(store: WorkmapStore, task_id, node, since, detail, budget) -> dict:
+    if task_id is None:
+        if node is not None or detail is not None:
+            raise WorkmapError("invalid_request", "node and detail need task_id")
+        maps = store.list_maps()
+        return {"status": "ok", "mode": "list", "total": len(maps), "view": workmap_text.render_list(maps)}
+    current = store.load(task_id)
+    if current is None:
+        raise WorkmapError("unknown_map", f"no work map for task {task_id}")
+    if detail is not None:
+        if detail != "result" or node is None:
+            raise WorkmapError("invalid_request", 'detail is "result", together with node')
+        text = store.result_text(task_id, node)
+        if text is None:
+            raise WorkmapError("no_result", f"node {node} has no stored result")
+        return {"status": "ok", "mode": "result", "revision": current.revision, "node": node, "result": text}
+    if node is not None:
+        return {"status": "ok", "mode": "node", "revision": current.revision,
+                "view": workmap_text.render_node(current, node)}
+    for name, value in (("since", since), ("budget", budget)):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise WorkmapError("invalid_request", f"{name} is an integer")
+    return {"status": "ok", "mode": "map", "revision": current.revision,
+            "view": workmap_text.render_map(current, budget=budget or workmap_text.DEFAULT_BUDGET, since=since)}
+
+
+@mcp.tool(**TOOL_HINTS["workmap_view"], meta=WORKMAP_VIEW_META)
+async def workmap_view(
+    task_id: ta.opt_str("Optional task ID of one map; without it, the workspace's maps, one line each.") = None,
+    node: ta.opt_str("Optional node ID: that node's record instead of the map.") = None,
+    since: ta.unparsed_arg("integer", "Optional revision: only the nodes changed after it.") = None,
+    detail: ta.opt_str('Optional "result", with node: the stored result in full.') = None,
+    budget: ta.unparsed_arg("integer", "Characters for the map, 500 to 8000; default 3000.") = None,
+    ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+) -> str:
+    """Read work maps without their stage results: the parent's top-down view.
+
+    - No task_id: the workspace's maps, one line each, the most recently changed first, as
+      many as fit 3000 characters, then how many more there are; total counts them all.
+    - task_id: the map within budget characters, one line per node in dependency order,
+      [status level] id: title (after ...) — summary, then the ready nodes and those that
+      need the parent. Summaries go first when the budget runs short.
+    - since: only the nodes changed after that revision; read the map this way after each
+      worker's one-line hand-back.
+    - node: that node's record: relations, references, check and finding counts.
+    - node with detail="result": the node's stored result in full, the one call that brings
+      a stage's work into your context.
+
+    It reads the workspace this session is registered for; a workspace argument outside it
+    is not followed, and workspace_note says so.
+
+    Returns JSON: {status: ok, mode (list, map, node or result), revision?, view or result,
+    workspace}. Errors: {status: error, code (invalid_request, unknown_map, unknown_node,
+    no_result, unsafe_store, workspace), error}.
+    """
+    debug_log("workmap_view", "req", {"task": task_id is not None, "node": node is not None,
+                                      "since": since, "detail": detail})
+    return await _workmap_call("workmap_view", ctx, workspace, writing=False,
+                               work=lambda store: _workmap_read(store, task_id, node, since, detail, budget))
 
 # --- MCP Prompts (slash commands for Claude Desktop) ---
 

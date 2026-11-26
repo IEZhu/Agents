@@ -1,0 +1,690 @@
+"""Append-only per-task work maps: the parent's top-down view of delegated stages.
+
+One JSON line per event in ``<workspace>/data/workmap/<key>.jsonl``, where ``key`` is the
+first 16 hexadecimal characters of the SHA-256 of the task ID, and the exact text of each
+submitted result in ``<key>.results.jsonl`` beside it. The map's state is never stored: it
+is folded from the events on every read. The events of one change are written together and
+each carries the change's last revision (``commit``), so a write torn part-way applies none
+of them. The parent writes structure and its own statuses through ``apply``; only the server
+records preparation, results and verdicts.
+"""
+from __future__ import annotations
+
+import contextlib
+import copy
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import time
+from typing import Callable
+
+from src import safe_store
+from src.safe_store import StoreError
+
+FORMAT_VERSION = 1
+MAX_STORE_BYTES = 20 * 1024 * 1024
+DIRECTORY = ("data", "workmap")
+MAX_OPS = 50
+TITLE_MAX = 120
+SUMMARY_MAX = 300
+QUESTION_MAX = 300
+REASON_MAX = 300
+INVALID_LIMIT = 5
+NODE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
+TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
+MAP_FILE = re.compile(r"[0-9a-f]{16}\.jsonl")
+NODE_KINDS = ("goal", "stage", "decision", "question")
+RISKS = ("routine", "load_bearing", "critical")
+EDGE_TYPES = ("depends_on", "verifies", "supersedes", "contradicts")
+PARENT_STATUSES = ("planned", "accepted", "refuted", "superseded", "blocked")
+SERVER_STATUSES = ("prepared", "validated", "needs_attention", "verified", "disputed")
+REASONED = ("refuted", "superseded", "blocked")
+PREPARABLE = ("planned", "prepared", "needs_attention", "disputed")
+SETTLED = ("validated", "verified", "accepted")
+# What a package's input may be: a settled node, or a disputed one, whose second verifier
+# needs the disputed result itself.
+INPUT_STATUSES = SETTLED + ("disputed",)
+VERDICT_TARGETS = ("validated", "verified", "disputed")
+UNSETTLING = ("refuted", "superseded", "disputed")
+LEVELS = ("V0", "V1", "V2", "V3", "V4")
+COMPLEXITIES = ("low", "standard", "high")
+OPERATIONS = {
+    "add_node": {"op", "id", "kind", "title", "summary", "risk"},
+    "update_node": {"op", "id", "title", "summary", "risk", "status", "reason", "level"},
+    "add_edge": {"op", "from", "to", "type"},
+    "remove_edge": {"op", "from", "to", "type"},
+    "close": {"op"},
+}
+
+# One error type for the tools and the binding to catch; codes tell the cases apart.
+WorkmapError = StoreError
+
+
+def map_key(task_id: str) -> str:
+    """The file name stem: a hash, so a task ID's dots and colons never reach the file system."""
+    return hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:16]
+
+
+def _iso(seconds: float) -> str:
+    return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _task_id(value: object) -> str:
+    if not isinstance(value, str) or not TASK_ID.fullmatch(value):
+        raise WorkmapError("invalid_request", "task_id is 1 to 128 letters, digits, '_', '.', ':' or '-', "
+                                              "starting with a letter or digit")
+    return value
+
+
+def _node_id(value: object, where: str) -> str:
+    if not isinstance(value, str) or not NODE_ID.fullmatch(value):
+        raise WorkmapError("invalid_request", f"{where}: a node id is 1 to 40 characters of a-z, 0-9 and "
+                                              "'-', starting and ending with a letter or digit")
+    return value
+
+
+def _text(where: str, value: object, limit: int, *, allow_empty: bool = False) -> str:
+    if not isinstance(value, str) or (not allow_empty and not value.strip()):
+        raise WorkmapError("invalid_request", f"{where} is required text")
+    value = " ".join(value.split())
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:  # a lone surrogate: the record could not be written
+        raise WorkmapError("invalid_request", f"{where} holds a character UTF-8 cannot encode") from None
+    if len(value) > limit:
+        raise WorkmapError("invalid_request", f"{where} is {len(value)} characters; at most {limit}")
+    return value
+
+
+def _choice(where: str, value: object, allowed: tuple[str, ...]) -> str:
+    if value not in allowed:
+        raise WorkmapError("invalid_request", f"{where} must be one of {', '.join(allowed)}; got {value!r}")
+    return value
+
+
+@dataclass
+class WorkMap:
+    """A map's state, folded from its events; ``nodes`` keeps creation order."""
+
+    task_id: str
+    revision: int = 0
+    closed: bool = False
+    nodes: dict[str, dict] = field(default_factory=dict)
+    edges: list[tuple[str, str, str]] = field(default_factory=list)
+    invalid: dict[str, int] = field(default_factory=dict)
+    # The codes of each contract's last invalid submission.
+    invalid_codes: dict[str, list[str]] = field(default_factory=dict)
+    updated: str = ""  # when the last applied event was written, as the store stamps it
+
+    def targets(self, node_id: str, edge_type: str) -> list[str]:
+        return [target for source, target, kind in self.edges if source == node_id and kind == edge_type]
+
+    def sources(self, node_id: str, edge_type: str) -> list[str]:
+        return [source for source, target, kind in self.edges if target == node_id and kind == edge_type]
+
+
+# What a node holds of its attempt's result; a new preparation sets them back to these values.
+NO_RESULT = {"checks": None, "findings": None, "limitations": 0, "handback": None, "result_status": None,
+             "question": None, "escalation": None}
+
+
+def _new_node(event: dict) -> dict:
+    # planned_summary is the parent's own summary: a result replaces summary, a new attempt restores it.
+    return {"id": event["id"], "kind": event["kind"], "title": event["title"], "summary": event["summary"],
+            "planned_summary": event["summary"], "risk": event["risk"], "status": "planned", "level": "V0",
+            "reason": None, "complexity": None, "refs": {}, **NO_RESULT, "changed": event["rev"]}
+
+
+def _higher(kept: str | None, prepared: object) -> str | None:
+    """The higher of two complexities: a node once prepared as high keeps needing V3."""
+    def rank(value: object) -> int:
+        return COMPLEXITIES.index(value) if value in COMPLEXITIES else -1
+    return prepared if rank(prepared) > rank(kept) else kept
+
+
+def _apply_event(workmap: WorkMap, event: dict) -> None:
+    op, rev = event["op"], event["rev"]
+    if op == "add_node":
+        workmap.nodes[event["id"]] = _new_node(event)
+        return
+    if op in ("add_edge", "remove_edge"):
+        edge = (event["from"], event["to"], event["type"])
+        if op == "add_edge":
+            workmap.edges.append(edge)
+        else:
+            workmap.edges.remove(edge)
+        for node_id in edge[:2]:
+            workmap.nodes[node_id]["changed"] = rev
+        return
+    if op == "close":
+        workmap.closed = True
+        return
+    if op == "invalid":
+        revision = event["contract_revision"]
+        codes = event.get("codes")
+        workmap.invalid[revision] = workmap.invalid.get(revision, 0) + 1
+        workmap.invalid_codes[revision] = ([code for code in codes if isinstance(code, str)]
+                                           if isinstance(codes, list) else [])
+        if event.get("status") is None:
+            return
+    node = workmap.nodes[event["id"]]
+    if op == "update_node":
+        for key in ("title", "summary", "risk", "status", "reason", "level"):
+            if key in event:
+                node[key] = event[key]
+        if "summary" in event:
+            node["planned_summary"] = event["summary"]
+    elif op == "prepared":
+        # A new attempt shows nothing of the previous attempt's result.
+        node.update(NO_RESULT, status="prepared", level="V0", reason=None, summary=node["planned_summary"],
+                    complexity=_higher(node["complexity"], event["complexity"]),
+                    refs={"contract_revision": event["contract_revision"], "attempt_id": event["attempt_id"],
+                          # Optional: the {node: result sha256} the worker was given; none for older events.
+                          **({"inputs": dict(event["inputs"])} if isinstance(event.get("inputs"), dict) else {})})
+    elif op == "result":
+        node.update(status=event["status"], level=event["level"], summary=event["summary"],
+                    checks=event["checks"], findings=event["findings"], limitations=event["limitations"],
+                    handback=event["handback"],
+                    # Optional: older result events do not carry them.
+                    **{key: event.get(key) for key in ("result_status", "question", "escalation")})
+        node["refs"] = {**node["refs"], "result_sha256": event["result_sha256"]}
+    elif op == "invalid":
+        node["status"] = event["status"]
+        node["escalation"] = event.get("escalation")
+    elif op == "verdict":
+        node["status"] = event["status"]
+        if event.get("level") is not None:
+            node["level"] = event["level"]
+    else:
+        raise ValueError(op)
+    node["changed"] = rev
+
+
+def _revision(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _committed(events: list):
+    """The well-formed events of complete commits, in order.
+
+    A commit is one write of consecutive revisions, each event stamped with the last of them.
+    A torn write leaves a run that stops short of that revision, and none of the run applies;
+    the next commit reuses its revisions, so a run also ends where the revisions do not follow
+    on. An event without a stamp is a commit of its own.
+    """
+    run: list[dict] = []
+    for event in events:
+        if not isinstance(event, dict) or not _revision(event.get("rev")):
+            continue
+        last = event.get("commit", event["rev"])
+        if run and (last != run[-1].get("commit", run[-1]["rev"]) or event["rev"] != run[-1]["rev"] + 1):
+            run = []
+        run.append(event)
+        if event["rev"] == last:
+            yield from run
+            run = []
+
+
+def fold(events: list) -> WorkMap | None:
+    """The state after every committed event, in order; a damaged or foreign line is skipped."""
+    workmap = None
+    for event in _committed(events):
+        if workmap is None:
+            if event.get("op") == "open" and isinstance(event.get("task_id"), str):
+                workmap = WorkMap(task_id=event["task_id"], revision=event["rev"])
+                workmap.updated = event["at"] if isinstance(event.get("at"), str) else ""
+            continue
+        try:
+            _apply_event(workmap, event)
+        except (KeyError, TypeError, ValueError):
+            continue
+        workmap.revision = event["rev"]
+        if isinstance(event.get("at"), str):
+            workmap.updated = event["at"]
+    return workmap
+
+
+def required_level(node: dict) -> str:
+    """What a dependant needs from this node: V3 when it is critical or was ever prepared as high complexity."""
+    return "V3" if node["risk"] == "critical" or node["complexity"] == "high" else "V2"
+
+
+def settled(node: dict) -> bool:
+    """Whether a dependant may build on this node.
+
+    The parent's acceptance settles a routine or load_bearing node whatever its level, since a
+    completed stage without a passed check stays V1; a critical node still needs V3 or V4.
+    """
+    if node["status"] not in SETTLED:
+        return False
+    if node["status"] == "accepted" and node["risk"] != "critical":
+        return True
+    return LEVELS.index(node["level"]) >= LEVELS.index(required_level(node))
+
+
+def is_ready(workmap: WorkMap, node: dict) -> bool:
+    """A planned non-goal node whose dependencies are settled and whose verified targets each hold a
+    result that workmap_inputs would take: one in INPUT_STATUSES."""
+    if node["kind"] == "goal" or node["status"] != "planned":
+        return False
+    return (all(settled(workmap.nodes[target]) for target in workmap.targets(node["id"], "depends_on"))
+            and all(workmap.nodes[target]["status"] in INPUT_STATUSES
+                    and "result_sha256" in workmap.nodes[target]["refs"]
+                    for target in workmap.targets(node["id"], "verifies")))
+
+
+def is_stale(workmap: WorkMap, node: dict) -> bool:
+    return any(workmap.nodes[target]["status"] in UNSETTLING
+               for target in workmap.targets(node["id"], "depends_on"))
+
+
+def _existing(workmap: WorkMap, node_id: object, where: str) -> dict:
+    node = workmap.nodes.get(_node_id(node_id, where))
+    if node is None:
+        raise WorkmapError("unknown_node", f"{where}: the map has no node {node_id}")
+    return node
+
+
+def _reaches(workmap: WorkMap, start: str, goal: str) -> bool:
+    """Whether ``start`` depends on ``goal``, directly or through other nodes."""
+    seen, stack = set(), [start]
+    while stack:
+        node_id = stack.pop()
+        if node_id == goal:
+            return True
+        if node_id not in seen:
+            seen.add(node_id)
+            stack.extend(workmap.targets(node_id, "depends_on"))
+    return False
+
+
+def _parent_event(workmap: WorkMap, op: object, where: str) -> dict:
+    """One parent operation checked against the draft state, as the event that records it."""
+    if not isinstance(op, dict) or op.get("op") not in OPERATIONS:
+        raise WorkmapError("invalid_request", f"{where} is an object whose op is one of {', '.join(OPERATIONS)}")
+    if workmap.closed:
+        raise WorkmapError("map_closed", "the map is closed")
+    kind = op["op"]
+    unknown = set(op) - OPERATIONS[kind]
+    if unknown:
+        raise WorkmapError("invalid_request", f"{where} has unknown fields: {', '.join(sorted(unknown))}")
+    if kind == "add_node":
+        node_id = _node_id(op.get("id"), f"{where}.id")
+        if node_id in workmap.nodes:
+            raise WorkmapError("invalid_request", f"{where}: node {node_id} exists")
+        return {"op": kind, "by": "parent", "id": node_id,
+                "kind": _choice(f"{where}.kind", op.get("kind", "stage"), NODE_KINDS),
+                "title": _text(f"{where}.title", op.get("title"), TITLE_MAX),
+                "summary": _text(f"{where}.summary", op.get("summary", ""), SUMMARY_MAX, allow_empty=True),
+                "risk": _choice(f"{where}.risk", op.get("risk", "load_bearing"), RISKS)}
+    if kind == "update_node":
+        node = _existing(workmap, op.get("id"), f"{where}.id")
+        event = {"op": kind, "by": "parent", "id": node["id"]}
+        if "title" in op:
+            event["title"] = _text(f"{where}.title", op["title"], TITLE_MAX)
+        if "summary" in op:
+            event["summary"] = _text(f"{where}.summary", op["summary"], SUMMARY_MAX, allow_empty=True)
+        if "risk" in op:
+            event["risk"] = _choice(f"{where}.risk", op["risk"], RISKS)
+        if "status" in op:
+            if op["status"] in SERVER_STATUSES:
+                raise WorkmapError("status_reserved", f"{where}: only the server sets {op['status']}")
+            status = _choice(f"{where}.status", op["status"], PARENT_STATUSES)
+            if status == "accepted" and node["status"] not in SETTLED:
+                raise WorkmapError("invalid_transition",
+                                   f"{where}: only a validated, verified or accepted node can be accepted")
+            # An accepted node takes no verdict, so a critical one accepted below V3 would never settle.
+            if (status == "accepted" and event.get("risk", node["risk"]) == "critical"
+                    and op.get("level") != "V4" and LEVELS.index(node["level"]) < LEVELS.index("V3")):
+                raise WorkmapError("invalid_transition",
+                                   f"{where}: a critical node is accepted at V3, after a verifier, or with level "
+                                   "V4 when the user accepted it")
+            event["status"] = status
+            event["reason"] = (_text(f"{where}.reason", op.get("reason"), REASON_MAX)
+                               if status in REASONED else None)
+        elif "reason" in op:
+            raise WorkmapError("invalid_request", f"{where}: a reason goes with a status")
+        if "level" in op:
+            if op["level"] != "V4" or event.get("status") != "accepted":
+                raise WorkmapError("invalid_request",
+                                   f"{where}: the parent sets only level V4, together with status accepted")
+            event["level"] = "V4"
+        if len(event) == 3:
+            raise WorkmapError("invalid_request", f"{where} changes nothing")
+        return event
+    if kind in ("add_edge", "remove_edge"):
+        source = _existing(workmap, op.get("from"), f"{where}.from")["id"]
+        target = _existing(workmap, op.get("to"), f"{where}.to")["id"]
+        edge_type = _choice(f"{where}.type", op.get("type"), EDGE_TYPES)
+        edge = (source, target, edge_type)
+        if kind == "add_edge":
+            if source == target:
+                raise WorkmapError("invalid_request", f"{where}: a node cannot point to itself")
+            if edge in workmap.edges:
+                raise WorkmapError("invalid_request", f"{where}: the edge exists")
+            if edge_type == "depends_on" and workmap.nodes[target]["kind"] == "goal":
+                raise WorkmapError("invalid_request", f"{where}: {target} is a goal, which never settles; "
+                                                      "nothing can depend_on it")
+            if edge_type == "depends_on" and _reaches(workmap, target, source):
+                raise WorkmapError("cycle", f"{where}: {source} depends_on {target} would close a cycle")
+        elif edge not in workmap.edges:
+            raise WorkmapError("invalid_request", f"{where}: no such edge")
+        return {"op": kind, "by": "parent", "from": source, "to": target, "type": edge_type}
+    return {"op": "close", "by": "parent"}
+
+
+def _result_of(records: list, contract_revision: str) -> dict | None:
+    """The result event a contract already has on the map, if any.
+
+    Only a committed event counts, as in the fold: a result whose commit was torn never applied,
+    so the node still waits for it and its contract stays open.
+    """
+    found = None
+    for event in _committed(records):
+        if event.get("op") == "result" and event.get("contract_revision") == contract_revision:
+            found = event
+    return found
+
+
+def _require_open(workmap: WorkMap, node: dict, contract_revision: str) -> None:
+    """Refuse a submission the node no longer takes: a prepared node, or one sent to
+    needs_attention by this contract's own invalid results, and only from its current contract."""
+    current = node["refs"].get("contract_revision") == contract_revision
+    if workmap.closed or not (node["status"] == "prepared" or (node["status"] == "needs_attention" and current)):
+        raise WorkmapError("node_not_open", f"node {node['id']} no longer takes this result: the map "
+                                            "is closed or the node was settled or set aside")
+    if not current:
+        raise WorkmapError("stale_contract", f"node {node['id']} was prepared again; this contract is "
+                                             "no longer its current attempt")
+
+
+class WorkmapStore:
+    """The work maps of one workspace."""
+
+    def __init__(self, root: Path | str, *, clock: Callable[[], float] = time.time):
+        self.root = Path(root)
+        self.directory = self.root.joinpath(*DIRECTORY)
+        self.clock = clock
+
+    # --- files ---------------------------------------------------------------------
+
+    def _read(self, name: str) -> list:
+        with safe_store.store_directory(self.root, DIRECTORY, create=False, private=False) as directory:
+            if directory is None:
+                return []
+            with safe_store.store_file(directory, name, os.O_RDONLY, "rb", private=False) as handle:
+                if handle is None:
+                    return []
+                return safe_store.read_records(handle.read(MAX_STORE_BYTES + 1), MAX_STORE_BYTES,
+                                               self.directory / name)
+
+    @contextlib.contextmanager
+    def _locked(self, name: str):
+        """The open file under its exclusive lock."""
+        with safe_store.store_directory(self.root, DIRECTORY, create=True, private=True) as directory, \
+                safe_store.store_file(directory, name, os.O_RDWR | os.O_CREAT | os.O_APPEND, "r+b",
+                                      private=True) as handle, \
+                safe_store.exclusive(handle, self.directory / name):
+            yield handle
+
+    @contextlib.contextmanager
+    def _writing(self, name: str):
+        """The open file under its exclusive lock, and the records it held when the lock was taken."""
+        with self._locked(name) as handle:
+            handle.seek(0)
+            yield handle, safe_store.read_records(handle.read(MAX_STORE_BYTES + 1), MAX_STORE_BYTES,
+                                                  self.directory / name)
+
+    @staticmethod
+    def _encode(records: list[dict]) -> bytes:
+        return "".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
+                       for record in records).encode("utf-8")
+
+    def _append(self, handle, name: str, records: list[dict]) -> None:
+        safe_store.append_line(handle, self._encode(records), MAX_STORE_BYTES, self.directory / name)
+
+    def _commit(self, handle, name: str, events: list[dict], *, first: Callable[[], None] | None = None) -> int:
+        """Stamp numbered events and append them in one write; returns the last revision.
+
+        ``first`` runs once the map is known to have room for the events, so what it writes
+        elsewhere is never left without the events that refer to it.
+        """
+        now = _iso(self.clock())
+        for event in events:
+            event.update(v=FORMAT_VERSION, at=now, commit=events[-1]["rev"])
+        data = self._encode(events)
+        if first is not None:
+            safe_store.require_room(handle, len(data), MAX_STORE_BYTES, self.directory / name)
+            first()
+        safe_store.append_line(handle, data, MAX_STORE_BYTES, self.directory / name)
+        return events[-1]["rev"]
+
+    @staticmethod
+    def _state(records: list, task_id: str) -> WorkMap | None:
+        workmap = fold(records)
+        if workmap is not None and workmap.task_id != task_id:
+            raise WorkmapError("key_collision", "another task's map holds this file; choose another task_id")
+        return workmap
+
+    def _existing_map(self, records: list, task_id: str) -> WorkMap:
+        workmap = self._state(records, task_id)
+        if workmap is None:
+            raise WorkmapError("unknown_map", f"no work map for task {task_id}; create it with workmap_update")
+        return workmap
+
+    # --- reading -------------------------------------------------------------------
+
+    def load(self, task_id: object) -> WorkMap | None:
+        task_id = _task_id(task_id)
+        return self._state(self._read(f"{map_key(task_id)}.jsonl"), task_id)
+
+    def list_maps(self) -> list[WorkMap]:
+        with safe_store.store_directory(self.root, DIRECTORY, create=False, private=False) as directory:
+            if directory is None:
+                return []
+            names = sorted(name for name in os.listdir(directory) if MAP_FILE.fullmatch(name))
+        maps = [fold(self._read(name)) for name in names]
+        return [workmap for workmap in maps if workmap is not None]
+
+    def _result(self, task_id: str, node: dict) -> str | None:
+        sha256 = node["refs"].get("result_sha256")
+        if sha256 is None:
+            return None
+        for record in reversed(self._read(f"{map_key(task_id)}.results.jsonl")):
+            if (isinstance(record, dict) and record.get("sha256") == sha256
+                    and record.get("node") == node["id"] and isinstance(record.get("text"), str)):
+                return record["text"]
+        return None
+
+    def result_text(self, task_id: object, node_id: object) -> str | None:
+        task_id = _task_id(task_id)
+        workmap = self._existing_map(self._read(f"{map_key(task_id)}.jsonl"), task_id)
+        return self._result(task_id, _existing(workmap, node_id, "node"))
+
+    # --- parent writes -------------------------------------------------------------
+
+    def apply(self, task_id: object, ops: object, expected_revision: object = None) -> dict:
+        """Apply parent operations together, or none of them; the first call creates the map."""
+        task_id = _task_id(task_id)
+        if not isinstance(ops, list) or not 1 <= len(ops) <= MAX_OPS:
+            raise WorkmapError("invalid_request", f"ops is a list of 1 to {MAX_OPS} operations")
+        if expected_revision is not None and (isinstance(expected_revision, bool)
+                                              or not isinstance(expected_revision, int)):
+            raise WorkmapError("invalid_request", "expected_revision is an integer")
+        name = f"{map_key(task_id)}.jsonl"
+        with self._writing(name) as (handle, records):
+            current = self._state(records, task_id)
+            revision = current.revision if current is not None else 0
+            if expected_revision is not None and expected_revision != revision:
+                raise WorkmapError("revision_conflict", f"the map is at revision {revision}, not {expected_revision}")
+            draft = copy.deepcopy(current) if current is not None else WorkMap(task_id=task_id)
+            events = []
+            if current is None:
+                revision += 1
+                events.append({"op": "open", "by": "parent", "task_id": task_id, "rev": revision})
+            for index, op in enumerate(ops):
+                event = _parent_event(draft, op, f"ops[{index}]")
+                revision += 1
+                event["rev"] = revision
+                _apply_event(draft, event)
+                events.append(event)
+            self._commit(handle, name, events)
+        changed = sorted({value for event in events for key in ("id", "from", "to")
+                          if isinstance(value := event.get(key), str)})
+        return {"status": "applied", "task_id": task_id, "revision": revision, "changed": changed}
+
+    # --- server writes -------------------------------------------------------------
+
+    @staticmethod
+    def _refuse_spent(workmap: WorkMap, records: list, node: dict, contract_revision: str | None) -> None:
+        """A contract that has a result, or reached the invalid limit, is not prepared again.
+
+        An identical request yields the same revision, so re-preparing it would reopen a finished
+        attempt; the worker's next submission would then be taken or refused as the first one was.
+        """
+        if contract_revision is None:
+            return
+        spent = (workmap.invalid.get(contract_revision, 0) >= INVALID_LIMIT
+                 or _result_of(records, contract_revision) is not None)
+        if spent:
+            raise WorkmapError("attempt_reused", f"this contract already has a result or reached the limit of "
+                                                 f"invalid results on node {node['id']}; prepare a new attempt "
+                                                 "with a new attempt_id")
+
+    def check_preparable(self, task_id: object, node_id: object, inputs: list, *,
+                         contract_revision: str | None = None,
+                         result_type: str | None = None) -> list[tuple[str, str]]:
+        """Refuse a node that cannot take a package; return the stored text of each input node.
+
+        With the contract's revision, also refuse one that was already used up: the server knows
+        the revision only once the package is assembled, so record_prepared checks it again. With the
+        request's result_type, also refuse a node that verifies others unless it is a review.
+        """
+        task_id = _task_id(task_id)
+        records = self._read(f"{map_key(task_id)}.jsonl")
+        workmap = self._existing_map(records, task_id)
+        if workmap.closed:
+            raise WorkmapError("map_closed", "the map is closed")
+        node = _existing(workmap, node_id, "workmap_node")
+        if result_type is not None and result_type != "review" and workmap.targets(node["id"], "verifies"):
+            raise WorkmapError("invalid_request", f"node {node['id']} verifies other nodes, so it is prepared "
+                                                  f"only with result_type review, not {result_type}")
+        if node["kind"] == "goal" or node["status"] not in PREPARABLE:
+            raise WorkmapError("node_not_preparable",
+                               f"node {node['id']} is a {node['kind']} in status {node['status']}; only a "
+                               "planned, prepared, needs_attention or disputed non-goal node takes a package")
+        self._refuse_spent(workmap, records, node, contract_revision)
+        texts = []
+        for index, input_id in enumerate(inputs):
+            source = _existing(workmap, input_id, f"workmap_inputs[{index}]")
+            text = self._result(task_id, source) if source["status"] in INPUT_STATUSES else None
+            if text is None:
+                raise WorkmapError("input_not_ready", f"node {source['id']} has no validated result yet")
+            texts.append((source["id"], text))
+        return texts
+
+    def record_prepared(self, task_id: object, node_id: object, *, contract_revision: str,
+                        attempt_id: str, complexity: str | None, inputs: dict[str, str] | None = None) -> int:
+        """Mark the node prepared; ``inputs`` are the pinned {node: result sha256} the worker was given."""
+        task_id = _task_id(task_id)
+        name = f"{map_key(task_id)}.jsonl"
+        with self._writing(name) as (handle, records):
+            workmap = self._existing_map(records, task_id)
+            node = _existing(workmap, node_id, "workmap_node")
+            if workmap.closed or node["kind"] == "goal" or node["status"] not in PREPARABLE:
+                raise WorkmapError("node_not_preparable", f"node {node['id']} no longer takes a package")
+            self._refuse_spent(workmap, records, node, contract_revision)
+            event = {"op": "prepared", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
+                     "contract_revision": contract_revision, "attempt_id": attempt_id,
+                     "complexity": complexity}
+            if inputs:
+                event["inputs"] = dict(inputs)
+            return self._commit(handle, name, [event])
+
+    def _keep_text(self, task_id: str, node_id: str, contract_revision: str, sha256: str, text: str) -> None:
+        name = f"{map_key(task_id)}.results.jsonl"
+        with self._locked(name) as handle:  # appending needs no parse of what the file holds
+            self._append(handle, name, [{"v": FORMAT_VERSION, "task_id": task_id, "node": node_id,
+                                         "contract_revision": contract_revision, "sha256": sha256,
+                                         "text": text}])
+
+    def record_result(self, task_id: object, node_id: object, *, contract_revision: str, attempt_id: str,
+                      text: str, sha256: str, outcome: dict, handback: str) -> dict:
+        """Keep a valid result and record it on its node; the first result of a contract is final.
+
+        Only a prepared node takes a result, or one sent to needs_attention by this contract's own
+        invalid results: a worker may still submit a valid one after them.
+        """
+        task_id = _task_id(task_id)
+        name = f"{map_key(task_id)}.jsonl"
+        with self._writing(name) as (handle, records):
+            workmap = self._existing_map(records, task_id)
+            node = _existing(workmap, node_id, "workmap.node")
+            earlier = _result_of(records, contract_revision)
+            if earlier is not None:
+                if earlier.get("result_sha256") != sha256:
+                    raise WorkmapError("already_submitted", "a different result is already recorded for this "
+                                                            "contract; a new result needs a new attempt")
+                return {"task_id": task_id, "node": node["id"], "status": node["status"],
+                        "level": node["level"], "revision": workmap.revision, "duplicate": True}
+            _require_open(workmap, node, contract_revision)
+            event = {"op": "result", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
+                     "contract_revision": contract_revision, "attempt_id": attempt_id,
+                     "result_sha256": sha256, "handback": handback,
+                     **{key: outcome.get(key) for key in ("status", "level", "summary", "checks", "findings",
+                                                          "limitations", "result_status", "question",
+                                                          "escalation")}}
+            events = [event]
+            # Only a review gives a verdict: its outcome carries findings, {} when it found none. Any
+            # other result's findings are None, even when a verifies edge was added after its node
+            # was prepared.
+            if event["status"] == "validated" and event["findings"] is not None:
+                severe = sum(event["findings"].get(level, 0) for level in ("critical", "high"))
+                # A verdict certifies the text the verifier was given: only a target that still holds
+                # the result pinned in the verifier's own prepared event takes one, and accepted
+                # (the user's V4 decision), needs_attention and planned targets never do.
+                pinned = node["refs"].get("inputs") or {}
+                for target in workmap.targets(node["id"], "verifies"):
+                    held = workmap.nodes[target]
+                    if (held["status"] not in VERDICT_TARGETS or pinned.get(target) is None
+                            or held["refs"].get("result_sha256") != pinned[target]):
+                        continue
+                    events.append({"op": "verdict", "by": "server", "id": target, "verifier": node["id"],
+                                   "rev": events[-1]["rev"] + 1, "result_sha256": pinned[target],
+                                   "status": "disputed" if severe else "verified",
+                                   "level": None if severe else "V3"})
+            # The text is kept first, so the event never names a missing text, and only once the
+            # map has room for the events, so a full map leaves no orphan text either.
+            revision = self._commit(handle, name, events, first=lambda: self._keep_text(
+                task_id, node["id"], contract_revision, sha256, text))
+        return {"task_id": task_id, "node": node["id"], "status": event["status"], "level": event["level"],
+                "revision": revision, "duplicate": False}
+
+    def record_invalid(self, task_id: object, node_id: object, *, contract_revision: str,
+                       codes: list[str], escalation: dict | None = None) -> int:
+        """Count an invalid submission; the limit sends the node's current attempt to needs_attention.
+
+        Only a submission the node could still take is counted: once the contract has a result, or
+        the node was prepared again, settled or set aside, an invalid one (such as the worker's own
+        one-line hand-back, validated by mistake) is refused and the map is left alone.
+        """
+        task_id = _task_id(task_id)
+        name = f"{map_key(task_id)}.jsonl"
+        with self._writing(name) as (handle, records):
+            workmap = self._existing_map(records, task_id)
+            node = _existing(workmap, node_id, "workmap.node")
+            if _result_of(records, contract_revision) is not None:
+                raise WorkmapError("already_submitted", "this contract already has a result; an invalid "
+                                                        "submission is not counted")
+            _require_open(workmap, node, contract_revision)
+            count = workmap.invalid.get(contract_revision, 0) + 1
+            self._commit(handle, name, [{
+                "op": "invalid", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
+                "contract_revision": contract_revision, "codes": list(codes)[:20], "escalation": escalation,
+                "status": "needs_attention" if node["status"] == "prepared" and count >= INVALID_LIMIT
+                else None}])
+        return count

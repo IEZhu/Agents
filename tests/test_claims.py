@@ -261,6 +261,11 @@ def test_the_store_only_appends(store, clock):
     assert event["evidence"] == ["pytest -q: 1 failed"] and event["v"] == 1
 
 
+def test_a_fresh_store_directory_is_ignored_by_git(store):
+    record(store)
+    assert (store.directory / ".gitignore").read_text(encoding="utf-8") == "*\n"
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
 def test_the_store_is_private(store):
     record(store)
@@ -364,7 +369,7 @@ def test_a_directory_swapped_for_a_link_after_the_checks_does_not_redirect_the_w
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX locks the store file itself")
 def test_writers_lock_the_store_file_itself_not_a_path_beside_it(store, monkeypatch):
-    import src.claims.store as module
+    import src.safe_store as module
 
     def no_path_lock(*_args, **_kwargs):
         raise AssertionError("a writer resolved a lock by path after anchoring the directory")

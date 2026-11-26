@@ -108,15 +108,69 @@ package, which holds:
   guarantees.
 
 The model-facing context must clearly name the worker role, task/attempt IDs,
-the contract revision (the text form shows its first 12 characters; only the
-JSON form also names the bundle revision), the complete result shape, and the rules
+the contract revision (the text form states it whole and asks the worker to check its
+result with `validate_subagent_result` before replying; only the JSON form also names the
+bundle revision), the complete result shape, and the rules
 for missing input, incomplete work and finishing. It directs the worker to use
 this package without activating a full conversation persona. Parent descriptors
 visible in inherited history are references, not the worker's activation.
 
 Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` and `status: prepared` before native spawning. The parent launches a fresh worker without inherited history when supported (Codex: `fork_turns="none"`) with the receipt's `launch` text and only necessary task materials (with inline delivery: the unchanged `worker_context`). It keeps the receipt's `contract_revision` (inline: the original contract) and its descriptor, and validates every returned or revised output unchanged against that contract, by reference where a file holds it ([compact exchange](#compact-exchange)). A worker must not replace the authoritative contract. `valid: true` is required before acceptance or integration, followed by independent evidence and acceptance-criteria checks.
 
-The parent also decides how much to delegate, and the description of `get_subagent_context` states that bound (`delegation.md`'s `tool-prepare` variant in `src/engine/protocol/`, rendered by `protocol_text.tool_description`; the protocol section [Delegated worker mode](../scripts/templates/routing-protocol-core.md) only requires the exchange and tells the parent to read that description first): proportionality is judged against the work, so a part earns its own worker when it can run while the parent works elsewhere, needs a reader outside the conversation's assumptions or would otherwise crowd the parent's context, and the number of workers follows the number of such parts rather than the budget a host makes available. Delegated work stays within the assignment the user gave: an option or keyword that enables orchestration chooses how to delegate, not how much or what, and adds no repository, branch, service or unrequested review to the assignment. An extra worker that re-judges, re-verifies or re-edits another worker's output belongs to a check the user asked for or a risk that warrants one. None of this changes the preparation, launch and validation steps above.
+The parent also decides how much to delegate, and the description of `get_subagent_context` states that bound (`delegation.md`'s `tool-prepare` variant in `src/engine/protocol/`, rendered by `protocol_text.tool_description`; the protocol section [Delegated worker mode](../scripts/templates/routing-protocol-core.md) only requires the exchange and tells the parent to read that description first): proportionality is judged against the work, so a part earns its own worker when it can run while the parent works elsewhere, needs a reader outside the conversation's assumptions or would otherwise crowd the parent's context, and the number of workers follows the number of such parts rather than the budget a host makes available. Delegated work stays within the assignment the user gave: an option or keyword that enables orchestration chooses how to delegate, not how much or what, and adds no repository, branch, service or unrequested review to the assignment. An extra worker that re-judges, re-verifies or re-edits another worker's output belongs to a check the user asked for or a risk that warrants one. None of this changes the preparation, launch and validation steps above. For staged work it can keep a [work map](workmap-plan.md) instead, following the built-in `orchestrate` flow, so that only node summaries reach its context.
+
+## Work-map binding
+
+A package prepared with `workmap_node` (and `task_id`, the map's task ID) is bound to that
+node of the [work map](workmap-plan.md) in the session's registered workspace. The server
+writes `{node, root}` into the contract, so the binding is fingerprinted; `root` is the
+workspace the server resolved, never a caller's value. A bound package uses
+`result_format` text. Preparation refuses a closed map (`map_closed`), a goal or a node
+that is not `planned`, `prepared`, `needs_attention` or `disputed`
+(`node_not_preparable`), a result type other than `review` for a node that `verifies`
+others (`invalid_request`), and a contract that already has a result or reached five
+invalid submissions (`attempt_reused`: prepare a new attempt with a new `attempt_id`); a
+map it cannot read or write answers `workmap_unavailable`. `workmap_inputs` names up to
+ten nodes, each `validated`, `verified`, `accepted` or `disputed` with a stored result
+(`input_not_ready` otherwise), whose results the server publishes and pins as artifacts
+for the worker. The request's fields, the node and its inputs are checked first, before
+anything is published; the agent profile, the request's size and the context budget are
+checked after the inputs are published, so a request refused there can leave published
+input artifacts behind. `attempt_reused` needs the contract's revision, so it is found
+once the package is assembled. The node becomes `prepared` only after the contract is
+stored.
+
+The package tells the worker to submit its result with `validate_subagent_result` and to
+hand back one line, `submitted <task>/<node> <sha> <status>`; if the call cannot reach the
+server it tries once more after about a minute and then hands back the full result. A
+valid submission is stored and recorded on the node, and the response carries the receipt
+`workmap: {task_id, node, status, level, revision, duplicate, refused}`. The first valid
+submission is final for the contract: the same result again is accepted with
+`duplicate: true` and no new event. A structurally valid result the map refuses keeps
+`valid: true`, and `workmap.refused` names the code, with the node's status, level and
+revision as the map holds them when it could be read: `already_submitted` (a different
+result is already recorded for the contract), `stale_contract` (the node was prepared
+again since), `node_not_open` (the map is closed or the node no longer takes a result),
+`workmap_unavailable` (the map could not be read or written), or the store's own
+`unknown_map`, `unknown_node`, `key_collision`, `store_full` or `unsafe_store`. The
+worker then answers `not recorded <task>/<node> <code>` instead of resubmitting.
+
+A bound contract's submissions are recorded on its node: a valid result once, and an
+invalid one counted toward the limit while the node still takes it. Five invalid
+submissions send the node's still `prepared` attempt to `needs_attention`, and the node
+record shows the codes of the last invalid submission. An invalid submission for a
+contract that has its result, for a contract the node was prepared again since, or for a
+closed or settled node is refused and writes nothing. Only a review result, one that
+carries findings, gives a verdict to the nodes its node `verifies`.
+
+Only a contract the server stored records anything: an inline contract never does, and a
+bound package whose contract cannot be stored is refused with `exchange_unwritable` for
+either delivery. The parent reads the node with `workmap_view`, not the result, and does
+not validate the one-line hand-back: it carries no result, so validation only answers
+`valid: false`; while the node still takes a submission the map counts that as an invalid
+one, and once the contract has its result it refuses it and writes nothing. It
+validates a full hand-back by `result_ref` only while the node is still `prepared`; the
+node then records it with `hand-back: full`.
 
 ## Compact exchange
 
@@ -148,7 +202,7 @@ The tool is therefore no longer read-only: it writes these private files.
 
 **Plain-text format (default).** With `result_format="text"` the package carries the
 assignment as plain text (task, acceptance criteria with their IDs, context, scope,
-non-goals, pinned artifacts, the first 12 characters of the contract revision) and a
+non-goals, pinned artifacts, the whole contract revision) and a
 filled-in result template instead of the JSON contract and JSON Schema. Measured on
 `code_reviewer` in [PR #509](https://github.com/IEZhu/Agents/pull/509), the package
 shrank from 14,481 to 11,528 characters. The worker answers:

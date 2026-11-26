@@ -13,13 +13,15 @@ KEY = "anthropic/maxResultSizeChars"
 UNDECLARED = INLINE_LIMIT  # Claude Code's threshold for a tool that declares nothing
 FLOW_TOOLS = ("run_flow", "get_flow")
 PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
+# workmap_view with detail="result" returns a whole stored worker result.
+WORKMAP_TOOLS = ("workmap_view",)
 
 
 @pytest.mark.asyncio
-async def test_only_the_flow_and_persona_tools_declare_a_result_size():
+async def test_only_the_flow_persona_and_work_map_view_tools_declare_a_result_size():
     tools = {tool.name: tool for tool in await server.mcp.list_tools()}
     declared = {name: tool.meta[KEY] for name, tool in tools.items() if KEY in (tool.meta or {})}
-    assert declared == dict.fromkeys(FLOW_TOOLS + PERSONA_TOOLS, 500_000)
+    assert declared == dict.fromkeys(FLOW_TOOLS + PERSONA_TOOLS + WORKMAP_TOOLS, 500_000)
     for name in declared:
         assert tools[name].model_dump(by_alias=True)["_meta"][KEY] == 500_000
         # The output schema stays: a client that listed the tools before an update keeps validating results.

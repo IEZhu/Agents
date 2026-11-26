@@ -1812,9 +1812,11 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
             items.append(Item("data", str(flows), "keep", "src/user_flows.py (AGENTS_USER_FLOWS_DIR)",
                               f"named by AGENTS_USER_FLOWS_DIR, but it has no {LIBRARY_MARKER}; delete it yourself"))
     for root in workspace_roots(states):
-        written = [name for name in ("history.md", "history", "data/memory", "logs") if (root / name).exists()]
+        written = [name for name in ("history.md", "history", "data/memory", "data/claims", "data/workmap", "logs")
+                   if (root / name).exists()]
         if written:
-            items.append(Item("data", str(root), "keep", "src/memory (log_interaction, describe_repo)",
+            items.append(Item("data", str(root), "keep", "src/memory (log_interaction, describe_repo), "
+                              "src/claims (claim_record), src/workmap (workmap_update)",
                               "project files, possibly tracked by Git: " + ", ".join(written)
                               + " and the Repository Memory section of CLAUDE.md; delete them yourself"))
     autodev = ctx.home / ".local/share/agents-autodev"

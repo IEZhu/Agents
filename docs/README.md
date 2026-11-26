@@ -217,6 +217,8 @@ above are authoritative for current commands and behavior.
 - [Instruction signing specification](instruction-signing-spec.md)
 - [Layer sensitivity proposal](layer-sensitivity-plan.md)
 - [Subagent implementation plan](subagent-implementation-plan.md)
+- [Work map plan](workmap-plan.md), with its
+  [implementation plan](workmap-implementation-plan.md)
 - [Shared local inference and KV cache handoff](shared-kv-mcp/START_HERE.md)
 
 ### Implemented design records

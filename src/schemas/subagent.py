@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, RootModel,
-                      StringConstraints, model_serializer, model_validator)
+                      StringConstraints, field_validator, model_serializer, model_validator)
 
 from src.schemas.artifacts import ArtifactManifest
 
@@ -29,6 +29,7 @@ Identifier = Annotated[str, StringConstraints(strict=True, min_length=1, max_len
 AgentName = Annotated[str, StringConstraints(strict=True, max_length=80,
                                            pattern=r"^[a-z0-9][a-z0-9_]*$")]
 Revision = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
+WorkmapNodeId = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")]
 TextList = Annotated[list[Text], Field(max_length=50)]
 ResultType = Literal["generic", "review", "implementation", "research"]
 # text: plain-text assignment and result (src/engine/subagent_text.py); json: the JSON contract
@@ -72,6 +73,24 @@ class PreparationRequest(Budgets):
     artifact_manifest: ArtifactManifest | None = None
     complexity: Complexity | None = None
     client: Client | None = None
+    workmap_node: WorkmapNodeId | None = None
+    workmap_inputs: Annotated[list[WorkmapNodeId], Field(min_length=1, max_length=10)] | None = None
+
+    @model_validator(mode="after")
+    def workmap_needs_task_and_text(self) -> PreparationRequest:
+        if self.workmap_node is not None or self.workmap_inputs is not None:
+            if self.task_id is None:
+                raise ValueError("workmap_node and workmap_inputs need task_id, the map's task ID")
+            if self.result_format != "text":
+                raise ValueError("a work-map package uses result_format text")
+        return self
+
+    @field_validator("workmap_inputs")
+    @classmethod
+    def workmap_inputs_are_distinct(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("workmap_inputs names each node once")
+        return value
 
     @model_validator(mode="after")
     def artifact_task_matches(self) -> PreparationRequest:
@@ -126,6 +145,14 @@ def _omit_none(data: dict, *keys: str) -> dict:
     return data
 
 
+class WorkmapBinding(StrictModel):
+    """The node a contract's result is recorded on. The server sets root from the workspace it
+    resolved at preparation; a caller never supplies it."""
+
+    node: WorkmapNodeId
+    root: Text
+
+
 class TaskContract(StrictModel):
     protocol: Literal["agents-core/subagent/1"]
     task_id: Identifier
@@ -144,6 +171,7 @@ class TaskContract(StrictModel):
     budgets: ContractBudgets
     artifact_manifest: ArtifactManifest | None = None
     execution: ContractExecution | None = None
+    workmap: WorkmapBinding | None = None
 
     @model_validator(mode="after")
     def artifact_task_matches(self) -> TaskContract:
@@ -153,7 +181,7 @@ class TaskContract(StrictModel):
 
     @model_serializer(mode="wrap")
     def omit_absent_optionals(self, handler):
-        data = _omit_none(handler(self), "artifact_manifest", "execution")
+        data = _omit_none(handler(self), "artifact_manifest", "execution", "workmap")
         if data.get("result_format") == "json":
             data.pop("result_format")
         return data
@@ -275,6 +303,25 @@ class Truncation(StrictModel):
     produced: int = Field(ge=1)
 
 
+class WorkmapReceipt(StrictModel):
+    """What the work map holds for a submission; ``refused`` is the code when it was not recorded.
+
+    A refusal leaves the result's validity alone: the result is structurally valid, the map did not
+    take it. status, level and revision then describe the node as the map holds it, when it could be read.
+    """
+    task_id: Identifier
+    node: WorkmapNodeId
+    status: str | None = None
+    level: str | None = None
+    revision: int | None = None
+    duplicate: bool = False
+    refused: str | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_fields(self, handler):
+        return _omit_none(handler(self), "status", "level", "revision", "refused")
+
+
 class ValidationResponse(StrictModel):
     valid: bool
     errors: Annotated[list[Diagnostic], Field(max_length=MAX_ERRORS)]
@@ -284,10 +331,11 @@ class ValidationResponse(StrictModel):
     # so a parent can cite the validated bytes without quoting them (#453).
     result_sha256: Revision | None = None
     truncated: Truncation | None = None
+    workmap: WorkmapReceipt | None = None
 
     @model_serializer(mode="wrap")
     def omit_absent_escalation(self, handler):
-        return _omit_none(handler(self), "escalation", "result_sha256", "truncated")
+        return _omit_none(handler(self), "escalation", "result_sha256", "truncated", "workmap")
 
 
 class WorkerDescriptor(StrictModel):

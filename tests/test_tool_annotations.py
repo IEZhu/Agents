@@ -33,6 +33,17 @@ def test_tools_that_delete_or_replace_are_destructive_and_readers_are_read_only(
     hints = {tool.name: tool.annotations for tool in tools()}
     for name in ("delete_flow", "clear_session_cache", "write_repo_summary"):
         assert hints[name].readOnlyHint is False and hints[name].destructiveHint is True, name
-    for name in ("list_flows", "get_flow", "list_agents", "read_history", "read_shared_memory", "describe_repo",
-                 "validate_subagent_result"):
+    for name in ("list_flows", "get_flow", "list_agents", "read_history", "read_shared_memory", "describe_repo"):
         assert hints[name].readOnlyHint is True, name
+
+
+def test_the_subagent_tools_state_their_writes():
+    """A bound contract's submissions are recorded on its work-map node: a valid result once, an
+    invalid one counted toward the limit while the node still takes one."""
+    hints = {tool.name: tool.annotations for tool in tools()}
+    validate = hints["validate_subagent_result"]
+    assert (validate.readOnlyHint, validate.destructiveHint, validate.idempotentHint) == (False, False, False)
+    assert hints["get_subagent_context"].idempotentHint is False
+    assert "work-map node" in server.validate_subagent_result.__doc__
+    assert "writes nothing" in server.validate_subagent_result.__doc__
+    assert "an invalid one counted toward the limit" in " ".join(server.validate_subagent_result.__doc__.split())

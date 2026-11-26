@@ -209,11 +209,13 @@ codes, plus `valid`, result status, failed check count and the escalation tier a
 reason for validations. It never holds task text, context, paths, results or
 workspace names. A write failure is logged and never fails the tool call.
 
-The ledger is off by default, like the `AGENTS_DEBUG` logs, so that
-`validate_subagent_result` keeps its read-only tool annotation, which clients such
-as Codex use to decide whether a call needs approval. `get_subagent_context` is
-annotated as not read-only because it writes the exchange files
-([compact exchange](subagent-contract.md#compact-exchange)).
+The ledger is off by default, like the `AGENTS_DEBUG` logs. `get_subagent_context`
+is annotated as not read-only because it writes the exchange files
+([compact exchange](subagent-contract.md#compact-exchange)), and
+`validate_subagent_result` is too, because the submissions for a contract bound to a
+work-map node are recorded on that node: a valid result once, an invalid one counted
+toward the limit of invalid submissions while the node still takes one
+([work-map binding](subagent-contract.md#work-map-binding)); it writes nothing else.
 
 `scripts/subagent_tiers_report.py` summarizes the ledger per client, tier and
 model: prepared packages, validations, the share accepted without escalation, and

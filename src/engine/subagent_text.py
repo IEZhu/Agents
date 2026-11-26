@@ -105,7 +105,7 @@ def _bullets(title: str, values: list[str]) -> list[str]:
 
 def render_assignment(contract: dict) -> str:
     """The contract as the worker needs it, without JSON quoting or the parent's budgets."""
-    revision = contract["contract_revision"][:CONTRACT_PREFIX_CHARS]
+    revision = contract["contract_revision"]  # whole, so the worker can submit against it
     lines = ["## Assignment",
              f"task: {contract['task_id']} · attempt: {contract['attempt_id']} · contract: {revision}"
              f" · role: {contract['agent']} · result: {contract['result_type']}"]
@@ -215,6 +215,26 @@ def _payload_rules(key: str) -> list[str]:
     ]
 
 
+def submission_rule(contract: dict) -> str:
+    """How the worker checks or submits its result against the stored contract."""
+    call = (f'validate_subagent_result(contract_revision="{contract["contract_revision"]}", '
+            "result=<your complete result text>)")
+    binding = contract.get("workmap")
+    if binding is None:
+        return (f"Before you reply, if the Agents-Core tool validate_subagent_result is available to you, "
+                f"call {call}, correct the result until it answers valid: true, and reply with exactly "
+                "the text that passed. If it answers contract_unknown, reply with your result unchecked.")
+    return (f"This result is recorded on node {binding['node']} of the work map of task "
+            f"{contract['task_id']}. Submit only your finished result: the first valid submission is final. "
+            f"Submit it with {call}. If it answers valid: false, correct the result as its errors say and "
+            "submit again. When it answers valid: true, reply with exactly one line: submitted "
+            f"{contract['task_id']}/{binding['node']} <the first 12 characters of result_sha256> <status>. "
+            "If it answers valid: true with workmap.refused set, do not resubmit; reply with one line: "
+            f"not recorded {contract['task_id']}/{binding['node']} <that code>. If the call cannot reach "
+            "the server, wait about a minute and try once more; if it still fails, reply with the full "
+            "result. If the tool is not available to you, reply with the full result instead.")
+
+
 def render_result_format(contract: dict) -> str:
     """A filled-in template of the result; it replaces the JSON Schema for text contracts."""
     payload = PAYLOAD_KEYS[contract["result_type"]]
@@ -226,6 +246,7 @@ def render_result_format(contract: dict) -> str:
         "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
         "no code fence, nothing above line 1, and a character above it discards a result read from "
         "the reply text.",
+        submission_rule(contract),
         "```text",
         f"task: {contract['task_id']}",
         f"attempt: {contract['attempt_id']}",
