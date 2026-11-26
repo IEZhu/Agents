@@ -85,8 +85,10 @@ python -m evals.scripts.verifier_accuracy --installation <path> build --name <pi
 Pin a commit of `dev` that holds no measurement code under test. Check the
 printed manifest: classes balanced, at least half of each class
 `command_checkable`, `owner_review` zero or handed to the owner, and the
-`skipped` counts (`risk_floor`, `bundle_change`) for the report. A set already in
-the control directory must be discarded first (step 7).
+`skipped` counts (`risk_floor`, `bundle_change`) for the report. Build a new set
+only when the control directory holds none; a set already there must be discarded
+first (step 7). A later stage of the full set builds nothing: it continues the
+existing set, its simulation and its seed at step 5.
 
 ## 3. Simulate coverage
 
