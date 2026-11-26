@@ -180,8 +180,11 @@ no inline contract, and a bound package whose contract cannot be stored is refus
 not the result, and neither validates nor submits the one-line hand-back: it carries no
 result, so it only answers `valid: false`, and `workmap_submit` would count it as an
 invalid submission while the node still takes one. It validates a full hand-back by
-`result_ref`; while the node is still `prepared`, `workmap_submit` with the same
-`result_ref` validates it the same way and records it with `hand-back: full`.
+`result_ref`; while the map is open and the node is `prepared` or `needs_attention` with
+no result recorded, `workmap_submit` with the same `result_ref` validates it the same way
+and records it with `hand-back: full`, or refuses it as `stale_contract` when that
+contract is no longer the node's current attempt. The result counts as recorded only when
+`workmap_submit` answers `valid: true` without `workmap.refused`.
 
 `get_subagent_context` finds the map in its `workspace` argument, resolved as
 `workmap_update` resolves it: over stdio against the client's MCP roots, so a session

@@ -74,8 +74,10 @@ async def _reusable_manifest(ctx, client, root, task_id: str, node_id: str, atte
         return None
     node = workmap.nodes.get(node_id) if workmap is not None else None
     refs = (node or {}).get("refs") or {}
-    if (node is None or node["status"] != "prepared" or refs.get("attempt_id") != attempt_id
-            or refs.get("inputs") != pins):
+    # needs_attention too: an attempt that reached the invalid limit must meet its own contract
+    # again, so that attempt_reused refuses it instead of a new manifest reopening it.
+    if (node is None or node["status"] not in ("prepared", "needs_attention")
+            or refs.get("attempt_id") != attempt_id or refs.get("inputs") != pins):
         return None
     try:
         manifest = subagent_exchange.load_contract(refs.get("contract_revision")).get("artifact_manifest")

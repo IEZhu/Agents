@@ -713,3 +713,16 @@ async def test_a_bound_package_asks_for_the_receipt_not_also_for_the_full_result
     assert "Reply with only a plain-text result" not in text and "It is the text you submit" in text
     unbound = await call("get_subagent_context", request(task_id="unbound-task"))
     assert "Reply with only a plain-text result" in open(unbound["context_path"], encoding="utf-8").read()
+
+
+@pytest.mark.asyncio
+async def test_a_retry_with_pinned_inputs_cannot_reopen_an_attempt_at_the_invalid_limit(artifact_worker_tree,
+                                                                                         served):
+    settle_map_code(served)
+    receipt = await call("get_subagent_context", request(workmap_node="write", workmap_inputs=["map-code"]))
+    assert receipt["status"] == "prepared", receipt
+    for _ in range(5):
+        await call("workmap_submit", {"contract_revision": receipt["contract_revision"], "result": "not a result"})
+    assert node_of(served, "write")["status"] == "needs_attention"
+    again = await call("get_subagent_context", request(workmap_node="write", workmap_inputs=["map-code"]))
+    assert again["status"] == "error" and again["errors"][0]["code"] == "attempt_reused", again
