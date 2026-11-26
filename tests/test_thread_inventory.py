@@ -777,6 +777,89 @@ def test_every_writer_of_a_file_is_kept(tmp_path):
     assert [(s["agent"], s["shell_writes"]) for s in shell_only if s["agent"] == "agent-d"] == [("agent-d", 1)]
 
 
+REFUSALS = {  # each signal alone; the client's own results set `is_error` beside the text
+    "is_error": ("Refusing to write /work/peer/b.py", True),
+    "tool_use_error": ("<tool_use_error>File has not been read yet. Read it first before writing to it."
+                       "</tool_use_error>", None),
+    "hook error": ("PreToolUse:Edit hook error: This session is running in an isolated git worktree at "
+                   "`/work/repo`, but `/work/peer/b.py` is in the base repo checkout.", None),
+}
+
+
+def edit(path, tool_id, ts, name="Edit"):
+    data = {"notebook_path": path, "new_source": "x"} if name == "NotebookEdit" else {
+        "file_path": path, "old_string": "a", "new_string": "b"}
+    return assistant([tool(name, data, tool_id)], ts, f"m_{tool_id}")
+
+
+def refused(tool_id, ts, signal):
+    text, is_error = REFUSALS[signal]
+    entry = result(tool_id, text, ts)
+    if is_error is not None:
+        entry["message"]["content"][0]["is_error"] = is_error
+    return entry
+
+
+@pytest.mark.parametrize("signal", sorted(REFUSALS))
+def test_an_edit_whose_result_is_a_refusal_or_an_error_wrote_nothing(signal):
+    """#745: a hook's refusal of an Edit was listed as a write, at the time of the refused call."""
+    memory = "/home/u/.claude/projects/p/memory/fact.md"
+    inv = thread_inventory.inventory([
+        *edit("/work/repo/a.py", "r1", "2026-10-02T09:00:00Z"),  # refused, then written by a later call
+        refused("r1", "2026-10-02T09:00:01Z", signal),
+        *edit("/work/peer/b.py", "r2", "2026-10-02T09:01:00Z"),  # refused, and no other call wrote it
+        refused("r2", "2026-10-02T09:01:01Z", signal),
+        *edit("/work/peer/n.ipynb", "r3", "2026-10-02T09:01:10Z", name="NotebookEdit"),
+        refused("r3", "2026-10-02T09:01:11Z", signal),
+        *assistant([tool("Write", {"file_path": memory, "content": "x"}, "r4"),
+                    tool("Write", {"file_path": f"{SCRATCH}/plan.md", "content": "x"}, "r5")],
+                   "2026-10-02T09:01:20Z", "m_r4"),
+        refused("r4", "2026-10-02T09:01:21Z", signal), refused("r5", "2026-10-02T09:01:22Z", signal),
+        *edit("/work/repo/a.py", "ok", "2026-10-02T09:02:00Z"),
+        # a successful result quotes the edited lines, which may hold the same markers
+        result("ok", "The file /work/repo/a.py has been updated. Here's the result of running `cat -n` "
+                     "on a snippet:\n     1\t<tool_use_error> PreToolUse:Edit hook error", "2026-10-02T09:02:01Z"),
+    ])
+    assert inv["files_written"] == [{"path": "/work/repo/a.py", "ts": "2026-10-02T09:02:00Z", "by": ["main"]}]
+    assert inv["memory_writes"] == [] and inv["scratchpad_paths"] == []
+    assert "/work/peer" not in inv["directories"]
+
+
+def test_a_refusal_counts_when_its_result_comes_before_its_call():
+    """Transcript parts may be given in any order, so a result can precede its call."""
+    inv = thread_inventory.inventory([refused("r1", "2026-10-02T09:00:01Z", "hook error"),
+                                      *edit("/work/peer/b.py", "r1", "2026-10-02T09:00:00Z")])
+    assert inv["files_written"] == []
+
+
+def test_a_subagent_whose_only_edit_was_refused_wrote_nothing(tmp_path):
+    main = tmp_path / f"{SESSION}.jsonl"
+    main.write_text(json.dumps(human("go", "2026-10-02T09:00:00Z")) + "\n", encoding="utf-8")
+    sub = tmp_path / SESSION / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-b.jsonl").write_text("\n".join(json.dumps(e) for e in [
+        *edit("/work/peer/b.py", "s1", "2026-10-02T09:01:00Z"),
+        refused("s1", "2026-10-02T09:01:01Z", "hook error"),
+    ]) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([main])
+    assert out["files_written"] == [] and out["subagents_with_writes"] == []
+
+
+def test_a_refusal_in_one_transcript_never_hides_a_write_in_another(tmp_path):
+    """A refusal is matched within the transcript that holds it, not across the session and its subagents."""
+    main = tmp_path / f"{SESSION}.jsonl"
+    main.write_text("\n".join(json.dumps(e) for e in [
+        *edit("/work/peer/b.py", "same", "2026-10-02T09:00:00Z"),
+        refused("same", "2026-10-02T09:00:01Z", "hook error"),
+    ]) + "\n", encoding="utf-8")
+    sub = tmp_path / SESSION / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-b.jsonl").write_text("\n".join(json.dumps(e) for e in edit(
+        "/work/repo/a.py", "same", "2026-10-02T09:01:00Z")) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([main])
+    assert out["files_written"] == [{"path": "/work/repo/a.py", "ts": "2026-10-02T09:01:00Z", "by": ["agent-b"]}]
+
+
 def test_quoted_config_survives_a_multiline_message():
     command = 'git -c user.name="Alexey Zhuchkov" -c user.email=a@b commit -q -m "Subject\n\nBody line"'
     inv = thread_inventory.inventory(bash(command, "q"))

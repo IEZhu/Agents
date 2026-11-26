@@ -602,8 +602,8 @@ on the head, and GitHub records a quota-limit response as one, so its success
 line can follow a quota response. Read the review body and apply
 [Quota, rate limits and errors](#quota-rate-limits-and-errors) before you count
 the head as reviewed.
-[pr_threads.py](../scripts/dev/pr_threads.py) lists unresolved threads and review
-bodies on that head. Its output truncates text and omits intermediate comments;
+[pr_threads.py](../scripts/dev/pr_threads.py) lists unresolved threads, resolved
+threads whose last comment is not yours, and review bodies on that head. Its output truncates text and omits intermediate comments;
 fetch full comments, discussions, and review bodies through the platform before
 deciding a finding is handled. Also read PR conversation comments and bot status.
 
