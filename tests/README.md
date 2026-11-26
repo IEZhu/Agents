@@ -94,9 +94,11 @@ library-history and user-sync files intact on Linux and splits that collection
 across four Windows jobs and two macOS jobs. It does not run the full regular suite.
 Its opt-in `tests.ci_shard` plugin
 assigns each node ID to exactly one shard; ordinary pytest runs stay unchanged.
-To reproduce one part, set `AGENTS_TEST_SHARD_COUNT=4` and
-`AGENTS_TEST_SHARD_INDEX=0` (indices 0 through 3), then add `-p tests.ci_shard`
-to the workflow's pytest command. Invalid or incomplete settings fail before
+To reproduce one part, set the job's count and index, then add `-p tests.ci_shard`
+to the workflow's pytest command: `AGENTS_TEST_SHARD_COUNT=4` with
+`AGENTS_TEST_SHARD_INDEX` 0 through 3 for a Windows job, and
+`AGENTS_TEST_SHARD_COUNT=2` with index 0 or 1 for a macOS job. The plugin hashes
+each node ID modulo the count, so a count other than the job's selects other tests. Invalid or incomplete settings fail before
 collection. `test_ci_shard.py` checks complete, disjoint and stable coverage.
 
 ### Checks outside pytest
