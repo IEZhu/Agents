@@ -6,9 +6,9 @@ in a seeded order, every slot of a cluster's items together. One seed orders a s
 names it, and a run with another seed is refused. A run may stop at a stage, the leading complete
 clusters, as many as a run count holds on average, so a stage is a simple random sample of the
 set's clusters and its design effect estimates the whole set's; within what a run takes, slots
-are shuffled so arms and items interleave. Before each batch a probe worker, launched exactly like a verifier,
-tries to read the canary file; a read that succeeds, or a probe that never tried, stops the
-run. Every scheduled attempt gets one ``control_attempt`` line, including those a stop or the
+are shuffled so arms and items interleave. Before each batch a probe worker, launched exactly
+like a verifier, tries to read the canary file; a read that succeeds, or a probe that never
+tried, stops the run. Every scheduled attempt gets one ``control_attempt`` line, including those a stop or the
 budget left unrun (``unfinished`` with a reason). Printed progress names item IDs and
 statuses only, never a statement, a label, a verdict or an outcome.
 """
