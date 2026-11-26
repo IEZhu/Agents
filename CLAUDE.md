@@ -275,10 +275,10 @@ above only where their required state or tool is unavailable:
 
 ## Repository notes
 
-For contribution instructions, read [AGENTS.md](AGENTS.md). Never edit, commit
-or switch branches in the live installation checkout the daemon runs from; work
-in a linked worktree cut from `origin/dev` and open the PR against `dev`
-(AGENTS.md, "Make changes"). The
+For contribution instructions, read [AGENTS.md](AGENTS.md). Never edit, commit,
+stash, reset or switch branches in the live installation checkout the daemon
+runs from; work in a linked worktree cut from `origin/dev` with `--no-track` and
+open the PR against `dev` (AGENTS.md, "Make changes"). The
 [documentation map](docs/README.md) distinguishes current references from plans
 and recorded results. To refresh both human documentation and AI instructions,
 execute [flows/documentation-refresh.md](flows/documentation-refresh.md).
@@ -308,8 +308,22 @@ surfaces only trigger. Do not edit the template or the managed section by hand.
 The global installer does not modify this tracked checkout file; after editing a
 section, run `.venv/bin/python -m src.engine.protocol_text --write`, which also
 refreshes the managed section here ([README.md](README.md#persona-continuity)).
-Keep these repository notes outside the markers so future protocol changes
-preserve them.
+Keep these repository notes outside both marker pairs: a protocol refresh
+rewrites the routing section and `write_repo_summary` rewrites the Repository
+Memory section, so a rule stated inside either one is lost at the next refresh.
+Rules the owner decided therefore live here; the generated sections describe
+only what the tree shows.
+
+Commits follow Conventional Commits: `type(scope): subject`, imperative, body
+wrapped at 72, one change per commit ([CONTRIBUTING.md](CONTRIBUTING.md)). New
+work uses an `agent/<slug>` branch unless the user or flow names another; issue
+implementation uses `claude/issue-<number>-<short-slug>`. Every committed
+document is in English. A record under "Plans, research and recorded results" in
+[docs/README.md](docs/README.md) opens, on the line after its title, with a
+`**Status:**` line, the only place for its state; the generated
+`evals/reports/baseline.md` and `evals/reports/implants_preferred_ab.md` are
+exempt, since their next run overwrites the file. A maintained reference has
+none and states its state in prose.
 
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
@@ -420,9 +434,8 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 ### Conventions
 
 - Components are Markdown with YAML frontmatter and an `.mdc` extension; a persona folder holds `system_prompt.mdc` and `subagent.mdc` (46 of each).
-- Conventional commits: `type(scope): subject`, imperative, body wrapped at 72, one change per commit. New work uses an `agent/<slug>` branch unless the user or flow names another; issue implementation uses `claude/issue-<number>-<short-slug>`.
-- Every committed document is in English. A record under "Plans, research and recorded results" in `docs/README.md` opens, on the line after its title, with a `**Status:**` line, the only place for its state; the generated `evals/reports/baseline.md` and `evals/reports/implants_preferred_ab.md` are exempt, since their next run overwrites the file. A maintained reference has none and states its state in prose.
-- The protocol text has one source, `src/engine/protocol/`, composed by `src/engine/protocol_text.py` into `scripts/templates/routing-protocol-core.md` (the managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization text, the `SUCCESS` instruction, the client pointers and the installer's `scripts/templates/memory-routing.md`. Never hand-edit a generated surface: change the section, then `python3 -m src.engine.protocol_text --write` (`--check` lists stale files). Keep repository notes outside both marker pairs.
+- Repository rules the owner decided — where to work and on which branch, the commit format, document language, the `**Status:**` line of a record and never hand-editing a generated surface — are stated in "Repository notes" above these markers and in [AGENTS.md](AGENTS.md#make-changes), not here; this section records only what the tree shows.
+- The protocol text has one source, `src/engine/protocol/`, composed by `src/engine/protocol_text.py` into `scripts/templates/routing-protocol-core.md` (the managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization text, the `SUCCESS` instruction, the client pointers and the installer's `scripts/templates/memory-routing.md`; `python3 -m src.engine.protocol_text --write` regenerates them and `--check` lists stale files.
 - The worker result's separator rule lives in `SEPARATORS` (`src/engine/subagent_text.py:62`), regenerated into `docs/subagent-contract.md` by `python -m src.engine.subagent_contract_text --write`.
 - A handler returning a JSON string is wrapped by FastMCP as `{"result": <text>}` and counted twice-escaped; `src/result_size.py:22-23` sets `INLINE_LIMIT = 50_000` and `RESULT_SIZE_CEILING = 500_000`, so result size is a design constraint.
 
@@ -445,11 +458,10 @@ Delegation is a contract, not a prompt. `get_subagent_context` writes a task-sco
 
 ### Test Strategy
 
-`pytest` with `addopts = ["-m", "not slow"]` over 273 tracked `tests/test_*.py` files; `slow` covers `tests/test_startup_handshake.py:16` module-wide and three tests in `tests/test_routing.py`. Retriever and isolation tests stay in the default selection and build the stores, so keep `EMBEDDING_MODEL` cached and go offline with `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`. `tests/conftest.py` pins the model, isolates data and service directories and blocks real notifications and re-exec; fake binaries are fixtures in `tests/fixtures/`. Run one heavy test at a time. Node tests cover the bridge, the MCP metadata guard, the flows UI and the compaction mod. `tests/README.md` maps subsystems to files.
+`pytest` with `addopts = ["-m", "not slow"]` over 273 tracked `tests/test_*.py` files; `slow` covers `tests/test_startup_handshake.py:16` module-wide and three tests in `tests/test_routing.py`. Retriever and isolation tests stay in the default selection and build the stores, so keep `EMBEDDING_MODEL` cached and go offline with `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`. `tests/conftest.py` pins the model, isolates data and service directories and blocks real notifications and re-exec; fake binaries are fixtures in `tests/fixtures/`. Node tests cover the bridge, the MCP metadata guard, the flows UI and the compaction mod. `tests/README.md` maps subsystems to files.
 
 ### Gotchas
 
-- Never edit, commit, reset or switch branches in the checkout the daemon runs from; cut a linked worktree from `origin/dev` with `--no-track` and open the PR against `dev`.
 - The shared checkout can lag `origin/dev` by hundreds of commits; a script reading the working tree describes that tree, not the release ref.
 - `scripts/check_docs.py` lists files with `git ls-files`: stage a new document before trusting a local run. It imports `markdown-it-py`, which only the documentation-quality workflow installs.
 - Worker packages, session locks and indexes live in the installation's `data/` (`src/engine/config.py:22`); losing it makes `validate_subagent_result` answer `contract_unknown`. The claims store and work maps sit in the workspace's `data/`, the artifact store in the service-state directory. `git worktree remove` deletes ignored files, so check `git status --short --ignored` first.
