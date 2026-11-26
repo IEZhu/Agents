@@ -14,7 +14,7 @@ This is an Agents-Core-specific implementation flow. It is not a generic flow fo
 ## Inputs and defaults
 
 - Target repository: the caller's authorized Agents-Core worktree (required; no default path). For new changes, create a linked worktree from current `origin/dev` under the target repository's instructions.
-- Branch: the caller's own implementation branch, normally `codex/<slug>`; preserve the historical shared-KV and research worktrees. The paths and branch recorded in the handoff are provenance, not defaults.
+- Branch: the caller's own implementation branch, normally `agent/<slug>`; preserve the historical shared-KV and research worktrees. The paths and branch recorded in the handoff are provenance, not defaults.
 - Owner-selected existing local GGUF and llama.cpp binary for optional live checks.
 - Implementation order: deterministic core, owned engine, resident cache, MCP job API, optional Redis, live checks.
 - Generation and Redis remain disabled by default.

@@ -42,7 +42,7 @@ Run flows/open-source-tuning.md for skill-fact-verification from <path/to/post-m
 | Sources | Optional: named books, authors, standards or URLs. Otherwise found in step 3 |
 | Trigger | Open sources by default. Also a defect observed in this installation's own work: name the post-mortem, the run, or the files that recorded it |
 | Owners | For a skill: the agents that list it. For a new one: proposed in step 1 |
-| Branch | `claude/tune-<component>` or `codex/tune-<component>`, cut from `origin/dev` with `--no-track` in a worktree, never in the live installation checkout ([AGENTS.md](../AGENTS.md#make-changes)) |
+| Branch | `agent/tune-<component>`, cut from `origin/dev` with `--no-track` in a worktree, never in the live installation checkout ([AGENTS.md](../AGENTS.md#make-changes)) |
 | Measurement | Write the probe cases; run [A/B eval](ab-eval.md) only when the request asks for it, because it spends the OpenRouter budget |
 
 The owner decides: creating a new agent, spending eval budget, using a source whose

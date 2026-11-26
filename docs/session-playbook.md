@@ -36,7 +36,7 @@ monitor's completion per pending run while retaining the required quality gates.
   `dev`: [release procedure](releases.md#procedure)). A documentation refresh uses
   the requested revision, or `origin/dev` by default for this repository. When branching from a
   remote ref, use `--no-track`
-  (`git worktree add --no-track -b codex/task-name <path> origin/dev`), so a GUI client never
+  (`git worktree add --no-track -b agent/task-name <path> origin/dev`), so a GUI client never
   pushes a feature branch to the upstream it was cut from. The repository deletes a
   PR's branch when it is merged.
 - **Live installation.** Never edit, commit, stash, reset or switch branches in the
