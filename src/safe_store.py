@@ -116,11 +116,14 @@ def real_directory(path: Path, *, private: bool = False) -> None:
             os.close(descriptor)
 
 
-def open_store(path: Path, flags: int, *, private: bool = False) -> int:
+def open_store(path: Path, flags: int, *, private: bool = False, _retry: bool = True) -> int:
     """Open the store file itself, never through a link, and only as a regular file.
 
     With ``private`` (the writer) the file must belong to this user and loses group and
     other permissions; the mode passed to ``open`` applies only to a file it creates.
+    A missing file is created exclusively: Windows has no no-follow flag, so a link put
+    at the name after the ``lstat`` would otherwise be followed. When the name appeared
+    meanwhile, it is opened again as an existing file, with that file's checks.
     """
     try:
         before = os.lstat(path)
@@ -130,7 +133,12 @@ def open_store(path: Path, flags: int, *, private: bool = False) -> int:
             raise
     if before is not None and not stat.S_ISREG(before.st_mode):
         raise UnsafeStore(f"{path} is not a regular file; the store does not follow links")
-    descriptor = os.open(path, flags | NO_FOLLOW, 0o600)
+    try:
+        descriptor = os.open(path, flags | NO_FOLLOW | (os.O_EXCL if before is None else 0), 0o600)
+    except FileExistsError:
+        if not _retry:
+            raise UnsafeStore(f"{path} changed while it was opened") from None
+        return open_store(path, flags, private=private, _retry=False)
     try:
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or (before is not None and not os.path.samestat(before, opened)):

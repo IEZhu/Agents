@@ -158,7 +158,7 @@ def test_a_node_record_shows_the_optional_result_fields_when_present(store):
 
 
 def test_the_list_names_each_map_with_its_goal(store):
-    assert render_list(store.list_maps()) == "task-1 · revision 5 · Ship the feature · planned 3"
+    assert render_list(store.list_maps()[0]) == "task-1 · revision 5 · Ship the feature · planned 3"
 
 
 def chain(count):

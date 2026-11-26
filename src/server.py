@@ -2829,8 +2829,9 @@ def _workmap_read(store: WorkmapStore, task_id, node, since, detail, budget) -> 
     if task_id is None:
         if node is not None or detail is not None:
             raise WorkmapError("invalid_request", "node and detail need task_id")
-        maps = store.list_maps()
-        return {"status": "ok", "mode": "list", "total": len(maps), "view": workmap_text.render_list(maps)}
+        maps, total = store.list_maps()
+        return {"status": "ok", "mode": "list", "total": total,
+                "view": workmap_text.render_list(maps, total=total)}
     current = store.load(task_id)
     if current is None:
         raise WorkmapError("unknown_map", f"no work map for task {task_id}")

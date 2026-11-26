@@ -104,9 +104,14 @@ stays with the workers, the server and, where the risk warrants one, a verifier.
 7. **Repeat until settled.** Go back to step 2 after every completed node, accepted node
    or new verifier: wait for the active workers, read the view since the last revision,
    handle what each completed node needs (steps 3 to 6), and launch the stages and
-   verifiers that became ready. Stop when every node the goal depends on is settled, or
-   when a blocker needs the user; a map with a single stage passes through this step once.
-8. **Report and close.** Report to the user from the view, then `close` the map.
+   verifiers that became ready. Stop when every stage and verifier the map holds is
+   settled or set aside (`refuted`, `superseded` or `blocked` with a reason), or when a
+   blocker needs the user; a map with a single stage passes through this step once.
+8. **Report, and close only when done.** Report to the user from the view. `close` the
+   map only when every stage and verifier is settled or set aside, or when the user
+   cancels the task: a closed map refuses every later package and submission. When step 7
+   stopped for the user, keep the map open, report the pending question, and resume at
+   step 2 once the user answers.
 
 ## Rules
 

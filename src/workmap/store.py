@@ -29,6 +29,7 @@ FORMAT_VERSION = 1
 MAX_STORE_BYTES = 20 * 1024 * 1024
 DIRECTORY = ("data", "workmap")
 MAX_OPS = 50
+LIST_LIMIT = 20  # maps the list view reads, the most recently written first
 TITLE_MAX = 120
 SUMMARY_MAX = 300
 QUESTION_MAX = 300
@@ -167,10 +168,26 @@ def _higher(kept: str | None, prepared: object) -> str | None:
     return prepared if rank(prepared) > rank(kept) else kept
 
 
+_VALUES = {"kind": NODE_KINDS, "risk": RISKS, "type": EDGE_TYPES, "level": LEVELS,
+           "status": PARENT_STATUSES + SERVER_STATUSES}
+
+
+def _check_values(event: dict) -> None:
+    """Raise ValueError for a field outside its allowed values, as workmap_update would refuse
+    it: a damaged line must not reach the state the views and the readiness rules read. None
+    stays allowed where an event may leave the field unset (an invalid count, a verdict)."""
+    for key, allowed in _VALUES.items():
+        if key in event and event[key] is not None and event[key] not in allowed:
+            raise ValueError(f"{key} {event[key]!r}")
+    if event["op"] == "prepared" and event.get("complexity") not in (None, *COMPLEXITIES):
+        raise ValueError(f"complexity {event.get('complexity')!r}")
+
+
 def _apply_event(workmap: WorkMap, event: dict) -> None:
     """Apply one event, or raise before changing anything: fold skips an event that raises, so a
     damaged one must not leave half its change behind (an edge to a missing node, a count)."""
     op, rev = event["op"], event["rev"]
+    _check_values(event)
     if op == "add_node":
         if event["id"] in workmap.nodes:  # a second add_node would erase the node and its work
             raise KeyError(event["id"])
@@ -554,13 +571,26 @@ class WorkmapStore:
         task_id = _task_id(task_id)
         return self._state(self._read(f"{map_key(task_id)}.jsonl"), task_id)
 
-    def list_maps(self) -> list[WorkMap]:
+    def list_maps(self, limit: int = LIST_LIMIT) -> tuple[list[WorkMap], int]:
+        """The ``limit`` most recently written maps, folded, and how many map files there are.
+
+        Each log may hold up to the store's size cap and closed maps stay, so the list reads only
+        the newest files instead of folding every log of the workspace for a few lines of view."""
         with safe_store.store_directory(self.root, DIRECTORY, create=False, private=False) as directory:
             if directory is None:
-                return []
-            names = sorted(name for name in os.listdir(directory) if MAP_FILE.fullmatch(name))
-        maps = [fold(self._read(name)) for name in names]
-        return [workmap for workmap in maps if workmap is not None]
+                return [], 0
+            names = [name for name in os.listdir(directory) if MAP_FILE.fullmatch(name)]
+
+            def written(name: str) -> float:
+                try:
+                    if isinstance(directory, int):
+                        return os.stat(name, dir_fd=directory, follow_symlinks=False).st_mtime
+                    return os.lstat(Path(directory) / name).st_mtime
+                except OSError:
+                    return 0.0
+            newest = sorted(names, key=lambda name: (written(name), name), reverse=True)[:limit]
+        maps = [fold(self._read(name)) for name in newest]
+        return [workmap for workmap in maps if workmap is not None], len(names)
 
     def _result(self, task_id: str, node: dict) -> str | None:
         sha256 = node["refs"].get("result_sha256")

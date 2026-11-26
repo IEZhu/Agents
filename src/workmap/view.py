@@ -190,9 +190,10 @@ def render_node(workmap: WorkMap, node_id: str) -> str:
     return text if len(text) <= NODE_BUDGET else text[:NODE_BUDGET - 1] + "…"
 
 
-def render_list(maps: list[WorkMap], *, budget: int = DEFAULT_BUDGET) -> str:
+def render_list(maps: list[WorkMap], *, budget: int = DEFAULT_BUDGET, total: int | None = None) -> str:
     """One line per map, the most recently changed first, as many as fit the budget, then how
-    many more there are."""
+    many more there are. ``total`` counts the maps the store holds, which may be more than it
+    read for this list."""
     if not maps:
         return "no work maps in this workspace"
     lines = []
@@ -204,12 +205,13 @@ def render_list(maps: list[WorkMap], *, budget: int = DEFAULT_BUDGET) -> str:
         tally = ", ".join(f"{status} {count}" for status, count in sorted(counts.items())) or "empty"
         lines.append(f"{workmap.task_id} · revision {workmap.revision}" + (" · closed" if workmap.closed else "")
                      + f" · {goals[0] if goals else 'no goal'} · {tally}")
-    if len("\n".join(lines)) <= budget:
+    total = len(lines) if total is None else max(total, len(lines))
+    if total == len(lines) and len("\n".join(lines)) <= budget:
         return "\n".join(lines)
     kept: list[str] = []
     for line in lines:
-        note = f"… {len(lines) - len(kept) - 1} {MORE_MAPS}"
+        note = f"… {total - len(kept) - 1} {MORE_MAPS}"
         if len("\n".join(kept + [line, note])) > budget:
             break
         kept.append(line)
-    return "\n".join(kept + [f"… {len(lines) - len(kept)} {MORE_MAPS}"])
+    return "\n".join(kept + [f"… {total - len(kept)} {MORE_MAPS}"])

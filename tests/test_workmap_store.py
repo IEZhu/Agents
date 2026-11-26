@@ -498,7 +498,7 @@ def test_an_unknown_map_is_reported(store):
     with pytest.raises(WorkmapError) as raised:
         store.check_preparable(TASK, "write", [])
     assert raised.value.code == "unknown_map"
-    assert store.load(TASK) is None and store.list_maps() == []
+    assert store.load(TASK) is None and store.list_maps() == ([], 0)
 
 
 # --- the shared safe-file module ----------------------------------------------------
@@ -1067,3 +1067,52 @@ def test_a_placeholder_directory_on_the_path_checked_by_name_is_a_store(tmp_path
     monkeypatch.setattr(safe_store.os, "lstat", lstat)
     with safe_store.store_directory(tmp_path, ("data", "store"), create=True, private=False) as directory:
         assert directory == tmp_path / "data" / "store"
+
+
+@pytest.mark.parametrize("damaged", [
+    {"op": "result", "id": "a", "status": "validated", "level": "VX", "summary": "Done", "checks": None,
+     "findings": None, "limitations": 0, "handback": "line", "result_sha256": "b" * 64, "rev": 4},
+    {"op": "update_node", "id": "a", "status": "finished", "rev": 4},
+    {"op": "add_edge", "from": "a", "to": "a", "type": "blocks", "rev": 4},
+])
+def test_a_committed_event_with_a_value_out_of_range_is_skipped(damaged):
+    prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
+                "rev": 3}
+    workmap = store_module.fold(OPENED + [prepared, damaged])
+    assert workmap.revision == 3 and workmap.nodes["a"]["status"] == "prepared" and workmap.edges == []
+    assert render_map(workmap)  # the views still render
+
+
+def test_the_list_reads_only_the_most_recently_written_maps(store, monkeypatch):
+    for index in range(3):
+        store.apply(f"task-{index}", [{"op": "add_node", "id": "goal", "kind": "goal", "title": f"Goal {index}"}])
+    maps, total = store.list_maps(limit=2)
+    assert total == 3 and len(maps) == 2
+    folded = []
+    monkeypatch.setattr(store_module, "fold", lambda events: folded.append(1) or None)
+    store.list_maps(limit=1)
+    assert len(folded) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX links stand in for a Windows reparse point")
+def test_a_link_put_at_the_name_before_the_create_is_refused(tmp_path, monkeypatch):
+    """Windows has no no-follow flag: a missing file is created exclusively, so a link that appeared
+    after the lstat is not followed into its target."""
+    target = tmp_path / "target.jsonl"
+    target.write_text("", encoding="utf-8")
+    path = tmp_path / "store.jsonl"
+    path.symlink_to(target)
+    monkeypatch.setattr(safe_store, "NO_FOLLOW", 0)  # as on Windows
+    real_lstat = os.lstat
+    seen = []
+
+    def lstat_missing_once(name, *args, **kwargs):
+        if os.fspath(name) == os.fspath(path) and not seen:
+            seen.append(name)
+            raise FileNotFoundError(name)  # the link appears between this lstat and the open
+        return real_lstat(name, *args, **kwargs)
+
+    monkeypatch.setattr(safe_store.os, "lstat", lstat_missing_once)
+    with pytest.raises(safe_store.UnsafeStore):
+        safe_store.open_store(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, private=True)
+    assert target.read_text(encoding="utf-8") == ""
