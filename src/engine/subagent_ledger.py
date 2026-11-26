@@ -1,14 +1,16 @@
 """Private ledger of tiered worker outcomes: routing facts only, never task text.
 
-Opt-in with ``AGENTS_SUBAGENT_LEDGER=1``, like the ``AGENTS_DEBUG`` logs: the preparation and
-validation tools stay read-only by default. One JSON line per prepared package with an
-execution and per validation of such a contract, in the installation's
-``data/subagent-tiers/ledger.jsonl``. Task IDs are stored hashed. A write failure is logged
-and never fails the tool call. ``summarize`` shows per client, tier
-and model how often light workers were accepted without escalation, both as all-time
-counts and as a recent rate: the outcomes filtered in time order with fading memory
-(``src/estimation/rate.py``), so a model or client change shows up instead of being
-averaged away by months of history.
+Opt-in with ``AGENTS_SUBAGENT_LEDGER=1``, like the ``AGENTS_DEBUG`` logs: by default nothing is
+written here, so validate_subagent_result keeps its read-only annotation. One JSON line per
+prepared package with an execution and per validation of such a contract, in the installation's
+``data/subagent-tiers/ledger.jsonl``. Task IDs are stored hashed, and a validation names its
+contract by the first 16 characters of its revision. A write failure is logged and never fails
+the tool call. ``summarize`` shows per client, tier and model how often light workers were
+accepted without escalation, counting one outcome per contract (its last validation, so a
+worker's own self-checks before the parent's do not count again), both as all-time counts and
+as a recent rate: the outcomes filtered in time order with fading memory
+(``src/estimation/rate.py``), so a model or client change shows up instead of being averaged
+away by months of history.
 """
 from __future__ import annotations
 
@@ -26,6 +28,8 @@ from src.estimation import rate
 logger = logging.getLogger(__name__)
 
 LEDGER_MAX_BYTES = 5 * 1024 * 1024
+# How much of a contract revision a validation entry keeps: enough to tell contracts apart.
+CONTRACT_CHARS = 16
 # How fast old outcomes stop counting in the recent acceptance rate: an outcome weighs
 # half as much after this many days. A chosen setting, not a measurement.
 ACCEPTANCE_HALF_LIFE_DAYS = 14.0
@@ -84,6 +88,7 @@ def record_validation(outcome) -> None:
         return
     escalation = outcome.escalation
     append({"event": "validated", "task": _task(outcome.task_id), "attempt_id": outcome.attempt_id,
+            **({"contract": outcome.contract_revision[:CONTRACT_CHARS]} if outcome.contract_revision else {}),
             **_execution(outcome.execution), "valid": outcome.valid, "status": outcome.status,
             "failed_checks": outcome.failed_checks,
             "escalation": escalation.tier if escalation else None,
@@ -129,20 +134,28 @@ def _recent(estimate, now: float) -> dict:
 def summarize(entries: list[dict], now: float | None = None) -> list[dict]:
     """Counts per (client, tier, model), in first-seen order, plus the recent acceptance rate.
 
+    A contract counts once, by its last validation: a worker that checks its own draft before
+    the parent validates it leaves several entries for one outcome. Entries without a
+    ``contract`` (written before it was recorded) count one each.
     ``recent_acceptance`` filters the timed validations in file order (the ledger is
     append-only, so that is time order) and is carried to ``now``; it is ``None`` for a
     row without one. Untimed entries still count but do not move the rate.
     """
     now = dt.datetime.now(dt.timezone.utc).timestamp() if now is None else now
+    last = {entry["contract"]: index for index, entry in enumerate(entries)
+            if entry.get("event") == "validated" and isinstance(entry.get("contract"), str)}
     rows: dict[tuple, dict] = {}
     estimates: dict[tuple, object] = {}
-    for entry in entries:
+    for index, entry in enumerate(entries):
         key = (entry.get("client") or "unknown", entry.get("tier"), entry.get("model") or "inherit")
         row = rows.setdefault(key, {"client": key[0], "tier": key[1], "model": key[2], "prepared": 0,
                                     "validated": 0, "accepted": 0, "invalid": 0, "escalations": Counter()})
         if entry.get("event") == "prepared":
             row["prepared"] += 1
         elif entry.get("event") == "validated":
+            contract = entry.get("contract")
+            if isinstance(contract, str) and last[contract] != index:
+                continue  # a later validation of the same contract stands for it
             row["validated"] += 1
             if entry.get("valid") is False:
                 row["invalid"] += 1

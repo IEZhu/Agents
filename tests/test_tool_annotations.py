@@ -36,3 +36,14 @@ def test_tools_that_delete_or_replace_are_destructive_and_readers_are_read_only(
     for name in ("list_flows", "get_flow", "list_agents", "read_history", "read_shared_memory", "describe_repo",
                  "validate_subagent_result"):
         assert hints[name].readOnlyHint is True, name
+
+
+def test_validation_stays_read_only_and_the_work_map_submission_states_its_write():
+    """Clients such as Codex skip an approval for a read-only call: validation writes nothing, and
+    workmap_submit, which records a bound contract's submissions on its node, says it writes."""
+    hints = {tool.name: tool.annotations for tool in tools()}
+    validate = hints["validate_subagent_result"]
+    assert (validate.readOnlyHint, validate.idempotentHint) == (True, True)
+    submit = hints["workmap_submit"]
+    assert (submit.readOnlyHint, submit.destructiveHint, submit.idempotentHint) == (False, False, False)
+    assert hints["get_subagent_context"].idempotentHint is False

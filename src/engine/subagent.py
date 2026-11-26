@@ -171,7 +171,8 @@ def _components(request: PreparationRequest, profile: dict) -> tuple[list[Compon
 
 def _assemble(request: PreparationRequest, task_id: str, body: str, rules: list[tuple[str, str]],
               components: list[Component], schema: dict,
-              execution: ExecutionPlan | None) -> tuple[str, TaskContract, WorkerDescriptor]:
+              execution: ExecutionPlan | None, workmap: dict | None = None
+              ) -> tuple[str, TaskContract, WorkerDescriptor]:
     plain = request.result_format == "text"
     reusable = [TEXT_WORKER_GUIDANCE if plain else WORKER_GUIDANCE, f"## Role: {request.agent_name}\n{body}"]
     reusable.extend(f"## Rule: {name}\n{text}" for name, text in rules)
@@ -191,6 +192,8 @@ def _assemble(request: PreparationRequest, task_id: str, body: str, rules: list[
         contract_data["result_format"] = "text"
     if execution is not None:
         contract_data["execution"] = execution.contract_part()
+    if workmap is not None:
+        contract_data["workmap"] = workmap
     artifact_reads = []
     if request.artifact_manifest is not None:
         manifest = request.artifact_manifest
@@ -223,11 +226,17 @@ def _assemble(request: PreparationRequest, task_id: str, body: str, rules: list[
     return context, contract, descriptor
 
 
-def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
+def prepare_subagent(arguments: dict, *, workmap_root: str | None = None) -> PreparedPackage | PreparationError:
     """All-or-nothing preparation with whole-component omissions; no global writes."""
     try:
         arguments = bounded_object(arguments, max_chars=MAX_REQUEST_CHARS)
         request = PreparationRequest.model_validate(arguments)
+        workmap = None
+        if request.workmap_node is not None:
+            if workmap_root is None:
+                raise ContractError("workmap_unavailable", "workmap_node needs a workspace the server "
+                                                           "resolved.", "$.workmap_node")
+            workmap = {"node": request.workmap_node, "root": workmap_root}
         _, profile, body = read_profile(request.agent_name)
         rules, decisions = _rules(artifact_manifest=request.artifact_manifest is not None)
         components, component_decisions = _components(request, profile)
@@ -236,7 +245,7 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
         execution = model_tiers.plan(request, request.client) if request.complexity else None
         task_id = request.task_id or (request.artifact_manifest.task_id
                                      if request.artifact_manifest is not None else str(uuid.uuid4()))
-        mandatory_context, _, _ = _assemble(request, task_id, body, rules, [], schema, execution)
+        mandatory_context, _, _ = _assemble(request, task_id, body, rules, [], schema, execution, workmap=workmap)
         if len(mandatory_context) > request.max_context_chars:
             # Both causes raise here, and only one of them has an artifact for an answer:
             # mandatory role, rule and schema text cannot be published away, and a manifest
@@ -248,7 +257,7 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
             # bullets or JSON syntax around them, so the context-free package is assembled
             # and measured instead.
             bare, _, _ = _assemble(request.model_copy(update={"context": []}), task_id, body,
-                                   rules, [], schema, execution)
+                                   rules, [], schema, execution, workmap=workmap)
             if len(bare) <= request.max_context_chars:
                 cost = len(mandatory_context) - len(bare)
                 remedy = (f"Context adds {cost}; without it the package fits. Consider "
@@ -262,7 +271,7 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
                                 f"budget is {request.max_context_chars}. {remedy}")
         while True:
             context, contract, descriptor = _assemble(request, task_id, body, rules, components, schema,
-                                                      execution)
+                                                      execution, workmap=workmap)
             if len(context) <= request.max_context_chars:
                 return PreparedPackage(
                     task_id=task_id, attempt_id=request.attempt_id, bundle_id=str(uuid.uuid4()),

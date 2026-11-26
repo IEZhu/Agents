@@ -59,10 +59,12 @@ def _prune(directory: Path, now: float) -> None:
             continue  # another server process may prune the same file
 
 
-def launch_text(path: Path, chars: int) -> str:
+def launch_text(path: Path, chars: int, *, bound: bool = False) -> str:
+    ending = ("Submit the result and reply exactly as it says." if bound
+              else "Reply with only the result it specifies.")
     return (f"You are a fresh worker. Read the file {path} ({chars} characters) completely before doing "
             "anything else and follow it exactly: it is your whole assignment, role, rules and result "
-            "format. Reply with only the result it specifies.")
+            f"format. {ending}")
 
 
 def store(package: PreparedPackage) -> PreparedReceipt:
@@ -81,7 +83,7 @@ def store(package: PreparedPackage) -> PreparedReceipt:
         task_id=package.task_id, attempt_id=package.attempt_id, contract_revision=revision,
         context_path=str(context_path), context_chars=package.context_chars,
         context_sha256=hashlib.sha256(package.worker_context.encode("utf-8")).hexdigest(),
-        launch=launch_text(context_path, package.context_chars), descriptor=package.descriptor,
+        launch=launch_text(context_path, package.context_chars, bound=package.contract.workmap is not None), descriptor=package.descriptor,
         execution=package.execution, omitted=[f"{decision.kind}/{decision.id}"
                                               for decision in package.selection
                                               if not decision.selected

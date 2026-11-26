@@ -81,11 +81,18 @@ def test_text_package_carries_no_json_contract_or_schema(worker_tree):
     assert "## Assignment contract" not in package.worker_context
     assert "JSON Schema" not in package.worker_context
     assert package.contract_revision[:CONTRACT_PREFIX_CHARS] in package.worker_context
-    assert package.contract_revision not in package.worker_context
+    assert package.contract_revision in package.worker_context
     legacy = prepared(result_format="json")
     assert "result_format" not in legacy.contract.model_dump(mode="json")
     assert contract_fingerprint(legacy.contract.model_dump(mode="json")) == legacy.contract_revision
     assert package.context_chars < legacy.context_chars
+
+
+def test_text_package_states_the_full_contract_revision_and_the_self_check(worker_tree):
+    package = prepared()
+    revision = package.contract_revision
+    assert f"contract: {revision} ·" in package.worker_context
+    assert f'validate_subagent_result(contract_revision="{revision}"' in package.worker_context
 
 
 @pytest.mark.parametrize("mutate,code", [
@@ -624,9 +631,10 @@ def test_a_rendered_package_states_the_first_lines_and_the_list_limit_once(worke
     # evidence, because `failed` here is counted and escalates an otherwise completed result.
     assert "evidence, not a failed check" in rendered
     assert "failed before your change is evidence" not in rendered
-    # The mandatory floor every package pays: 2627 as rendered here, against 2390 before the
+    # The mandatory floor every package pays: 3007 as rendered here, 2627 before the whole
+    # contract revision (+52) and the self-check rule (+328) were added; 2390 before the
     # wording was added and 2976 when it was appended as four sentences instead of folded.
-    assert len(rendered) <= 2700, len(rendered)
+    assert len(rendered) <= 3080, len(rendered)
 
 
 def test_a_rendered_package_says_an_empty_section_is_left_out(worker_tree):
@@ -811,8 +819,9 @@ async def test_default_delivery_is_a_file_receipt(worker_tree):
     assert path.read_text(encoding="utf-8") == inline["worker_context"]
     assert receipt["context_chars"] == len(inline["worker_context"])
     assert str(path) in receipt["launch"] and str(receipt["context_chars"]) in receipt["launch"]
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    if os.name != "nt":  # Windows reports no POSIX permission bits (0o666 for any writable file)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     stored = subagent_exchange.load_contract(receipt["contract_revision"])
     assert contract_fingerprint(stored) == receipt["contract_revision"] == inline["contract_revision"]
     assert len(json.dumps(receipt)) < 2000
@@ -842,7 +851,8 @@ async def test_validation_by_revision_and_reference(worker_tree, tmp_path):
                                                       "result": text})
     assert by_text["valid"], by_text
     result_file = tmp_path / "result.md"
-    result_file.write_text(text, encoding="utf-8")
+    # Bytes, not write_text: on Windows text mode turns "\n" into "\r\n" and changes the hash.
+    result_file.write_bytes(text.encode("utf-8"))
     by_file = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
                                                       "result_ref": str(result_file)})
     assert by_file["valid"] and by_file["result_sha256"] == by_text["result_sha256"]

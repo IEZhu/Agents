@@ -60,6 +60,8 @@ Agents/
 │   │   └── language.py   # Language detection
 │   ├── memory/           # Repository summary, history, managed sections
 │   ├── claims/           # Validated-claims store: verdicts filtered into a confidence (claim_record, claim_lookup)
+│   ├── workmap/          # Per-task work maps of delegated stages, folded from events (workmap_update, workmap_view)
+│   ├── safe_store.py     # Private append-only JSON-lines files under data/ that claims/ and workmap/ share
 │   ├── estimation/       # Scalar Kalman filter and the drifting-rate estimator
 │   ├── schemas/          # protocol.py (request, response, persona), tool_args.py (MCP argument types)
 │   └── utils/
