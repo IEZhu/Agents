@@ -53,7 +53,7 @@ Optionally specify the scope, starting revision, or branch:
 
 ```text
 Run flows/documentation-refresh.md for routing documentation and AI instructions.
-Use origin/dev as the base and codex/docs-routing-refresh as the branch.
+Use origin/dev as the base and agent/docs-routing-refresh as the branch.
 ```
 
 This instruction runs in the current AI session. No separate installation or
@@ -91,7 +91,7 @@ and reference links, while all inspection, edits and validation use the target.
    recorded outcomes. Do not rewrite immutable legacy template bytes that
    migration code recognizes by exact match.
 4. Use the separate branch requested by the user. Otherwise follow the target's
-   branch naming rules; if none exist, create `codex/docs-refresh-<YYYYMMDD>`
+   branch naming rules; if none exist, create `agent/docs-refresh-<YYYYMMDD>`
    from the current `HEAD`. Add a suffix if that
    name is taken. Use a different base when the user specifies one; when it is
    a remote-tracking ref, create the branch without an upstream

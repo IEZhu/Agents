@@ -60,15 +60,16 @@ plans and catalogs out of tracked repository files.
   user instead of repairing it.
 - Make every change in a linked worktree on its own branch, cut from `origin/dev`
   with `--no-track`, for example
-  `git worktree add --no-track -b codex/<slug> .worktrees/<slug> origin/dev`.
+  `git worktree add --no-track -b agent/<slug> .worktrees/<slug> origin/dev`.
   Keep worktrees out of temporary directories and session scratchpads, which get
   cleaned with any unpushed work. Open the PR against `dev`, the integration
   branch; `main` takes release PRs from `dev`
   ([release procedure](docs/releases.md#procedure)). Remove your worktree once its work
   is pushed or merged and it is clean.
-- Use a `codex/` branch for new work unless the user or the invoked flow specifies
-  another name; for example, [issue implementation](flows/issue-implementation.md)
-  requires `claude/issue-<number>-<short-slug>`.
+- Use an `agent/` branch for new work, whichever client or model does it, unless
+  the user or the invoked flow specifies another name; for example,
+  [issue implementation](flows/issue-implementation.md) requires
+  `claude/issue-<number>-<short-slug>`, the name the autodev runner looks for.
 - Put reusable task instructions for models in `flows/<descriptive-name>.md`
   and add them to [flows/README.md](flows/README.md). Follow the selected flow
   when the user invokes it by path.

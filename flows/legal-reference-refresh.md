@@ -41,7 +41,7 @@ Run flows/legal-reference-refresh.md for skill-jurisdiction-cy and skill-jurisdi
 |---|---|
 | Skills | Required: the skill IDs, or "every failing skill" — then take them from `tests/test_skill_freshness.py` |
 | Scope per skill | Every figure, article number, deadline, threshold and institution name in the body, plus the layers in the completeness checklist below |
-| Branch | `claude/legal-refresh-<slug>` or `codex/legal-refresh-<slug>`, cut from `origin/dev` with `--no-track` in a worktree, never in the live installation checkout ([AGENTS.md](../AGENTS.md#make-changes)) |
+| Branch | `agent/legal-refresh-<slug>`, cut from `origin/dev` with `--no-track` in a worktree, never in the live installation checkout ([AGENTS.md](../AGENTS.md#make-changes)) |
 | Lines | One prepared worker per skill for research, one per skill for refutation, one gap critic across all of them |
 | Dates | `as_of` is the date the research ran. `review_on` is the next calendar reset; see "Dating the result" |
 

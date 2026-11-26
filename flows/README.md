@@ -93,7 +93,7 @@ Add optional scope, a starting revision, or a branch when needed:
 
 ```text
 Run flows/documentation-refresh.md for routing documentation and AI instructions.
-Use origin/dev as the base and codex/docs-routing-refresh as the branch.
+Use origin/dev as the base and agent/docs-routing-refresh as the branch.
 ```
 
 Use an absolute file path and identify the target repository when the file is in
