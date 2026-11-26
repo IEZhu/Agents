@@ -96,7 +96,14 @@ Write committed documentation in English under the
   whether those approvals are satisfied, which `mergeable` and
   `mergeStateStatus` do not: a request can be `MERGEABLE` and `BLOCKED` at the
   same time for a missing approval. Record the gating before reporting a
-  blocker, or reporting that there is none.
+  blocker, or reporting that there is none. Where the Agents-Core
+  validated-claims store is available, call `claim_lookup` for the
+  repository's merge gating before reading it: a `supported` claim whose
+  `usable_for` covers `load_bearing` is reused as it stands, and anything else
+  is read as above and then recorded with `claim_record`, naming the endpoints
+  read as its evidence. Every pull request of the repository reads the same
+  gating and it changes rarely, so it is the fact a later session would
+  otherwise check again.
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 - Check the scope before the first review round. Each bot pass reports a few
@@ -180,7 +187,16 @@ met, say so and leave the shared file alone rather than editing it first. That
 agreement is needed as well when another session's open pull request edits a
 file this one edits from its own worktree: neither checkout shows the other's
 edits, so record the agreed merge order and who rebases in it, not only in
-session messages.
+session messages. In that case the edit may still be made and committed in this
+session's own worktree, and the branch pushed without a pull request: neither
+reaches the other session's reviewers or the owner. What the agreement gates is
+opening the pull request, or marking a draft ready, because that starts the
+reviewers and puts both changes in front of the owner. When no agreement can be
+recorded, because the other session cannot be reached or its participant is not
+live (a `propose` answers `stale_generation` while any participant it binds is
+`suspect`), say so and ask the user before opening it. When the other pull
+request merges first, the overlap is gone, and the branch is updated as
+[keep the branch current](#keep-the-branch-current-and-git-healthy) describes.
 
 The coordinator is optional, so this step must not become a prerequisite. When
 either call answers `store_unavailable`, report the unavailable coordinator and
@@ -414,6 +430,11 @@ spelling it by hand, from the Agents-Core source checkout:
 ```bash
 .venv/bin/python -c "from src.cooperation import quota; print(quota.quota_key('github.com', 'OWNER', 'coderabbitai[bot]'))"
 ```
+
+The account part is the fact that goes wrong. Before reusing a key that an
+earlier session, memory or a peer used, look it up with `claim_lookup` where the
+validated-claims store is available, and record the key you derived or confirmed
+with `claim_record`.
 
 Each key is claimed for `write`, which `quota.resource(key)` builds: the
 coordinator refuses any other access for this resource type, because a snapshot
