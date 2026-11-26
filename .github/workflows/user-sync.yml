@@ -77,12 +77,18 @@ jobs:
             real_secret_store: "1"
             shard_count: 4
             shard_index: 3
+          # One macOS job ran this collection in 31 to 45 minutes and crossed the
+          # 45-minute budget at 98% on 2026-11-24; two shards take about 22 each.
           - os: macos-latest
             real_secret_store: "1"
-            shard_count: 1
+            shard_count: 2
             shard_index: 0
+          - os: macos-latest
+            real_secret_store: "1"
+            shard_count: 2
+            shard_index: 1
     runs-on: ${{ matrix.os }}
-    # Native Windows Git cycles exceed one job's budget; shards retain the full collection.
+    # Native Windows and macOS Git cycles exceed one job's budget; shards retain the full collection.
     timeout-minutes: 45
     defaults:
       run:
