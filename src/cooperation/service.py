@@ -733,7 +733,7 @@ class CooperationService:
     def _propose(self, db, subject, actor, action, now, revision):
         repo = subject["repository_id"]
         terms = self._validate_terms(db, subject, action, stage="propose")
-        previous =db.execute("SELECT body FROM agreements WHERE repository_id=? AND id=?", (repo, action["agreement_id"])).fetchone()
+        previous = db.execute("SELECT body FROM agreements WHERE repository_id=? AND id=?", (repo, action["agreement_id"])).fetchone()
         counters = []
         if previous:
             old = json.loads(previous[0])
