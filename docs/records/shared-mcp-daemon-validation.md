@@ -3,7 +3,7 @@
 **Status:** recorded validation of the initial daemon release, 2026-09-21. It does
 not cover later features such as automatic updates, alternate client
 configurations or the flow editor; current procedures and checks are in
-[daemon operations](shared-mcp-daemon.md).
+[daemon operations](../shared-mcp-daemon.md).
 
 Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
@@ -43,7 +43,7 @@ Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
 Tests used a temporary daemon and temporary workspaces without changing user
 project history. Measurements were recorded locally; use the scripts in the
-[operations guide](shared-mcp-daemon.md#validation) to repeat them on another host.
+[operations guide](../shared-mcp-daemon.md#validation) to repeat them on another host.
 The following initial smoke and soak measurements were collected on 2026-09-20
 with MCP SDK 1.27.1.
 

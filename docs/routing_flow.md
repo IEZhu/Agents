@@ -154,7 +154,7 @@ had, re-sending its prompt ([telemetry analysis](../evals/telemetry/README.md));
 in the dialogue evaluation, v2 made no selection calls on continuing turns and
 switched roles correctly in every completed case. Server contract tests alone do
 not establish support for a client and model; see the
-[measured results and remaining validation gaps](persona-switch-eval-results.md).
+[measured results and remaining validation gaps](records/persona-switch-eval-results.md).
 
 ## API
 

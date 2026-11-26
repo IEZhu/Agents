@@ -1,7 +1,7 @@
 # Evaluating persona switching with conversation continuity
 
 **Status:** recorded measurements, September 20, 2026, of the revisions named
-below. The current contracts are in the [routing reference](routing_flow.md).
+below. The current contracts are in the [routing reference](../routing_flow.md).
 
 Date: September 20, 2026. Implementation: `c063f4a`, branch `codex/persona-switch-gate`.
 Baseline: `92c55a1` (main after PR #69).
@@ -18,7 +18,7 @@ the JSON audit. No new model runs were performed.
 
 At the time of these runs version 2 was an explicit opt-in and the installer
 defaulted to version 1; it defaults to version 2 since 2026-09-26
-([routing_flow.md](routing_flow.md)). Claude v2 does not pass the full attribution
+([routing_flow.md](../routing_flow.md)). Claude v2 does not pass the full attribution
 rubric on these traces: some logs paraphrase the current request.
 These results apply to the recorded CLIs and models, not to every MCP client.
 Codex has not completed acceptance testing: the account usage limit interrupted
@@ -47,11 +47,11 @@ for clarification and the project name. The expected behavior is a switch to
 database_admin followed by keep. This suite specifically tests whether the model
 independently decides that a different specialization is needed.
 
-Datasets: [main dialogues](../evals/datasets/persona_dialogues.jsonl),
-[simulated compaction](../evals/datasets/persona_compaction.jsonl),
-[implicit switching](../evals/datasets/persona_implicit_switch.jsonl).
+Datasets: [main dialogues](../../evals/datasets/persona_dialogues.jsonl),
+[simulated compaction](../../evals/datasets/persona_compaction.jsonl),
+[implicit switching](../../evals/datasets/persona_implicit_switch.jsonl).
 Machine-readable results and checksums:
-[persona-switch-results.json](../evals/persona-switch-results.json).
+[persona-switch-results.json](../../evals/persona-switch-results.json).
 
 ## Environment and method
 
@@ -207,7 +207,7 @@ require separate testing. Existing rules in arbitrary client memory are not
 rewritten automatically.
 
 To reproduce the evaluation, use
-[run_persona_dialogues.py](../evals/runners/run_persona_dialogues.py). Freeze two
+[run_persona_dialogues.py](../../evals/runners/run_persona_dialogues.py). Freeze two
 source trees on Linux or macOS, one index seed, and an identical request suite combining
 persona_dialogues.jsonl and persona_compaction.jsonl. Specify `--client codex` or
 `--client claude`, `--repeats 3`, a separate `--out` for each run,

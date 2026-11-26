@@ -12,7 +12,7 @@ Document history:
 - **Version 4** applied the owner's answer "no" to Q6: there will be no dedicated macOS user or GitHub account. The automatic mode runs under the owner's account. Instead of a separate identity it uses the Claude Code sandbox for model commands, a runner socket instead of direct network and token access, and the owner's explicit acceptance of the residual risk.
 - **Version 5** applied the third check, by a dedicated security reviewer, 15 findings. It corrects an error of version 4: the sandbox allows reads by default, and the home directory is closed only by an explicit deny rule. Each session gets a one-off repository, and the runner accepts its commits as a bundle. The broker is bound to one issue and one PR. The broker's credentials are split: a deploy key for pushes and a token that cannot merge. The task pool is limited to the owner's label, with no exceptions.
 
-Details are in [section 15](#15-design-review) and in [autodev-plan-review.md](autodev-plan-review.md), which records a decision for every finding.
+Details are in [section 15](#15-design-review) and in [autodev-plan-review.md](records/autodev-plan-review.md), which records a decision for every finding.
 
 The design was first written in Russian at the owner's request. Repository policy requires English for committed documents ([documentation-refresh](../flows/documentation-refresh.md#documentation-language)), so this file is the English translation (Q9).
 
@@ -1230,7 +1230,7 @@ The reviewer assessed the version with these fixes as acceptable for the automat
 
 **The owner's decision after the second round.** The owner answered "no" to Q6. In that case the security reviewer recommended limiting the system to `dry-run` and manual runs. Version 4 departs from that recommendation by the owner's decision. Instead of a dedicated user it relies on the Claude Code sandbox, the runner socket and token isolation. The residual risk is recorded in section 11 and is accepted by the owner's explicit consent when enabling the automatic mode.
 
-The full list of findings of all three rounds, with a decision for each, is in [autodev-plan-review.md](autodev-plan-review.md).
+The full list of findings of all three rounds, with a decision for each, is in [autodev-plan-review.md](records/autodev-plan-review.md).
 
 ## 16. Out of scope
 

@@ -641,7 +641,7 @@ usable partial package. A later release or expiry does not make an otherwise
 matching result envelope structurally invalid, so the parent's separate
 `artifact_manifest_verify` remains required.
 
-See the [recorded validation and size comparison](subagent-validation-results.md)
+See the [recorded validation and size comparison](records/subagent-validation-results.md)
 for measured coverage and limits. Compact profiles do not guarantee a smaller
 complete package for every role; model quality and total token cost need a
 separate evaluation.

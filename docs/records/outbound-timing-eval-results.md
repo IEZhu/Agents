@@ -23,7 +23,7 @@ suit a moment.
 
 ## Method
 
-The [component ablation harness](../evals/ablation/README.md), three runs. Both arms always
+The [component ablation harness](../../evals/ablation/README.md), three runs. Both arms always
 use the production context of the case's agent, and the `without` arm only cuts the rule's
 section: 942 characters in every pair of runs 01 and 02, 1,029 in every pair of run 03,
 with no other difference and no build errors in any run.
@@ -47,7 +47,7 @@ model (Opus 5), no model pinned. 73 pairs in total, so 146 answer files, two per
 reviewed each case set before any judging.
 
 The case set of runs 02 and 03 is
-[`outbound_timing_cases.json`](../evals/datasets/outbound_timing_cases.json). The rule texts,
+[`outbound_timing_cases.json`](../../evals/datasets/outbound_timing_cases.json). The rule texts,
 the three run directories and the gates registered before each run live on branch
 `claude/outbound-timing-trial`, each run directory holding its `GATES.md` and the
 `rule-as-run.mdc` that produced it. Gates were registered before each run's answers existed,

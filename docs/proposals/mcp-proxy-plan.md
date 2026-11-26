@@ -1,14 +1,14 @@
 # MCP proxy: connect a server once, sync it through the library, scope it per machine and serve it to every AI app
 
-**Status:** proposal of 2026-10-12, partially implemented. The manual HTTP/stdio slice shipped and its maintained reference is [MCP proxy](mcp-proxy.md); the rest of the design below is still a proposal, filed as epic #306 with parts #307 to #322. The original design is preserved and the task breakdown is at the end.
+**Status:** proposal of 2026-10-12, partially implemented. The manual HTTP/stdio slice shipped and its maintained reference is [MCP proxy](../mcp-proxy.md); the rest of the design below is still a proposal, filed as epic #306 with parts #307 to #322. The original design is preserved and the task breakdown is at the end.
 
-Implementation update, 2026-10-18: [PR #449](https://github.com/IEZhu/Agents/pull/449) merged into `dev` at [`d963b3dbac4d`](https://github.com/IEZhu/Agents/commit/d963b3dbac4d955a3511d4f204fb9cd91d09addd). The [manual HTTP/stdio proxy slice](mcp-proxy.md) implements native secret storage, local revision/app consent, lazy shared HTTP/stdio sessions, cached tool exposure, UI/CLI management and per-host inventory through personal-library sync. The remaining design below is a proposal; the complete epic is still open. Current implementation and tests take precedence over this original design.
+Implementation update, 2026-10-18: [PR #449](https://github.com/IEZhu/Agents/pull/449) merged into `dev` at [`d963b3dbac4d`](https://github.com/IEZhu/Agents/commit/d963b3dbac4d955a3511d4f204fb9cd91d09addd). The [manual HTTP/stdio proxy slice](../mcp-proxy.md) implements native secret storage, local revision/app consent, lazy shared HTTP/stdio sessions, cached tool exposure, UI/CLI management and per-host inventory through personal-library sync. The remaining design below is a proposal; the complete epic is still open. Current implementation and tests take precedence over this original design.
 
 ## Summary
 
 The shared daemon becomes an MCP client of the user's other MCP servers and exposes their tools through the one `Agents-Core` entry every AI app already has. A server is added once, in the web UI (from a catalog, by import from an AI app's configuration, or by hand), and from then on:
 
-- its definition lives in the personal library (`flows/.user/mcp/`) and reaches the user's other machines through [user library sync](user-sync.md), like flows and persona choices;
+- its definition lives in the personal library (`flows/.user/mcp/`) and reaches the user's other machines through [user library sync](../user-sync.md), like flows and persona choices;
 - its secrets (tokens, API keys, OAuth tokens) never enter the library: they live in the OS secret store of each machine, through the store classes sync already has (`src/user_sync/github.py`);
 - each machine chooses which servers it runs (profiles and per-server switches in a file only that machine writes), and each AI app can be given a narrower set;
 - the daemon starts an upstream server lazily on the first call that needs it, stops it when idle, and keeps its tool list cached, so adding a server costs nothing until a model uses it ("soft" proxying);
@@ -115,7 +115,7 @@ Order-of-magnitude figures for one user; the implementation measures the real on
 | `tools/list` payload | 0.1 to 1.2 MB | about 0.6 to 1.5 KB of JSON per tool definition |
 | Context cost when an app loads every definition upfront | 150 to 400 tokens per tool, so 1,000 tools would cost 150k to 400k tokens | typical JSON schema size; this is why scopes and the compact mode exist. Claude Code defers definitions (tool search); whether Codex, Cursor, Desktop and Antigravity load them upfront is recalled, not verified |
 | Cold start of a stdio server | 1 to 5 s (`npx` with a warm cache), 0.2 to 1 s for an HTTP session | recalled, to be measured |
-| Memory of a running Node stdio server | 60 to 150 MB each | recalled, to be measured; the shared daemon exists because 15 Python processes cost 22.9 GB (`shared-mcp-daemon-validation.md`), so ten always-on upstreams would undo part of that gain: hence lazy start and idle stop |
+| Memory of a running Node stdio server | 60 to 150 MB each | recalled, to be measured; the shared daemon exists because 15 Python processes cost 22.9 GB (`docs/records/shared-mcp-daemon-validation.md`), so ten always-on upstreams would undo part of that gain: hence lazy start and idle stop |
 | Registry size in the library | at most a few hundred KB | 50 files of 1 to 4 KB |
 | Calls per minute | under 60 | one model turn makes a handful of calls |
 
@@ -512,4 +512,4 @@ Order of work: T1; then T2; then T3, T4, T6, T8 and T9 in parallel; then T5 and 
 - [Claude Code: Connect to tools with MCP](https://code.claude.com/docs/en/mcp)
 - [Claude API: Define tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)
 - Codex configuration keys (third-party, to verify): [Mintlify mirror of the Codex docs](https://www.mintlify.com/openai/codex/configuration/mcp-servers); Cursor keys (official page, partially read): [Cursor MCP docs](https://cursor.com/docs/mcp)
-- This repository: [Daemon operations](shared-mcp-daemon.md), [User library sync](user-sync.md), [Routing](routing_flow.md), issues #292, #298, #297, #207, #205, #213, #233
+- This repository: [Daemon operations](../shared-mcp-daemon.md), [User library sync](../user-sync.md), [Routing](../routing_flow.md), issues #292, #298, #297, #207, #205, #213, #233
