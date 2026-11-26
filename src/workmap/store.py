@@ -213,15 +213,32 @@ def _codes_ok(codes: object) -> bool:
             and all(_is_line(code, CODE_MAX) for code in codes))
 
 
-def _result_fields(summary: object, question: object, handback: object) -> str | None:
-    """Why a result's text fields are not the writers' own, or None: a summary of up to SUMMARY_MAX
-    and a question of up to QUESTION_MAX, both cut to one line, and one of HANDBACKS."""
+# The worker's own status a result keeps (Report.status in src/schemas/subagent.py), and the keys
+# of the escalation the validation names (the binding's _escalation).
+RESULT_STATUSES = ("completed", "input_required", "partial", "failed")
+ESCALATION_KEYS = ("complexity", "tier", "reason")
+
+
+def _escalation_ok(value: object) -> bool:
+    return value is None or (isinstance(value, dict) and set(value) <= set(ESCALATION_KEYS)
+                             and all(item is None or _is_line(item, CODE_MAX) for item in value.values()))
+
+
+def _result_fields(summary: object, question: object, handback: object, result_status: object,
+                   escalation: object) -> str | None:
+    """Why a result's fields are not the writers' own, or None: a summary of up to SUMMARY_MAX and a
+    question of up to QUESTION_MAX, both cut to one line, one of HANDBACKS, the worker's status as
+    one of RESULT_STATUSES, and an escalation of ESCALATION_KEYS with one-line values."""
     if not _is_line(summary, SUMMARY_MAX, allow_empty=True):
         return f"a result summary is one line of at most {SUMMARY_MAX} characters"
     if question is not None and not _is_line(question, QUESTION_MAX):
         return f"a result question is one line of at most {QUESTION_MAX} characters"
     if handback not in HANDBACKS:
         return f"a result hand-back is one of {', '.join(HANDBACKS)}"
+    if result_status is not None and result_status not in RESULT_STATUSES:
+        return f"a result's worker status is one of {', '.join(RESULT_STATUSES)}"
+    if not _escalation_ok(escalation):
+        return f"an escalation has only {', '.join(ESCALATION_KEYS)}, each one line"
     return None
 
 
@@ -321,7 +338,8 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if (event.get("status"), event.get("level")) not in _RESULT_OUTCOMES:
             raise ValueError("result status and level")
         checks, findings = event.get("checks"), event.get("findings")
-        problem = _result_fields(event.get("summary"), event.get("question"), event.get("handback"))
+        problem = _result_fields(event.get("summary"), event.get("question"), event.get("handback"),
+                                 event.get("result_status"), event.get("escalation"))
         if problem is not None:
             raise ValueError(problem)
         if not (_is_text(event.get("result_sha256"))
@@ -333,12 +351,10 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if findings is not None and not (isinstance(findings, dict)
                                          and all(_is_text(key) and _is_count(value) for key, value in findings.items())):
             raise ValueError("result findings")
-        if not (_is_text(event.get("result_status"), optional=True)
-                and (event.get("escalation") is None or isinstance(event.get("escalation"), dict))):
-            raise ValueError("result optional fields")
     elif op == "invalid":
         node, contract = workmap.nodes[event["id"]], event.get("contract_revision")
-        if not _codes_ok(event.get("codes", [])) or not _takes_submission(workmap, node, contract):
+        if (not _codes_ok(event.get("codes", [])) or not _escalation_ok(event.get("escalation"))
+                or not _takes_submission(workmap, node, contract)):
             raise ValueError("invalid event for a node that takes no submission")
         # record_invalid sends the node to needs_attention exactly when this count reaches the limit.
         limit_reached = node["status"] == "prepared" and workmap.invalid.get(contract, 0) + 1 >= INVALID_LIMIT
@@ -911,7 +927,8 @@ class WorkmapStore:
         # The fold would skip such an event, so it is never written.
         if (outcome.get("status"), outcome.get("level")) not in _RESULT_OUTCOMES:
             raise WorkmapError("invalid_request", "a result is validated at V1 or V2, or needs_attention at V0")
-        problem = _result_fields(outcome.get("summary"), outcome.get("question"), handback)
+        problem = _result_fields(outcome.get("summary"), outcome.get("question"), handback,
+                                 outcome.get("result_status"), outcome.get("escalation"))
         if problem is not None:
             raise WorkmapError("invalid_request", problem)
         name = f"{map_key(task_id)}.jsonl"
@@ -971,6 +988,8 @@ class WorkmapStore:
         one-line hand-back, validated by mistake) is refused and the map is left alone.
         """
         task_id = _task_id(task_id)
+        if not _escalation_ok(escalation):  # the fold would skip such an event, so it is never written
+            raise WorkmapError("invalid_request", f"an escalation has only {', '.join(ESCALATION_KEYS)}, each one line")
         name = f"{map_key(task_id)}.jsonl"
         with self._writing(name) as (handle, records):
             workmap = self._existing_map(records, task_id)

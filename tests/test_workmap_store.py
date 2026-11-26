@@ -1142,6 +1142,14 @@ RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "status": "vali
     {**RESULT, "summary": "two\nlines", "rev": 4},
     {**RESULT, "question": "two\nlines", "rev": 4},
     {**RESULT, "handback": "forged", "rev": 4},
+    # The worker's own status is one the result schema allows, and an escalation has only the
+    # validation's keys, each one line.
+    {**RESULT, "result_status": "trusted\nforged: line", "rev": 4},
+    {**RESULT, "result_status": "approved", "rev": 4},
+    {**RESULT, "escalation": {"forged": "key"}, "rev": 4},
+    {**RESULT, "escalation": {"reason": "two\nlines"}, "rev": 4},
+    {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": [], "status": None,
+     "escalation": {"tier": "inherit\nforged: line"}, "rev": 4},
     {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": ["schema\nforged: line"], "status": None,
      "rev": 4},
     {"op": "update_node", "id": "a", "level": None, "rev": 4},
