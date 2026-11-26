@@ -99,17 +99,14 @@ Write committed documentation in English under the
   blocker, or reporting that there is none. Where the Agents-Core
   validated-claims store is available, call `claim_lookup` first for the gating
   of this repository and target branch, both named in the claim's subject,
-  because protection and rulesets differ by branch. A `supported` claim whose
-  `usable_for` covers `load_bearing` says which ruleset and rules gate that
-  branch, so the read narrows to the rulesets listing, which shows whether one
-  was added, the endpoint of each ruleset the claim names and `reviewDecision`,
-  instead of every ruleset's endpoint; a claim for another
-  branch, or none, means the full read. Rulesets change without notice and the
-  store has no invalidation for that, so a claim never replaces the read before
-  reporting a blocker or that there is none: when the endpoint or
-  `reviewDecision` disagrees with the claim, the live answer wins. Record what
-  you read with `claim_record`, a refutation included, naming the endpoints as
-  its evidence.
+  because protection and rulesets differ by branch. A `supported` claim says
+  what that branch's gating was when it was last checked; it neither replaces
+  nor narrows the read above, because classic protection and rulesets change
+  without notice and the store has no invalidation for that. Read them as
+  above, and when the live answer disagrees with the claim, the live answer
+  wins. Record what you read with `claim_record`, a refutation included, naming
+  the endpoints as its evidence, so a change shows up as a contradiction for
+  the next session.
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 - Check the scope before the first review round. Each bot pass reports a few
