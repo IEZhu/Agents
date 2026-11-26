@@ -232,8 +232,7 @@ def test_a_verified_critical_node_is_accepted_without_v4(store):
     store.apply(TASK, [{"op": "update_node", "id": "map-code", "risk": "critical"}])
     prepare(store)
     submit(store)
-    server_event(store, {"op": "verdict", "id": "map-code", "verifier": "check", "result_sha256": "b" * 64,
-                         "status": "verified", "level": "V3"})
+    verify(store, {})  # a clean review: verified at V3
     store.apply(TASK, [{"op": "update_node", "id": "map-code", "status": "accepted"}])
     node = store.load(TASK).nodes["map-code"]
     assert node["status"] == "accepted" and node["level"] == "V3" and settled(node)
@@ -326,7 +325,7 @@ def test_a_disputed_node_can_be_an_input(store):
     plan(store)
     prepare(store)
     submit(store)
-    server_event(store, {"op": "verdict", "id": "map-code", "status": "disputed"})
+    verify(store, {"high": 1})
     assert store.load(TASK).nodes["map-code"]["status"] == "disputed"
     # The second verifier of a disputed stage is pinned on the stage's own result.
     assert store.check_preparable(TASK, "write", ["map-code"]) == [("map-code", "mapped code")]
@@ -359,11 +358,9 @@ def test_a_prepared_again_node_drops_the_previous_results_fields(store):
     store.record_result(TASK, "write", contract_revision=FIRST, attempt_id="1", text="half done",
                         sha256="b" * 64, handback="line",
                         outcome={**OUTCOME, "status": "needs_attention", "level": "V0", "summary": "Half done",
-                                 "findings": {"high": 1}, "limitations": 2})
-    server_event(store, {**next(record for record in store._read(f"{map_key(TASK)}.jsonl")
-                                if record.get("op") == "result"),
-                         "contract_revision": "c" * 64, "result_status": "input_required",
-                         "question": "Which branch?", "escalation": {"tier": "inherit", "reason": "status_partial"}})
+                                 "findings": {"high": 1}, "limitations": 2, "result_status": "input_required",
+                                 "question": "Which branch?",
+                                 "escalation": {"tier": "inherit", "reason": "status_partial"}})
     node = store.load(TASK).nodes["write"]
     assert node["question"] == "Which branch?" and node["checks"] is not None
     prepare(store, node="write", revision=SECOND, attempt="2")
@@ -1118,21 +1115,81 @@ def test_a_link_put_at_the_name_before_the_create_is_refused(tmp_path, monkeypat
     assert target.read_text(encoding="utf-8") == ""
 
 
+RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "status": "validated", "level": "V2",
+          "summary": "Done", "checks": None, "findings": None, "limitations": 0, "handback": "line",
+          "result_sha256": "b" * 64}
+
+
 @pytest.mark.parametrize("damaged", [
-    {"op": "result", "id": "a", "status": "validated", "level": "V2", "summary": "Done", "checks": [],
-     "findings": None, "limitations": 0, "handback": "line", "result_sha256": "b" * 64, "rev": 4},
-    {"op": "result", "id": "a", "status": "validated", "level": "V2", "summary": "Done", "checks": None,
-     "findings": ["high"], "limitations": 0, "handback": "line", "result_sha256": "b" * 64, "rev": 4},
+    {**RESULT, "checks": [], "rev": 4},
+    {**RESULT, "findings": ["high"], "rev": 4},
+    # A result holds a status and level outcome_of gives, for the node's current contract.
+    {**RESULT, "level": "V3", "rev": 4},
+    {**RESULT, "status": "needs_attention", "rev": 4},
+    {**RESULT, "contract_revision": SECOND, "rev": 4},
     {"op": "update_node", "id": "a", "level": None, "rev": 4},
+    # The parent sets only its own statuses, accepts only a settled node, and gives a reason exactly
+    # with refuted, superseded and blocked.
+    {"op": "update_node", "id": "a", "status": "validated", "reason": None, "rev": 4},
+    {"op": "update_node", "id": "a", "status": "accepted", "reason": None, "rev": 4},
+    {"op": "update_node", "id": "a", "status": "blocked", "reason": None, "rev": 4},
+    {"op": "update_node", "id": "a", "status": "planned", "reason": "No reason needed", "rev": 4},
+    {"op": "update_node", "id": "a", "reason": "Without a status", "rev": 4},
     {"op": "add_edge", "from": "a", "to": "a", "type": "depends_on", "rev": 4},
     {"op": "verdict", "id": "a", "status": "verified", "rev": 4},
+    # record_invalid writes no status below the limit, and nothing but needs_attention at it.
+    {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": [], "status": "accepted", "rev": 4},
+    {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": [], "status": "needs_attention", "rev": 4},
+    {"op": "invalid", "id": "a", "contract_revision": SECOND, "codes": [], "status": None, "rev": 4},
+    # Another contract for the attempt the node already holds.
+    {"op": "prepared", "id": "a", "contract_revision": SECOND, "attempt_id": "1", "complexity": None, "rev": 4},
 ])
 def test_a_committed_event_the_writers_would_refuse_is_skipped(damaged):
     prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
                 "rev": 3}
     workmap = store_module.fold(OPENED + [prepared, damaged])
     assert workmap.revision == 3 and workmap.nodes["a"]["status"] == "prepared" and workmap.nodes["a"]["level"] == "V0"
-    assert workmap.edges == [] and render_map(workmap)
+    assert workmap.nodes["a"]["refs"] == {"contract_revision": FIRST, "attempt_id": "1"}
+    assert workmap.edges == [] and workmap.invalid == {} and render_map(workmap)
+
+
+def test_nothing_applies_after_the_map_is_closed():
+    events = OPENED + [{"op": "close", "rev": 3},
+                       {"op": "add_node", "id": "b", "kind": "stage", "title": "Late", "summary": "", "risk": "routine",
+                        "rev": 4}]
+    workmap = store_module.fold(events)
+    assert workmap.closed and workmap.revision == 3 and "b" not in workmap.nodes
+
+
+def test_a_verdict_without_the_review_that_gives_it_is_skipped():
+    events = OPENED + [{"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1",
+                        "complexity": None, "rev": 3},
+                       {**RESULT, "rev": 4},
+                       {"op": "verdict", "id": "a", "verifier": "ghost", "result_sha256": "b" * 64,
+                        "status": "verified", "level": "V3", "rev": 5}]
+    workmap = store_module.fold(events)
+    assert workmap.revision == 4 and workmap.nodes["a"]["status"] == "validated" and workmap.nodes["a"]["level"] == "V2"
+
+
+def test_a_spent_contract_prepared_again_is_skipped():
+    prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None}
+    # needs_attention takes a package again, but only under a contract that has no result yet.
+    attention = {**RESULT, "status": "needs_attention", "level": "V0"}
+    events = OPENED + [{**prepared, "rev": 3}, {**attention, "rev": 4}, {**prepared, "attempt_id": "2", "rev": 5}]
+    workmap = store_module.fold(events)
+    assert workmap.revision == 4 and workmap.nodes["a"]["status"] == "needs_attention"
+    assert workmap.nodes["a"]["refs"]["attempt_id"] == "1"
+
+
+def test_a_result_outcome_the_fold_would_skip_is_never_written(store):
+    plan(store)
+    prepare(store)
+    revision = store.load(TASK).revision
+    with pytest.raises(WorkmapError) as raised:
+        store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1", text="mapped",
+                            sha256="b" * 64, handback="line", outcome={**OUTCOME, "level": "V3"})
+    assert raised.value.code == "invalid_request"
+    assert store.load(TASK).revision == revision and store.load(TASK).nodes["map-code"]["status"] == "prepared"
 
 
 def test_a_changed_package_for_the_same_attempt_is_refused(store):

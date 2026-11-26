@@ -119,6 +119,8 @@ class WorkMap:
     invalid: dict[str, int] = field(default_factory=dict)
     # The codes of each contract's last invalid submission.
     invalid_codes: dict[str, list[str]] = field(default_factory=dict)
+    # The contracts that have a result: neither a second result nor an invalid count follows one.
+    resulted: set[str] = field(default_factory=set)
     updated: str = ""  # when the last applied event was written, as the store stamps it
 
     def targets(self, node_id: str, edge_type: str) -> list[str]:
@@ -183,15 +185,54 @@ def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+# The status and level a result gives its node, as outcome_of chooses them.
+_RESULT_OUTCOMES = {("validated", "V1"), ("validated", "V2"), ("needs_attention", "V0")}
+
+
+def _takes_submission(workmap: WorkMap, node: dict, contract_revision: object) -> bool:
+    """What _require_open and the writers' duplicate checks let through: the node's current
+    contract, while the node is prepared or needs_attention, before that contract has a result."""
+    return (_is_text(contract_revision) and node["refs"].get("contract_revision") == contract_revision
+            and node["status"] in ("prepared", "needs_attention") and contract_revision not in workmap.resulted)
+
+
+def _check_update(workmap: WorkMap, event: dict) -> None:
+    """The rules of workmap_update's update_node: parent statuses only, accepted only from a settled
+    node, a critical node accepted below V3 only with V4, a reason exactly with the statuses that
+    need one, and level V4 only together with accepted."""
+    node = workmap.nodes[event["id"]]
+    if any(key in event and not _is_text(event[key], optional=key == "reason") for key in ("title", "summary", "reason")):
+        raise ValueError("update_node text fields")
+    if "status" in event:
+        status = event["status"]
+        if status not in PARENT_STATUSES:
+            raise ValueError(f"update_node status {status!r} is the server's")
+        if status == "accepted" and node["status"] not in SETTLED:
+            raise ValueError("update_node accepts a node that is not settled")
+        if (status == "accepted" and event.get("risk", node["risk"]) == "critical" and event.get("level") != "V4"
+                and LEVELS.index(node["level"]) < LEVELS.index("V3")):
+            raise ValueError("update_node accepts a critical node below V3")
+        reason = event.get("reason")
+        if (status in REASONED) != (isinstance(reason, str) and bool(reason.strip())):
+            raise ValueError("update_node reason")
+    elif "reason" in event:
+        raise ValueError("update_node reason without a status")
+    if "level" in event and (event["level"] != "V4" or event.get("status") != "accepted"):
+        raise ValueError("update_node level")
+
+
 def _check_event(workmap: WorkMap, event: dict) -> None:
     """Raise ValueError for an event the writers would never commit, before it changes anything.
 
     A damaged or foreign line must not reach the state the views and the readiness rules read, so
     a persisted event is held to what workmap_update and the server's own writes enforce: allowed
     values (null only where the event may leave a field unset), the shapes of a result, the edge
-    rules (no duplicate, no self or goal dependency, no cycle) and the node states each server event
-    needs. fold then skips the event with the rest of its commit."""
+    rules (no duplicate, no self or goal dependency, no cycle), the parent's status rules, the
+    statuses and levels each server event writes, and the node states it needs. Nothing follows a
+    close. fold then skips the event with the rest of its commit."""
     op = event["op"]
+    if workmap.closed:
+        raise ValueError(f"{op} after close")
     for key, allowed in _VALUES.items():
         if key in event and not (event[key] is None and (op, key) in _NULLABLE) and event[key] not in allowed:
             raise ValueError(f"{op} {key} {event[key]!r}")
@@ -199,8 +240,7 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if not all(_is_text(event.get(key)) for key in ("id", "title", "summary")):
             raise ValueError("add_node needs text id, title and summary")
     elif op == "update_node":
-        if any(key in event and not _is_text(event[key], optional=key == "reason") for key in ("title", "summary", "reason")):
-            raise ValueError("update_node text fields")
+        _check_update(workmap, event)
     elif op in ("add_edge", "remove_edge"):
         source, target, kind = event["from"], event["to"], event["type"]
         if not (_is_text(source) and _is_text(target)) or source not in workmap.nodes or target not in workmap.nodes:
@@ -218,8 +258,14 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         node = workmap.nodes[event["id"]]
         if node["kind"] == "goal" or node["status"] not in PREPARABLE:
             raise ValueError("prepared event for a node that takes no package")
-        if not (_is_text(event.get("contract_revision")) and _is_text(event.get("attempt_id"))):
+        contract, attempt = event.get("contract_revision"), event.get("attempt_id")
+        if not (_is_text(contract) and _is_text(attempt)):
             raise ValueError("prepared event without its contract")
+        # record_prepared's refusals: a spent contract, another contract for the attempt the node holds.
+        if contract in workmap.resulted or workmap.invalid.get(contract, 0) >= INVALID_LIMIT:
+            raise ValueError("prepared event for a spent contract")
+        if node["refs"].get("attempt_id") == attempt and node["refs"].get("contract_revision") not in (None, contract):
+            raise ValueError("prepared event reusing an attempt")
         if event.get("complexity") not in (None, *COMPLEXITIES):
             raise ValueError(f"complexity {event.get('complexity')!r}")
         inputs = event.get("inputs")
@@ -227,8 +273,10 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
                                        and all(_is_text(key) and _is_text(value) for key, value in inputs.items())):
             raise ValueError("prepared inputs")
     elif op == "result":
-        if workmap.nodes[event["id"]]["status"] not in ("prepared", "needs_attention"):
+        if not _takes_submission(workmap, workmap.nodes[event["id"]], event.get("contract_revision")):
             raise ValueError("result event for a node that takes no result")
+        if (event.get("status"), event.get("level")) not in _RESULT_OUTCOMES:
+            raise ValueError("result status and level")
         checks, findings = event.get("checks"), event.get("findings")
         if not (_is_text(event.get("summary")) and _is_text(event.get("handback")) and _is_text(event.get("result_sha256"))
                 and (event.get("limitations") is None or _is_count(event.get("limitations")))):
@@ -243,11 +291,27 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
                 and (event.get("escalation") is None or isinstance(event.get("escalation"), dict))):
             raise ValueError("result optional fields")
     elif op == "invalid":
-        if not _is_text(event.get("contract_revision")) or not isinstance(event.get("codes", []), list):
-            raise ValueError("invalid event fields")
+        node, contract = workmap.nodes[event["id"]], event.get("contract_revision")
+        if not isinstance(event.get("codes", []), list) or not _takes_submission(workmap, node, contract):
+            raise ValueError("invalid event for a node that takes no submission")
+        # record_invalid sends the node to needs_attention exactly when this count reaches the limit.
+        limit_reached = node["status"] == "prepared" and workmap.invalid.get(contract, 0) + 1 >= INVALID_LIMIT
+        if event.get("status") != ("needs_attention" if limit_reached else None):
+            raise ValueError("invalid event status")
     elif op == "verdict":
-        if workmap.nodes[event["id"]]["status"] not in VERDICT_TARGETS:
+        target = workmap.nodes[event["id"]]
+        verifier = workmap.nodes.get(event.get("verifier")) if _is_text(event.get("verifier")) else None
+        if target["status"] not in VERDICT_TARGETS or verifier is None or verifier["status"] != "validated":
             raise ValueError("verdict for a node that takes none")
+        # record_result's rule: a validated review verifies a target that still holds the result it was given.
+        findings = verifier["findings"]
+        if (not isinstance(findings, dict) or event["id"] not in workmap.targets(verifier["id"], "verifies")
+                or target["refs"].get("result_sha256") != event.get("result_sha256")
+                or (verifier["refs"].get("inputs") or {}).get(event["id"]) != event.get("result_sha256")):
+            raise ValueError("verdict without its review")
+        severe = sum(findings.get(level, 0) for level in ("critical", "high"))
+        if (event.get("status"), event.get("level")) != (("disputed", None) if severe else ("verified", "V3")):
+            raise ValueError("verdict status and level")
 
 
 def _apply_event(workmap: WorkMap, event: dict) -> None:
@@ -307,6 +371,7 @@ def _apply_event(workmap: WorkMap, event: dict) -> None:
                     # Optional: older result events do not carry them.
                     **{key: event.get(key) for key in ("result_status", "question", "escalation")})
         node["refs"] = {**node["refs"], "result_sha256": sha256}
+        workmap.resulted.add(event["contract_revision"])
     elif op == "invalid":
         node["status"] = event["status"]
         node["escalation"] = event.get("escalation")
@@ -797,6 +862,9 @@ class WorkmapStore:
         invalid results: a worker may still submit a valid one after them.
         """
         task_id = _task_id(task_id)
+        if (outcome.get("status"), outcome.get("level")) not in _RESULT_OUTCOMES:
+            # The fold would skip such an event, so it is never written.
+            raise WorkmapError("invalid_request", "a result is validated at V1 or V2, or needs_attention at V0")
         name = f"{map_key(task_id)}.jsonl"
         with self._writing(name) as (handle, records):
             workmap = self._existing_map(records, task_id)
