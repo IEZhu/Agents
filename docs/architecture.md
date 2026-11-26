@@ -25,7 +25,7 @@ Agents/
 │   ├── personal_runtime.py # Personal startup hooks for the daemon and standalone stdio
 │   ├── stdio_runtime.py  # Stdio run loop with supplied startup hook and log drain
 │   ├── self_update.py    # Standalone staged updates
-│   ├── reindex.py        # Skill and implant index rebuild
+│   ├── reindex.py        # Skill and implant index rebuild, and the router's agent catalog cards
 │   ├── model_migration.py # One-time switch to the default embedding model
 │   ├── version.py        # Agents-Core version shown in the persona footer
 │   ├── flows.py          # Built-in flow catalog and run_flow bundles
@@ -58,7 +58,7 @@ Agents/
 │   │   ├── fingerprint.py # Index compatibility fingerprint
 │   │   ├── context.py    # Context retrieval (history formatting)
 │   │   └── language.py   # Language detection
-│   ├── memory/           # Repository summary, history, managed sections
+│   ├── memory/           # Repository summary, journal and typed turn records, managed sections, the native-memory reader (read_shared_memory), the headless Stop-hook turn logger
 │   ├── claims/           # Validated-claims store: verdicts filtered into a confidence (claim_record, claim_lookup)
 │   ├── estimation/       # Scalar Kalman filter and the drifting-rate estimator
 │   ├── schemas/          # protocol.py (request, response, persona), tool_args.py (MCP argument types)
@@ -91,4 +91,5 @@ Agents/
 | **Router** | Semantic matching + caching for fast agent selection |
 | **Persona bundle** | Versioned role instructions, rules, skills, and implants retained by the client |
 | **Flows** | [Markdown workflows](../flows/README.md) served to the caller's repository through `run_flow`, optionally with their own persona |
-| **Memory** | Per-project summary and action history |
+| **Memory** | Per-project summary and action history with optional [turn records](turn-records.md), and a read-only view of what the AI clients keep in their own memory ([shared memory](shared-memory.md)) |
+| **Validated claims** | Per-workspace verdicts about factual claims, filtered into the probability that each still holds ([validated claims](validated-claims.md)) |

@@ -63,7 +63,7 @@ a model or requires Redis.
 | Tool | Inputs and result |
 |---|---|
 | `artifact_publish` | Required `name`; optional `media_type` defaults to `text/plain`; supply exactly one of `content` or `source_path`. Returns an immutable descriptor with `artifact_id`, `sha256`, `size_bytes`, `media_type` and `name`. |
-| `artifact_manifest_create` | Required `task_id` and `entries`; optional `ttl_seconds`. Each entry supplies `artifact_id`, expected `sha256`, `purpose` and optional `required` (default `true`). Returns the complete `agents-core/artifact-manifest/1` manifest with pinned descriptors. |
+| `artifact_manifest_create` | Required `task_id` and `entries` (1 to 32 per manifest); optional `ttl_seconds`. Each entry supplies `artifact_id`, expected `sha256`, `purpose` and optional `required` (default `true`). Returns the complete `agents-core/artifact-manifest/1` manifest with pinned descriptors. |
 | `artifact_manifest_get` | Required `manifest_id` and `manifest_sha256`. Returns the exact active manifest in the caller's workspace without returning artifact bodies. |
 | `artifact_read` | Required `manifest_id`, `manifest_sha256` and listed `artifact_id`; optional `offset` and `max_bytes`. Returns the descriptor, pinned references, byte offsets, `text`, `next_offset` and `eof`. |
 | `artifact_manifest_verify` | Required `manifest_id` and `manifest_sha256`. Rechecks active access and every selected artifact's full bytes, descriptor and hash; returns `verified: true` and verified descriptors on success. |

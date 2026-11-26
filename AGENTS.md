@@ -16,7 +16,9 @@ still take precedence.
   persistence instructions only within the authorized scope; preserve
   `workspace_id`, `repo_path` and `repo_hash` unchanged when writing. Never
   persist a summary into the live installation or deployed runtime source.
-- [README.md](README.md): installation, configuration and user-facing behavior.
+- [README.md](README.md): the overview of what Agents-Core does and the first call;
+  [install and connect](docs/install.md) and
+  [configuration](docs/configuration.md) hold setup and settings.
 - [Documentation map](docs/README.md): maintained references and historical plans.
 - [Model workflows](flows/README.md): reusable task instructions to execute on request.
 - [Routing reference](docs/routing_flow.md): protocol 2, client compatibility and migration.
