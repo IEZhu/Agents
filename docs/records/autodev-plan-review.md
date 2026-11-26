@@ -2,9 +2,9 @@
 
 **Status:** recorded review findings, 2026-10-12, with the decision taken on each. How
 much of the reviewed design is implemented is stated in
-[the plan's own status](autodev-plan.md).
+[the plan's own status](../autodev-plan.md).
 
-Three review rounds of [autodev-plan.md](autodev-plan.md) on 2026-10-12. Every reviewer was prepared with `get_subagent_context` (protocol `agents-core/subagent/1`, result type `review`) and run as a fresh Workflow worker with its `worker_context` unchanged; every result passed `validate_subagent_result` with `valid: true`. Validation is structural; the decisions record the parent's own assessment. Locations refer to the version each round reviewed; the last column points to the version that applied the decision (round 3: version 5), which also reflects the owner's answer 'no' to question 6 (no dedicated macOS user or GitHub account).
+Three review rounds of [autodev-plan.md](../autodev-plan.md) on 2026-10-12. Every reviewer was prepared with `get_subagent_context` (protocol `agents-core/subagent/1`, result type `review`) and run as a fresh Workflow worker with its `worker_context` unchanged; every result passed `validate_subagent_result` with `valid: true`. Validation is structural; the decisions record the parent's own assessment. Locations refer to the version each round reviewed; the last column points to the version that applied the decision (round 3: version 5), which also reflects the owner's answer 'no' to question 6 (no dedicated macOS user or GitHub account).
 
 The reviewed versions were Russian drafts that are not in the repository. Quotations from them, and the wording the reviewers proposed for them, are given here in English translation; line numbers still refer to those drafts.
 

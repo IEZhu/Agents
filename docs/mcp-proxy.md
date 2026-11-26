@@ -63,4 +63,4 @@ App selection filters tools for trusted local clients. The calling app label is 
 
 This implements Streamable HTTP and shared stdio transports from [epic #306](https://github.com/IEZhu/Agents/issues/306), with per-host connection inventory and library sync. SSE upstreams, OAuth, registry search, client-configuration import, profiles, workspace scopes, compact mode, prompts/resources and per-upstream endpoints remain in the epic. Large results follow the client's ordinary MCP result handling; no proxy-specific file-pointer conversion is performed.
 
-The original [proxy plan](mcp-proxy-plan.md) remains the broader design. Source and tests of the implemented proxy take precedence over proposed features.
+The original [proxy plan](proposals/mcp-proxy-plan.md) remains the broader design. Source and tests of the implemented proxy take precedence over proposed features.

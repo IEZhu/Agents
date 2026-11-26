@@ -2,7 +2,7 @@
 
 > **Status:** recorded post-integration audit, 2026-11-07. It retains its original
 > scope, measurements and limitations; the procedure it ran is
-> [the legal reference refresh flow](../flows/legal-reference-refresh.md), which step 8
+> [the legal reference refresh flow](../../flows/legal-reference-refresh.md), which step 8
 > of that flow now prescribes for every refresh.
 
 This is the audit of the labour-law layer added for eight jurisdictions plus US

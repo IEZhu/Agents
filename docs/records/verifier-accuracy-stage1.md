@@ -4,8 +4,8 @@
 the owner approved in stages after [the pilot](verifier-accuracy-pilot.md); the
 rest of the set waits for the owner. A stage decides only whether the run goes on:
 its bands carry no replacement-rule case and nothing is applied to the claim
-filter. The code is [evals/verifier_accuracy](../evals/verifier_accuracy/__init__.py),
-driven by the [verifier accuracy flow](../flows/verifier-accuracy.md). Every number
+filter. The code is [evals/verifier_accuracy](../../evals/verifier_accuracy/__init__.py),
+driven by the [verifier accuracy flow](../../flows/verifier-accuracy.md). Every number
 below is an aggregate; no statement or label of the set appears here.
 
 ## Why a stage

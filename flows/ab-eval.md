@@ -212,7 +212,7 @@ changing the model, rebuild that worktree's stores with
 ## 9. Record and report
 
 1. Write `docs/<name>-eval-results.md` like
-   [docs/english-pivot-eval-results.md](../docs/english-pivot-eval-results.md):
+   [docs/english-pivot-eval-results.md](../docs/records/english-pivot-eval-results.md):
    question, method with a settings table, results from `compare.py`, retrieval
    metrics when measured, reading and limits. Link it under recorded results in
    [docs/README.md](../docs/README.md).
