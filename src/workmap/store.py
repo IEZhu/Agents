@@ -237,6 +237,16 @@ def _package_problem(contract_revision: object, attempt_id: object, inputs: obje
     return None
 
 
+def _text_sha256(text: object) -> str | None:
+    """The SHA-256 the validator gives a result text (its UTF-8 bytes), or None for no text."""
+    if not isinstance(text, str):
+        return None
+    try:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except UnicodeEncodeError:
+        return None
+
+
 def _codes_ok(codes: object) -> bool:
     return (isinstance(codes, list) and len(codes) <= CODES_KEPT
             and all(_is_line(code, CODE_MAX) for code in codes))
@@ -532,7 +542,8 @@ def _applied(events: list):
     for commit in _commits(events):
         if workmap is None:
             head = commit[0]
-            if head.get("op") != "open" or not isinstance(head.get("task_id"), str):
+            # A map opens at revision 1 with a task id of TASK_ID's form, as apply writes it.
+            if head.get("op") != "open" or head.get("rev") != 1 or not _is_identifier(head.get("task_id")):
                 continue
             opened = WorkMap(task_id=head["task_id"], revision=head["rev"])
             opened.updated = head["at"] if isinstance(head.get("at"), str) else ""
@@ -812,8 +823,10 @@ class WorkmapStore:
                 except OSError:
                     return 0.0
             newest = sorted(names, key=lambda name: (written(name), name), reverse=True)[:limit]
-        maps = [fold(self._read(name)) for name in newest]
-        return [workmap for workmap in maps if workmap is not None], len(names)
+        folded = [(name, fold(self._read(name))) for name in newest]
+        # A file holds the map of the task id it is named after; a foreign log is not listed under it.
+        return [workmap for name, workmap in folded
+                if workmap is not None and f"{map_key(workmap.task_id)}.jsonl" == name], len(names)
 
     def _result(self, task_id: str, node: dict) -> str | None:
         sha256 = node["refs"].get("result_sha256")
@@ -821,8 +834,8 @@ class WorkmapStore:
             return None
         for record in reversed(self._read(f"{map_key(task_id)}.results.jsonl")):
             if (isinstance(record, dict) and record.get("sha256") == sha256
-                    and record.get("node") == node["id"] and isinstance(record.get("text"), str)):
-                return record["text"]
+                    and record.get("node") == node["id"] and _text_sha256(record.get("text")) == sha256):
+                return record["text"]  # only a text that still hashes to what the map recorded
         return None
 
     def result_text(self, task_id: object, node_id: object) -> str | None:

@@ -61,7 +61,7 @@ async def test_a_settled_input_is_pinned_as_an_artifact(artifact_worker_tree, se
     store = WorkmapStore(served)
     store.record_prepared(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", complexity=None)
     store.record_result(TASK, "map-code", contract_revision="a" * 64, attempt_id="1", text="mapped code",
-                        sha256="b" * 64, handback="line",
+                        sha256=hashlib.sha256(b"mapped code").hexdigest(), handback="line",
                         outcome={"status": "validated", "level": "V2", "summary": "Mapped",
                                  "checks": {"passed": 1, "failed": 0, "not_run": 0}, "findings": None,
                                  "limitations": 0})
