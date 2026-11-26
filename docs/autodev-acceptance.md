@@ -1,5 +1,9 @@
 # Autodev phase 1a acceptance
 
+**Status:** acceptance procedure of 2026-10-14 for autodev phase 1a (#349) and phase 1b
+(#350), not run: every row of the [results table](#results) still reads `not run`. Current
+behavior is documented in the [autodev guide](autodev.md).
+
 The acceptance runs of issue #349 ([plan 14, Acceptance of 1a](autodev-plan.md#phase-1a-supervised-mvp)).
 Every step here is an **owner live step**: it starts model turns, reads the keychain or writes to
 GitHub, so no test and no agent ran any of it. This page was written on 2026-10-14 from the code

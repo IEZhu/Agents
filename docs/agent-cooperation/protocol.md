@@ -1,6 +1,8 @@
 # Cooperation protocol
 
-Status: **design and acceptance contract for the implementation**. The
+**Status:** design and acceptance contract of 2026-10-15, implemented and disabled by
+default; current behavior is documented in the
+[agent cooperation reference](README.md) and the [runtime guide](runtime.md). The
 [delivery record](README.md) distinguishes implemented behavior, executed checks
 and remaining limitations; requirements below are not evidence of passing tests.
 Version: `agents-core/cooperation/1`. “Must” below is an acceptance requirement.

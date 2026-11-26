@@ -1,9 +1,10 @@
 # Implementation plan
 
-Status: retained implementation checklist from the research handoff. The
-[delivery record](README.md) reports the resulting source and actual checks;
-this plan does not establish completion. Baseline researched:
-`d7e34eb10cb2ab9f593ebf782a4538f677484493`.
+**Status:** implementation plan of 2026-10-15, implemented and disabled by default;
+current behavior is documented in the [agent cooperation reference](README.md) and
+the [runtime guide](runtime.md). The [delivery record](README.md) reports the
+resulting source and actual checks; this plan does not establish completion.
+Baseline researched: `d7e34eb10cb2ab9f593ebf782a4538f677484493`.
 
 The mailbox extension adds `cooperation_send`, `cooperation_receive` and `cooperation_ack` to that original plan. The current [runtime guide](runtime.md#mailbox-workflow) defines their implemented workflow and limits. The existing generic stdio bridge forwards eligible clients to the installed HTTP authority; a standalone stdio engine still has no coordinator. This correction supersedes the original assumption that a new forwarding adapter was required. Model/provider interoperability is a shared MCP contract, not evidence of an executed cross-provider model trial.
 

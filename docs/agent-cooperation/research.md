@@ -1,6 +1,6 @@
 # Research and architecture decisions
 
-Status: proposal based on source inspection on 2026-10-15. Baseline: `d7e34eb10cb2ab9f593ebf782a4538f677484493`. Findings describe this revision, not every existing branch or the future live daemon.
+**Status:** proposal of 2026-10-15, based on the source inspection recorded below, implemented: the coordinator and its mailbox ship in `src/cooperation/`, disabled by default, and current behavior is documented in the [agent cooperation reference](README.md) and the [runtime guide](runtime.md). Baseline: `d7e34eb10cb2ab9f593ebf782a4538f677484493`. Findings describe that revision, not every existing branch or the future live daemon.
 
 ## Human and workflow requirements
 

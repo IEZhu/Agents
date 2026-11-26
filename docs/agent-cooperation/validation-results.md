@@ -1,5 +1,7 @@
 # Implementation validation
 
+**Status:** recorded validation, 2026-10-15, of the cooperation implementation and of the mailbox and notification extensions added the same day. It retains its original scope, measurements and limitations; current behavior is documented in the [agent cooperation reference](README.md) and the [runtime guide](runtime.md).
+
 The mailbox extension has its own verification record below. The separate historical results cover the original coordinator and are not reused as evidence for the new tools or schema-3 migration. No cross-provider model trial or live deployment was performed.
 
 Implementation baseline: `d7e34eb10cb2ab9f593ebf782a4538f677484493` (`origin/dev`). All 19 SHA-256 source fingerprints in the research manifest matched before edits. Work was performed only in the separate `codex/agent-cooperation-runtime` worktree. The live installation remained clean; no rollout, publication, paid/model evaluation or unrelated chat message was performed.
