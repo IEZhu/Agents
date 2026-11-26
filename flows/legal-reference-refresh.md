@@ -25,7 +25,7 @@ for the run, an explicit limits section in the pull request, and a recorded audi
 document under `docs/` — the per-claim ledgers stay with the run as working
 evidence, and the document carries what a later reader cannot reconstruct. The
 2026-11 run is recorded in
-[docs/legal-reference-audit-2026-11-07.md](../docs/records/legal-reference-audit-2026-11-07.md).
+[docs/records/legal-reference-audit-2026-11-07.md](../docs/records/legal-reference-audit-2026-11-07.md).
 
 ## How to invoke
 
