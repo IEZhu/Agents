@@ -316,8 +316,8 @@ def server_event(store, event):
 
 def test_a_node_keeps_the_highest_complexity_it_was_prepared_with(store):
     plan(store)
-    for revision, complexity in ((FIRST, "high"), (SECOND, "low"), ("e" * 64, None)):
-        store.record_prepared(TASK, "map-code", contract_revision=revision, attempt_id="1",
+    for attempt, (revision, complexity) in enumerate(((FIRST, "high"), (SECOND, "low"), ("e" * 64, None)), 1):
+        store.record_prepared(TASK, "map-code", contract_revision=revision, attempt_id=str(attempt),
                               complexity=complexity)
         assert required_level(store.load(TASK).nodes["map-code"]) == "V3", complexity
 
@@ -1116,3 +1116,31 @@ def test_a_link_put_at_the_name_before_the_create_is_refused(tmp_path, monkeypat
     with pytest.raises(safe_store.UnsafeStore):
         safe_store.open_store(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, private=True)
     assert target.read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.parametrize("damaged", [
+    {"op": "result", "id": "a", "status": "validated", "level": "V2", "summary": "Done", "checks": [],
+     "findings": None, "limitations": 0, "handback": "line", "result_sha256": "b" * 64, "rev": 4},
+    {"op": "result", "id": "a", "status": "validated", "level": "V2", "summary": "Done", "checks": None,
+     "findings": ["high"], "limitations": 0, "handback": "line", "result_sha256": "b" * 64, "rev": 4},
+    {"op": "update_node", "id": "a", "level": None, "rev": 4},
+    {"op": "add_edge", "from": "a", "to": "a", "type": "depends_on", "rev": 4},
+    {"op": "verdict", "id": "a", "status": "verified", "rev": 4},
+])
+def test_a_committed_event_the_writers_would_refuse_is_skipped(damaged):
+    prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
+                "rev": 3}
+    workmap = store_module.fold(OPENED + [prepared, damaged])
+    assert workmap.revision == 3 and workmap.nodes["a"]["status"] == "prepared" and workmap.nodes["a"]["level"] == "V0"
+    assert workmap.edges == [] and render_map(workmap)
+
+
+def test_a_changed_package_for_the_same_attempt_is_refused(store):
+    plan(store)
+    prepare(store, revision=FIRST, attempt="1")
+    with pytest.raises(WorkmapError) as raised:
+        prepare(store, revision=SECOND, attempt="1")
+    assert raised.value.code == "attempt_reused"
+    prepare(store, revision=FIRST, attempt="1")  # the same package again is still accepted
+    prepare(store, revision=SECOND, attempt="2")
+    assert store.load(TASK).nodes["map-code"]["refs"]["contract_revision"] == SECOND

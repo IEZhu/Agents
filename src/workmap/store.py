@@ -170,24 +170,91 @@ def _higher(kept: str | None, prepared: object) -> str | None:
 
 _VALUES = {"kind": NODE_KINDS, "risk": RISKS, "type": EDGE_TYPES, "level": LEVELS,
            "status": PARENT_STATUSES + SERVER_STATUSES}
+# The only enum fields an event may carry as null: an invalid count that changes no status, a
+# verdict that leaves the level alone, a package prepared without a complexity.
+_NULLABLE = {("invalid", "status"), ("verdict", "level"), ("prepared", "complexity")}
 
 
-def _check_values(event: dict) -> None:
-    """Raise ValueError for a field outside its allowed values, as workmap_update would refuse
-    it: a damaged line must not reach the state the views and the readiness rules read. None
-    stays allowed where an event may leave the field unset (an invalid count, a verdict)."""
+def _is_text(value: object, *, optional: bool = False) -> bool:
+    return isinstance(value, str) or (optional and value is None)
+
+
+def _is_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _check_event(workmap: WorkMap, event: dict) -> None:
+    """Raise ValueError for an event the writers would never commit, before it changes anything.
+
+    A damaged or foreign line must not reach the state the views and the readiness rules read, so
+    a persisted event is held to what workmap_update and the server's own writes enforce: allowed
+    values (null only where the event may leave a field unset), the shapes of a result, the edge
+    rules (no duplicate, no self or goal dependency, no cycle) and the node states each server event
+    needs. fold then skips the event with the rest of its commit."""
+    op = event["op"]
     for key, allowed in _VALUES.items():
-        if key in event and event[key] is not None and event[key] not in allowed:
-            raise ValueError(f"{key} {event[key]!r}")
-    if event["op"] == "prepared" and event.get("complexity") not in (None, *COMPLEXITIES):
-        raise ValueError(f"complexity {event.get('complexity')!r}")
+        if key in event and not (event[key] is None and (op, key) in _NULLABLE) and event[key] not in allowed:
+            raise ValueError(f"{op} {key} {event[key]!r}")
+    if op == "add_node":
+        if not all(_is_text(event.get(key)) for key in ("id", "title", "summary")):
+            raise ValueError("add_node needs text id, title and summary")
+    elif op == "update_node":
+        if any(key in event and not _is_text(event[key], optional=key == "reason") for key in ("title", "summary", "reason")):
+            raise ValueError("update_node text fields")
+    elif op in ("add_edge", "remove_edge"):
+        source, target, kind = event["from"], event["to"], event["type"]
+        if not (_is_text(source) and _is_text(target)) or source not in workmap.nodes or target not in workmap.nodes:
+            raise ValueError(f"{op} between unknown nodes")
+        edge = (source, target, kind)
+        if op == "remove_edge":
+            if edge not in workmap.edges:
+                raise ValueError("remove_edge of a missing edge")
+        elif edge in workmap.edges:
+            raise ValueError("duplicate edge")
+        elif kind == "depends_on" and (source == target or workmap.nodes[target]["kind"] == "goal"
+                                       or _reaches(workmap, target, source)):
+            raise ValueError("depends_on edge the writer refuses")
+    elif op == "prepared":
+        node = workmap.nodes[event["id"]]
+        if node["kind"] == "goal" or node["status"] not in PREPARABLE:
+            raise ValueError("prepared event for a node that takes no package")
+        if not (_is_text(event.get("contract_revision")) and _is_text(event.get("attempt_id"))):
+            raise ValueError("prepared event without its contract")
+        if event.get("complexity") not in (None, *COMPLEXITIES):
+            raise ValueError(f"complexity {event.get('complexity')!r}")
+        inputs = event.get("inputs")
+        if inputs is not None and not (isinstance(inputs, dict)
+                                       and all(_is_text(key) and _is_text(value) for key, value in inputs.items())):
+            raise ValueError("prepared inputs")
+    elif op == "result":
+        if workmap.nodes[event["id"]]["status"] not in ("prepared", "needs_attention"):
+            raise ValueError("result event for a node that takes no result")
+        checks, findings = event.get("checks"), event.get("findings")
+        if not (_is_text(event.get("summary")) and _is_text(event.get("handback")) and _is_text(event.get("result_sha256"))
+                and (event.get("limitations") is None or _is_count(event.get("limitations")))):
+            raise ValueError("result event text and counts")
+        if checks is not None and not (isinstance(checks, dict) and set(checks) == {"passed", "failed", "not_run"}
+                                       and all(_is_count(value) for value in checks.values())):
+            raise ValueError("result checks")
+        if findings is not None and not (isinstance(findings, dict)
+                                         and all(_is_text(key) and _is_count(value) for key, value in findings.items())):
+            raise ValueError("result findings")
+        if not (_is_text(event.get("question"), optional=True) and _is_text(event.get("result_status"), optional=True)
+                and (event.get("escalation") is None or isinstance(event.get("escalation"), dict))):
+            raise ValueError("result optional fields")
+    elif op == "invalid":
+        if not _is_text(event.get("contract_revision")) or not isinstance(event.get("codes", []), list):
+            raise ValueError("invalid event fields")
+    elif op == "verdict":
+        if workmap.nodes[event["id"]]["status"] not in VERDICT_TARGETS:
+            raise ValueError("verdict for a node that takes none")
 
 
 def _apply_event(workmap: WorkMap, event: dict) -> None:
     """Apply one event, or raise before changing anything: fold skips an event that raises, so a
     damaged one must not leave half its change behind (an edge to a missing node, a count)."""
     op, rev = event["op"], event["rev"]
-    _check_values(event)
+    _check_event(workmap, event)
     if op == "add_node":
         if event["id"] in workmap.nodes:  # a second add_node would erase the node and its work
             raise KeyError(event["id"])
@@ -700,6 +767,11 @@ class WorkmapStore:
             if workmap.closed or node["kind"] == "goal" or node["status"] not in PREPARABLE:
                 raise WorkmapError("node_not_preparable", f"node {node['id']} no longer takes a package")
             self._refuse_spent(workmap, records, node, contract_revision)
+            current = node["refs"]
+            if current.get("attempt_id") == attempt_id and current.get("contract_revision") not in (
+                    None, contract_revision):
+                raise WorkmapError("attempt_reused", f"node {node['id']} already holds another contract for "
+                                                     f"attempt {attempt_id}; a changed package needs a new attempt_id")
             event = {"op": "prepared", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
                      "contract_revision": contract_revision, "attempt_id": attempt_id,
                      "complexity": complexity}

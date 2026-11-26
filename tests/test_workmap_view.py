@@ -143,6 +143,8 @@ def test_a_node_record_shows_the_optional_result_fields_when_present(store):
                                                   "findings": None, "limitations": 0}, handback="line")
     plain = render_node(store.load(TASK), "map-code")
     assert "result status" not in plain and "question" not in plain and "escalation" not in plain
+    store.apply(TASK, [{"op": "update_node", "id": "map-code", "status": "planned"}])  # a new attempt
+    store.record_prepared(TASK, "map-code", contract_revision="c" * 64, attempt_id="2", complexity=None)
     name = f"{map_key(TASK)}.jsonl"
     with store._writing(name) as (handle, records):  # the fields a later writer adds to a result event
         event = next(record for record in records if record.get("op") == "result")
@@ -188,11 +190,15 @@ def test_ordering_keeps_rounds_and_creation_order_and_survives_a_damaged_cycle()
     for name in ("b", "a", "c", "d", "e"):
         events.append({"op": "add_node", "id": name, "kind": "stage", "title": name.upper(), "summary": "",
                        "risk": "routine", "rev": len(events) + 1})
-    # b after a; d and e depend on each other, a cycle only a damaged log can hold.
+    # b after a; d and e depend on each other, a cycle only damaged state can hold: fold refuses
+    # the edge that closes it, so the state is damaged by hand to check that ordering survives it.
     for source, target in (("b", "a"), ("d", "e"), ("e", "d")):
         events.append({"op": "add_edge", "from": source, "to": target, "type": "depends_on",
                        "rev": len(events) + 1})
-    assert [node["id"] for node in ordered(fold(events))] == ["a", "c", "b", "d", "e"]
+    workmap = fold(events)
+    assert ("e", "d", "depends_on") not in workmap.edges and workmap.revision == len(events) - 1
+    workmap.edges.append(("e", "d", "depends_on"))
+    assert [node["id"] for node in ordered(workmap)] == ["a", "c", "b", "d", "e"]
 
 
 def test_a_node_line_names_ten_dependencies_and_counts_the_rest(tmp_path):
