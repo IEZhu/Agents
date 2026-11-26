@@ -13,15 +13,17 @@ completing a biased subset.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
 import os
 from pathlib import Path
 import threading
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from src.daemon import state
+from src.file_lock import file_lock
 
 DIRECTORY_NAME = "claims-control"
 SNAPSHOTS_NAME = "claims-snapshots"
@@ -33,7 +35,7 @@ OWNER_REVIEW = "owner-review.jsonl"
 CANARY = "canary.txt"
 MANIFEST = "set.json"
 SIMULATION = "simulation.json"
-RUN_LOCK = "run.lock"  # held by a run from its first record read to its last write
+RUN_LOCK = "run.lock"  # held by a run, a separate probe, a discard and a build's writes
 DISCARDED = "discarded"
 VERSION_CHARS = 16
 
@@ -63,6 +65,26 @@ class ControlError(RuntimeError):
 
 class RecorderError(RuntimeError):
     """An attempt record could not be written; the run must stop."""
+
+
+class RunInProgress(ControlError):
+    """Another process holds the set's run lock."""
+
+
+@contextlib.contextmanager
+def exclusive(control: Path, action: str) -> Iterator[None]:
+    """Hold the set's run lock for ``action``, refusing at once while another process holds it.
+
+    A run holds it from its first record read to its last write; a separate probe, a discard
+    and a build's writes hold it too, so none of them can change the records or move the set
+    under a run that is going.
+    """
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(file_lock(Path(control) / RUN_LOCK, blocking=False))
+        except BlockingIOError:
+            raise RunInProgress(f"A run of this set is in progress; {action} is refused until it finishes.") from None
+        yield
 
 
 def default_control_dir(installation=None) -> Path:

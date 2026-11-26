@@ -100,10 +100,11 @@ def simulate(arguments) -> int:
 
 def probe(arguments) -> int:
     loaded = runner.load(_control(arguments), installation_roots=_roots(arguments))
-    launcher = _launcher(arguments, loaded)
-    model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
-    result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
-    runner.record_probe(loaded, result, model=model, batch=None)  # its cost counts towards the set's spend
+    with control.exclusive(loaded.control_dir, "a separate probe"):  # its cost would escape a run's budget
+        launcher = _launcher(arguments, loaded)
+        model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
+        result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
+        runner.record_probe(loaded, result, model=model, batch=None)  # its cost counts towards the set's spend
     _print({"model": model, **result.__dict__})
     return 0 if result.blind else 2
 
@@ -135,11 +136,7 @@ def run(arguments) -> int:
                                   batch_size=arguments.batch_size, timeout=arguments.timeout,
                                   max_total_usd=arguments.max_total_usd, seed=arguments.seed,
                                   stage_runs=arguments.stage_runs, log=lambda line: print(line, flush=True))
-    try:
-        summary = worker_runner.run()
-    except runner.ScheduleError as error:  # raised before the first probe: nothing ran or was paid for
-        print(error, file=sys.stderr)
-        return 1
+    summary = worker_runner.run()
     _print(summary)
     return 0
 
@@ -270,7 +267,11 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
-    return arguments.handler(arguments)
+    try:
+        return arguments.handler(arguments)
+    except (runner.ScheduleError, control.RunInProgress) as error:  # raised before anything ran or was paid for
+        print(error, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

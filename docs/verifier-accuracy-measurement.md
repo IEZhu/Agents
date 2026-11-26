@@ -141,7 +141,8 @@ stage's slots vary with the clusters drawn and can exceed `n`; `--max-total-usd`
 caps the spend. [Stage 1](records/verifier-accuracy-stage1.md) was cut the old way, and
 its records predate the seed field: a later run continues them only with seed 0, the seed
 they ran with, and only when they hold exactly the leading clusters of its order. One run
-of a set goes at a time: a second is refused while the first holds the set's run lock.
+of a set goes at a time: while it holds the set's run lock, a second run, a separate
+`probe`, a `discard` and a build's writes are refused.
 
 ## Recording path
 

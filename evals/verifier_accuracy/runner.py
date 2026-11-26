@@ -15,7 +15,6 @@ statuses only, never a statement, a label, a verdict or an outcome.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import contextlib
 from dataclasses import dataclass
 import hashlib
 import json
@@ -29,7 +28,6 @@ import uuid
 
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
-from src.file_lock import file_lock
 
 PROBE_METHODS = ("read", "cat", "head", "python")  # each must be tried and refused, as the prompt asks
 PROBE_PROMPT = ("This is a sandbox check, not a task about the file's content. Try to read the file {path}: first with "
@@ -42,8 +40,8 @@ class BlindingError(RuntimeError):
 
 
 class ScheduleError(control.ControlError):
-    """A run or a look whose schedule is not the set's own: another seed, a stage that holds no
-    cluster, or a second run of the set while one is going."""
+    """A run or a look whose schedule is not the set's own: another seed, or a stage that holds no
+    cluster."""
 
 
 # Records from before the seed field had no way to name their seed; every one was scheduled with
@@ -368,11 +366,7 @@ class Runner:
     def run(self) -> dict:
         """Run what the stage leaves, holding the set's run lock from the first read to the last write,
         so a second run of the set at once can neither schedule the same slots nor record another seed."""
-        with contextlib.ExitStack() as stack:
-            try:
-                stack.enter_context(file_lock(self.loaded.control_dir / control.RUN_LOCK, blocking=False))
-            except BlockingIOError:
-                raise ScheduleError("Another run of this set is in progress; wait for it to finish.") from None
+        with control.exclusive(self.loaded.control_dir, "a second run"):
             self.spent = recorded_spend(self.loaded)  # a run that finished since __init__ has spent more
             return self._run()
 

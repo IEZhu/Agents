@@ -1130,12 +1130,33 @@ def test_a_second_run_of_the_set_at_once_is_refused(tmp_path, repo, monkeypatch,
                                                                      "look": "final", "d_floor": 1.0}))
     arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
     with file_lock(loaded.control_dir / control.RUN_LOCK, blocking=False):  # the other run's lock
-        with pytest.raises(runner.ScheduleError, match="Another run of this set"):
+        with pytest.raises(control.RunInProgress, match="a second run is refused"):
             work.run()
         assert cli.main([*arguments, "run"]) == 1
-    assert "Another run of this set" in capsys.readouterr().err
+    assert "A run of this set is in progress" in capsys.readouterr().err
     assert not launcher.calls and not work.recorder.recorded()  # no probe, no record
     assert work.run()["run"] == len(runner.schedule(list(loaded.statements.values()), 0))  # free again
+
+
+def test_a_probe_a_discard_and_a_build_wait_for_no_run_and_are_refused_during_one(tmp_path, repo, capsys,
+                                                                                    monkeypatch):
+    from evals.scripts import verifier_accuracy as cli
+    from src.file_lock import file_lock
+    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the probe launched a worker"))
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    fresh = control.open_private(tmp_path / "fresh" / control.DIRECTORY_NAME)
+    with file_lock(control_dir / control.RUN_LOCK, blocking=False), file_lock(fresh / control.RUN_LOCK, blocking=False):
+        assert cli.main([*arguments, "probe", "--model", "sonnet"]) == 1  # its cost would escape the run's budget
+        assert "a separate probe is refused" in capsys.readouterr().err
+        with pytest.raises(control.RunInProgress, match="discarding the set is refused"):
+            builder.discard(control_dir)
+        with pytest.raises(control.RunInProgress, match="writing a set is refused"):
+            builder.build(repo=repo, commit="HEAD", control_dir=fresh, snapshots=tmp_path / "state" / "snaps",
+                          name="t", items=4, seed=7, v2_per_class=None, installation_roots=[tmp_path / "installation"])
+    assert not (control_dir / control.PROBES).exists() and (control_dir / control.STATEMENTS).exists()
+    assert not (fresh / control.STATEMENTS).exists()
+    assert builder.discard(control_dir).is_dir()  # the lock is free again
 
 
 def _slot_rows(statements: list[dict], seed: int, wrong: set[tuple]) -> list[dict]:
