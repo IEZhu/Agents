@@ -415,6 +415,17 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
             raise ValueError("verdict status and level")
 
 
+def _would_apply(workmap: WorkMap, events: list[dict]) -> None:
+    """Refuse a server write the fold would skip: apply its events to a copy of the map, so every
+    rule replay holds an event to is also a rule its writer holds it to before committing."""
+    trial = copy.deepcopy(workmap)
+    try:
+        for event in events:
+            _apply_event(trial, event)
+    except (KeyError, TypeError, ValueError) as error:
+        raise WorkmapError("invalid_request", f"the map would skip this write: {error}") from None
+
+
 def _apply_event(workmap: WorkMap, event: dict) -> None:
     """Apply one event, or raise before changing anything: fold skips an event that raises, so a
     damaged one must not leave half its change behind (an edge to a missing node, a count)."""
@@ -949,6 +960,7 @@ class WorkmapStore:
                      "complexity": complexity}
             if inputs:
                 event["inputs"] = dict(inputs)
+            _would_apply(workmap, [event])
             return self._commit(handle, name, [event])
 
     def _keep_text(self, task_id: str, node_id: str, contract_revision: str, sha256: str, text: str) -> None:
@@ -1025,6 +1037,7 @@ class WorkmapStore:
                                    "rev": events[-1]["rev"] + 1, "result_sha256": pinned[target],
                                    "status": "disputed" if severe else "verified",
                                    "level": None if severe else "V3"})
+            _would_apply(workmap, events)  # before the text is kept: a refused write leaves no orphan
             # The text is kept first, so the event never names a missing text, and only once the
             # map has room for the events, so a full map leaves no orphan text either.
             revision = self._commit(handle, name, events, first=lambda: self._keep_text(
@@ -1055,9 +1068,12 @@ class WorkmapStore:
             # Each code as one line of at most CODE_MAX characters, which is what the fold accepts.
             kept = [" ".join(code.split())[:CODE_MAX].rstrip() for code in codes if isinstance(code, str)]
             kept = [code for code in kept if _is_line(code, CODE_MAX)][:CODES_KEPT]
-            self._commit(handle, name, [{
-                "op": "invalid", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
-                "contract_revision": contract_revision, "codes": kept, "escalation": escalation,
-                "status": "needs_attention" if node["status"] == "prepared" and count >= INVALID_LIMIT
-                else None}])
+            # At the limit a prepared node goes to needs_attention; a later invalid submission only
+            # counts, with no status, and the fold leaves the node's status as it is.
+            event = {"op": "invalid", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
+                     "contract_revision": contract_revision, "codes": kept, "escalation": escalation,
+                     "status": "needs_attention" if node["status"] == "prepared" and count >= INVALID_LIMIT
+                     else None}
+            _would_apply(workmap, [event])
+            self._commit(handle, name, [event])
         return count

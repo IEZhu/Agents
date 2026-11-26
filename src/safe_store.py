@@ -342,12 +342,14 @@ def read_records(raw: bytes, max_bytes: int, path: Path, *,
     if len(raw) > max_bytes:
         raise UnsafeStore(f"{path} is larger than {max_bytes} bytes; archive it by hand")
     records = []
-    for line in raw.decode("utf-8", errors="replace").split("\n"):
-        if not line:
+    # Split the bytes first and decode each line strictly: a damaged UTF-8 sequence skips its
+    # line instead of turning into U+FFFD inside a record that still parses.
+    for chunk in raw.split(b"\n"):
+        if not chunk:
             continue  # the end of the last record, or a blank line
         try:
-            record = json.loads(line)
-        except (ValueError, RecursionError):
+            record = json.loads(chunk.decode("utf-8"))
+        except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
             continue
         if keep is None or keep(record):
             records.append(record)

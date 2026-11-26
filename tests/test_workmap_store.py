@@ -1221,6 +1221,38 @@ def test_an_invalid_count_keeps_its_codes_as_one_line_each(store):
     assert store.load(TASK).invalid_codes[FIRST] == ["schema forged: line", "x" * 80]
 
 
+def test_a_line_with_a_damaged_utf8_sequence_is_skipped(tmp_path):
+    raw = b'{"text": "caf\xc3"}\n{"n": 2}\n'
+    assert safe_store.read_records(raw, 1000, tmp_path / "store.jsonl") == [{"n": 2}]
+
+
+@pytest.mark.parametrize("write", ["prepared", "result"])
+def test_a_server_write_the_fold_would_skip_is_refused_before_anything_is_kept(store, tmp_path, write):
+    plan(store)
+    if write == "prepared":
+        call = lambda: store.record_prepared(TASK, "map-code", contract_revision=FIRST, attempt_id="1",  # noqa: E731
+                                             complexity="extreme")
+    else:
+        prepare(store)
+        call = lambda: store.record_result(TASK, "map-code", contract_revision=FIRST, attempt_id="1",  # noqa: E731
+                                           text="mapped code", sha256=MAPPED, handback="line",
+                                           outcome={**OUTCOME, "checks": {"passed": "x", "failed": 0, "not_run": 0}})
+    revision = store.load(TASK).revision
+    with pytest.raises(WorkmapError) as raised:
+        call()
+    assert raised.value.code == "invalid_request" and store.load(TASK).revision == revision
+    assert not (tmp_path / "data" / "workmap" / f"{map_key(TASK)}.results.jsonl").exists()  # no orphan text
+
+
+def test_invalid_submissions_past_the_limit_keep_the_node_needing_attention(store):
+    plan(store)
+    prepare(store)
+    for _ in range(INVALID_LIMIT + 2):
+        store.record_invalid(TASK, "map-code", contract_revision=FIRST, codes=["schema"])
+    workmap = store.load(TASK)
+    assert workmap.nodes["map-code"]["status"] == "needs_attention" and workmap.invalid[FIRST] == INVALID_LIMIT + 2
+
+
 def test_a_stored_text_that_no_longer_matches_its_hash_is_not_served(store, tmp_path):
     plan(store)
     prepare(store)
