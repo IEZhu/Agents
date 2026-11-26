@@ -101,6 +101,7 @@ def simulate(arguments) -> int:
 def probe(arguments) -> int:
     loaded = runner.load(_control(arguments), installation_roots=_roots(arguments))
     with control.exclusive(loaded.control_dir, "a separate probe"):  # its cost would escape a run's budget
+        control.ensure_unchanged(loaded.control_dir, loaded.manifest["version"])
         launcher = _launcher(arguments, loaded)
         model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
         result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
@@ -269,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
         return arguments.handler(arguments)
-    except (runner.ScheduleError, control.RunInProgress) as error:  # raised before anything ran or was paid for
+    except (runner.ScheduleError, control.RunInProgress, control.SetChanged) as error:  # before anything ran
         print(error, file=sys.stderr)
         return 1
 

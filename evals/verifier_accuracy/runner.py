@@ -367,6 +367,7 @@ class Runner:
         """Run what the stage leaves, holding the set's run lock from the first read to the last write,
         so a second run of the set at once can neither schedule the same slots nor record another seed."""
         with control.exclusive(self.loaded.control_dir, "a second run"):
+            control.ensure_unchanged(self.loaded.control_dir, self.loaded.manifest["version"])
             self.spent = recorded_spend(self.loaded)  # a run that finished since __init__ has spent more
             return self._run()
 

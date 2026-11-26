@@ -1159,6 +1159,25 @@ def test_a_probe_a_discard_and_a_build_wait_for_no_run_and_are_refused_during_on
     assert builder.discard(control_dir).is_dir()  # the lock is free again
 
 
+def test_a_run_or_probe_refuses_a_set_discarded_or_rebuilt_after_it_was_loaded(tmp_path, repo, monkeypatch, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the probe launched a worker"))
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+    builder.discard(loaded.control_dir)  # between the load and the run, which takes the lock only in run()
+    with pytest.raises(control.SetChanged, match="discarded or rebuilt"):
+        work.run()
+    builder.build(repo=repo, commit="HEAD", control_dir=loaded.control_dir, snapshots=tmp_path / "state" / "snaps",
+                  name="t", items=6, seed=8, v2_per_class=None, installation_roots=[tmp_path / "installation"])
+    with pytest.raises(control.SetChanged, match="discarded or rebuilt"):
+        work.run()
+    assert not launcher.calls and not (loaded.control_dir / control.ATTEMPTS).exists()  # nothing ran, nothing written
+    monkeypatch.setattr(cli.runner, "load", lambda *args, **options: loaded)  # the probe's load sees the old set
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    assert cli.main([*arguments, "probe", "--model", "sonnet"]) == 1
+    assert "discarded or rebuilt" in capsys.readouterr().err
+
+
 def _slot_rows(statements: list[dict], seed: int, wrong: set[tuple]) -> list[dict]:
     """One V3 or V2 verdict for every slot of the schedule, on true items; the slots in ``wrong`` refute."""
     rows = []

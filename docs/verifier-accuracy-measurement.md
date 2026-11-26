@@ -142,7 +142,8 @@ caps the spend. [Stage 1](records/verifier-accuracy-stage1.md) was cut the old w
 its records predate the seed field: a later run continues them only with seed 0, the seed
 they ran with, and only when they hold exactly the leading clusters of its order. One run
 of a set goes at a time: while it holds the set's run lock, a second run, a separate
-`probe`, a `discard` and a build's writes are refused.
+`probe`, a `discard` and a build's writes are refused, and a run or a probe first checks
+under the lock that the set it loaded is still the one on disk.
 
 ## Recording path
 

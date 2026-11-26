@@ -71,6 +71,17 @@ class RunInProgress(ControlError):
     """Another process holds the set's run lock."""
 
 
+class SetChanged(ControlError):
+    """The set on disk is no longer the one a run or a probe loaded."""
+
+
+def ensure_unchanged(control: Path, version: str) -> None:
+    """Refuse a set that was discarded or rebuilt after it was loaded; call it under the run lock,
+    which a discard and a build's writes also take, so the answer holds for as long as the lock."""
+    if not (Path(control) / STATEMENTS).exists() or set_version(control) != version:
+        raise SetChanged("The set was discarded or rebuilt after it was loaded; load it again.")
+
+
 @contextlib.contextmanager
 def exclusive(control: Path, action: str) -> Iterator[None]:
     """Hold the set's run lock for ``action``, refusing at once while another process holds it.
