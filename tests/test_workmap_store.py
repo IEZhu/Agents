@@ -40,8 +40,10 @@ def prepare(store, node="map-code", revision=FIRST, attempt="1"):
     return store.record_prepared(TASK, node, contract_revision=revision, attempt_id=attempt, complexity=None)
 
 
-def submit(store, node="map-code", revision=FIRST, sha="b" * 64, text="mapped code"):
-    return store.record_result(TASK, node, contract_revision=revision, attempt_id="1", text=text,
+def submit(store, node="map-code", revision=FIRST, sha="b" * 64, text="mapped code", attempt=None):
+    """Submit under the node's current attempt, as the binding does with its own contract's attempt."""
+    attempt = attempt or store.load(TASK).nodes[node]["refs"].get("attempt_id", "1")
+    return store.record_result(TASK, node, contract_revision=revision, attempt_id=attempt, text=text,
                                sha256=sha, outcome=OUTCOME, handback="line")
 
 
@@ -441,7 +443,7 @@ def test_keeping_a_result_does_not_parse_the_results_file(store, monkeypatch):
         return real(raw, max_bytes, path, **kwargs)
 
     monkeypatch.setattr(safe_store, "read_records", read_records)
-    submit(store)
+    submit(store, attempt="1")  # an explicit attempt: the helper would otherwise read the map first
     assert parsed == [f"{map_key(TASK)}.jsonl"]  # the map only, under its lock
 
 
@@ -1119,7 +1121,7 @@ def test_a_link_put_at_the_name_before_the_create_is_refused(tmp_path, monkeypat
     assert target.read_text(encoding="utf-8") == ""
 
 
-RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "status": "validated", "level": "V2",
+RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "status": "validated", "level": "V2",
           "summary": "Done", "checks": None, "findings": None, "limitations": 0, "handback": "line",
           "result_sha256": "b" * 64}
 
@@ -1142,6 +1144,17 @@ RESULT = {"op": "result", "id": "a", "contract_revision": FIRST, "status": "vali
     {**RESULT, "summary": "two\nlines", "rev": 4},
     {**RESULT, "question": "two\nlines", "rev": 4},
     {**RESULT, "handback": "forged", "rev": 4},
+    # References as get_subagent_context and the binding write them: a result for the node's own
+    # attempt under a 64-hex hash, findings by severity, a package of a 64-hex contract revision,
+    # an attempt id of a task id's form and inputs that pin node ids to result hashes.
+    {**RESULT, "attempt_id": "2", "rev": 4},
+    {**RESULT, "result_sha256": "not\na hash", "rev": 4},
+    {**RESULT, "findings": {"forged\nline": 1}, "rev": 4},
+    {"op": "prepared", "id": "a", "contract_revision": "X" * 64, "attempt_id": "2", "complexity": None, "rev": 4},
+    {"op": "prepared", "id": "a", "contract_revision": SECOND, "attempt_id": "two\nlines", "complexity": None,
+     "rev": 4},
+    {"op": "prepared", "id": "a", "contract_revision": SECOND, "attempt_id": "2", "complexity": None,
+     "inputs": {"B C": "b" * 64}, "rev": 4},
     # The worker's own status is one the result schema allows, and an escalation has only the
     # validation's keys, each one line.
     {**RESULT, "result_status": "trusted\nforged: line", "rev": 4},
@@ -1180,6 +1193,21 @@ def test_a_committed_event_the_writers_would_refuse_is_skipped(damaged):
     assert workmap.revision == 3 and workmap.nodes["a"]["status"] == "prepared" and workmap.nodes["a"]["level"] == "V0"
     assert workmap.nodes["a"]["refs"] == {"contract_revision": FIRST, "attempt_id": "1"}
     assert workmap.edges == [] and workmap.invalid == {} and render_map(workmap)
+
+
+def test_a_package_or_result_the_fold_would_skip_is_never_written(store):
+    plan(store)
+    for revision, attempt, inputs in (("X" * 64, "1", None), (FIRST, "two\nlines", None),
+                                      (FIRST, "1", {"map-code": "short"})):
+        with pytest.raises(WorkmapError) as raised:
+            store.record_prepared(TASK, "write", contract_revision=revision, attempt_id=attempt, complexity=None,
+                                  inputs=inputs)
+        assert raised.value.code == "invalid_request"
+    prepare(store)
+    with pytest.raises(WorkmapError) as raised:  # a result for another attempt than the node holds
+        submit(store, attempt="2")
+    assert raised.value.code == "stale_contract"
+    assert store.load(TASK).nodes["map-code"]["status"] == "prepared"
 
 
 def test_an_invalid_count_keeps_its_codes_as_one_line_each(store):

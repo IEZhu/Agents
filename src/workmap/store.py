@@ -208,6 +208,35 @@ CODES_KEPT = 20
 CODE_MAX = 80
 
 
+# A contract revision and a result hash are 64 lowercase hex digits (Revision in
+# src/schemas/subagent.py); an attempt id has a task id's form; a review's findings count the
+# severities a finding may carry.
+REVISION = re.compile(r"[a-f0-9]{64}")
+SEVERITIES = ("critical", "high", "medium", "low", "info")
+
+
+def _is_revision(value: object) -> bool:
+    return isinstance(value, str) and REVISION.fullmatch(value) is not None
+
+
+def _is_identifier(value: object) -> bool:
+    return isinstance(value, str) and TASK_ID.fullmatch(value) is not None
+
+
+def _package_problem(contract_revision: object, attempt_id: object, inputs: object) -> str | None:
+    """Why a prepared package's references are not what get_subagent_context gives, or None: a
+    contract revision of 64 hex digits, an attempt id of a task id's form, and inputs that pin
+    node ids to result hashes."""
+    if not _is_revision(contract_revision):
+        return "a contract revision is 64 lowercase hex digits"
+    if not _is_identifier(attempt_id):
+        return "an attempt id has a task id's form"
+    if inputs is not None and not (isinstance(inputs, dict) and all(
+            isinstance(key, str) and NODE_ID.fullmatch(key) and _is_revision(value) for key, value in inputs.items())):
+        return "inputs pin node ids to 64-hex result hashes"
+    return None
+
+
 def _codes_ok(codes: object) -> bool:
     return (isinstance(codes, list) and len(codes) <= CODES_KEPT
             and all(_is_line(code, CODE_MAX) for code in codes))
@@ -319,8 +348,9 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
         if node["kind"] == "goal" or node["status"] not in PREPARABLE:
             raise ValueError("prepared event for a node that takes no package")
         contract, attempt = event.get("contract_revision"), event.get("attempt_id")
-        if not (_is_text(contract) and _is_text(attempt)):
-            raise ValueError("prepared event without its contract")
+        problem = _package_problem(contract, attempt, event.get("inputs"))
+        if problem is not None:
+            raise ValueError(problem)
         # record_prepared's refusals: a spent contract, another contract for the attempt the node holds.
         if contract in workmap.resulted or workmap.invalid.get(contract, 0) >= INVALID_LIMIT:
             raise ValueError("prepared event for a spent contract")
@@ -328,10 +358,6 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
             raise ValueError("prepared event reusing an attempt")
         if event.get("complexity") not in (None, *COMPLEXITIES):
             raise ValueError(f"complexity {event.get('complexity')!r}")
-        inputs = event.get("inputs")
-        if inputs is not None and not (isinstance(inputs, dict)
-                                       and all(_is_text(key) and _is_text(value) for key, value in inputs.items())):
-            raise ValueError("prepared inputs")
     elif op == "result":
         if not _takes_submission(workmap, workmap.nodes[event["id"]], event.get("contract_revision")):
             raise ValueError("result event for a node that takes no result")
@@ -342,14 +368,17 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
                                  event.get("result_status"), event.get("escalation"))
         if problem is not None:
             raise ValueError(problem)
-        if not (_is_text(event.get("result_sha256"))
+        # The result belongs to the node's current attempt, under the hash of its stored text.
+        if event.get("attempt_id") != workmap.nodes[event["id"]]["refs"].get("attempt_id"):
+            raise ValueError("result event for another attempt")
+        if not (_is_revision(event.get("result_sha256"))
                 and (event.get("limitations") is None or _is_count(event.get("limitations")))):
             raise ValueError("result event text and counts")
         if checks is not None and not (isinstance(checks, dict) and set(checks) == {"passed", "failed", "not_run"}
                                        and all(_is_count(value) for value in checks.values())):
             raise ValueError("result checks")
         if findings is not None and not (isinstance(findings, dict)
-                                         and all(_is_text(key) and _is_count(value) for key, value in findings.items())):
+                                         and all(key in SEVERITIES and _is_count(value) for key, value in findings.items())):
             raise ValueError("result findings")
     elif op == "invalid":
         node, contract = workmap.nodes[event["id"]], event.get("contract_revision")
@@ -887,6 +916,9 @@ class WorkmapStore:
                         attempt_id: str, complexity: str | None, inputs: dict[str, str] | None = None) -> int:
         """Mark the node prepared; ``inputs`` are the pinned {node: result sha256} the worker was given."""
         task_id = _task_id(task_id)
+        problem = _package_problem(contract_revision, attempt_id, inputs or None)
+        if problem is not None:  # the fold would skip such an event, so it is never written
+            raise WorkmapError("invalid_request", problem)
         name = f"{map_key(task_id)}.jsonl"
         with self._writing(name) as (handle, records):
             workmap = self._existing_map(records, task_id)
@@ -929,6 +961,11 @@ class WorkmapStore:
             raise WorkmapError("invalid_request", "a result is validated at V1 or V2, or needs_attention at V0")
         problem = _result_fields(outcome.get("summary"), outcome.get("question"), handback,
                                  outcome.get("result_status"), outcome.get("escalation"))
+        findings = outcome.get("findings")
+        if problem is None and not _is_revision(sha256):
+            problem = "a result hash is 64 lowercase hex digits"
+        if problem is None and isinstance(findings, dict) and any(key not in SEVERITIES for key in findings):
+            problem = f"findings count the severities {', '.join(SEVERITIES)}"
         if problem is not None:
             raise WorkmapError("invalid_request", problem)
         name = f"{map_key(task_id)}.jsonl"
@@ -947,6 +984,9 @@ class WorkmapStore:
                 return {"task_id": task_id, "node": node["id"], "status": node["status"],
                         "level": node["level"], "revision": workmap.revision, "duplicate": True}
             _require_open(workmap, node, contract_revision)
+            if node["refs"].get("attempt_id") != attempt_id:
+                raise WorkmapError("stale_contract", f"node {node['id']} holds attempt "
+                                                     f"{node['refs'].get('attempt_id')}, not {attempt_id}")
             event = {"op": "result", "by": "server", "id": node["id"], "rev": workmap.revision + 1,
                      "contract_revision": contract_revision, "attempt_id": attempt_id,
                      "result_sha256": sha256, "handback": handback,
