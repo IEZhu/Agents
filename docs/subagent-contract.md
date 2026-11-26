@@ -26,7 +26,10 @@ The two worker MCP tools are:
   by default store both in private files and return a short receipt.
 - `validate_subagent_result`: validate a result against the task contract: the
   copy the server stored at preparation (`contract_revision`) or the one the
-  parent retained from an inline package.
+  parent retained from an inline package. It is read-only.
+
+A package bound to a work-map node adds a third, `workmap_submit`, which validates
+the same way and records the result on the node ([work-map binding](#work-map-binding)).
 
 These tools do not launch models, manage execution sessions, follow arbitrary
 task references or artifact URLs, install instructions or restart the daemon.
@@ -109,7 +112,8 @@ package, which holds:
 
 The model-facing context must clearly name the worker role, task/attempt IDs,
 the contract revision (the text form states it whole and asks the worker to check its
-result with `validate_subagent_result` before replying; only the JSON form also names the
+result with `validate_subagent_result` before replying, or, for a package bound to a
+work-map node, to submit it with `workmap_submit`; only the JSON form also names the
 bundle revision), the complete result shape, and the rules
 for missing input, incomplete work and finishing. It directs the worker to use
 this package without activating a full conversation persona. Parent descriptors
@@ -122,7 +126,7 @@ The parent also decides how much to delegate, and the description of `get_subage
 ## Work-map binding
 
 A package prepared with `workmap_node` (and `task_id`, the map's task ID) is bound to that
-node of the [work map](workmap-plan.md) in the session's registered workspace. The server
+node of the [work map](workmap-plan.md) in the session's workspace. The server
 writes `{node, root}` into the contract, so the binding is fingerprinted; `root` is the
 workspace the server resolved, never a caller's value. A bound package uses
 `result_format` text. Preparation refuses a closed map (`map_closed`), a goal or a node
@@ -140,20 +144,25 @@ input artifacts behind. `attempt_reused` needs the contract's revision, so it is
 once the package is assembled. The node becomes `prepared` only after the contract is
 stored.
 
-The package tells the worker to submit its result with `validate_subagent_result` and to
-hand back one line, `submitted <task>/<node> <sha> <status>`; if the call cannot reach the
-server it tries once more after about a minute and then hands back the full result. A
-valid submission is stored and recorded on the node, and the response carries the receipt
-`workmap: {task_id, node, status, level, revision, duplicate, refused}`. The first valid
-submission is final for the contract: the same result again is accepted with
-`duplicate: true` and no new event. A structurally valid result the map refuses keeps
-`valid: true`, and `workmap.refused` names the code, with the node's status, level and
-revision as the map holds them when it could be read: `already_submitted` (a different
-result is already recorded for the contract), `stale_contract` (the node was prepared
-again since), `node_not_open` (the map is closed or the node no longer takes a result),
-`workmap_unavailable` (the map could not be read or written), or the store's own
-`unknown_map`, `unknown_node`, `key_collision`, `store_full` or `unsafe_store`. The
-worker then answers `not recorded <task>/<node> <code>` instead of resubmitting.
+The package tells the worker to submit its result with `workmap_submit(contract_revision,
+result)` and to hand back one line, `submitted <task>/<node> <sha> <status>`; if the call
+cannot reach the server it tries once more after about a minute and then hands back the
+full result. `workmap_submit` validates exactly as `validate_subagent_result` does and
+answers the same fields; a valid submission is stored and recorded on the node, and the
+response carries the receipt `workmap: {task_id, node, status, level, revision,
+duplicate, refused}`. The first valid submission is final for the contract: the same
+result again is accepted with `duplicate: true` and no new event. A structurally valid
+result the map refuses keeps `valid: true`, and `workmap.refused` names the code, with
+the node's status, level and revision as the map holds them when it could be read. Three
+codes are final for the contract: `already_submitted` (a different result is already
+recorded for it), `stale_contract` (the node was prepared again since) and
+`node_not_open` (the map is closed or the node no longer takes a result); the worker
+then answers `not recorded <task>/<node> <code>` instead of resubmitting. Any other
+code, `workmap_unavailable` (the map could not be read or written) or the store's own
+`store_full`, `unsafe_store`, `unknown_map`, `key_collision` or `unknown_node`, makes the
+worker submit once more and, refused again, hand back the full result, so that the
+parent still holds a result the map could not keep. A contract that is not bound to a
+node answers `valid: false` with `workmap_unbound`.
 
 A bound contract's submissions are recorded on its node: a valid result once, and an
 invalid one counted toward the limit while the node still takes it. Five invalid
@@ -163,14 +172,22 @@ contract that has its result, for a contract the node was prepared again since, 
 closed or settled node is refused and writes nothing. Only a review result, one that
 carries findings, gives a verdict to the nodes its node `verifies`.
 
-Only a contract the server stored records anything: an inline contract never does, and a
-bound package whose contract cannot be stored is refused with `exchange_unwritable` for
-either delivery. The parent reads the node with `workmap_view`, not the result, and does
-not validate the one-line hand-back: it carries no result, so validation only answers
-`valid: false`; while the node still takes a submission the map counts that as an invalid
-one, and once the contract has its result it refuses it and writes nothing. It
-validates a full hand-back by `result_ref` only while the node is still `prepared`; the
-node then records it with `hand-back: full`.
+`validate_subagent_result` records nothing, for a bound contract as for any other: it
+stays read-only, so a worker's own check of a draft and the parent's validation never
+change the map. Only a contract the server stored records anything: `workmap_submit` takes
+no inline contract, and a bound package whose contract cannot be stored is refused with
+`exchange_unwritable` for either delivery. The parent reads the node with `workmap_view`,
+not the result, and neither validates nor submits the one-line hand-back: it carries no
+result, so it only answers `valid: false`, and `workmap_submit` would count it as an
+invalid submission while the node still takes one. It validates a full hand-back by
+`result_ref`; while the node is still `prepared`, `workmap_submit` with the same
+`result_ref` validates it the same way and records it with `hand-back: full`.
+
+`get_subagent_context` finds the map in its `workspace` argument, resolved as
+`workmap_update` resolves it: over stdio against the client's MCP roots, so a session
+with several roots binds the map of the root it names, and over HTTP within the registered
+workspace, where a path outside it is refused with `workspace_mismatch` before anything is
+written.
 
 ## Compact exchange
 

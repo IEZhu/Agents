@@ -166,3 +166,27 @@ def test_report_script_prints_json(ledger):
     output = subprocess.run([sys.executable, str(script), "--path", str(ledger), "--json"],
                             capture_output=True, text=True, check=True).stdout
     assert json.loads(output)[0]["prepared"] == 1
+
+
+def test_two_validations_of_one_contract_count_once(worker_tree, ledger):
+    """A worker's self-check and the parent's validation are one outcome: the last one counts."""
+    package = prepared(complexity="low", client="codex")
+    subagent_ledger.record_prepared(package)
+    contract = package.contract.model_dump()
+    subagent_ledger.record_validation(assess_result(contract, report(package, "failed"))[1])
+    subagent_ledger.record_validation(assess_result(contract, report(package))[1])
+    entries = subagent_ledger.read_entries()
+    assert [entry.get("contract") for entry in entries[1:]] == [package.contract_revision[:16]] * 2
+    [row] = subagent_ledger.summarize(entries)
+    assert (row["prepared"], row["validated"], row["accepted"], row["escalations"]) == (1, 1, 1, {})
+
+
+def test_validations_of_different_or_unnamed_contracts_each_count():
+    rows = subagent_ledger.summarize([
+        entry("validated", contract="a" * 16, valid=True, status="completed", escalation=None),
+        entry("validated", contract="b" * 16, valid=False, status=None, escalation="standard"),
+        entry("validated", valid=True, status="completed", escalation=None),
+        entry("validated", valid=True, status="completed", escalation=None),
+        entry("validated", contract=["damaged"], valid=True, status="completed", escalation=None),
+    ])
+    assert (rows[0]["validated"], rows[0]["accepted"], rows[0]["invalid"]) == (5, 4, 1)

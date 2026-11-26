@@ -17,8 +17,12 @@ TEXT_MEDIA_TYPE = "text/markdown"
 
 
 async def prepare(ctx, arguments: dict, node: str | None, inputs: list | None,
-                  artifact_manifest: dict | None) -> tuple[str, dict | None, dict | None]:
+                  artifact_manifest: dict | None, *, workspace: str | None = None
+                  ) -> tuple[str, dict | None, dict | None]:
     """Check the request, the node and its inputs; return the workspace root, the inputs' manifest and pins.
+
+    ``workspace`` finds the map as the work-map tools find it: resolved against the session's grant,
+    and refused with WorkspaceMismatch when the grant does not cover it, since preparing writes.
 
     The request's fields, workmap_node and workmap_inputs included, are validated before anything is
     published, and so are the node and its inputs; prepare_subagent's own checks (the agent profile,
@@ -36,7 +40,7 @@ async def prepare(ctx, arguments: dict, node: str | None, inputs: list | None,
     if inputs is not None and not isinstance(inputs, list):
         raise WorkmapError("invalid_request", "workmap_inputs is a list of node IDs")
     PreparationRequest.model_validate({**arguments, "workmap_node": node, "workmap_inputs": inputs})
-    client = await resolve_client_context(ctx, None)
+    client = await resolve_client_context(ctx, workspace)
     root = client.require_root()
     client.require_workspace_match()
     try:

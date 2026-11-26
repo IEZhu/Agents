@@ -1,7 +1,8 @@
 """Text views of a work map: what the parent reads instead of the event log or the results."""
 from __future__ import annotations
 
-from src.workmap.store import SETTLED, WorkMap, WorkmapError, is_ready, is_stale, required_level, settled
+from src.workmap.store import (SETTLED, EdgeIndex, WorkMap, WorkmapError, is_ready, is_stale, required_level,
+                                settled)
 
 DEFAULT_BUDGET = 3_000
 MIN_BUDGET = 500
@@ -48,32 +49,44 @@ def needs_attention(node: dict) -> bool:
     return node["status"] in ATTENTION or (node["status"] in SETTLED and not settled(node))
 
 
-def ordered(workmap: WorkMap) -> list[dict]:
-    """Nodes with every depends_on target before its dependant; ties keep creation order."""
+def ordered(workmap: WorkMap, edges: EdgeIndex | None = None) -> list[dict]:
+    """Nodes with every depends_on target before its dependant; ties keep creation order.
+
+    Kahn's algorithm by rounds: each round places, in creation order, every node whose targets
+    the earlier rounds placed, so one pass over the edges replaces a scan per node and round.
+    """
+    edges = EdgeIndex(workmap) if edges is None else edges
+    position = {node_id: index for index, node_id in enumerate(workmap.nodes)}
+    waiting = {node_id: len(set(edges.targets(node_id, "depends_on"))) for node_id in workmap.nodes}
     placed: set[str] = set()
     order: list[dict] = []
-    remaining = list(workmap.nodes)
-    while remaining:
-        ready = [node_id for node_id in remaining
-                 if all(target in placed for target in workmap.targets(node_id, "depends_on"))]
-        if not ready:  # a cycle cannot be written, but a damaged log must still render
-            ready = remaining[:]
-        for node_id in ready:
+    level = [node_id for node_id in workmap.nodes if not waiting[node_id]]
+    while len(placed) < len(workmap.nodes):
+        if not level:  # a cycle cannot be written, but a damaged log must still render
+            level = [node_id for node_id in workmap.nodes if node_id not in placed]
+        for node_id in level:
             order.append(workmap.nodes[node_id])
             placed.add(node_id)
-            remaining.remove(node_id)
+        following = []
+        for node_id in level:
+            for dependant in set(edges.sources(node_id, "depends_on")):
+                if dependant in waiting and dependant not in placed:
+                    waiting[dependant] -= 1
+                    if not waiting[dependant]:
+                        following.append(dependant)
+        level = sorted(following, key=position.__getitem__)
     return order
 
 
-def _line(workmap: WorkMap, node: dict, *, summary: bool) -> str:
-    marks = f"{node['status']} {node['level']}" + (" stale" if is_stale(workmap, node) else "")
+def _line(workmap: WorkMap, node: dict, edges: EdgeIndex, *, summary: bool) -> str:
+    marks = f"{node['status']} {node['level']}" + (" stale" if is_stale(workmap, node, edges) else "")
     line = f"[{marks}] {node['id']}: {node['title']}"
-    after = workmap.targets(node["id"], "depends_on")
+    after = edges.targets(node["id"], "depends_on")
     if after:
-        line += f" (after {', '.join(after)})"
-    checked = workmap.targets(node["id"], "verifies")
+        line += f" (after {_ids(after)})"
+    checked = edges.targets(node["id"], "verifies")
     if checked:
-        line += f" (verifies {', '.join(checked)})"
+        line += f" (verifies {_ids(checked)})"
     if summary and node["summary"]:
         line += f" — {node['summary']}"
     return line
@@ -88,18 +101,19 @@ def render_map(workmap: WorkMap, *, budget: int = DEFAULT_BUDGET, since: int | N
     within the budget.
     """
     budget = max(MIN_BUDGET, min(budget, MAX_BUDGET))
-    everything = ordered(workmap)
+    edges = EdgeIndex(workmap)
+    everything = ordered(workmap, edges)
     nodes = everything if since is None else [node for node in everything if node["changed"] > since]
     header = [f"map {workmap.task_id} · revision {workmap.revision}" + (" · closed" if workmap.closed else "")]
     if since is not None:
         header.append(f"changed after revision {since}: {len(nodes)} of {len(everything)} nodes")
     # Room for the two lists beside the header and the longest note on nodes left out.
     room = budget - len("\n".join(header + [f"… {len(nodes)} {MORE}"])) - 1
-    footer = _footer([node["id"] for node in everything if is_ready(workmap, node)],
+    footer = _footer([node["id"] for node in everything if is_ready(workmap, node, edges)],
                      [node["id"] for node in everything if needs_attention(node)], room)
     lines: list[str] = []
     for summary in (True, False):
-        lines = [_line(workmap, node, summary=summary) for node in nodes]
+        lines = [_line(workmap, node, edges, summary=summary) for node in nodes]
         text = "\n".join(header + lines + footer)
         if len(text) <= budget:
             return text

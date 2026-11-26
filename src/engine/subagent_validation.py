@@ -217,6 +217,8 @@ class Outcome:
     status: str | None
     failed_checks: int
     escalation: Escalation | None
+    # The validated contract: the ledger counts one outcome per contract, its last validation.
+    contract_revision: str | None = None
 
 
 def _source_position(position: int, dropped: list[int]) -> int:
@@ -317,7 +319,7 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
         escalation = model_tiers.escalation(expected.execution, valid=valid, status=status,
                                             failed_checks=failed_checks)
         outcome = Outcome(expected.task_id, expected.attempt_id, expected.execution, valid, status,
-                          failed_checks, escalation)
+                          failed_checks, escalation, expected.contract_revision)
         return ValidationResponse(valid=valid, errors=errors, escalation=escalation,
                                   result_sha256=digest, truncated=truncated), outcome
 

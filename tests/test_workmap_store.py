@@ -12,6 +12,7 @@ from src import safe_store
 from src.workmap import store as store_module
 from src.workmap.store import (INVALID_LIMIT, MAX_OPS, WorkmapError, WorkmapStore, is_ready, is_stale,
                                map_key, required_level, settled)
+from src.workmap.view import render_map
 
 TASK = "task-1"
 FIRST = "a" * 64
@@ -906,3 +907,111 @@ def test_a_torn_result_and_verdict_commit_leaves_the_contract_open(store, tmp_pa
                                      inputs={"map-code": "b" * 64}) > 0
     else:
         assert store.record_invalid(TASK, "check", contract_revision=SECOND, codes=["format"]) == 1
+
+
+@pytest.mark.parametrize("value", [["add_node"], {"op": "add_node"}, 3, None])
+def test_an_operation_whose_op_is_not_a_string_is_an_invalid_request(store, value):
+    plan(store)
+    with pytest.raises(WorkmapError) as raised:
+        store.apply(TASK, [{"op": value, "id": "extra", "title": "X"}])
+    assert raised.value.code == "invalid_request" and "ops[0]" in str(raised.value)
+
+
+OPENED = [{"op": "open", "task_id": TASK, "rev": 1},
+          {"op": "add_node", "id": "a", "kind": "stage", "title": "A", "summary": "", "risk": "routine", "rev": 2}]
+
+
+@pytest.mark.parametrize("damaged", [
+    {"op": "add_edge", "from": "a", "to": "ghost", "type": "depends_on", "rev": 3},
+    {"op": "add_edge", "from": "ghost", "to": "a", "type": "verifies", "rev": 3},
+    {"op": "add_edge", "from": ["a"], "to": "a", "type": "depends_on", "rev": 3},
+])
+def test_a_committed_edge_to_a_missing_node_is_skipped_whole(damaged):
+    workmap = store_module.fold(OPENED + [damaged])
+    assert workmap.edges == [] and workmap.revision == 2
+    assert workmap.nodes["a"]["changed"] == 2
+    assert render_map(workmap).splitlines()[1] == "[planned V0] a: A"
+
+
+def test_an_invalid_count_for_a_missing_node_is_skipped():
+    for status in (None, "needs_attention"):
+        workmap = store_module.fold(OPENED + [{"op": "invalid", "id": "ghost", "contract_revision": FIRST,
+                                               "codes": ["x"], "status": status, "rev": 3}])
+        assert workmap.invalid == {} and workmap.invalid_codes == {} and workmap.revision == 2
+
+
+def test_a_result_event_without_its_hash_changes_nothing():
+    prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
+                "rev": 3}
+    damaged = {"op": "result", "id": "a", "status": "validated", "level": "V2", "summary": "Done",
+               "checks": None, "findings": None, "limitations": 0, "handback": "line", "rev": 4}
+    node = store_module.fold(OPENED + [prepared, damaged]).nodes["a"]
+    assert node["status"] == "prepared" and node["summary"] == "" and "result_sha256" not in node["refs"]
+
+
+def test_the_result_text_is_synced_before_the_map_names_it(store, monkeypatch):
+    plan(store)
+    prepare(store)
+    order = []
+    append_line = safe_store.append_line
+    fsync = store_module.os.fsync
+
+    def recording_append(handle, line, max_bytes, path):
+        order.append(("append", path.name))
+        append_line(handle, line, max_bytes, path)
+
+    def recording_fsync(descriptor):
+        order.append(("fsync", os.fstat(descriptor).st_size))
+        fsync(descriptor)
+
+    monkeypatch.setattr(store_module.safe_store, "append_line", recording_append)
+    monkeypatch.setattr(store_module.os, "fsync", recording_fsync)
+    submit(store)
+    results, events = f"{map_key(TASK)}.results.jsonl", f"{map_key(TASK)}.jsonl"
+    assert [step[0] if step[0] == "fsync" else step for step in order] == [
+        ("append", results), "fsync", ("append", events)]
+    assert order[1][1] == (store.directory / results).stat().st_size
+
+
+def windows_lstat(**fields):
+    """What Windows' lstat answers for a directory, with the reparse fields it sets."""
+    return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, **fields)
+
+
+REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+SYMLINK_TAG = getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C)
+MOUNT_POINT_TAG = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
+# A tag without the name-surrogate bit, like the one a synced folder's placeholder carries.
+PLACEHOLDER_TAG = 0x9000001A
+
+
+@pytest.mark.parametrize("info,plain", [
+    (windows_lstat(), True),
+    (windows_lstat(st_file_attributes=0x10), True),
+    (windows_lstat(st_file_attributes=0x10 | REPARSE, st_reparse_tag=PLACEHOLDER_TAG), True),
+    (windows_lstat(st_file_attributes=0x10 | REPARSE, st_reparse_tag=SYMLINK_TAG), False),
+    (windows_lstat(st_file_attributes=0x10 | REPARSE, st_reparse_tag=MOUNT_POINT_TAG), False),
+    (windows_lstat(st_file_attributes=0x10 | REPARSE, st_reparse_tag=0xA0000099), False),  # another surrogate
+    (windows_lstat(st_file_attributes=0x10 | REPARSE), False),  # no tag to tell: refused
+    (windows_lstat(st_file_attributes=0x10 | REPARSE, st_reparse_tag=0), False),
+    (SimpleNamespace(st_mode=stat.S_IFLNK | 0o777), False),
+])
+def test_only_a_reparse_point_standing_for_another_path_is_refused(info, plain):
+    assert safe_store.plain_directory(info) is plain
+
+
+def test_a_placeholder_directory_on_the_path_checked_by_name_is_a_store(tmp_path, monkeypatch):
+    real_lstat = os.lstat
+    placeholder = tmp_path / "data"
+
+    def lstat(path, *args, **kwargs):
+        info = real_lstat(path, *args, **kwargs)
+        if os.fspath(path) != os.fspath(placeholder):
+            return info
+        return SimpleNamespace(st_mode=info.st_mode, st_uid=info.st_uid, st_ino=info.st_ino, st_dev=info.st_dev,
+                               st_file_attributes=REPARSE, st_reparse_tag=PLACEHOLDER_TAG)
+
+    monkeypatch.setattr(safe_store, "ANCHORED", False)  # the Windows path: each component by lstat
+    monkeypatch.setattr(safe_store.os, "lstat", lstat)
+    with safe_store.store_directory(tmp_path, ("data", "store"), create=True, private=False) as directory:
+        assert directory == tmp_path / "data" / "store"

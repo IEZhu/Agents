@@ -1,6 +1,6 @@
 # Work map: a parent's top-down view of verified delegated work
 
-**Status:** proposal of 2026-11-25, implemented in one pull request: the store, the views, the tools `workmap_update` and `workmap_view` (see [MCP tools](mcp-tools.md)), the binding of a package to a node, the worker's own submission, verifier verdicts, the [`orchestrate` flow](../flows/orchestrate.md) and the measurement script `evals/scripts/workmap_context.py`. The design below states the behaviour as built; the [Work-map binding](subagent-contract.md#work-map-binding) section of the subagent contract is its reference. Its one load-bearing assumption, that a worker can reach the server's tools itself, was checked in Claude Code on that date ([spike](#spike-of-2026-11-25)); Codex and Cursor workers are unchecked. Builds on
+**Status:** proposal of 2026-11-25, implemented in one pull request: the store, the views, the tools `workmap_update`, `workmap_view` and `workmap_submit` (see [MCP tools](mcp-tools.md)), the binding of a package to a node, the worker's own submission, verifier verdicts, the [`orchestrate` flow](../flows/orchestrate.md) and the measurement script `evals/scripts/workmap_context.py`. The design below states the behaviour as built; the [Work-map binding](subagent-contract.md#work-map-binding) section of the subagent contract is its reference. Its one load-bearing assumption, that a worker can reach the server's tools itself, was checked in Claude Code on that date ([spike](#spike-of-2026-11-25)); Codex and Cursor workers are unchecked. Builds on
 the [task-scoped subagent contract](subagent-contract.md), [shared artifacts](shared-artifacts.md)
 and [validated claims](validated-claims.md).
 
@@ -237,9 +237,11 @@ the map, and a bound package uses `result_format` text.
   revision, which exists only once the package is assembled, so it is found after that and
   before the node is marked.
 
-**`validate_subagent_result`** keeps its arguments and its structural checks. When the
-contract it loaded by `contract_revision` is bound to a node, a valid result is also stored
-and recorded on the node, and the response adds the receipt
+**`workmap_submit(contract_revision, result | result_ref)`** validates exactly as
+`validate_subagent_result` does, which keeps its arguments, its structural checks and its
+read-only annotation and records nothing. When the contract `workmap_submit` loaded by
+`contract_revision` is bound to a node, a valid result is also stored and recorded on the
+node, and the response adds the receipt
 `workmap: {task_id, node, status, level, revision, duplicate, refused}`: the node's status
 and level, the map's revision, `duplicate` true when this contract's
 identical result (the same `result_sha256`) was already recorded and is accepted again
@@ -251,9 +253,10 @@ contract), `stale_contract` (the node was prepared again since), `node_not_open`
 is closed, or the node is neither `prepared` nor in `needs_attention` from this
 contract's own invalid submissions) and `workmap_unavailable` (the map could not be read
 or written), and the store's own `unknown_map`, `unknown_node`, `key_collision`,
-`store_full` and `unsafe_store`. An inline `contract` never records anything: a caller
-can fingerprint a contract it wrote itself, so only a contract the server stored at
-preparation may name the workspace to write to. Who calls it does not matter: the worker
+`store_full` and `unsafe_store`. The first three are final for the contract; after any
+other the worker submits once more and then hands back its full result. `workmap_submit`
+takes no inline `contract`: a caller can fingerprint a contract it wrote itself, so only a
+contract the server stored at preparation may name the workspace to write to. Who calls it does not matter: the worker
 (preferred) or the parent by `result_ref` (fallback). The first valid submission for a
 contract is final, so a worker cannot change a result after the parent has read its node.
 A new attempt is a new package with a new `attempt_id`, as today. A bound contract's
@@ -276,28 +279,31 @@ A bound package replaces the last sentence of the launch text with "Submit the r
 reply exactly as it says." and adds one paragraph to the package's result format:
 
 > This result is recorded on node `<node>` of the work map of task `<task_id>`. Submit
-> only your finished result: the first valid submission is final. Submit it with
-> `validate_subagent_result(contract_revision="<64 hex>", result=<your complete result
-> text>)`. If it answers `valid: false`, correct the result as its errors say and submit
-> again. When it answers `valid: true`, reply with exactly one line:
-> `submitted <task_id>/<node> <the first 12 characters of result_sha256> <status>`. If it
-> answers `valid: true` with `workmap.refused` set, do not resubmit; reply with one line:
-> `not recorded <task_id>/<node> <that code>`. If the call cannot reach the server, wait
-> about a minute and try once more; if it still fails, reply with the full result. If the
-> tool is not available to you, reply with the full result instead.
+> only your finished result: the first valid submission is final. Submit it with the
+> Agents-Core tool `workmap_submit(contract_revision="<64 hex>", result=<your complete
+> result text>)`. If it answers `valid: false`, correct the result as its errors say and
+> submit again. When it answers `valid: true` without `workmap.refused`, reply with
+> exactly one line: `submitted <task_id>/<node> <the first 12 characters of
+> result_sha256> <status>`. If `workmap.refused` is `already_submitted`, `stale_contract`
+> or `node_not_open`, do not resubmit; reply with one line: `not recorded
+> <task_id>/<node> <that code>`. If it is `workmap_unavailable`, `store_full`,
+> `unsafe_store`, `unknown_map`, `key_collision` or any other code, submit the same result
+> once more; if it is refused again, reply with the full result, so the parent can
+> validate it by `result_ref`. If the call cannot reach the server, wait about a minute
+> and try once more; if it still fails, reply with the full result. If the tool is not
+> available to you, reply with the full result instead.
 
-The reply line carries no work, and the parent does not validate it: validation would only
-answer `valid: false`: while the node still takes a submission the map counts that as an
-invalid one, and once the contract has its result it refuses it and writes nothing. The
-parent calls `workmap_view(task_id, since=<last revision>)` or reads the node instead. This changes one protocol duty for bound packages
+The reply line carries no work, and the parent neither validates nor submits it: either
+would only answer `valid: false`, and a submission would count as an invalid one while
+the node still takes it. The parent calls `workmap_view(task_id, since=<last revision>)` or reads the node instead. This changes one protocol duty for bound packages
 only, as the description of `validate_subagent_result` states: the server's record of a
 valid submission against the contract the parent prepared takes the place of the parent's
 own `validate_subagent_result` call. The parent trusts the node, never the reply line, so
 a worker that claims a submission it did not make leaves its node `prepared`. Where a
 worker cannot reach the server (a sandboxed runner, a host without MCP in its workers),
-the fallback is today's exchange: the full result arrives, the parent reads the node and,
-only while it is still `prepared`, validates the result by `result_ref`, and the node is
-updated the same way. The parent's context then holds that result, which the node marks
+the fallback is today's exchange: the full result arrives, the parent reads the node and
+validates the result by `result_ref`, and only while the node is still `prepared` submits
+it with `workmap_submit` by the same `result_ref`, which records it. The parent's context then holds that result, which the node marks
 as `hand-back: full`.
 
 ### Verification by risk
@@ -345,8 +351,8 @@ description of `validate_subagent_result` states the exception for bound package
 2. Read `workmap_view(task_id)` for the `ready:` list. For each ready stage, prepare a
    bound package with its `workmap_inputs`, launch the worker in the background with the
    receipt's arguments, and keep working.
-3. On each one-line hand-back, read the map with `since`; validate only a full hand-back,
-   and only while its node is still `prepared`.
+3. On each one-line hand-back, read the map with `since`; validate a full hand-back by
+   `result_ref`, and record it with `workmap_submit` only while its node is still `prepared`.
 4. For a node under `needs attention:`, a `not recorded` hand-back or a node left
    `prepared`, read its node record (result status, question, escalation, and the codes of
    the last invalid submission) and decide: a new attempt with the escalation's
@@ -409,7 +415,7 @@ Each step is useful on its own; all six land together in one pull request agains
    can then validate its own draft, map or not.
 2. **The store, `workmap_update` and `workmap_view`**, with `since`.
 3. **Binding and submission:** `workmap_node`, `workmap_inputs`, recording on the node in
-   `validate_subagent_result`, `already_submitted`, the launch text of a bound package.
+   `workmap_submit`, `already_submitted`, the launch text of a bound package.
 4. **Verification by risk:** the verifier mapping and readiness levels.
 5. **The `orchestrate` flow**, the protocol pointer and the reference documentation
    (`docs/mcp-tools.md`, `docs/subagent-contract.md`).

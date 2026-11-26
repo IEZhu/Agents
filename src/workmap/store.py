@@ -127,6 +127,27 @@ class WorkMap:
         return [source for source, target, kind in self.edges if target == node_id and kind == edge_type]
 
 
+class EdgeIndex:
+    """A map's edges by node and type, built in one pass: what a view asks of every node.
+
+    ``WorkMap.targets`` scans every edge, which a whole-map view would repeat once per node; the
+    index answers the same lists, in edge order, from the snapshot it was built from.
+    """
+
+    def __init__(self, workmap: WorkMap):
+        self._targets: dict[tuple[str, str], list[str]] = {}
+        self._sources: dict[tuple[str, str], list[str]] = {}
+        for source, target, kind in workmap.edges:
+            self._targets.setdefault((source, kind), []).append(target)
+            self._sources.setdefault((target, kind), []).append(source)
+
+    def targets(self, node_id: str, edge_type: str) -> list[str]:
+        return self._targets.get((node_id, edge_type), [])
+
+    def sources(self, node_id: str, edge_type: str) -> list[str]:
+        return self._sources.get((node_id, edge_type), [])
+
+
 # What a node holds of its attempt's result; a new preparation sets them back to these values.
 NO_RESULT = {"checks": None, "findings": None, "limitations": 0, "handback": None, "result_status": None,
              "question": None, "escalation": None}
@@ -147,23 +168,28 @@ def _higher(kept: str | None, prepared: object) -> str | None:
 
 
 def _apply_event(workmap: WorkMap, event: dict) -> None:
+    """Apply one event, or raise before changing anything: fold skips an event that raises, so a
+    damaged one must not leave half its change behind (an edge to a missing node, a count)."""
     op, rev = event["op"], event["rev"]
     if op == "add_node":
         workmap.nodes[event["id"]] = _new_node(event)
         return
     if op in ("add_edge", "remove_edge"):
         edge = (event["from"], event["to"], event["type"])
+        ends = [workmap.nodes[node_id] for node_id in edge[:2]]
         if op == "add_edge":
             workmap.edges.append(edge)
         else:
             workmap.edges.remove(edge)
-        for node_id in edge[:2]:
-            workmap.nodes[node_id]["changed"] = rev
+        for node in ends:
+            node["changed"] = rev
         return
     if op == "close":
         workmap.closed = True
         return
     if op == "invalid":
+        if event["id"] not in workmap.nodes:  # a count for a missing node is a damaged event
+            raise KeyError(event["id"])
         revision = event["contract_revision"]
         codes = event.get("codes")
         workmap.invalid[revision] = workmap.invalid.get(revision, 0) + 1
@@ -186,12 +212,13 @@ def _apply_event(workmap: WorkMap, event: dict) -> None:
                           # Optional: the {node: result sha256} the worker was given; none for older events.
                           **({"inputs": dict(event["inputs"])} if isinstance(event.get("inputs"), dict) else {})})
     elif op == "result":
+        sha256 = event["result_sha256"]  # read before the node changes
         node.update(status=event["status"], level=event["level"], summary=event["summary"],
                     checks=event["checks"], findings=event["findings"], limitations=event["limitations"],
                     handback=event["handback"],
                     # Optional: older result events do not carry them.
                     **{key: event.get(key) for key in ("result_status", "question", "escalation")})
-        node["refs"] = {**node["refs"], "result_sha256": event["result_sha256"]}
+        node["refs"] = {**node["refs"], "result_sha256": sha256}
     elif op == "invalid":
         node["status"] = event["status"]
         node["escalation"] = event.get("escalation")
@@ -266,20 +293,23 @@ def settled(node: dict) -> bool:
     return LEVELS.index(node["level"]) >= LEVELS.index(required_level(node))
 
 
-def is_ready(workmap: WorkMap, node: dict) -> bool:
+def is_ready(workmap: WorkMap, node: dict, edges: EdgeIndex | None = None) -> bool:
     """A planned non-goal node whose dependencies are settled and whose verified targets each hold a
-    result that workmap_inputs would take: one in INPUT_STATUSES."""
+    result that workmap_inputs would take: one in INPUT_STATUSES. ``edges`` is an index a caller
+    asking about every node built once; without it the map's own edges are scanned."""
+    edges = workmap if edges is None else edges
     if node["kind"] == "goal" or node["status"] != "planned":
         return False
-    return (all(settled(workmap.nodes[target]) for target in workmap.targets(node["id"], "depends_on"))
+    return (all(settled(workmap.nodes[target]) for target in edges.targets(node["id"], "depends_on"))
             and all(workmap.nodes[target]["status"] in INPUT_STATUSES
                     and "result_sha256" in workmap.nodes[target]["refs"]
-                    for target in workmap.targets(node["id"], "verifies")))
+                    for target in edges.targets(node["id"], "verifies")))
 
 
-def is_stale(workmap: WorkMap, node: dict) -> bool:
+def is_stale(workmap: WorkMap, node: dict, edges: EdgeIndex | None = None) -> bool:
+    edges = workmap if edges is None else edges
     return any(workmap.nodes[target]["status"] in UNSETTLING
-               for target in workmap.targets(node["id"], "depends_on"))
+               for target in edges.targets(node["id"], "depends_on"))
 
 
 def _existing(workmap: WorkMap, node_id: object, where: str) -> dict:
@@ -304,7 +334,7 @@ def _reaches(workmap: WorkMap, start: str, goal: str) -> bool:
 
 def _parent_event(workmap: WorkMap, op: object, where: str) -> dict:
     """One parent operation checked against the draft state, as the event that records it."""
-    if not isinstance(op, dict) or op.get("op") not in OPERATIONS:
+    if not isinstance(op, dict) or not isinstance(op.get("op"), str) or op["op"] not in OPERATIONS:
         raise WorkmapError("invalid_request", f"{where} is an object whose op is one of {', '.join(OPERATIONS)}")
     if workmap.closed:
         raise WorkmapError("map_closed", "the map is closed")
@@ -611,6 +641,9 @@ class WorkmapStore:
             self._append(handle, name, [{"v": FORMAT_VERSION, "task_id": task_id, "node": node_id,
                                          "contract_revision": contract_revision, "sha256": sha256,
                                          "text": text}])
+            # On disk before the map's event names it: a crash between the two writes must not
+            # leave a result event whose text was still only in the page cache.
+            os.fsync(handle.fileno())
 
     def record_result(self, task_id: object, node_id: object, *, contract_revision: str, attempt_id: str,
                       text: str, sha256: str, outcome: dict, handback: str) -> dict:

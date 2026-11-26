@@ -23,16 +23,19 @@ stays with the workers, the server and, where the risk warrants one, a verifier.
    the stage builds on earlier ones, `workmap_inputs`; rate `complexity`. Launch the worker
    in the background with the receipt's `launch` text and `execution.spawn` arguments, and
    keep working.
-3. **Read the node, not the result.** A bound worker hands back one line:
-   `submitted <task>/<node> <sha> <status>`, or `not recorded <task>/<node> <code>` when
-   the map refused a valid result (step 4). Do not validate that line: it carries no
-   result, so validation only answers `valid: false`. The map counts that as an invalid
-   submission while the node still takes one, and refuses it and writes nothing once the
-   contract has its result. Call `workmap_view(task_id, since=<the last revision you
-   read>)` and trust the node, never the line. A worker that could not reach the server hands back its full result instead:
-   read its node first, and validate the result by `result_ref` only while the node is
-   still `prepared`; the node then records it with `hand-back: full`. A node that has
-   moved on already holds what the worker submitted.
+3. **Read the node, not the result.** A bound worker submits its result with
+   `workmap_submit` and hands back one line: `submitted <task>/<node> <sha> <status>`, or
+   `not recorded <task>/<node> <code>` when the map refused a valid result for good
+   (step 4). Neither validate nor submit that line: it carries no result, so it only
+   answers `valid: false`, and `workmap_submit` would count it as an invalid submission
+   while the node still takes one. Call `workmap_view(task_id, since=<the last revision
+   you read>)` and trust the node, never the line. A worker that could not reach the
+   server, or whose submission the map refused twice with a code that is not final
+   (step 4), hands back its full result instead: read its node first, and validate the
+   result by `result_ref`; while the node is still `prepared`, `workmap_submit` with the
+   same `result_ref` validates it the same way and records it with `hand-back: full`. A
+   node that has moved on already holds what the worker submitted.
+   `validate_subagent_result` records nothing.
 4. **Handle what needs you.** The view's `needs attention:` list names nodes in
    `needs_attention` or `disputed`, and every `validated`, `verified` or `accepted` node
    below the level its dependants need (V1, or V2 where the node needs V3). Handle as well a node that stayed
@@ -50,16 +53,20 @@ stays with the workers, the server and, where the risk warrants one, a verifier.
      `validated`), then prepare it again; it keeps its old level and result until then.
      Or verify it (step 5), or accept it when it suffices (step 6; a `routine` or
      `load_bearing` node only).
-   - **`not recorded`.** The result was valid, but the map did not take it:
-     `already_submitted` (a different result is already recorded for that contract),
-     `stale_contract` (the node was prepared again since), `node_not_open` (the map is
-     closed or the node was settled or set aside) or `workmap_unavailable` (the map could
-     not be written). The worker does not resubmit, and a new result needs a new attempt.
-   - **Other codes.** The store's own `unknown_map`, `unknown_node`, `key_collision`,
-     `store_full` and `unsafe_store` can reach the parent too, in a `not recorded` line or
-     as an error of `get_subagent_context`, which also answers `workmap_unavailable`.
-     Retry `workmap_unavailable` once. Report any of the others to the user: a wrong
-     `task_id` or node, a full store and an unsafe directory are not the parent's to repair.
+   - **`not recorded`.** The result was valid, but the map will never take it for that
+     contract: `already_submitted` (a different result is already recorded for it),
+     `stale_contract` (the node was prepared again since) or `node_not_open` (the map is
+     closed or the node was settled or set aside). The worker does not resubmit, and a
+     new result needs a new attempt.
+   - **A full result after a refusal.** Any other refusal, `workmap_unavailable` (the map
+     could not be read or written) or the store's own `store_full`, `unsafe_store`,
+     `unknown_map`, `key_collision` or `unknown_node`, makes the worker submit once more
+     and, refused again, hand back its full result, so the result is not lost: validate it
+     by `result_ref` (step 3). After `workmap_unavailable`, submit it once with
+     `workmap_submit` by that `result_ref`. Report the others to the user: a wrong
+     `task_id` or node, a full store and an unsafe directory are not the parent's to
+     repair. `get_subagent_context` answers the same codes as errors; retry its
+     `workmap_unavailable` once.
    - **Still `prepared`.** The worker submitted nothing the map took. A worker whose call
      cannot reach the server waits about a minute, tries once more and then hands back its
      full result (step 3); one without the tool hands it back at once. A `submitted` line

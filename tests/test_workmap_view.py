@@ -1,8 +1,10 @@
 """Work-map views: dependency order, budgets, deltas and node records."""
+import time
+
 import pytest
 
 from src.workmap.store import INVALID_LIMIT, WorkmapStore, fold, map_key
-from src.workmap.view import render_list, render_map, render_node
+from src.workmap.view import ordered, render_list, render_map, render_node
 
 TASK = "task-1"
 
@@ -157,3 +159,48 @@ def test_a_node_record_shows_the_optional_result_fields_when_present(store):
 
 def test_the_list_names_each_map_with_its_goal(store):
     assert render_list(store.list_maps()) == "task-1 · revision 5 · Ship the feature · planned 3"
+
+
+def chain(count):
+    """A map of ``count`` stages, each depending on the one before, created last first."""
+    events = [{"op": "open", "task_id": TASK, "rev": 1}]
+    for index in reversed(range(count)):
+        events.append({"op": "add_node", "id": f"s{index}", "kind": "stage", "title": f"Stage {index}",
+                       "summary": "", "risk": "routine", "rev": len(events) + 1})
+    for index in range(1, count):
+        events.append({"op": "add_edge", "from": f"s{index}", "to": f"s{index - 1}", "type": "depends_on",
+                       "rev": len(events) + 1})
+    return fold(events)
+
+
+def test_a_long_dependency_chain_renders_in_dependency_order_quickly():
+    workmap = chain(800)
+    started = time.perf_counter()
+    text = render_map(workmap, budget=8000)
+    elapsed = time.perf_counter() - started
+    assert [node["id"] for node in ordered(workmap)] == [f"s{index}" for index in range(800)]
+    assert text.splitlines()[1] == "[planned V0] s0: Stage 0" and "ready: s0" in text
+    assert elapsed < 0.5, elapsed
+
+
+def test_ordering_keeps_rounds_and_creation_order_and_survives_a_damaged_cycle():
+    events = [{"op": "open", "task_id": TASK, "rev": 1}]
+    for name in ("b", "a", "c", "d", "e"):
+        events.append({"op": "add_node", "id": name, "kind": "stage", "title": name.upper(), "summary": "",
+                       "risk": "routine", "rev": len(events) + 1})
+    # b after a; d and e depend on each other, a cycle only a damaged log can hold.
+    for source, target in (("b", "a"), ("d", "e"), ("e", "d")):
+        events.append({"op": "add_edge", "from": source, "to": target, "type": "depends_on",
+                       "rev": len(events) + 1})
+    assert [node["id"] for node in ordered(fold(events))] == ["a", "c", "b", "d", "e"]
+
+
+def test_a_node_line_names_ten_dependencies_and_counts_the_rest(tmp_path):
+    store = WorkmapStore(tmp_path)
+    store.apply(TASK, [{"op": "add_node", "id": f"dep-{index:02d}", "title": "Dependency"}
+                       for index in range(25)] + [{"op": "add_node", "id": "wide", "title": "Wide"}])
+    store.apply(TASK, [{"op": "add_edge", "from": "wide", "to": f"dep-{index:02d}", "type": "depends_on"}
+                       for index in range(25)])
+    [line] = [line for line in render_map(store.load(TASK), budget=8000).splitlines()
+              if line.startswith("[planned V0] wide")]
+    assert line.endswith(f"(after {', '.join(f'dep-{index:02d}' for index in range(10))} and 15 more)")

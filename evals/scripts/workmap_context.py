@@ -18,7 +18,7 @@ import statistics
 import sys
 
 RECEIPT_PREFIXES = ("submitted ", "not recorded ")
-PARENT_TOOLS = frozenset({"workmap_view", "workmap_update", "validate_subagent_result"})
+PARENT_TOOLS = frozenset({"workmap_view", "workmap_update", "workmap_submit", "validate_subagent_result"})
 
 
 def _strings(value) -> list[str]:

@@ -1,4 +1,5 @@
-"""The two work-map tools over the registered workspace."""
+"""The work-map tools over the registered workspace."""
+import hashlib
 import json
 
 import pytest
@@ -82,5 +83,37 @@ def test_the_tool_texts_state_the_goal_dependency_refusal_and_the_registered_wor
     docstring = " ".join(server.workmap_update.__doc__.split())
     assert "and so is a depends_on edge onto a goal" in docstring
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-    node = tools["get_subagent_context"].inputSchema["properties"]["workmap_node"]["description"]
-    assert "registered workspace" in node and "no workspace argument" in node
+    assert "workspace" in tools["get_subagent_context"].inputSchema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_a_stored_result_too_large_to_show_is_named_by_its_hash(served):
+    """128,000 control characters show as \\u00XX escapes, far past the ceiling a result may take."""
+    store = WorkmapStore(served)
+    store.apply(TASK, [{"op": "add_node", "id": "x", "title": "X"}])
+    store.record_prepared(TASK, "x", contract_revision="a" * 64, attempt_id="1", complexity=None)
+    text = "\x01" * MAX_RESULT_CHARS
+    sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    store.record_result(TASK, "x", contract_revision="a" * 64, attempt_id="1", text=text, sha256=sha256,
+                        outcome={"status": "validated", "level": "V1", "summary": "Control characters",
+                                 "checks": {"passed": 0, "failed": 0, "not_run": 0}, "findings": None,
+                                 "limitations": 0}, handback="line")
+    payload = await server.workmap_view(task_id=TASK, node="x", detail="result")
+    refused = json.loads(payload)
+    assert refused["status"] == "error" and refused["code"] == "result_too_large"
+    assert refused["result_sha256"] == sha256 and refused["result_chars"] == MAX_RESULT_CHARS
+    assert "result" not in refused and len(payload) < 2_000
+    assert json.loads(await server.workmap_view(task_id=TASK, node="x"))["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_a_stored_result_that_fits_is_returned_whole(served):
+    store = WorkmapStore(served)
+    store.apply(TASK, [{"op": "add_node", "id": "x", "title": "X"}])
+    store.record_prepared(TASK, "x", contract_revision="a" * 64, attempt_id="1", complexity=None)
+    text = "plain text " * 11_000
+    store.record_result(TASK, "x", contract_revision="a" * 64, attempt_id="1", text=text,
+                        sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        outcome={"status": "validated", "level": "V1", "summary": "Plain"}, handback="line")
+    shown = json.loads(await server.workmap_view(task_id=TASK, node="x", detail="result"))
+    assert shown["status"] == "ok" and shown["result"] == text

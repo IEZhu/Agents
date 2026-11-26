@@ -313,8 +313,9 @@ preserve them.
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
   shared response schemas live in `src/schemas/protocol.py`. Over stdio the
-  persona tools, `log_interaction` and `describe_repo` return their JSON object
-  once instead of inside `{"result": <text>}` (`SINGLE_ENCODED_TOOLS`), and a
+  persona tools, `log_interaction`, `describe_repo` and the work-map tools return
+  their JSON object once instead of inside `{"result": <text>}`
+  (`SINGLE_ENCODED_TOOLS`), and a
   semantic-cache miss is ranked by `SemanticRouter.cold_ranking`
   (`src/engine/router.py`) into a shortlist, or under the headless profile into a
   direct load ([docs/routing_flow.md](docs/routing_flow.md#a-cache-miss)).

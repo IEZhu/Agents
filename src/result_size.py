@@ -9,11 +9,11 @@ gives the model a pointer instead, unless the tool declares a larger
 second time: a quote it wrote as ``\\"`` shows as four characters, a control character it
 wrote as ``\\u00XX`` as seven.
 
-Over stdio the persona tools, ``log_interaction`` and ``describe_repo`` answer with the JSON object
-itself as structured content (``SINGLE_ENCODED_TOOLS`` in ``src/server.py``, #734), so Claude Code
-shows it escaped once. ``shown_size`` still measures the ``{"result": ...}`` form, which the shared
-service and every other string-valued tool return; for those five tools over stdio it is the
-conservative side: it counts more than Claude Code shows.
+Over stdio the persona tools, ``log_interaction``, ``describe_repo`` and the three work-map tools
+answer with the JSON object itself as structured content (``SINGLE_ENCODED_TOOLS`` in
+``src/server.py``, #734), so Claude Code shows it escaped once. ``shown_size`` still measures the
+``{"result": ...}`` form, which the shared service and every other string-valued tool return; for
+those tools over stdio it is the conservative side: it counts more than Claude Code shows.
 """
 from __future__ import annotations
 

@@ -404,6 +404,21 @@ async def test_workmap_update_refuses_another_workspace_and_writes_nothing(repos
 
 
 @pytest.mark.asyncio
+async def test_a_bound_package_for_another_workspace_is_refused_and_writes_nothing(repositories):
+    registered, other, _inside = repositories
+    ctx = http_context(registered)
+    await server.workmap_update(task_id="t", ops=[{"op": "add_node", "id": "stage", "title": "Registered"}],
+                                ctx=ctx)
+    before = {path.name: path.read_bytes() for path in (registered / "data" / "workmap").iterdir()}
+    refused = (await server.get_subagent_context(
+        agent_name="engineer", task="Map it", acceptance_criteria=["Mapped"], task_id="t",
+        workmap_node="stage", ctx=ctx, workspace=str(other))).model_dump(mode="json")
+    assert refused["status"] == "error" and refused["errors"][0]["code"] == "workspace_mismatch"
+    assert {path.name: path.read_bytes() for path in (registered / "data" / "workmap").iterdir()} == before
+    assert not (other / "data").exists()
+
+
+@pytest.mark.asyncio
 async def test_workmap_view_reads_the_registered_map_and_notes_another_workspace(repositories):
     registered, other, _inside = repositories
     ctx = http_context(registered)
@@ -442,7 +457,8 @@ HISTORY_TOOLS = frozenset({"log_interaction", "read_history"})
 CLAIM_WRITE_TOOLS = frozenset({"claim_record"})
 CLAIM_READ_TOOLS = frozenset({"claim_lookup"})
 CLAIM_TOOLS = CLAIM_WRITE_TOOLS | CLAIM_READ_TOOLS
-WORKMAP_WRITE_TOOLS = frozenset({"workmap_update"})
+# get_subagent_context marks a bound package's node prepared, so it refuses like workmap_update.
+WORKMAP_WRITE_TOOLS = frozenset({"workmap_update", "get_subagent_context"})
 WORKMAP_READ_TOOLS = frozenset({"workmap_view"})
 # Reads the registered workspace's project and notes an argument outside it like history; the
 # behaviour is checked in tests/test_shared_memory.py, which fakes the clients' memory stores.

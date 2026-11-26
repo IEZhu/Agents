@@ -44,6 +44,14 @@ IGNORE_FILE = ".gitignore"
 IGNORE_TEXT = b"*\n"
 # Windows' lstat reports a directory junction as a directory; only this attribute tells it apart.
 REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+# Reparse tags under which a directory stands for another path: a symbolic link, a junction or
+# mount point, and any tag carrying the name-surrogate bit (winnt.h's IsReparseTagNameSurrogate).
+# Other tags, such as a cloud-files placeholder, leave the directory where it is. The stat module
+# defines the two tags on Windows only, where lstat reports them; the fallbacks are never compared
+# against a real tag elsewhere.
+NAME_SURROGATE_TAGS = frozenset({getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
+                                 getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)})
+NAME_SURROGATE_BIT = 0x20000000
 
 
 class StoreError(ValueError):
@@ -65,8 +73,20 @@ def owned_by_caller(info: os.stat_result) -> bool:
 
 
 def plain_directory(info) -> bool:
-    """A directory that is neither a symbolic link nor, on Windows, a junction or other reparse point."""
-    return stat.S_ISDIR(info.st_mode) and not getattr(info, "st_file_attributes", 0) & REPARSE_POINT
+    """A directory (from lstat) that is neither a symbolic link nor, on Windows, a reparse point
+    standing for another path: a junction, a mount point or another name surrogate.
+
+    A reparse point whose tag is no name surrogate, such as a synced folder's placeholder, is a
+    plain directory. Without a tag to tell them apart, every reparse point is refused.
+    """
+    if not stat.S_ISDIR(info.st_mode):
+        return False
+    if not getattr(info, "st_file_attributes", 0) & REPARSE_POINT:
+        return True
+    tag = getattr(info, "st_reparse_tag", 0)
+    if not isinstance(tag, int) or not tag:
+        return False
+    return tag not in NAME_SURROGATE_TAGS and not tag & NAME_SURROGATE_BIT
 
 
 def real_directory(path: Path, *, private: bool = False) -> None:

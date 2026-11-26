@@ -2,6 +2,7 @@
 import hashlib
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -85,7 +86,7 @@ async def test_a_worker_submission_is_recorded_on_its_node(worker_tree, served):
     assert "submitted task-1/map-code" in package_text
     assert "Submit the result and reply exactly as it says." in receipt["launch"]
     result = text_result_for(receipt)
-    validated = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    validated = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                         "result": result})
     assert validated["valid"] is True
     assert validated["workmap"] == {"task_id": TASK, "node": "map-code", "status": "validated",
@@ -99,9 +100,9 @@ async def test_a_worker_submission_is_recorded_on_its_node(worker_tree, served):
 async def test_a_different_second_submission_is_refused(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
     first = text_result_for(receipt)
-    await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"], "result": first})
+    await call("workmap_submit", {"contract_revision": receipt["contract_revision"], "result": first})
     second = first.replace("Checked the log path.", "Checked another path.")
-    refused = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    refused = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                       "result": second})
     assert refused["valid"] is True and refused["errors"] == []
     assert refused["workmap"]["refused"] == "already_submitted"
@@ -113,7 +114,7 @@ async def test_a_different_second_submission_is_refused(worker_tree, served):
 async def test_a_result_for_a_superseded_attempt_is_refused_as_stale_but_stays_valid(worker_tree, served):
     first = await call("get_subagent_context", request(workmap_node="map-code"))
     await call("get_subagent_context", request(workmap_node="map-code", attempt_id="2"))
-    stale = await call("validate_subagent_result", {"contract_revision": first["contract_revision"],
+    stale = await call("workmap_submit", {"contract_revision": first["contract_revision"],
                                                     "result": text_result_for(first)})
     assert stale["valid"] is True and stale["workmap"]["refused"] == "stale_contract"
     assert WorkmapStore(served).result_text(TASK, "map-code") is None
@@ -124,7 +125,7 @@ async def test_a_result_for_a_node_the_parent_settled_is_refused_but_stays_valid
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
     WorkmapStore(served).apply(TASK, [{"op": "update_node", "id": "map-code", "status": "refuted",
                                        "reason": "Decided"}])
-    refused = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    refused = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                       "result": text_result_for(receipt)})
     assert refused["valid"] is True and refused["workmap"]["refused"] == "node_not_open"
     assert refused["workmap"]["status"] == "refuted"
@@ -133,7 +134,7 @@ async def test_a_result_for_a_node_the_parent_settled_is_refused_but_stays_valid
 @pytest.mark.asyncio
 async def test_a_recorded_submission_carries_no_refusal(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
-    validated = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    validated = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                         "result": text_result_for(receipt)})
     assert "refused" not in validated["workmap"]
 
@@ -141,22 +142,30 @@ async def test_a_recorded_submission_carries_no_refusal(worker_tree, served):
 @pytest.mark.asyncio
 async def test_the_package_states_the_submission_rules(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
-    package = open(receipt["context_path"], encoding="utf-8").read()
+    package = " ".join(open(receipt["context_path"], encoding="utf-8").read().split())
+    revision = receipt["contract_revision"]
     for sentence in ("Submit only your finished result: the first valid submission is final.",
-                     "If it answers valid: true with workmap.refused set, do not resubmit; reply with one "
-                     "line: not recorded task-1/map-code <that code>.",
+                     f'workmap_submit(contract_revision="{revision}", result=<your complete result text>)',
+                     "If workmap.refused is already_submitted, stale_contract or node_not_open, do not "
+                     "resubmit; reply with one line: not recorded task-1/map-code <that code>.",
+                     "If it is workmap_unavailable, store_full, unsafe_store, unknown_map, key_collision or "
+                     "any other code, submit the same result once more; if it is refused again, reply with "
+                     "the full result, so the parent can validate it by result_ref.",
                      "If the call cannot reach the server, wait about a minute and try once more; if it "
                      "still fails, reply with the full result."):
         assert sentence in package, sentence
+    assert "validate_subagent_result(" not in package
     unbound = await call("get_subagent_context", request())
     text = open(unbound["context_path"], encoding="utf-8").read()
     assert "If it answers contract_unknown, reply with your result unchecked." in text
+    assert f'validate_subagent_result(contract_revision="{unbound["contract_revision"]}"' in text
+    assert "workmap_submit" not in text
 
 
 @pytest.mark.asyncio
 async def test_an_invalid_submission_is_counted(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
-    invalid = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    invalid = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                       "result": "not a result"})
     assert invalid["valid"] is False and "workmap" not in invalid
     assert WorkmapStore(served).load(TASK).invalid == {receipt["contract_revision"]: 1}
@@ -165,10 +174,10 @@ async def test_an_invalid_submission_is_counted(worker_tree, served):
 @pytest.mark.asyncio
 async def test_validating_the_one_line_hand_back_of_a_recorded_node_leaves_the_node_alone(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
-    validated = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    validated = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                         "result": text_result_for(receipt)})
     line = f"submitted {TASK}/map-code {validated['result_sha256'][:12]} validated"
-    invalid = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    invalid = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                       "result": line})
     assert invalid["valid"] is False and "workmap" not in invalid
     workmap = WorkmapStore(served).load(TASK)
@@ -181,9 +190,56 @@ async def test_an_inline_contract_never_records_on_a_map(worker_tree, served):
     stored = server.subagent_exchange.load_contract(receipt["contract_revision"])
     validated = await call("validate_subagent_result", {"contract": stored, "result": text_result_for(receipt)})
     assert validated["valid"] is True and "workmap" not in validated
+    refused = await call("workmap_submit", {"contract": stored, "result": text_result_for(receipt)})
+    assert refused["valid"] is False and refused["errors"][0]["code"] == "extra_forbidden"
     node = WorkmapStore(served).load(TASK).nodes["map-code"]
     assert node["status"] == "prepared"
     assert WorkmapStore(served).result_text(TASK, "map-code") is None
+
+
+def map_bytes(served):
+    return {path.name: path.read_bytes() for path in (served / "data" / "workmap").iterdir()}
+
+
+@pytest.mark.asyncio
+async def test_validating_a_bound_contract_records_nothing(worker_tree, served, tmp_path):
+    receipt = await call("get_subagent_context", request(workmap_node="map-code"))
+    before = map_bytes(served)
+    result_file = tmp_path / "handback.md"
+    result_file.write_bytes(text_result_for(receipt).encode("utf-8"))
+    for arguments in ({"result": text_result_for(receipt)}, {"result_ref": str(result_file)},
+                      {"result": "not a result"}):
+        response = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+                                                           **arguments})
+        assert "workmap" not in response
+    assert map_bytes(served) == before
+    workmap = WorkmapStore(served).load(TASK)
+    assert workmap.nodes["map-code"]["status"] == "prepared" and workmap.invalid == {}
+
+
+@pytest.mark.asyncio
+async def test_workmap_submit_records_the_first_valid_submission_and_refuses_a_second(worker_tree, served):
+    receipt = await call("get_subagent_context", request(workmap_node="map-code"))
+    first = text_result_for(receipt)
+    recorded = await call("workmap_submit", {"contract_revision": receipt["contract_revision"], "result": first})
+    assert recorded["valid"] is True and recorded["workmap"]["status"] == "validated"
+    assert "refused" not in recorded["workmap"] and recorded["workmap"]["duplicate"] is False
+    again = await call("workmap_submit", {"contract_revision": receipt["contract_revision"], "result": first})
+    assert again["workmap"]["duplicate"] is True
+    second = first.replace("Checked the log path.", "Checked another path.")
+    refused = await call("workmap_submit", {"contract_revision": receipt["contract_revision"], "result": second})
+    assert refused["valid"] is True and refused["workmap"]["refused"] == "already_submitted"
+    assert WorkmapStore(served).result_text(TASK, "map-code") == first
+
+
+@pytest.mark.asyncio
+async def test_workmap_submit_refuses_an_unbound_contract(worker_tree, served):
+    receipt = await call("get_subagent_context", request())
+    refused = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
+                                            "result": text_result_for(receipt)})
+    assert refused["valid"] is False and refused["errors"][0]["code"] == "workmap_unbound"
+    unknown = await call("workmap_submit", {"contract_revision": "f" * 64, "result": "x"})
+    assert unknown["valid"] is False and unknown["errors"][0]["code"] == "contract_unknown"
 
 
 @pytest.mark.asyncio
@@ -246,7 +302,7 @@ async def test_an_unreadable_map_is_reported_not_raised(worker_tree, served, mon
 
     monkeypatch.setattr(WorkmapStore, method, broken)
     result = text_result_for(receipt) if method == "record_result" else "not a result"
-    response = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    response = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                        "result": result})
     if method == "record_result":
         assert response["valid"] is True and response["errors"] == []
@@ -261,7 +317,7 @@ async def test_identical_bound_arguments_cannot_reopen_an_attempt_that_has_a_res
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
     partial = text_result_for(receipt).replace("status: completed", "status: partial") + (
         "\n\n## remaining_work\n- Fix the second logger")
-    recorded = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    recorded = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                        "result": partial})
     assert recorded["valid"] is True and recorded["workmap"]["status"] == "needs_attention"
     again = await call("get_subagent_context", request(workmap_node="map-code"))
@@ -275,7 +331,7 @@ async def test_identical_bound_arguments_cannot_reopen_an_attempt_that_has_a_res
 async def test_identical_bound_arguments_cannot_reopen_an_attempt_at_the_invalid_limit(worker_tree, served):
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
     for _ in range(5):
-        await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+        await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                 "result": "not a result"})
     again = await call("get_subagent_context", request(workmap_node="map-code"))
     assert again["status"] == "error" and again["errors"][0]["code"] == "attempt_reused"
@@ -293,7 +349,7 @@ def node_of(served, name="map-code"):
 
 
 async def submit_text(receipt, text):
-    return await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    return await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                    "result": text})
 
 
@@ -361,7 +417,7 @@ async def test_a_result_read_from_a_file_is_recorded_as_a_full_handback(worker_t
     receipt = await call("get_subagent_context", request(workmap_node="map-code"))
     path = tmp_path / "handback.md"
     path.write_text(text_result_for(receipt), encoding="utf-8")
-    recorded = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    recorded = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                        "result_ref": str(path)})
     assert recorded["valid"] is True and recorded["workmap"]["status"] == "validated"
     node = node_of(served)
@@ -511,7 +567,7 @@ async def test_a_pinned_verifier_result_applies_its_verdict_end_to_end(artifact_
                               contract_revision=receipt["contract_revision"],
                               contract=SimpleNamespace(result_type="review"))
     text = text_result(package, payload=REVIEW_FINDING[severity])
-    validated = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    validated = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                         "result": text})
     assert validated["valid"] is True and validated["workmap"]["node"] == "check"
     assert node_of(served)["status"] == status and node_of(served)["level"] == level
@@ -535,7 +591,7 @@ async def test_a_target_changed_after_the_verifier_was_prepared_gets_no_verdict_
     package = SimpleNamespace(task_id=receipt["task_id"], attempt_id=receipt["attempt_id"],
                               contract_revision=receipt["contract_revision"],
                               contract=SimpleNamespace(result_type="review"))
-    validated = await call("validate_subagent_result", {
+    validated = await call("workmap_submit", {
         "contract_revision": receipt["contract_revision"], "result": text_result(package)})
     assert validated["valid"] is True
     assert node_of(served)["status"] == "validated"
@@ -553,7 +609,7 @@ async def test_a_clean_review_records_no_findings_and_verifies_its_target_end_to
                               contract=SimpleNamespace(result_type="review"))
     text = text_result(package)
     clean = text.replace(text[text.index("## findings"):text.index("## checks")], "")  # no findings section
-    validated = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    validated = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                         "result": clean})
     assert validated["valid"] is True and validated["workmap"]["status"] == "validated"
     assert node_of(served, "check")["findings"] == {}  # a review with no findings: {}, not None
@@ -568,8 +624,54 @@ async def test_a_generic_result_gives_no_verdict_through_a_verifies_edge_added_l
     receipt = await call("get_subagent_context", request(workmap_node="check", workmap_inputs=["map-code"]))
     assert receipt["status"] == "prepared"
     WorkmapStore(served).apply(TASK, [{"op": "add_edge", "from": "check", "to": "map-code", "type": "verifies"}])
-    validated = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
+    validated = await call("workmap_submit", {"contract_revision": receipt["contract_revision"],
                                                         "result": text_result_for(receipt)})
     assert validated["valid"] is True and validated["workmap"]["status"] == "validated"
     assert node_of(served, "check")["findings"] is None
     assert node_of(served)["status"] == "validated" and node_of(served)["level"] == "V2"
+
+
+@pytest.fixture
+def two_roots(tmp_path, monkeypatch):
+    """A stdio session whose client declares two MCP roots, each its own project."""
+    roots = [tmp_path / "project-a", tmp_path / "project-b"]
+    for root in roots:
+        root.mkdir()
+        (root / "CLAUDE.md").write_text("# Project\n", encoding="utf-8")
+    for name in ("AGENTS_CLIENT_REPO_ROOT", "CLAUDE_PROJECT_DIR", "AGENTS_TRANSPORT"):
+        monkeypatch.delenv(name, raising=False)
+    engine_config._reset_client_repo_root_cache()
+    ctx = SimpleNamespace(session=SimpleNamespace(
+        check_client_capability=lambda _: True,
+        list_roots=AsyncMock(return_value=SimpleNamespace(roots=[SimpleNamespace(uri=root.as_uri())
+                                                                 for root in roots]))))
+    yield ctx, [root.resolve() for root in roots]
+    engine_config._reset_client_repo_root_cache()
+
+
+@pytest.mark.asyncio
+async def test_a_session_with_two_roots_binds_the_map_of_the_workspace_it_names(worker_tree, two_roots):
+    ctx, (first, second) = two_roots
+    applied = json.loads(await server.workmap_update(task_id=TASK, ops=[
+        {"op": "add_node", "id": "map-code", "title": "Map the code"}], ctx=ctx, workspace=str(second)))
+    assert applied["status"] == "applied" and applied["workspace"]["root"] == str(second)
+    unnamed = (await server.get_subagent_context(**request(workmap_node="map-code"), ctx=ctx)).model_dump(
+        mode="json")
+    assert unnamed["status"] == "error" and unnamed["errors"][0]["code"] == "workspace"
+    receipt = (await server.get_subagent_context(**request(workmap_node="map-code"), ctx=ctx,
+                                                 workspace=str(second))).model_dump(mode="json")
+    assert receipt["status"] == "prepared", receipt
+    stored = server.subagent_exchange.load_contract(receipt["contract_revision"])
+    assert stored["workmap"] == {"node": "map-code", "root": str(second)}
+    assert WorkmapStore(second).load(TASK).nodes["map-code"]["status"] == "prepared"
+    assert WorkmapStore(first).load(TASK) is None
+    other = (await server.get_subagent_context(**request(workmap_node="map-code", attempt_id="2"), ctx=ctx,
+                                               workspace=str(first))).model_dump(mode="json")
+    assert other["status"] == "error" and other["errors"][0]["code"] == "unknown_map"
+
+
+@pytest.mark.asyncio
+async def test_the_tool_accepts_a_workspace_argument(worker_tree, served):
+    receipt = await call("get_subagent_context", request(workmap_node="map-code", workspace=str(served)))
+    assert receipt["status"] == "prepared", receipt
+    assert node_of(served)["refs"]["contract_revision"] == receipt["contract_revision"]
