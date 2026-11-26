@@ -264,7 +264,7 @@ def test_a_worker_without_a_manifest_still_gets_the_output_artifact_rule(artifac
     package = prepare_subagent(request(max_context_chars=64000))
     assert isinstance(package, PreparedPackage), package
     for text in ("report a file by its path", "Publish to the artifact store only text the scope authorizes",
-                 "artifact_publish", "artifact_manifest_create", "(32 entries each)",
+                 "artifact_publish", "artifact_manifest_create", "(up to 32 entries each)",
                  "artifact://<manifest_id>/<manifest_sha256>/<artifact_id>", "keep those manifests active",
                  "leave the parent's input manifest untouched"):
         assert text in package.worker_context, text
