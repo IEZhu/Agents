@@ -172,6 +172,8 @@ def _apply_event(workmap: WorkMap, event: dict) -> None:
     damaged one must not leave half its change behind (an edge to a missing node, a count)."""
     op, rev = event["op"], event["rev"]
     if op == "add_node":
+        if event["id"] in workmap.nodes:  # a second add_node would erase the node and its work
+            raise KeyError(event["id"])
         workmap.nodes[event["id"]] = _new_node(event)
         return
     if op in ("add_edge", "remove_edge"):
@@ -196,6 +198,8 @@ def _apply_event(workmap: WorkMap, event: dict) -> None:
         workmap.invalid_codes[revision] = ([code for code in codes if isinstance(code, str)]
                                            if isinstance(codes, list) else [])
         if event.get("status") is None:
+            # The count and codes changed: a delta view since the last revision must show the node.
+            workmap.nodes[event["id"]]["changed"] = rev
             return
     node = workmap.nodes[event["id"]]
     if op == "update_node":
@@ -235,13 +239,14 @@ def _revision(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _committed(events: list):
-    """The well-formed events of complete commits, in order.
+def _commits(events: list):
+    """The complete commits, each as the list of its well-formed events, in order.
 
     A commit is one write of consecutive revisions, each event stamped with the last of them.
     A torn write leaves a run that stops short of that revision, and none of the run applies;
     the next commit reuses its revisions, so a run also ends where the revisions do not follow
-    on. An event without a stamp is a commit of its own.
+    on. An event without a stamp is a commit of its own. A run that reaches its stamp can still
+    have lost its first lines; ``_applied`` refuses it by where it starts.
     """
     run: list[dict] = []
     for event in events:
@@ -252,26 +257,62 @@ def _committed(events: list):
             run = []
         run.append(event)
         if event["rev"] == last:
-            yield from run
+            yield run
             run = []
 
 
-def fold(events: list) -> WorkMap | None:
-    """The state after every committed event, in order; a damaged or foreign line is skipped."""
+def _apply_commit(workmap: WorkMap, events: list) -> WorkMap | None:
+    """The map after every event of one commit, or None when any of them fails to apply.
+
+    A single event raises before it changes anything, so it applies in place; a longer commit
+    is applied to a copy, so that its failing event leaves none of the others behind.
+    """
+    trial = copy.deepcopy(workmap) if len(events) > 1 else workmap
+    try:
+        for event in events:
+            _apply_event(trial, event)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if events:
+        trial.revision = events[-1]["rev"]
+        stamps = [event["at"] for event in events if isinstance(event.get("at"), str)]
+        if stamps:
+            trial.updated = stamps[-1]
+    return trial
+
+
+def _applied(events: list):
+    """The map after each commit that applies, with that commit's events.
+
+    A commit applies whole or not at all. It must start at the revision after the one already
+    applied, so the tail of a commit whose first or middle lines were lost does not apply on its
+    own, and an event that fails to apply discards every other event of its commit.
+    """
     workmap = None
-    for event in _committed(events):
+    for commit in _commits(events):
         if workmap is None:
-            if event.get("op") == "open" and isinstance(event.get("task_id"), str):
-                workmap = WorkMap(task_id=event["task_id"], revision=event["rev"])
-                workmap.updated = event["at"] if isinstance(event.get("at"), str) else ""
+            head = commit[0]
+            if head.get("op") != "open" or not isinstance(head.get("task_id"), str):
+                continue
+            opened = WorkMap(task_id=head["task_id"], revision=head["rev"])
+            opened.updated = head["at"] if isinstance(head.get("at"), str) else ""
+            trial = _apply_commit(opened, commit[1:])
+        elif commit[0]["rev"] != workmap.revision + 1:
             continue
-        try:
-            _apply_event(workmap, event)
-        except (KeyError, TypeError, ValueError):
+        else:
+            trial = _apply_commit(workmap, commit)
+        if trial is None:
             continue
-        workmap.revision = event["rev"]
-        if isinstance(event.get("at"), str):
-            workmap.updated = event["at"]
+        workmap = trial
+        yield workmap, commit
+
+
+def fold(events: list) -> WorkMap | None:
+    """The state after every committed event, in order; a damaged or foreign line is skipped,
+    and with it the rest of its commit."""
+    workmap = None
+    for workmap, _ in _applied(events):
+        pass
     return workmap
 
 
@@ -414,9 +455,10 @@ def _result_of(records: list, contract_revision: str) -> dict | None:
     so the node still waits for it and its contract stays open.
     """
     found = None
-    for event in _committed(records):
-        if event.get("op") == "result" and event.get("contract_revision") == contract_revision:
-            found = event
+    for _, commit in _applied(records):
+        for event in commit:
+            if event.get("op") == "result" and event.get("contract_revision") == contract_revision:
+                found = event
     return found
 
 
@@ -659,6 +701,10 @@ class WorkmapStore:
             node = _existing(workmap, node_id, "workmap.node")
             earlier = _result_of(records, contract_revision)
             if earlier is not None:
+                if node["refs"].get("contract_revision") != contract_revision:
+                    # The node was prepared again: the old contract's result, even repeated, is stale.
+                    raise WorkmapError("stale_contract", f"node {node['id']} was prepared again; this "
+                                                         "contract is no longer its current attempt")
                 if earlier.get("result_sha256") != sha256:
                     raise WorkmapError("already_submitted", "a different result is already recorded for this "
                                                             "contract; a new result needs a new attempt")

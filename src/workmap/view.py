@@ -138,6 +138,11 @@ def _escalation(value: object) -> str:
     return str(value)
 
 
+def _pins(pins: dict) -> str:
+    """Input pins as node=sha256 prefix, so the view says which result each input was."""
+    return ", ".join(f"{node}={str(sha)[:12]}" for node, sha in pins.items())
+
+
 def render_node(workmap: WorkMap, node_id: str) -> str:
     node = workmap.nodes.get(node_id)
     if node is None:
@@ -159,7 +164,7 @@ def render_node(workmap: WorkMap, node_id: str) -> str:
     if shown:
         lines.append("; ".join(shown))
     if node["refs"]:
-        lines.append(" · ".join(f"{key} {', '.join(value) if isinstance(value, dict) else value}"
+        lines.append(" · ".join(f"{key} {_pins(value) if isinstance(value, dict) else value}"
                                 for key, value in node["refs"].items()))
     if node["checks"] is not None:
         checks = node["checks"]

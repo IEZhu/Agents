@@ -269,6 +269,18 @@ def test_a_result_for_an_earlier_attempt_is_refused(store):
     assert raised.value.code == "stale_contract"
 
 
+def test_the_same_result_of_a_contract_after_a_new_attempt_is_stale(store):
+    """A repeated submission of an old contract is refused as stale, not answered as a duplicate."""
+    plan(store)
+    prepare(store)
+    submit(store)
+    store.apply(TASK, [{"op": "update_node", "id": "map-code", "status": "planned"}])
+    prepare(store, revision=SECOND, attempt="2")
+    with pytest.raises(WorkmapError) as raised:
+        submit(store)  # the first contract's identical result
+    assert raised.value.code == "stale_contract"
+
+
 def test_repeated_invalid_submissions_send_the_node_to_needs_attention(store):
     plan(store)
     prepare(store)
@@ -931,6 +943,46 @@ def test_a_committed_edge_to_a_missing_node_is_skipped_whole(damaged):
     assert workmap.edges == [] and workmap.revision == 2
     assert workmap.nodes["a"]["changed"] == 2
     assert render_map(workmap).splitlines()[1] == "[planned V0] a: A"
+
+
+NODE_B = {"op": "add_node", "id": "b", "kind": "stage", "title": "B", "summary": "", "risk": "routine"}
+
+
+def test_a_second_committed_add_node_does_not_replace_the_node():
+    prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
+                "rev": 3}
+    again = {"op": "add_node", "id": "a", "kind": "stage", "title": "Again", "summary": "", "risk": "routine",
+             "rev": 4}
+    workmap = store_module.fold(OPENED + [prepared, again])
+    assert workmap.revision == 3
+    assert workmap.nodes["a"]["title"] == "A" and workmap.nodes["a"]["status"] == "prepared"
+
+
+@pytest.mark.parametrize("lost", [0, 1, 2])
+def test_a_commit_that_lost_a_line_applies_none_of_its_events(lost):
+    commit = [{**NODE_B, "id": f"n{rev}", "rev": rev, "commit": 5} for rev in (3, 4, 5)]
+    assert set(store_module.fold(OPENED + commit).nodes) == {"a", "n3", "n4", "n5"}
+    kept = [event for index, event in enumerate(commit) if index != lost]
+    workmap = store_module.fold(OPENED + kept)
+    assert workmap.revision == 2 and set(workmap.nodes) == {"a"}
+
+
+def test_a_commit_with_an_event_that_fails_applies_none_of_its_events():
+    commit = [{**NODE_B, "rev": 3, "commit": 4},
+              {"op": "add_edge", "from": "b", "to": "ghost", "type": "depends_on", "rev": 4, "commit": 4}]
+    workmap = store_module.fold(OPENED + commit)
+    assert workmap.revision == 2 and set(workmap.nodes) == {"a"} and workmap.edges == []
+    # The writer reuses the discarded revisions, and that commit applies.
+    after = store_module.fold(OPENED + commit + [{**NODE_B, "rev": 3}])
+    assert after.revision == 3 and set(after.nodes) == {"a", "b"}
+
+
+def test_an_invalid_count_below_the_limit_marks_its_node_changed():
+    prepared = {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
+                "rev": 3}
+    invalid = {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": ["x"], "status": None, "rev": 4}
+    workmap = store_module.fold(OPENED + [prepared, invalid])
+    assert workmap.nodes["a"]["changed"] == 4 and workmap.invalid == {FIRST: 1}
 
 
 def test_an_invalid_count_for_a_missing_node_is_skipped():

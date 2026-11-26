@@ -204,3 +204,12 @@ def test_a_node_line_names_ten_dependencies_and_counts_the_rest(tmp_path):
     [line] = [line for line in render_map(store.load(TASK), budget=8000).splitlines()
               if line.startswith("[planned V0] wide")]
     assert line.endswith(f"(after {', '.join(f'dep-{index:02d}' for index in range(10))} and 15 more)")
+
+
+def test_a_node_view_shows_each_input_pin_with_its_result():
+    events = [{"op": "open", "task_id": TASK, "rev": 1},
+              {"op": "add_node", "id": "check", "kind": "stage", "title": "Check", "summary": "", "risk": "routine",
+               "rev": 2},
+              {"op": "prepared", "id": "check", "contract_revision": "a" * 64, "attempt_id": "1",
+               "complexity": None, "inputs": {"map-code": "b" * 64}, "rev": 3}]
+    assert "inputs map-code=" + "b" * 12 in render_node(fold(events), "check")
