@@ -1,8 +1,11 @@
 # Documentation audit — 2026-10-25
 
-**Status:** recorded audit, 2026-10-25, taken before the `dev` to `main`
-promotion. It is evidence for the revisions named below; repeat the
-[documentation refresh](../flows/documentation-refresh.md) for a later one.
+**Status:** recorded audit, 2026-10-25, and a historical record since 2026-11-26.
+The promotion it prepared merged into `main` as
+[#530](https://github.com/IEZhu/Agents/pull/530) on 2026-10-27, tagged
+`v26.10.21.0011`; the [audit of 2026-11-26](documentation-audit-2026-11-26.md)
+covers what `dev` carries beyond `main` at `v26.11.14.1328`. It is evidence for
+the revisions named below.
 
 This records a bounded source-based refresh of Agents-Core at
 `f154a39687f315ef24e51e7bc39b79bab87163b6` (`origin/dev` when fetched for this

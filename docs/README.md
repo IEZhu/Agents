@@ -227,6 +227,7 @@ above are authoritative for current commands and behavior.
 
 ### Recorded audits and validations
 
+- [Documentation audit 2026-11-26](documentation-audit-2026-11-26.md)
 - [Documentation audit 2026-10-25](documentation-audit-2026-10-25.md)
 - [Documentation audit 2026-10-18](documentation-audit-2026-10-18.md)
 - [Legal reference audit 2026-11-07](legal-reference-audit-2026-11-07.md)
