@@ -819,8 +819,9 @@ async def test_default_delivery_is_a_file_receipt(worker_tree):
     assert path.read_text(encoding="utf-8") == inline["worker_context"]
     assert receipt["context_chars"] == len(inline["worker_context"])
     assert str(path) in receipt["launch"] and str(receipt["context_chars"]) in receipt["launch"]
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    if os.name != "nt":  # Windows reports no POSIX permission bits (0o666 for any writable file)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     stored = subagent_exchange.load_contract(receipt["contract_revision"])
     assert contract_fingerprint(stored) == receipt["contract_revision"] == inline["contract_revision"]
     assert len(json.dumps(receipt)) < 2000
@@ -850,7 +851,8 @@ async def test_validation_by_revision_and_reference(worker_tree, tmp_path):
                                                       "result": text})
     assert by_text["valid"], by_text
     result_file = tmp_path / "result.md"
-    result_file.write_text(text, encoding="utf-8")
+    # Bytes, not write_text: on Windows text mode turns "\n" into "\r\n" and changes the hash.
+    result_file.write_bytes(text.encode("utf-8"))
     by_file = await call("validate_subagent_result", {"contract_revision": receipt["contract_revision"],
                                                       "result_ref": str(result_file)})
     assert by_file["valid"] and by_file["result_sha256"] == by_text["result_sha256"]
