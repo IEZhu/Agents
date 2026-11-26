@@ -1,6 +1,6 @@
 # Architecture and invariants
 
-This is the implementation contract for `src/local_inference/`. The recorded base predates these modules; current checks and live capability limits are listed in the [implementation report](implementation-report.md).
+**Status:** implementation contract of the 2026-10-14 handoff for `src/local_inference/`, implemented and disabled by default; current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference). The recorded base predates these modules; the checks that were run and the live capability limits are listed in the [implementation report](implementation-report.md).
 
 ## Component boundary
 

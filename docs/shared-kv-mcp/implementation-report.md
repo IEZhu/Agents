@@ -1,5 +1,7 @@
 # Shared local inference implementation report
 
+**Status:** recorded acceptance checkpoint, 2026-10-15, of the local-inference implementation; it retains its original scope, measurements and limitations. Current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference).
+
 This is a historical checkpoint recorded before the persistent-artifact integration
 PR. References to uncommitted code, the serving worktree and paused updates
 describe that checkpoint, not the deployment state of a later merged revision.

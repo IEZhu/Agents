@@ -1,5 +1,7 @@
 # Validation and acceptance protocol
 
+**Status:** validation and acceptance protocol of the 2026-10-14 handoff, run and recorded in the reports named below; current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference).
+
 This file defines implementation acceptance. Results are recorded separately in [implementation-report.md](implementation-report.md), the follow-up [Redis live report](redis-live-report.md) and the [resident deployment report](resident-deployment-report.md); the existence of a test row is not evidence that it passed. Historical evidence remains separately identified in evidence.md.
 
 ## Deterministic acceptance matrix

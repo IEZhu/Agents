@@ -1,5 +1,7 @@
 # Ordered implementation plan
 
+**Status:** ordered implementation plan of the 2026-10-14 handoff, implemented; current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference). The steps below keep their original wording, including the branch, paths and interpreter of the checkout they were written for.
+
 Execute these steps in order. The API and architecture are the contract; adjust this document if a necessary implementation change is discovered, explain why, and keep examples/tests consistent. Do not silently substitute a different feature.
 
 ## Step 0: establish the checkout and test environment

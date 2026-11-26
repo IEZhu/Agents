@@ -1,10 +1,10 @@
 # Task-scoped subagent context and exchange contract
 
-Status: implemented; mandatory delegation guidance updated 2026-10-11; compact
-exchange added 2026-10-24; text-result diagnostics collected 2026-11-06;
-truncation marker and diagnostic order added 2026-11-14.
-Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This reference describes
-the implemented worker API; the ordinary persona protocol remains version 2.
+This reference describes the implemented worker API; the ordinary persona protocol
+remains version 2. The mandatory delegation guidance was updated on 2026-10-11, the
+compact exchange added on 2026-10-24, text-result diagnostics collected on 2026-11-06,
+and the truncation marker and diagnostic order added on 2026-11-14.
+Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291).
 
 ## Problem and goals
 

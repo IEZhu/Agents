@@ -1,6 +1,6 @@
 # Proposed MCP contract
 
-All names and schemas below are new API requirements. None is a claim that these tools exist on the base branch. Public result schema version: `agents-core/local-inference/1`.
+**Status:** proposed MCP contract of the 2026-10-14 handoff, implemented in `src/local_inference/` and disabled by default; current behavior is documented in [local inference operations](../shared-mcp-daemon.md#local-inference). All names and schemas below were new API requirements at that date. None is a claim that these tools existed on the base branch. Public result schema version: `agents-core/local-inference/1`.
 
 ## Common rules
 
