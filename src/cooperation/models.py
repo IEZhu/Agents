@@ -19,6 +19,8 @@ MAX_REQUEST_BYTES = 32 * 1024
 MAX_EVENT_BYTES = MAX_REQUEST_BYTES
 MAX_JSON_DEPTH = 8
 MAX_ITEMS = 50
+ACKNOWLEDGEMENT_TIMEOUT_SECONDS = 3600
+MAX_ACKNOWLEDGEMENT_TIMEOUT_SECONDS = 86400
 
 
 def _nonblank(value: str) -> str:
@@ -169,7 +171,13 @@ class AgreementTerms(StrictModel):
     priority: Priority = Field(default_factory=Priority)
     checkpoint: CheckpointSpec
     completion_conditions: Annotated[list[Text], Field(min_length=1, max_length=MAX_ITEMS)]
-    acknowledgement_timeout_seconds: int = Field(default=120, ge=1, le=120)
+    # A peer that acts only at its turn boundaries answers minutes or hours
+    # later, past the 120-second heartbeat deadline, so the window has to span
+    # a turn gap. A pending proposal reserves nothing, and the proposer can
+    # cancel it; the bound still lets an unanswered one expire.
+    acknowledgement_timeout_seconds: int = Field(
+        default=ACKNOWLEDGEMENT_TIMEOUT_SECONDS, ge=1, le=MAX_ACKNOWLEDGEMENT_TIMEOUT_SECONDS,
+        description="Seconds every required participant has to acknowledge; cover the peer's gap between turns.")
 
 
 class DeclareIntent(StrictModel):

@@ -553,8 +553,9 @@
               "type": "array"
             },
             "acknowledgement_timeout_seconds": {
-              "default": 120,
-              "maximum": 120,
+              "default": 3600,
+              "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+              "maximum": 86400,
               "minimum": 1,
               "title": "Acknowledgement Timeout Seconds",
               "type": "integer"
@@ -2067,8 +2068,9 @@
               "type": "array"
             },
             "acknowledgement_timeout_seconds": {
-              "default": 120,
-              "maximum": 120,
+              "default": 3600,
+              "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+              "maximum": 86400,
               "minimum": 1,
               "title": "Acknowledgement Timeout Seconds",
               "type": "integer"
@@ -4067,8 +4069,9 @@
           "type": "array"
         },
         "acknowledgement_timeout_seconds": {
-          "default": 120,
-          "maximum": 120,
+          "default": 3600,
+          "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+          "maximum": 86400,
           "minimum": 1,
           "title": "Acknowledgement Timeout Seconds",
           "type": "integer"
@@ -4145,8 +4148,9 @@
               "type": "array"
             },
             "acknowledgement_timeout_seconds": {
-              "default": 120,
-              "maximum": 120,
+              "default": 3600,
+              "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+              "maximum": 86400,
               "minimum": 1,
               "title": "Acknowledgement Timeout Seconds",
               "type": "integer"
@@ -5517,8 +5521,9 @@
               "type": "array"
             },
             "acknowledgement_timeout_seconds": {
-              "default": 120,
-              "maximum": 120,
+              "default": 3600,
+              "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+              "maximum": 86400,
               "minimum": 1,
               "title": "Acknowledgement Timeout Seconds",
               "type": "integer"
@@ -8667,8 +8672,9 @@
               "type": "array"
             },
             "acknowledgement_timeout_seconds": {
-              "default": 120,
-              "maximum": 120,
+              "default": 3600,
+              "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+              "maximum": 86400,
               "minimum": 1,
               "title": "Acknowledgement Timeout Seconds",
               "type": "integer"
@@ -13903,8 +13909,9 @@
               "type": "array"
             },
             "acknowledgement_timeout_seconds": {
-              "default": 120,
-              "maximum": 120,
+              "default": 3600,
+              "description": "Seconds every required participant has to acknowledge; cover the peer's gap between turns.",
+              "maximum": 86400,
               "minimum": 1,
               "title": "Acknowledgement Timeout Seconds",
               "type": "integer"
