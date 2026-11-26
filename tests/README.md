@@ -90,8 +90,8 @@ and formatters, with a guard rejecting embedding-model initialization. See
 [badge scope](../docs/quality-checks.md).
 
 The [User sync workflow](../.github/workflows/user-sync.yml) runs its selected
-library-history and user-sync files intact on Linux and macOS and splits that
-collection across four Windows jobs. It does not run the full regular suite.
+library-history and user-sync files intact on Linux and splits that collection
+across four Windows jobs and two macOS jobs. It does not run the full regular suite.
 Its opt-in `tests.ci_shard` plugin
 assigns each node ID to exactly one shard; ordinary pytest runs stay unchanged.
 To reproduce one part, set `AGENTS_TEST_SHARD_COUNT=4` and
