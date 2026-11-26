@@ -5,10 +5,13 @@ runner with its blinding, the recorder and the analysis are in
 [evals/verifier_accuracy](../evals/verifier_accuracy/__init__.py), driven by the
 [verifier accuracy flow](../flows/verifier-accuracy.md). The 20-item pilot ran on
 2026-11-23; its [report](records/verifier-accuracy-pilot.md) gives the cost per run, the
-blinding result and what in this design proved unworkable. The full run goes in
-stages the owner approves one at a time: the first, 206 of its 890 runs, ran on
+blinding result and what in this design proved unworkable. The full run went in
+stages the owner approved one at a time: the first, 206 of its 890 runs, ran on
 2026-11-24, and its [report](records/verifier-accuracy-stage1.md) gives the projection of
-the whole set. Nothing is applied to the claim filter.
+the whole set. On 2026-11-26 the owner stopped after that stage: with every verdict
+right so far, a run with no wrong verdict would move no prior under the size-weighted
+fallback. No value is applied to the claim filter. The set stays in the control
+directory, so a later stage could still continue it with the same seed, 0.
 It designs steps 6 to 8 of the
 [reliability plan's order of work](delegation-reliability-plan.md#order-of-work)
 (the measurement its layer 6 describes) for the parameters of
@@ -125,6 +128,20 @@ the pilot. These runs measure one configuration; every further configuration the
 routes use, another tier or client, needs its own full run, and until it has one its
 verdicts keep the priors.
 
+**Schedule and stages.** The runner orders the set's clusters by one seed and keeps every
+slot of a cluster's items together. The seed belongs to the set: every attempt record
+names it, and a later run with another seed is refused, so the stages together are
+always the leading clusters of one order. A stage of `n` runs takes the leading
+`n × clusters // slots` clusters, the count the budget holds on average, so every cluster
+has the same chance to be in it and the stage is a simple random sample of clusters
+whose design effect estimates the whole set's. Cutting instead where the leading clusters
+stop fitting `n` would leave out the cluster that crosses the limit, more often a large
+one, and would never take a cluster with more slots than `n`. The price is that a
+stage's slots vary with the clusters drawn and can exceed `n`; `--max-total-usd` still
+caps the spend. [Stage 1](records/verifier-accuracy-stage1.md) was cut the old way, and
+its records predate the seed field: a later run accepts a seed for them only when they hold exactly the leading
+clusters of its order.
+
 ## Recording path
 
 The runner, which alone holds the labels, writes one line per scheduled attempt to
@@ -138,7 +155,7 @@ attempt would bias the completed set.
 ```json
 {"at": "2026-12-01T10:00:00+00:00", "event": "control_attempt",
  "set": "<set id>@<16 hex>", "item": "i117", "stratum": "config_default",
- "truth": false, "arm": "V3", "slot": 2, "status": "verdict",
+ "truth": false, "arm": "V3", "slot": 2, "seed": 0, "status": "verdict",
  "level": "V3", "family": "model", "verdict": "confirmed", "outcome": "FN",
  "task": "<hashed task id>", "attempt_id": "a1", "contract_revision": "<64 hex>",
  "client": "claude", "tier": "standard", "model": "<resolved provider model ID>",
@@ -148,6 +165,8 @@ attempt would bias the completed set.
 - `arm` and `slot` are the scheduled run (`V3` or `V2`, slot 1 or 2), independent of
   `level`, the level the runner assigned, so a missing planned verdict and outcomes by
   arm can be read off the file.
+- `seed` is the schedule seed of the run that wrote the line, the same on every line of
+  a set; the interim look reads it to find the first half.
 - `status` is `verdict`, `abstained` (the verifier could not tell), `invalid` (the
   result failed validation) or `unfinished` (no result within the runner's time limit,
   written when the runner gives up). Only `verdict` lines carry `level`, `verdict` and
@@ -255,7 +274,9 @@ items the simultaneous band excludes 0.95 only for an estimate below about 0.89 
 above about 0.98, and settling 0.97 against 0.95 would take several hundred more items.
 In between the prior stays and the report says the question is open.
 
-The set runs in two halves of 120 items. The look after the first half applies only
+The set runs in two halves of about 120 items. The first half is the stage of half the
+set's slots under the seed the records name: the leading clusters, as many as half the
+slots hold on average. The look after it fits that half's slots alone and applies only
 rule 3 below, at its stricter quantiles, so the final look keeps the joint level close
 to 95 %.
 

@@ -87,7 +87,11 @@ It checks the source-derived README badge as well as navigation and public tool
 references. It installs the runtime test dependencies for the registration and
 flow checks, but starts no model. Declared flow bundles use real source components
 and formatters, with a guard rejecting embedding-model initialization. See
-[badge scope](../docs/quality-checks.md).
+[badge scope](../docs/quality-checks.md). The
+[Verifier accuracy workflow](../.github/workflows/verifier-accuracy.yml) runs
+`test_verifier_accuracy.py` on macOS, where the measurement runs, for pull requests
+and `main`/`dev` pushes that change the harness, its script, that test file or the
+workflow.
 
 The [User sync workflow](../.github/workflows/user-sync.yml) runs its selected
 library-history and user-sync files intact on Linux and macOS and splits that

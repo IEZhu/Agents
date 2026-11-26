@@ -2,10 +2,11 @@
 
 docs/verifier-accuracy-measurement.md, "The runs" and "Recording path". The schedule is two
 V3-arm slots per item and two V2-arm slots per item of the execution subset, in blocks: clusters
-in a seeded order, every slot of a cluster's items together. A run may stop at a stage, the
-complete clusters whose slots fit a run count, so a stage is a cluster sample of the set and its
-design effect estimates the whole set's; within what a run takes, slots are shuffled so arms and
-items interleave. Before each batch a probe worker, launched exactly like a verifier,
+in a seeded order, every slot of a cluster's items together. One seed orders a set: every record
+names it, and a run with another seed is refused. A run may stop at a stage, the leading complete
+clusters, as many as a run count holds on average, so a stage is a simple random sample of the
+set's clusters and its design effect estimates the whole set's; within what a run takes, slots
+are shuffled so arms and items interleave. Before each batch a probe worker, launched exactly like a verifier,
 tries to read the canary file; a read that succeeds, or a probe that never tried, stops the
 run. Every scheduled attempt gets one ``control_attempt`` line, including those a stop or the
 budget left unrun (``unfinished`` with a reason). Printed progress names item IDs and
@@ -38,6 +39,10 @@ class BlindingError(RuntimeError):
     """The canary probe read the canary, or never tried to."""
 
 
+class ScheduleError(control.ControlError):
+    """A run or a look whose schedule is not the set's own: another seed, or none that holds a cluster."""
+
+
 @dataclass(frozen=True)
 class Slot:
     item: str
@@ -54,39 +59,84 @@ def _slots(row: dict) -> list[Slot]:
     return [Slot(row["item"], arm, number) for arm in arms for number in control.SLOTS]
 
 
-def schedule(statements: list[dict], seed: int) -> list[Slot]:
-    """Every slot of the set, cluster by cluster in a seeded order; statements only, never labels."""
+def _blocks(statements: list[dict], seed: int) -> list[list[Slot]]:
+    """Each cluster's slots, the clusters in the seeded order; statements only, never labels."""
     rng = random.Random(seed)
     clusters: dict[str, list[dict]] = {}
     for row in sorted(statements, key=lambda row: row["item"]):
         clusters.setdefault(row["cluster"], []).append(row)
     names = sorted(clusters)
     rng.shuffle(names)
-    slots = []
+    blocks = []
     for name in names:
         members = clusters[name]
         rng.shuffle(members)
-        slots += [slot for row in members for slot in _slots(row)]
-    return slots
+        blocks.append([slot for row in members for slot in _slots(row)])
+    return blocks
+
+
+def schedule(statements: list[dict], seed: int) -> list[Slot]:
+    """Every slot of the set, cluster by cluster in a seeded order; statements only, never labels."""
+    return [slot for block in _blocks(statements, seed) for slot in block]
 
 
 def stage(statements: list[dict], seed: int, runs: int | None) -> list[Slot]:
-    """The leading complete clusters of the schedule whose slots fit ``runs``; all of them for None."""
-    slots = schedule(statements, seed)
-    if runs is None:
-        return slots
+    """The leading complete clusters of the schedule, as many as ``runs`` slots hold on average;
+    all of them for None.
+
+    The count comes from the budget alone, ``runs × clusters // slots``, never from the sizes of
+    the clusters the seed put first, so every cluster has the same chance to be in a stage and a
+    stage is a simple random sample of the set's clusters. Cutting where the leading clusters stop
+    fitting would leave out the cluster that crosses the limit, more often a large one, and would
+    never take a cluster with more slots than the limit. A stage's slots average at most ``runs``
+    and vary with the clusters drawn, so they can exceed it.
+    """
+    blocks = _blocks(statements, seed)
+    if runs is not None and blocks:
+        total = sum(map(len, blocks))
+        count = min(len(blocks), runs * len(blocks) // total)
+        if not count:
+            raise ScheduleError(f"{runs} runs hold no cluster: this set's {len(blocks)} clusters average "
+                                f"{total / len(blocks):.1f} slots.")
+        blocks = blocks[:count]
+    return [slot for block in blocks for slot in block]
+
+
+def schedule_seed(rows: list[dict]) -> int | None:
+    """The schedule seed the attempt records name; None when none does (records older than the field)."""
+    seeds = {row["seed"] for row in rows if "seed" in row}
+    if len(seeds) > 1:
+        raise ScheduleError(f"The attempt records name {len(seeds)} schedule seeds; a set has one.")
+    return next(iter(seeds), None)
+
+
+def check_seed(rows: list[dict], statements: list[dict], seed: int) -> None:
+    """Refuse a seed other than the one the set's records were scheduled with.
+
+    Records written before the seed was recorded name none; their seed is accepted only when the
+    clusters they hold are exactly the leading clusters of its order, as every stage's are.
+    """
+    recorded = schedule_seed(rows)
+    if recorded is not None:
+        if recorded != seed:
+            raise ScheduleError(f"This set is scheduled with seed {recorded}; seed {seed} orders its clusters "
+                                "differently, so its stages would not be the leading clusters of one order.")
+        return
     cluster_of = {row["item"]: row["cluster"] for row in statements}
-    taken, current, block = [], None, []
-    for slot in slots + [None]:
-        cluster = None if slot is None else cluster_of[slot.item]
-        if cluster != current:
-            if len(taken) + len(block) > runs:
-                break
-            taken += block
-            current, block = cluster, []
-        if slot is not None:
-            block.append(slot)
-    return taken
+    held = {cluster_of[row["item"]] for row in rows}
+    leading = {cluster_of[block[0].item] for block in _blocks(statements, seed)[:len(held)]}
+    if held != leading:
+        raise ScheduleError(f"The set's {len(held)} recorded clusters are not the leading clusters of seed "
+                            f"{seed}'s order: run with the seed of the first stage.")
+
+
+def first_half(statements: list[dict], rows: list[dict]) -> list[Slot]:
+    """The interim look's slots: the stage of half the set's slots under the seed the records name."""
+    seed = schedule_seed(rows)
+    if seed is None:
+        raise ScheduleError("No attempt record names a schedule seed, so the first half has no definition; "
+                            "a run of the current runner records it.")
+    return stage(statements, seed, len(schedule(statements, seed)) // 2)
 
 
 @dataclass
@@ -218,7 +268,8 @@ class Runner:
     def _base(self, slot: Slot) -> dict:
         label = self.loaded.labels[slot.item]
         return {"set": self.loaded.set_id, "item": slot.item, "stratum": self.loaded.statements[slot.item]["stratum"],
-                "truth": label["truth"], "arm": slot.arm, "slot": slot.slot, "status": "unfinished", "task": None,
+                "truth": label["truth"], "arm": slot.arm, "slot": slot.slot, "seed": self.seed,
+                "status": "unfinished", "task": None,
                 "attempt_id": None, "contract_revision": None, "client": worker.CLIENT, "tier": None,
                 "model": None, "reasoning_effort": None, "bundle_revision": None}
 
@@ -305,9 +356,11 @@ class Runner:
     def run(self) -> dict:
         # A slot is done once an attempt ran; a placeholder for one that never ran is scheduled again,
         # and stays in the file, so the earlier stop remains on record.
-        done = {(row["item"], row["arm"], row["slot"]) for row in self.recorder.recorded()
-                if not control.is_placeholder(row)}
-        selected = stage(list(self.loaded.statements.values()), self.seed, self.stage_runs)
+        recorded = self.recorder.recorded()
+        statements = list(self.loaded.statements.values())
+        check_seed([row for row in recorded if row.get("set") == self.loaded.set_id], statements, self.seed)
+        done = {(row["item"], row["arm"], row["slot"]) for row in recorded if not control.is_placeholder(row)}
+        selected = stage(statements, self.seed, self.stage_runs)
         pending = [slot for slot in selected if slot.key not in done]
         random.Random(self.seed).shuffle(pending)  # arms and items interleave within what this run takes
         probes = []
@@ -333,7 +386,7 @@ class Runner:
                 for slot in pending[start + self.batch_size:]:  # every scheduled attempt keeps a record
                     self._write({**self._base(slot), "reason": "runner_stopped"})
                 raise
-        return {"scheduled": len(selected), "run": len(pending), "probes": probes,
+        return {"seed": self.seed, "scheduled": len(selected), "run": len(pending), "probes": probes,
                 "spent_usd": round(self.spent, 4)}
 
     def _run_batch(self, batch: list[Slot]) -> None:

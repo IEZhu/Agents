@@ -50,7 +50,7 @@ LEVEL_FAMILY = {"V3": "model", "unsupported": "model", "V1": "model", "V2": "exe
 # Unfinished rows written for a slot that never ran: a resumed run schedules the slot again.
 PLACEHOLDER_REASONS = ("probe_failed", "runner_stopped", "budget")
 # Every line carries these keys; values may be null where the attempt never got that far.
-RECORD_KEYS = ("at", "event", "set", "item", "stratum", "truth", "arm", "slot", "status", "task",
+RECORD_KEYS = ("at", "event", "set", "item", "stratum", "truth", "arm", "slot", "seed", "status", "task",
                "attempt_id", "contract_revision", "client", "tier", "model", "reasoning_effort",
                "bundle_revision")
 VERDICT_KEYS = ("level", "family", "verdict", "outcome")
@@ -151,6 +151,8 @@ def check_record(record: dict) -> None:
         raise ValueError(f"unknown arm or slot: {record['arm']!r} {record['slot']!r}")
     if not isinstance(record["truth"], bool):
         raise ValueError("truth must be a boolean")
+    if not isinstance(record["seed"], int) or isinstance(record["seed"], bool):
+        raise ValueError("seed must be the schedule's integer seed")
     if record["status"] not in STATUSES:
         raise ValueError(f"unknown status {record['status']!r}")
     if record["status"] == "verdict":

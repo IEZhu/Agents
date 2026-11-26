@@ -12,7 +12,8 @@ mean cluster size, the sum of squared cluster sizes over the item count: the des
 a cluster's items fail together, which for unequal clusters exceeds the plain mean. The coverage simulation
 raises a floor under it until every band holds its level. Bands are marginal quantiles:
 0.00625/0.99375 at the final look (Bonferroni over c_model, b_V3, c_execution, b_V2) and
-0.0005/0.9995 at the interim look. The planning look, after a first stage of the run, reports
+0.0005/0.9995 at the interim look, which fits the first half's slots alone and applies rule 3
+only. The planning look, after a first stage of the run, reports
 the final look's bands with no replacement-rule case at all, and projects what the whole set
 would show: the full design simulated at values drawn from the stage's posterior, with the
 stage's design effect and verdict yield. The symmetry, independence and per-stratum checks use
@@ -385,8 +386,16 @@ def cost(rows: list[dict], probes: list[dict]) -> dict:
 
 def analyze(rows: list[dict], statements: dict[str, dict], *, look: str = "final", d_floor: float = 1.0,
             seed: int = 0, resamples: int = 400, probes: list[dict] | None = None,
-            grid: Grid | None = None, coarse: Grid | None = None) -> dict:
-    """The whole report, aggregates only: no statement, label or per-item verdict."""
+            first_half: set[tuple] | None = None, grid: Grid | None = None, coarse: Grid | None = None) -> dict:
+    """The whole report, aggregates only: no statement, label or per-item verdict.
+
+    The interim look reads only the rows of ``first_half``, the ``(item, arm, slot)`` keys of
+    ``runner.first_half``; ``seed`` is the resampling seed, not the schedule's.
+    """
+    if look == "interim":
+        if first_half is None:
+            raise ValueError("The interim look fits the first half alone; pass its slots (runner.first_half).")
+        rows = [row for row in rows if (row["item"], row["arm"], row["slot"]) in first_half]
     rng = np.random.default_rng(seed)
     grid, coarse = grid or Grid(), coarse or Grid(100, 200)
     clusters = {item: row["cluster"] for item, row in statements.items()}
@@ -428,8 +437,11 @@ def analyze(rows: list[dict], statements: dict[str, dict], *, look: str = "final
             for stratum, values in section["strata"].items():
                 if values["below_pooled"]:
                     findings.append(f"{model_name} {level} {stratum}: band wholly below the pooled one (transport)")
-    return {"look": look, "d_floor": d_floor, "tally": tally(rows), "mixed_configuration_items": mixed,
-            "configurations": configurations, "cost": cost(rows, probes or []), "findings": findings}
+    report = {"look": look, "d_floor": d_floor, "tally": tally(rows), "mixed_configuration_items": mixed,
+              "configurations": configurations, "cost": cost(rows, probes or []), "findings": findings}
+    if look == "interim":  # how much of the first half has run: the look is due once all of it has
+        report["first_half"] = {"slots": len(first_half), "launched": len(ran(rows))}
+    return report
 
 
 # --- Coverage simulation ----------------------------------------------------------------------

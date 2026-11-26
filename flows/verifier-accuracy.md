@@ -36,8 +36,8 @@ Run flows/verifier-accuracy.md: analyze the current set.
   `full` builds the 240-item set and runs it (880 runs); it needs the owner's
   explicit go-ahead in the conversation, given after the pilot report and naming
   the cost it accepts. The owner may approve the full set in stages instead: a
-  stage runs the leading complete clusters of the set's schedule that fit a run
-  count, is analyzed with the planning look, and decides only whether the next
+  stage runs the leading complete clusters of the set's schedule that a run
+  count holds on average, is analyzed with the planning look, and decides only whether the next
   stage starts. A stage is part of the full run, never a replacement for it, and
   it proposes no value. `analyze` only reads the current set's records.
 - **The owner decides** the labels that no deterministic check settles (the
@@ -120,11 +120,12 @@ python -m evals.scripts.verifier_accuracy --installation <path> run --concurrenc
 ```
 
 For a stage, add `--stage-runs <n>`. The schedule orders the set's clusters by the
-seed and keeps every slot of a cluster's items together; the stage takes the
-leading complete clusters whose slots fit `n`, so it is a cluster sample of the
-set and its design effect estimates the whole set's. Keep the seed of the first
-stage for every later one; a later run with a larger `--stage-runs`, or none,
-continues where the stage stopped.
+seed and keeps every slot of a cluster's items together; the stage takes as many
+leading complete clusters as `n` slots hold on average, so it is a cluster sample
+of the set and its design effect estimates the whole set's. Its slots can exceed
+`n`. Every record names the seed, and a later run with another `--seed` stops at
+once with exit status 1 and runs nothing: pass the first stage's seed. A later run
+with a larger `--stage-runs`, or none, continues where the stage stopped.
 
 Run it in the background; wait for it to finish instead of polling. A probe
 precedes each batch, and a failed probe stops the run with every remaining
@@ -143,7 +144,11 @@ python -m evals.scripts.verifier_accuracy --installation <path> analyze --output
 ```
 
 It reads the floor under `D` from this set's final-look simulation and refuses to
-analyze without one. Use `--look interim` for the first half of a full run (it applies only rule 3).
+analyze without one. Use `--look interim` once the first half of a full run has
+run: it fits only that half's slots, the leading clusters a stage of half the
+set's slots takes under the seed the records name, applies only rule 3, and
+reports in `first_half` how many of its slots ran. It refuses when no record
+names a seed.
 After a stage, use `--look planning`: the final look's bands with no
 replacement-rule case, and a `planning` section that projects the whole set. The
 projection draws `(c, b)` from the stage's posterior, simulates the full design
