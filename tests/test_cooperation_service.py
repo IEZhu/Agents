@@ -1407,3 +1407,23 @@ def test_a_party_that_recovers_after_the_commit_cannot_execute_on_its_old_consen
     assert h.recover(writer)["status"] == "ok"
     refused = h.acquire(writer, agreement_id="agreement")
     assert (refused.get("error"), refused.get("participant_id")) == ("stale_generation", writer["participant_id"]), refused
+
+
+def test_two_recovered_consenters_can_each_renew_their_consent(h):
+    # Renewing consent never waits on another party's recovery; only the final
+    # acknowledgement needs every earlier consent current.
+    first, second, last = h.register("first"), h.register("second"), h.register("last")
+    proposed = h.apply(first, h.proposal([first, second, last]))["agreement"]
+    assert h.ack(first, proposed)["status"] == "ok"
+    assert h.ack(second, proposed)["status"] == "ok"
+    h.now += TURN_GAP
+    for party in (first, second, last):
+        assert h.recover(party)["status"] == "ok"
+    refused = h.ack(last, proposed)
+    assert refused.get("error") == "stale_generation", refused
+    assert refused.get("participant_id") in (first["participant_id"], second["participant_id"]), refused
+    assert h.ack(first, proposed)["acknowledged"] == sorted([first["participant_id"], second["participant_id"]])
+    assert h.ack(second, proposed)["status"] == "ok"
+    committed = h.ack(last, proposed)
+    assert committed["agreement"]["state"] == "committed", committed
+    assert set(_bindings(committed["agreement"]).values()) == {2}

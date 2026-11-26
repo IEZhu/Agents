@@ -653,25 +653,22 @@ class CooperationService:
         to the execution that gave it.
 
         - ``propose``: every reading is current.
-        - ``acknowledge``: a participant that has already acknowledged this
-          revision is still on the generation that did, since a recovery
-          leaves earlier consent behind. Anyone else, the acknowledging subject
-          included, may have recovered since the proposal: a session that acts
-          only at its turn boundaries recovers at the start of every turn, and
-          consents from its current generation.
-        - ``execute``: every participant is live on the generation whose
-          consent committed the agreement.
+        - ``acknowledge``: anyone may have recovered since the proposal or
+          since consenting. A session that acts only at its turn boundaries
+          recovers at the start of every turn; the subject consents from its
+          current generation, and renewing consent never waits on another
+          party's recovery, or two recovered consenters would block each other.
+        - ``commit``: every party is on the generation that consented, since a
+          recovery leaves earlier consent behind. Only the final
+          acknowledgement reaches it: a renewal by a party that has already
+          consented never completes the set.
+        - ``execute``: the same, and every party is live.
 
         Only execution needs the other participants live. Consent is each
         participant's own act, so a peer's quiet spell does not void it, and
         two sessions that are never live at the same moment can still agree.
         """
         repo = subject["repository_id"]
-        consented = set()
-        if stage == "acknowledge":
-            consented = {row[0] for row in db.execute(
-                "SELECT participant_id FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=?",
-                (repo, action["agreement_id"], action["proposal_revision"]))} - {subject["participant_id"]}
         for identifier, binding in bindings.items():
             participant = self._participant(db, repo, identifier)
             if stage == "execute" or participant["status"] == "cancelled":
@@ -680,7 +677,7 @@ class CooperationService:
                 if binding.get(key) != participant.get(key):
                     raise CooperationError("scope_denied", "Proposal task binding changed")
             current = participant["generation"]
-            if stage == "acknowledge" and identifier not in consented:
+            if stage == "acknowledge":
                 stale = binding["generation"] > current
             else:
                 stale = binding["generation"] != current
@@ -788,7 +785,9 @@ class CooperationService:
         db.execute("INSERT INTO acknowledgements VALUES (?,?,?,?,?) ON CONFLICT DO UPDATE SET body=excluded.body", (repo, agreement["agreement_id"], agreement["proposal_revision"], subject["participant_id"], canonical(acknowledgement)))
         acknowledged = {row[0] for row in db.execute("SELECT participant_id FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=?", (repo, agreement["agreement_id"], agreement["proposal_revision"]))}
         if acknowledged == set(agreement["required_participants"]):
-            holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
+            self._check_bindings(db, subject, agreement,
+                                 {binding["participant_id"]: binding for binding in agreement["task_bindings"]}, "commit")
+            holders ={held["participant_id"]: held for held in bodies(db, "participants", repo)}
             for resource in agreement["terms"]["resources"]:
                 owner = self._participant(db, repo, resource["owner"])
                 if agreement["pattern"] == "handoff":
