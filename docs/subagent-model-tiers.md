@@ -205,18 +205,23 @@ validation of a contract with `execution` to `data/subagent-tiers/ledger.jsonl` 
 the installation (directory mode 0700, file mode 0600, size-capped at 5 MiB with
 one rotated copy). A line holds a timestamp, event, the task ID's SHA-256 prefix,
 the attempt ID, client, complexity, tier, model, effort, source and floor reason
-codes, plus `valid`, result status, failed check count and the escalation tier and
-reason for validations. It never holds task text, context, paths, results or
-workspace names. A write failure is logged and never fails the tool call.
+codes, plus the first 16 characters of the contract revision, `valid`, result status,
+failed check count and the escalation tier and reason for validations. It never holds
+task text, context, paths, results or workspace names. A write failure is logged and
+never fails the tool call.
 
 The ledger is off by default, like the `AGENTS_DEBUG` logs, so that
 `validate_subagent_result` keeps its read-only tool annotation, which clients such
 as Codex use to decide whether a call needs approval. `get_subagent_context` is
 annotated as not read-only because it writes the exchange files
-([compact exchange](subagent-contract.md#compact-exchange)).
+([compact exchange](subagent-contract.md#compact-exchange)), and `workmap_submit`
+because it records the submissions for a contract bound to a work-map node on that
+node ([work-map binding](subagent-contract.md#work-map-binding)).
 
 `scripts/subagent_tiers_report.py` summarizes the ledger per client, tier and
-model: prepared packages, validations, the share accepted without escalation, and
+model, counting each contract once, by its last validation, so a worker's checks of
+its own draft before the parent validates it do not count again: prepared packages,
+validations, the share accepted without escalation, and
 escalations by target tier. Next to those all-time counts, the `recent` column
 (`recent_acceptance` in `--json`) is the acceptance rate with old outcomes fading
 at a 14-day half-life, with a 95 % band, so a model or client change shows up

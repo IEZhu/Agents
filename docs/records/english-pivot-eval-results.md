@@ -18,8 +18,8 @@ models follow English instructions and reason better on non-English requests.
 
 ## Method
 
-The [component ablation harness](../evals/ablation/README.md) with the prepared
-case set [`english_pivot_cases.json`](../evals/datasets/english_pivot_cases.json):
+The [component ablation harness](../../evals/ablation/README.md) with the prepared
+case set [`english_pivot_cases.json`](../../evals/datasets/english_pivot_cases.json):
 24 one-shot, tool-less cases, of which 8 are Russian reasoning tasks, 5 Russian
 requests with text to keep verbatim, 6 Russian tasks where language is the task,
 2 English requests with Russian instructions and 3 English controls. A separate
@@ -38,7 +38,7 @@ compares the two answers of a case in both orders, 48 verdicts per run.
 | `claude-opus-5-5` | cloud routine, Claude Code agents | Opus agents, and separately the Gemini judge | `answers.js` and `judges.js` |
 
 The OpenRouter answers and verdicts come from
-[`evals/ablation/hosted.py`](../evals/ablation/hosted.py); its judge uses the
+[`evals/ablation/hosted.py`](../../evals/ablation/hosted.py); its judge uses the
 criteria of `workflows/judges.js` at temperature 0 with low reasoning. The Opus run
 is on branch `claude/ablation-english-pivot` (`bb322cc`); the OpenRouter runs are
 kept outside the repository.

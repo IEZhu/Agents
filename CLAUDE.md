@@ -11,8 +11,9 @@ Its tools return instructions and contracts, never the answer, and launch no wor
 
 Delegate to any AI worker (subagent, reviewer, verifier) only through
 `get_subagent_context` before spawning and `validate_subagent_result` (`valid: true`)
-before accepting its output; first read both descriptions, which hold the procedure
-and the artifact rules. If either is unavailable, work in the parent and say so,
+before accepting its output (a work-map worker's one-line `submitted` hand-back holds
+no result: read its node with `workmap_view`); first read both descriptions, which hold
+the procedure and the artifact rules. If either is unavailable, work in the parent and say so,
 never with an unprepared, full-persona or unvalidated worker.
 
 A worker given a valid `agents-core/subagent/1` prepared package already has its
@@ -313,8 +314,9 @@ preserve them.
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
   shared response schemas live in `src/schemas/protocol.py`. Over stdio the
-  persona tools, `log_interaction` and `describe_repo` return their JSON object
-  once instead of inside `{"result": <text>}` (`SINGLE_ENCODED_TOOLS`), and a
+  persona tools, `log_interaction`, `describe_repo` and the work-map tools return
+  their JSON object once instead of inside `{"result": <text>}`
+  (`SINGLE_ENCODED_TOOLS`), and a
   semantic-cache miss is ranked by `SemanticRouter.cold_ranking`
   (`src/engine/router.py`) into a shortlist, or under the headless profile into a
   direct load ([docs/routing_flow.md](docs/routing_flow.md#a-cache-miss)).

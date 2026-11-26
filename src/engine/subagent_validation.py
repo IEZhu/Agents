@@ -47,8 +47,12 @@ def contract_fingerprint(contract: dict) -> str:
                         if key != "contract_revision"})
 
 
+# Diagnostic.message is capped at this length in the schema; a longer one is cut.
+DIAGNOSTIC_MESSAGE_MAX = 240
+
+
 def diagnostic(path: str, code: str, message: str) -> Diagnostic:
-    return Diagnostic(path=path[:256], code=code[:80], message=message[:240])
+    return Diagnostic(path=path[:256], code=code[:80], message=message[:DIAGNOSTIC_MESSAGE_MAX])
 
 
 def diagnostics(error: Exception, prefix: str = "$",
@@ -71,6 +75,20 @@ def diagnostics(error: Exception, prefix: str = "$",
 WRAPPER_KEYS = frozenset({"__unparsedToolInput", "unparsedToolInput"})
 
 
+def _field_lists(label: str, names: list[str]) -> list[str]:
+    """`label: a, b.` split over as many messages as the diagnostic cap needs, no name cut."""
+    messages, current = [], ""
+    for name in names:
+        piece = f"{label}: {name}" if not current else f"{current}, {name}"
+        if current and len(piece) + 1 > DIAGNOSTIC_MESSAGE_MAX:
+            messages.append(current + ".")
+            piece = f"{label} (continued): {name}"
+        current = piece
+    if current:
+        messages.append(current + ".")
+    return messages
+
+
 def wrapped_arguments(arguments: dict, fields: dict[str, bool]) -> list[Diagnostic] | None:
     """Diagnostics for a request that arrived as one unnamed field, or None when it did not.
 
@@ -85,13 +103,14 @@ def wrapped_arguments(arguments: dict, fields: dict[str, bool]) -> list[Diagnost
     kind = "string" if isinstance(value, str) else type(value).__name__
     size = len(value) if isinstance(value, str) else len(json.dumps(value, ensure_ascii=False, default=str))
     path = f"$.{key}"
-    required = ", ".join(name for name, needed in fields.items() if needed)
-    optional = ", ".join(name for name, needed in fields.items() if not needed)
+    listed = [diagnostic(path, "arguments_wrapped", message)
+              for label, wanted in (("Required", True), ("Optional", False))
+              for message in _field_lists(label, [name for name, needed in fields.items() if needed is wanted])]
     return [
         diagnostic(path, "arguments_wrapped",
                    f"Arguments arrived as one unnamed field, {key} ({kind}, {size} chars), not as named "
                    "fields. The server cannot read it; resend each field by name."),
-        diagnostic(path, "arguments_wrapped", f"Required: {required}. Optional: {optional}."),
+        *listed,
         diagnostic(path, "arguments_wrapped",
                    f"Limits: request {MAX_REQUEST_CHARS} JSON chars; task and each list item 4000 chars; "
                    "lists 50 items. The tool description lists every limit; load its schema first."),
@@ -198,6 +217,8 @@ class Outcome:
     status: str | None
     failed_checks: int
     escalation: Escalation | None
+    # The validated contract: the ledger counts one outcome per contract, its last validation.
+    contract_revision: str | None = None
 
 
 def _source_position(position: int, dropped: list[int]) -> int:
@@ -298,7 +319,7 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
         escalation = model_tiers.escalation(expected.execution, valid=valid, status=status,
                                             failed_checks=failed_checks)
         outcome = Outcome(expected.task_id, expected.attempt_id, expected.execution, valid, status,
-                          failed_checks, escalation)
+                          failed_checks, escalation, expected.contract_revision)
         return ValidationResponse(valid=valid, errors=errors, escalation=escalation,
                                   result_sha256=digest, truncated=truncated), outcome
 
@@ -359,3 +380,15 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
         if any(evidence_id not in known for evidence_id in ids):
             reject(path, "unknown_evidence_id", "Evidence reference does not identify an evidence item.")
     return finish(errors, report.status, sum(check.status == "failed" for check in report.checks))
+
+
+
+def parsed_report(contract: dict, result: Any):
+    """The result model of an output that ``assess_result`` already found valid."""
+    expected = TaskContract.model_validate(contract)
+    if is_text_result(result):
+        value, _errors, _sources = parse_result(result, expected)
+        value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
+    else:
+        value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
+    return RESULT_MODELS[expected.result_type].model_validate(value)

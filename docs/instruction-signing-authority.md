@@ -124,6 +124,6 @@ head against retained records, not coordinated replacement of the entire local
 boundary. Same-OS-user processes can read both keys and patch state/verifier;
 permissions and local MACs do not provide a stronger isolation boundary.
 
-See [the specification](instruction-signing-spec.md#7-keys-and-trust),
+See [the specification](proposals/instruction-signing-spec.md#7-keys-and-trust),
 [the primitive API](instruction-signing-core.md) and
 [the focused tests](../tests/test_instruction_signing_authority.py).

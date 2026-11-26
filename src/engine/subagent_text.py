@@ -105,7 +105,7 @@ def _bullets(title: str, values: list[str]) -> list[str]:
 
 def render_assignment(contract: dict) -> str:
     """The contract as the worker needs it, without JSON quoting or the parent's budgets."""
-    revision = contract["contract_revision"][:CONTRACT_PREFIX_CHARS]
+    revision = contract["contract_revision"]  # whole, so the worker can submit against it
     lines = ["## Assignment",
              f"task: {contract['task_id']} · attempt: {contract['attempt_id']} · contract: {revision}"
              f" · role: {contract['agent']} · result: {contract['result_type']}"]
@@ -215,17 +215,59 @@ def _payload_rules(key: str) -> list[str]:
     ]
 
 
+# Refusals of a valid bound result that no resubmission can change: the worker reports the code.
+FINAL_REFUSALS = ("already_submitted", "stale_contract", "node_not_open")
+# Refusals the store may lift (a map it could not read or write) or the parent must see: the worker
+# submits once more and, refused again, hands back the full result, so the parent still holds it.
+RETRIED_REFUSALS = ("workmap_unavailable", "store_full", "unsafe_store", "unknown_map", "key_collision")
+
+
+def submission_rule(contract: dict) -> str:
+    """How the worker checks or submits its result against the stored contract.
+
+    An unbound contract is only checked, with the read-only validate_subagent_result; a bound one
+    is submitted with workmap_submit, which records it on its node.
+    """
+    revision = contract["contract_revision"]
+    binding = contract.get("workmap")
+    if binding is None:
+        call = f'validate_subagent_result(contract_revision="{revision}", result=<your complete result text>)'
+        return (f"Before you reply, if the Agents-Core tool validate_subagent_result is available to you, "
+                f"call {call}, correct the result until it answers valid: true, and reply with exactly "
+                "the text that passed. If it answers contract_unknown, reply with your result unchecked.")
+    call = f'workmap_submit(contract_revision="{revision}", result=<your complete result text>)'
+    where = f"{contract['task_id']}/{binding['node']}"
+    return (f"This result is recorded on node {binding['node']} of the work map of task "
+            f"{contract['task_id']}. Submit only your finished result: the first valid submission is final. "
+            f"Submit it with the Agents-Core tool {call}. If it answers valid: false, correct the result as "
+            "its errors say and submit again. When it answers valid: true without workmap.refused, reply "
+            f"with exactly one line: submitted {where} <the first 12 characters of result_sha256> <status>. "
+            f"If workmap.refused is {', '.join(FINAL_REFUSALS[:-1])} or {FINAL_REFUSALS[-1]}, do not "
+            f"resubmit; reply with one line: not recorded {where} <that code>. If it is "
+            f"{', '.join(RETRIED_REFUSALS)} or any other code, submit the same result once more; if it is "
+            "refused again, reply with the full result, so the parent can validate it by result_ref. If the "
+            "call cannot reach the server, wait about a minute and try once more; if it still fails, reply "
+            "with the full result. If the tool is not available to you, reply with the full result instead.")
+
+
 def render_result_format(contract: dict) -> str:
     """A filled-in template of the result; it replaces the JSON Schema for text contracts."""
     payload = PAYLOAD_KEYS[contract["result_type"]]
     revision = contract["contract_revision"][:CONTRACT_PREFIX_CHARS]
     short_lists = "items, limitations or remaining_work items" if payload == "items" else \
         "limitations or remaining_work items"
+    intro = ("Write the result as plain text in this form, lines 1 and 2 exactly as shown: no JSON, "
+             "no code fence, nothing above line 1. It is the text you submit; reply with it only where "
+             "the submission rule below says so, and then with nothing above line 1, since a character "
+             "above it discards a result read from the reply text."
+             if contract.get("workmap") else
+             "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
+             "no code fence, nothing above line 1, and a character above it discards a result read from "
+             "the reply text.")
     return "\n".join([
         "## Result format",
-        "Reply with only a plain-text result in this form, lines 1 and 2 exactly as shown: no JSON, "
-        "no code fence, nothing above line 1, and a character above it discards a result read from "
-        "the reply text.",
+        intro,
+        submission_rule(contract),
         "```text",
         f"task: {contract['task_id']}",
         f"attempt: {contract['attempt_id']}",

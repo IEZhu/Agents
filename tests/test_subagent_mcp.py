@@ -1,5 +1,6 @@
 """Exercise advertised schemas and untouched strict inputs through FastMCP."""
 import json
+import re
 from types import SimpleNamespace
 
 import jsonschema
@@ -9,7 +10,7 @@ from mcp.types import CallToolRequest, CallToolRequestParams
 
 import src.server as server
 from tests.test_subagent import worker_tree, request, report
-from src.schemas.subagent import MAX_REQUEST_CHARS, PreparedPackage
+from src.schemas.subagent import MAX_REQUEST_CHARS, PreparationRequest, PreparedPackage
 
 
 def inline(**extra):
@@ -211,8 +212,8 @@ async def test_mcp_names_a_wrapped_request_and_what_the_tool_accepts(worker_tree
     assert codes == {"arguments_wrapped"}
     text = " ".join(item["message"] for item in response["errors"])
     assert wrapper in text and f"{len(payload)} chars" in text  # what arrived
-    for field in ("agent_name", "task", "acceptance_criteria", "delivery", "max_context_chars"):
-        assert field in text  # what the tool accepts
+    for field in (*PreparationRequest.model_fields, "delivery"):
+        assert re.search(rf"\b{field}\b", text), field  # every field the tool accepts, whole
     assert str(MAX_REQUEST_CHARS) in text and "4000" in text and "50 items" in text  # the limits
     assert all(len(item["message"]) <= 240 for item in response["errors"])
     assert "secret task text" not in json.dumps(response)

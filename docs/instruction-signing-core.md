@@ -6,7 +6,7 @@ the bounded byte and protected-inventory primitives for
 policy backend for [#236](https://github.com/IEZhu/Agents/issues/236). It performs
 no protected-file acquisition, startup enforcement, security review or activation.
 Those remain assigned to subsequent issues in the
-[specification](instruction-signing-spec.md#13-implementation-ownership-and-shared-contracts).
+[specification](proposals/instruction-signing-spec.md#13-implementation-ownership-and-shared-contracts).
 
 ## OMS and exact-byte API
 

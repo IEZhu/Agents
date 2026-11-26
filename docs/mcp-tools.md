@@ -96,7 +96,10 @@ proves that a worker's conclusions are correct.
 | Tool | Purpose and boundary | Reference |
 |---|---|---|
 | `get_subagent_context` | Prepare one scoped assignment and its contract; by default store the package in a private file and return a receipt with the worker's `launch` text; plain-text or JSON result format; optional model-tier selection | [Worker contract](subagent-contract.md), [model tiers](subagent-model-tiers.md) |
-| `validate_subagent_result` | Validate every returned/revised result (text or JSON, or a `result_ref` to a result file or worker transcript) against the contract stored at preparation (`contract_revision`) or retained from an inline package | [Worker contract](subagent-contract.md) |
+| `validate_subagent_result` | Validate every returned/revised result (text or JSON, or a `result_ref` to a result file or worker transcript) against the contract stored at preparation (`contract_revision`) or retained from an inline package; read-only | [Worker contract](subagent-contract.md) |
+| `workmap_update` | Write a task's work map: add nodes and edges, set the parent's own statuses, close it; up to 50 operations applied together, refused on a stale `expected_revision`; append-only, and server-owned statuses are refused | [Work map plan](workmap-plan.md) |
+| `workmap_view` | Read a work map top-down within a character budget, only the nodes changed after a revision, one node's record, or a node's stored result; read-only | [Work map plan](workmap-plan.md) |
+| `workmap_submit` | Submit the result of a package bound to a work-map node by its `contract_revision`: validate it as `validate_subagent_result` does and record it on the node, the first valid result once; a refusal keeps `valid: true` and names its code | [Work-map binding](subagent-contract.md#work-map-binding) |
 | `artifact_publish` | Publish immutable UTF-8 task data in the workspace store | [Shared artifacts](shared-artifacts.md) |
 | `artifact_manifest_create` | Pin selected artifacts, hashes and purposes for a task | [Shared artifacts](shared-artifacts.md) |
 | `artifact_manifest_get` | Read the exact active pinned manifest | [Shared artifacts](shared-artifacts.md) |

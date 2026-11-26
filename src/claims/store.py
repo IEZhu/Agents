@@ -14,28 +14,21 @@ history consistently instead of mixing two calibrations.
 """
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import stat
 import time
 from typing import Callable, Iterable
 import unicodedata
 import uuid
 
+from src import safe_store
 from src.claims import model
-from src.file_lock import file_lock
-
-try:
-    import fcntl
-except ImportError:  # Windows
-    fcntl = None
+from src.safe_store import StoreError
 
 FORMAT_VERSION = 1
 SUBJECT_MAX = 200
@@ -48,26 +41,13 @@ ID_MAX = 32
 MAX_STORE_BYTES = 20 * 1024 * 1024
 KEY = re.compile(r"[0-9a-f]{16}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
-# Opening flags that refuse a symbolic link and never block on a FIFO, where the platform has them.
-_NO_FOLLOW = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
-# POSIX opens every component from its parent's descriptor, so neither a link nor a directory
-# swapped in between a check and an open can redirect the store. Windows has no dir_fd and checks
-# each component with lstat instead, which leaves that swap window open.
-_ANCHORED = (hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
-             and os.open in os.supports_dir_fd and os.mkdir in os.supports_dir_fd)
-# What opening a link with O_NOFOLLOW, or a non-directory with O_DIRECTORY, answers.
-_REFUSED_KINDS = {errno.ELOOP, errno.ENOTDIR, errno.EISDIR, getattr(errno, "EMLINK", errno.ELOOP),
-                  getattr(errno, "EFTYPE", errno.ELOOP)}
 STORE_FILE = "claims.jsonl"
 STATES = ("supported", "stale", "contested", "uncertain", "refuted")
 
 
-class ClaimError(ValueError):
-    """A request the store refuses, with a stable code."""
-
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
+# The shared store error: the claims tools catch it as ClaimError, and the safe-file
+# helpers raise it (unsafe_store, store_full) without knowing which store called them.
+ClaimError = StoreError
 
 
 def normalize(text: str) -> str:
@@ -184,191 +164,6 @@ def _well_formed_attestation(attestation: object) -> bool:
                     for value in attestation.values()))
 
 
-class _UnsafeStore(ClaimError):
-    def __init__(self, message: str):
-        super().__init__("unsafe_store", message)
-
-
-def _owned_by_caller(info: os.stat_result) -> bool:
-    """POSIX: the file belongs to this process's user. Windows reports no owner here."""
-    return os.name == "nt" or info.st_uid == os.geteuid()
-
-
-def _real_directory(path: Path, *, private: bool = False) -> None:
-    """``path`` exists as a directory and is not a symbolic link.
-
-    With ``private`` it must also belong to this user, and group and other permissions
-    are removed: ``mkdir``'s mode does nothing for a directory that already exists.
-    """
-    try:
-        info = os.lstat(path)
-    except FileNotFoundError:
-        path.mkdir(mode=0o700, exist_ok=True)  # another process may create it first; checked below
-        info = os.lstat(path)
-    if not stat.S_ISDIR(info.st_mode):
-        raise _UnsafeStore(f"{path} is not a plain directory; the claims store does not follow links")
-    if not private or os.name == "nt":
-        return
-    if not _owned_by_caller(info):
-        raise _UnsafeStore(f"{path} belongs to another user; the claims store keeps only its own files")
-    if info.st_mode & 0o077:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _NO_FOLLOW)
-        try:
-            if not os.path.samestat(info, os.fstat(descriptor)):
-                raise _UnsafeStore(f"{path} changed while it was opened")
-            os.fchmod(descriptor, 0o700)
-        finally:
-            os.close(descriptor)
-
-
-def _open_store(path: Path, flags: int, *, private: bool = False) -> int:
-    """Open the store file itself, never through a link, and only as a regular file.
-
-    With ``private`` (the writer) the file must belong to this user and loses group and
-    other permissions; the mode passed to ``open`` applies only to a file it creates.
-    """
-    try:
-        before = os.lstat(path)
-    except FileNotFoundError:
-        before = None
-        if not flags & os.O_CREAT:
-            raise
-    if before is not None and not stat.S_ISREG(before.st_mode):
-        raise _UnsafeStore(f"{path} is not a regular file; the claims store does not follow links")
-    descriptor = os.open(path, flags | _NO_FOLLOW, 0o600)
-    try:
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or (before is not None and not os.path.samestat(before, opened)):
-            raise _UnsafeStore(f"{path} changed while it was opened")
-        if private and os.name != "nt":
-            if not _owned_by_caller(opened):
-                raise _UnsafeStore(f"{path} belongs to another user; the claims store keeps only its own files")
-            if opened.st_mode & 0o077:
-                os.fchmod(descriptor, 0o600)
-    except BaseException:
-        os.close(descriptor)
-        raise
-    return descriptor
-
-
-def _not_plain(path: Path) -> _UnsafeStore:
-    return _UnsafeStore(f"{path} is not a plain directory or file; the claims store does not follow links")
-
-
-def _private_descriptor(descriptor: int, path: Path, mode: int) -> None:
-    """The open object belongs to this user and loses group and other permissions."""
-    info = os.fstat(descriptor)
-    if not _owned_by_caller(info):
-        raise _UnsafeStore(f"{path} belongs to another user; the claims store keeps only its own files")
-    if info.st_mode & 0o077:
-        os.fchmod(descriptor, mode)
-
-
-@contextlib.contextmanager
-def _store_directory(root: Path, *, create: bool, private: bool):
-    """Yield ``<root>/data/claims``: a descriptor on POSIX, the path on Windows, None when missing.
-
-    On POSIX each component is opened from its parent's descriptor with ``O_NOFOLLOW``; the
-    workspace root itself is trusted. With ``create`` missing components are made (0700);
-    with ``private`` the claims directory must be this user's and loses group and other
-    permissions, which ``mkdir``'s mode does not do for a directory that already exists.
-    """
-    directory = root / "data" / "claims"
-    if not _ANCHORED:
-        for path, keep_private in ((root / "data", False), (directory, private)):
-            if create:
-                _real_directory(path, private=keep_private)
-            else:
-                try:
-                    if not stat.S_ISDIR(os.lstat(path).st_mode):
-                        raise _not_plain(path)
-                except FileNotFoundError:
-                    yield None
-                    return
-        yield directory
-        return
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    opened: list[int] = []
-    try:
-        current = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-        opened.append(current)
-        for name, keep_private in (("data", False), ("claims", private)):
-            try:
-                current = os.open(name, flags, dir_fd=current)
-            except FileNotFoundError:
-                if not create:
-                    yield None
-                    return
-                with contextlib.suppress(FileExistsError):  # another process may create it first
-                    os.mkdir(name, 0o700, dir_fd=current)
-                try:
-                    current = os.open(name, flags, dir_fd=current)
-                except OSError as error:
-                    if error.errno in _REFUSED_KINDS:
-                        raise _not_plain(root / "data" / name) from None
-                    raise
-            except OSError as error:
-                if error.errno in _REFUSED_KINDS:
-                    raise _not_plain(root / "data" / name if name == "claims" else root / name) from None
-                raise
-            opened.append(current)
-            if keep_private:
-                _private_descriptor(current, directory, 0o700)
-        yield current
-    finally:
-        for descriptor in reversed(opened):
-            os.close(descriptor)
-
-
-# Attempts at a creating open. macOS answers a creating open with ENOENT now and then while
-# another thread creates the same name in the same directory (measured: hundreds of times in
-# 200 rounds of 8 threads, with plain flags too), so a creating open is retried.
-_CREATE_ATTEMPTS = 20
-
-
-def _open_relative(directory: int, flags: int) -> int:
-    for attempt in range(_CREATE_ATTEMPTS):
-        try:
-            return os.open(STORE_FILE, flags | _NO_FOLLOW, 0o600, dir_fd=directory)
-        except FileNotFoundError:
-            if not flags & os.O_CREAT or attempt == _CREATE_ATTEMPTS - 1:
-                raise
-            time.sleep(0.001 * (attempt + 1))
-    raise AssertionError("unreachable")
-
-
-@contextlib.contextmanager
-def _store_file(directory, flags: int, mode: str, *, private: bool):
-    """Yield the store file inside ``directory`` (from ``_store_directory``), or None when missing."""
-    if isinstance(directory, Path):
-        try:
-            descriptor = _open_store(directory / STORE_FILE, flags, private=private)
-        except FileNotFoundError:
-            yield None
-            return
-    else:
-        try:
-            descriptor = _open_relative(directory, flags)
-        except FileNotFoundError:
-            yield None
-            return
-        except OSError as error:
-            if error.errno in _REFUSED_KINDS:
-                raise _UnsafeStore(f"{STORE_FILE} is not a regular file; the claims store does not "
-                                   "follow links") from None
-            raise
-        try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                raise _UnsafeStore(f"{STORE_FILE} is not a regular file; the claims store does not follow links")
-            if private:
-                _private_descriptor(descriptor, Path(STORE_FILE), 0o600)
-        except BaseException:
-            os.close(descriptor)
-            raise
-    with os.fdopen(descriptor, mode) as handle:
-        yield handle
-
-
 @dataclass(frozen=True)
 class Claim:
     """Every verdict recorded for one key, oldest first."""
@@ -426,6 +221,8 @@ def history_view(claim: Claim, limit: int) -> list[dict]:
 class ClaimStore:
     """The verdicts of one workspace."""
 
+    DIRECTORY = ("data", "claims")
+
     def __init__(self, root: Path | str, *, clock: Callable[[], float] = time.time):
         self.root = Path(root)
         self.directory = self.root / "data" / "claims"
@@ -435,44 +232,19 @@ class ClaimStore:
     # --- reading -------------------------------------------------------------------
 
     def _events(self) -> list[dict]:
-        with _store_directory(self.root, create=False, private=False) as directory:
+        with safe_store.store_directory(self.root, self.DIRECTORY, create=False, private=False) as directory:
             if directory is None:
                 return []
             return self._read(directory)
 
     def _read(self, directory) -> list[dict]:
-        with _store_file(directory, os.O_RDONLY, "rb", private=False) as handle:
+        with safe_store.store_file(directory, STORE_FILE, os.O_RDONLY, "rb", private=False) as handle:
             if handle is None:
                 return []
             return self._parse(handle.read(MAX_STORE_BYTES + 1))
 
     def _parse(self, raw: bytes) -> list[dict]:
-        if len(raw) > MAX_STORE_BYTES:
-            raise _UnsafeStore(f"{self.path} is larger than {MAX_STORE_BYTES} bytes; archive it by hand")
-        events = []
-        for line in raw.decode("utf-8", errors="replace").splitlines():
-            try:
-                event = json.loads(line)
-            except (ValueError, RecursionError):
-                continue
-            if _well_formed(event):
-                events.append(event)
-        return events
-
-    @contextlib.contextmanager
-    def _exclusive(self, handle):
-        """Serialize writers. POSIX locks the store file itself through the descriptor opened
-        from the anchored directory, so no path is resolved again; Windows, which opened the
-        store by name anyway, locks a sidecar file beside it."""
-        if fcntl is not None and _ANCHORED:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            return
-        with file_lock(self.path.with_name(self.path.name + ".lock")):
-            yield
+        return safe_store.read_records(raw, MAX_STORE_BYTES, self.path, keep=_well_formed)
 
     @staticmethod
     def _group(events: list[dict]) -> dict[str, "Claim"]:
@@ -533,9 +305,10 @@ class ClaimStore:
         evidence = _evidence(evidence)
         attestation = _attestation(contract_revision, result_sha256)
         key = claim_key(subject, claim)
-        with _store_directory(self.root, create=True, private=True) as directory, \
-                _store_file(directory, os.O_RDWR | os.O_CREAT | os.O_APPEND, "r+b", private=True) as handle, \
-                self._exclusive(handle):
+        with safe_store.store_directory(self.root, self.DIRECTORY, create=True, private=True) as directory, \
+                safe_store.store_file(directory, STORE_FILE, os.O_RDWR | os.O_CREAT | os.O_APPEND, "r+b",
+                                      private=True) as handle, \
+                safe_store.exclusive(handle, self.path):
             handle.seek(0)
             existing = self._group(self._parse(handle.read(MAX_STORE_BYTES + 1))).get(key)
             # Never earlier than the newest verdict, so the filter's time only moves forward.
@@ -548,16 +321,7 @@ class ClaimStore:
                      "importance": importance, "volatility": volatility, "evidence": evidence,
                      "attestation": attestation}
             line = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-            size = os.fstat(handle.fileno()).st_size
-            if size:
-                handle.seek(size - 1)
-                if handle.read(1) != b"\n":
-                    line = b"\n" + line  # an earlier write was torn: never glue a verdict onto it
-            if size + len(line) > MAX_STORE_BYTES:
-                raise ClaimError("store_full", f"{self.path} would exceed {MAX_STORE_BYTES} bytes; "
-                                               "archive it by hand to start a new store")
-            handle.write(line)
-            handle.flush()
+            safe_store.append_line(handle, line, MAX_STORE_BYTES, self.path)
             updated = Claim(key, (existing.events if existing else ()) + (event,))
         after = updated.assess(_seconds(event["at"]))
         return {

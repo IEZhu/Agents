@@ -26,7 +26,10 @@ The two worker MCP tools are:
   by default store both in private files and return a short receipt.
 - `validate_subagent_result`: validate a result against the task contract: the
   copy the server stored at preparation (`contract_revision`) or the one the
-  parent retained from an inline package.
+  parent retained from an inline package. It is read-only.
+
+A package bound to a work-map node adds a third, `workmap_submit`, which validates
+the same way and records the result on the node ([work-map binding](#work-map-binding)).
 
 These tools do not launch models, manage execution sessions, follow arbitrary
 task references or artifact URLs, install instructions or restart the daemon.
@@ -108,15 +111,86 @@ package, which holds:
   guarantees.
 
 The model-facing context must clearly name the worker role, task/attempt IDs,
-the contract revision (the text form shows its first 12 characters; only the
-JSON form also names the bundle revision), the complete result shape, and the rules
+the contract revision (the text form states it whole and asks the worker to check its
+result with `validate_subagent_result` before replying, or, for a package bound to a
+work-map node, to submit it with `workmap_submit`; only the JSON form also names the
+bundle revision), the complete result shape, and the rules
 for missing input, incomplete work and finishing. It directs the worker to use
 this package without activating a full conversation persona. Parent descriptors
 visible in inherited history are references, not the worker's activation.
 
 Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` and `status: prepared` before native spawning. The parent launches a fresh worker without inherited history when supported (Codex: `fork_turns="none"`) with the receipt's `launch` text and only necessary task materials (with inline delivery: the unchanged `worker_context`). It keeps the receipt's `contract_revision` (inline: the original contract) and its descriptor, and validates every returned or revised output unchanged against that contract, by reference where a file holds it ([compact exchange](#compact-exchange)). A worker must not replace the authoritative contract. `valid: true` is required before acceptance or integration, followed by independent evidence and acceptance-criteria checks.
 
-The parent also decides how much to delegate, and the description of `get_subagent_context` states that bound (`delegation.md`'s `tool-prepare` variant in `src/engine/protocol/`, rendered by `protocol_text.tool_description`; the protocol section [Delegated worker mode](../scripts/templates/routing-protocol-core.md) only requires the exchange and tells the parent to read that description first): proportionality is judged against the work, so a part earns its own worker when it can run while the parent works elsewhere, needs a reader outside the conversation's assumptions or would otherwise crowd the parent's context, and the number of workers follows the number of such parts rather than the budget a host makes available. Delegated work stays within the assignment the user gave: an option or keyword that enables orchestration chooses how to delegate, not how much or what, and adds no repository, branch, service or unrequested review to the assignment. An extra worker that re-judges, re-verifies or re-edits another worker's output belongs to a check the user asked for or a risk that warrants one. None of this changes the preparation, launch and validation steps above.
+The parent also decides how much to delegate, and the description of `get_subagent_context` states that bound (`delegation.md`'s `tool-prepare` variant in `src/engine/protocol/`, rendered by `protocol_text.tool_description`; the protocol section [Delegated worker mode](../scripts/templates/routing-protocol-core.md) only requires the exchange and tells the parent to read that description first): proportionality is judged against the work, so a part earns its own worker when it can run while the parent works elsewhere, needs a reader outside the conversation's assumptions or would otherwise crowd the parent's context, and the number of workers follows the number of such parts rather than the budget a host makes available. Delegated work stays within the assignment the user gave: an option or keyword that enables orchestration chooses how to delegate, not how much or what, and adds no repository, branch, service or unrequested review to the assignment. An extra worker that re-judges, re-verifies or re-edits another worker's output belongs to a check the user asked for or a risk that warrants one. None of this changes the preparation, launch and validation steps above. For staged work it can keep a [work map](workmap-plan.md) instead, following the built-in `orchestrate` flow, so that only node summaries reach its context.
+
+## Work-map binding
+
+A package prepared with `workmap_node` (and `task_id`, the map's task ID) is bound to that
+node of the [work map](workmap-plan.md) in the session's workspace. The server
+writes `{node, root}` into the contract, so the binding is fingerprinted; `root` is the
+workspace the server resolved, never a caller's value. A bound package uses
+`result_format` text. Preparation refuses a closed map (`map_closed`), a goal or a node
+that is not `planned`, `prepared`, `needs_attention` or `disputed`
+(`node_not_preparable`), a result type other than `review` for a node that `verifies`
+others (`invalid_request`), and a contract that already has a result or reached five
+invalid submissions (`attempt_reused`: prepare a new attempt with a new `attempt_id`); a
+map it cannot read or write answers `workmap_unavailable`. `workmap_inputs` names up to
+ten nodes, each `validated`, `verified`, `accepted` or `disputed` with a stored result
+(`input_not_ready` otherwise), whose results the server publishes and pins as artifacts
+for the worker. The request's fields, the node and its inputs are checked first, before
+anything is published; the agent profile, the request's size and the context budget are
+checked after the inputs are published, so a request refused there can leave published
+input artifacts behind. `attempt_reused` needs the contract's revision, so it is found
+once the package is assembled. The node becomes `prepared` only after the contract is
+stored.
+
+The package tells the worker to submit its result with `workmap_submit(contract_revision,
+result)` and to hand back one line, `submitted <task>/<node> <sha> <status>`; if the call
+cannot reach the server it tries once more after about a minute and then hands back the
+full result. `workmap_submit` validates exactly as `validate_subagent_result` does and
+answers the same fields; a valid submission is stored and recorded on the node, and the
+response carries the receipt `workmap: {task_id, node, status, level, revision,
+duplicate, refused}`. The first valid submission is final for the contract: the same
+result again is accepted with `duplicate: true` and no new event. A structurally valid
+result the map refuses keeps `valid: true`, and `workmap.refused` names the code, with
+the node's status, level and revision as the map holds them when it could be read. Three
+codes are final for the contract: `already_submitted` (a different result is already
+recorded for it), `stale_contract` (the node was prepared again since) and
+`node_not_open` (the map is closed or the node no longer takes a result); the worker
+then answers `not recorded <task>/<node> <code>` instead of resubmitting. Any other
+code, `workmap_unavailable` (the map could not be read or written) or the store's own
+`store_full`, `unsafe_store`, `unknown_map`, `key_collision` or `unknown_node`, makes the
+worker submit once more and, refused again, hand back the full result, so that the
+parent still holds a result the map could not keep. A contract that is not bound to a
+node answers `valid: false` with `workmap_unbound`.
+
+A bound contract's submissions are recorded on its node: a valid result once, and an
+invalid one counted toward the limit while the node still takes it. Five invalid
+submissions send the node's still `prepared` attempt to `needs_attention`, and the node
+record shows the codes of the last invalid submission. An invalid submission for a
+contract that has its result, for a contract the node was prepared again since, or for a
+closed or settled node is refused and writes nothing. Only a review result, one that
+carries findings, gives a verdict to the nodes its node `verifies`.
+
+`validate_subagent_result` records nothing, for a bound contract as for any other: it
+stays read-only, so a worker's own check of a draft and the parent's validation never
+change the map. Only a contract the server stored records anything: `workmap_submit` takes
+no inline contract, and a bound package whose contract cannot be stored is refused with
+`exchange_unwritable` for either delivery. The parent reads the node with `workmap_view`,
+not the result, and neither validates nor submits the one-line hand-back: it carries no
+result, so it only answers `valid: false`, and `workmap_submit` would count it as an
+invalid submission while the node still takes one. It validates a full hand-back by
+`result_ref`; while the map is open and the node is `prepared` or `needs_attention` with
+no result recorded, `workmap_submit` with the same `result_ref` validates it the same way
+and records it with `hand-back: full`, or refuses it as `stale_contract` when that
+contract is no longer the node's current attempt. The result counts as recorded only when
+`workmap_submit` answers `valid: true` without `workmap.refused`.
+
+`get_subagent_context` finds the map in its `workspace` argument, resolved as
+`workmap_update` resolves it: over stdio against the client's MCP roots, so a session
+with several roots binds the map of the root it names, and over HTTP within the registered
+workspace, where a path outside it is refused with `workspace_mismatch` before anything is
+written.
 
 ## Compact exchange
 
@@ -139,7 +213,9 @@ receipt of under 2,000 characters instead of the package: `protocol`, `status`,
 a skill was traded for the budget). The parent starts the worker with `launch` as its prompt (the worker
 reads the package file itself), keeps `contract_revision`, and never holds the
 package or the contract. If the files cannot be written, file delivery returns
-`exchange_unwritable`; retry with `delivery="inline"`. `delivery="inline"` returns
+`exchange_unwritable`. An unbound package can then retry with `delivery="inline"`; a
+package bound with `workmap_node` needs its stored contract in either delivery, so retry it
+only once the exchange storage can be written again. `delivery="inline"` returns
 the full package as before, for a worker that cannot read the server's files
 (another machine); the parent then retains `contract` and forwards
 `worker_context` unchanged. The server still stores the files when it can, so
@@ -148,7 +224,7 @@ The tool is therefore no longer read-only: it writes these private files.
 
 **Plain-text format (default).** With `result_format="text"` the package carries the
 assignment as plain text (task, acceptance criteria with their IDs, context, scope,
-non-goals, pinned artifacts, the first 12 characters of the contract revision) and a
+non-goals, pinned artifacts, the whole contract revision) and a
 filled-in result template instead of the JSON contract and JSON Schema. Measured on
 `code_reviewer` in [PR #509](https://github.com/IEZhu/Agents/pull/509), the package
 shrank from 14,481 to 11,528 characters. The worker answers:
@@ -565,7 +641,7 @@ usable partial package. A later release or expiry does not make an otherwise
 matching result envelope structurally invalid, so the parent's separate
 `artifact_manifest_verify` remains required.
 
-See the [recorded validation and size comparison](subagent-validation-results.md)
+See the [recorded validation and size comparison](records/subagent-validation-results.md)
 for measured coverage and limits. Compact profiles do not guarantee a smaller
 complete package for every role; model quality and total token cost need a
 separate evaluation.

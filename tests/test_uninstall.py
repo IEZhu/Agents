@@ -209,6 +209,18 @@ def test_darwin_uninstall_removes_every_trace_and_keeps_the_rest(home, capsys):
     assert not state.exists()
 
 
+def test_the_claims_and_work_map_stores_of_a_project_are_reported_and_kept(home, capsys):
+    darwin_home(home)
+    write(home / "project/data/claims/claims.jsonl", "{}\n")
+    write(home / "project/data/workmap/0123456789abcdef.jsonl", "{}\n")
+    assert main(["--yes"], ctx=context(home, "darwin", keychain_runner()), interactive=False) == 0
+    reported = next(line for line in capsys.readouterr().out.splitlines() if str(home / "project") in line
+                    and "history.md" in line)
+    assert "data/claims" in reported and "data/workmap" in reported
+    assert (home / "project/data/claims/claims.jsonl").exists()
+    assert (home / "project/data/workmap/0123456789abcdef.jsonl").exists()
+
+
 def test_credentials_need_include_credentials_with_yes(home):
     darwin_home(home)
     runner = keychain_runner()
