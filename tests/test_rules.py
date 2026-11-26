@@ -115,7 +115,10 @@ def test_thread_status_distinguishes_finishing_from_completion_and_human_attenti
                    "At a closure-audit handoff, use 🧹 when required obligations remain",
                    "unless essential input or required human approval calls for 🙋/👀",
                    "finish or explicitly resolve each before 🏁",
-                   "Resume implementation as 🔄", "a new work request after ✅ is also 🔄"):
+                   "Resume implementation as 🔄", "a new work request after ✅ is also 🔄",
+                   "Set an attention status (🙋, 👀, 🏁) last: after the final log_interaction",
+                   "when a closing call shows no text after it, set the status immediately before that call",
+                   "A hook that sends the turn back for more work returns it to 🔄"):
         assert phrase in text
 
 
