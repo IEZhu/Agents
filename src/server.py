@@ -1917,6 +1917,9 @@ async def log_interaction(
         description="Fresh UUID per logical write; reuse it only for its retries."),
         WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 256})] = None,
     record: ta.record_arg(turn_record.describe()) = None,
+    journal: Annotated[bool, Field(description=(
+        "false keeps this turn out of the journal: nothing is written, and a Stop hook that "
+        "logs turns leaves it alone."))] = True,
 ) -> str:
     """End-of-turn logger: log the composed final answer, footer included, as
     response_content, then deliver it. query: the current user request verbatim. In
@@ -1928,6 +1931,13 @@ async def log_interaction(
     its own line. Mention history_last_error once; never retry in a loop.
     Details: docs/memory-acceptance.md#the-log_interaction-call
     """
+    if journal is False:
+        # The turn is not to be journaled (#701): nothing is validated, written or traced.
+        return json.dumps({
+            "request_id": request_id or str(uuid.uuid4()),
+            "timestamp": datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"),
+            "history": {"status": "withheld", "state": "not_written"},
+        }, ensure_ascii=False)
     if idempotency_key is not None and (not isinstance(idempotency_key, str)
                                        or not 1 <= len(idempotency_key) <= 256
                                        or not idempotency_key.strip()):
