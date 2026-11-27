@@ -59,12 +59,13 @@ SECRET_NAME = re.compile(r"(?i)^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?
 # Credentials the way notes write them, on top of the user sync's scan, which looks for the forms
 # configuration files use. A labelled value counts only when it looks like one: at least six
 # characters without spaces, with a letter and a digit or symbol, so prose such as "the token is
-# rotated daily" stays a fact.
+# rotated daily" stays a fact. Its ``value`` group is where the value begins, for a caller that masks
+# the value alone (the turn-log hook, #701).
 MEMORY_SECRETS = (
     ("labelled_credential", re.compile(
         r"(?i)(?<![\w-])(?:password|passwd|passphrase|пароль|secret|token|api[_ -]?key|access[_ -]?key|"
         r"client[_ -]?secret)(?![\w-])[\"'`*]*\s*(?::|=|\bis\b|—|-)\s*[\"'`]?"
-        r"(?=[^\s\"'`<>]*[^\W\d_])(?=[^\s\"'`<>]*[\d!@#%^&*_+=~])(?!\$\{|\{\{)[^\s\"'`<>]{6,}")),
+        r"(?P<value>(?=[^\s\"'`<>]*[^\W\d_])(?=[^\s\"'`<>]*[\d!@#%^&*_+=~])(?!\$\{|\{\{)[^\s\"'`<>]{6,})")),
     ("url_credential", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
     ("stripe_key", re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}")),
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}")),
