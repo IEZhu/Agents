@@ -203,9 +203,10 @@ answer in the user's language, ending with the exact saved `footer`, including i
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
 On `keep`, reuse that footer; do not infer component lists. When this turn's
 prompt carries the Agents-Core turn-log notice of the session's own Stop hook, or
-the server instructions or the latest `SUCCESS`, which decides over them, say that
-this client's Stop hook logs each turn, follow that notice or instruction in place
-of the `log_interaction` steps of this protocol; everything else holds. Otherwise,
+the server instructions or the latest `SUCCESS` or `NO_CHANGE`, which decides over
+them, say that this client's Stop hook logs each turn, follow that notice or
+instruction in place of the `log_interaction` steps of this protocol; everything
+else holds. Otherwise,
 before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object

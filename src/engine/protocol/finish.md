@@ -6,9 +6,10 @@ answer in the user's language, ending with the exact saved `footer`, including i
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
 On `keep`, reuse that footer; do not infer component lists. When this turn's
 prompt carries the Agents-Core turn-log notice of the session's own Stop hook, or
-the server instructions or the latest `SUCCESS`, which decides over them, say that
-this client's Stop hook logs each turn, follow that notice or instruction in place
-of the `log_interaction` steps of this protocol; everything else holds. Otherwise,
+the server instructions or the latest `SUCCESS` or `NO_CHANGE`, which decides over
+them, say that this client's Stop hook logs each turn, follow that notice or
+instruction in place of the `log_interaction` steps of this protocol; everything
+else holds. Otherwise,
 before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object
@@ -61,7 +62,7 @@ Save the applied persona descriptor and exact footer. Before sending the final a
 <!-- variant: memory -->
 Except for the unavailable-MCP fallback below, compose the answer plus saved
 footer. Unless this turn's Agents-Core turn-log notice, or the server instructions
-or the latest SUCCESS, report that a Stop hook logs the turn, call before delivering it
+or the latest SUCCESS or NO_CHANGE, report that a Stop hook logs the turn, call before delivering it
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
 request verbatim as `query` (except for the redactions below), the complete composed answer plus
@@ -77,13 +78,13 @@ not waive initial activation. Incomplete attribution is still logged as `unverif
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
 
 <!-- variant: notice-rule -->
-A turn whose prompt carries the Agents-Core turn-log notice of the session's own Stop hook follows that notice in place of the log_interaction step, and the latest SUCCESS decides over the server instructions.
+A turn whose prompt carries the Agents-Core turn-log notice of the session's own Stop hook follows that notice in place of the log_interaction step, and the latest SUCCESS or NO_CHANGE decides over the server instructions.
 
 <!-- variant: hook -->
 This client's Stop hook records each turn from its transcript, with the last text delivered as the answer and the persona of the last SUCCESS or NO_CHANGE, so make no per-turn log_interaction call.
 
 <!-- variant: hook-calls -->
-Still call log_interaction when a flow or the user asks for it (record, tags or files), to log the turn redacted, or with journal=false to keep it out of the journal: the hook then leaves that turn to the call. Add a time line only when such a call returns a timestamp.
+Still call log_interaction when a flow or the user asks for it (record, tags or files), and when the prompt or the answer holds personal details or a secret the hook's detectors may not recognise: log the turn redacted yourself, or pass journal=false to keep it out of the journal, with placeholders, not the turn's text, as query and response_content. The hook then leaves that turn to the call. Add a time line only when the footer lists answer-timestamp and such a call returns a timestamp.
 
 <!-- variant: server-hook -->
 Compose the answer with the saved footer and send it; a message that ends the turn is the final answer and carries the footer even when it only reports progress. Memory and flow tools still take workspace, the absolute working directory.

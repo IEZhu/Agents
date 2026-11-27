@@ -1919,7 +1919,8 @@ async def log_interaction(
     record: ta.record_arg(turn_record.describe()) = None,
     journal: Annotated[bool, Field(description=(
         "false keeps this turn out of the journal: nothing is written, and a Stop hook that "
-        "logs turns leaves it alone."))] = True,
+        "logs turns leaves it alone. With false pass placeholders, not the turn's text, as query "
+        "and response_content: a server older than this parameter ignores it and writes them."))] = True,
 ) -> str:
     """End-of-turn logger: log the composed final answer, footer included, as
     response_content, then deliver it. query: the current user request verbatim. In

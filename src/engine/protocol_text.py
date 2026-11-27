@@ -189,9 +189,10 @@ def server_instructions(hook: bool | None = None) -> str:
     return "\n\n".join([
         _server_opening(hook),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
-        *((part("start", "server-load-hook"),) if _hook(hook)
-          # After the older window (#508), inside the current one: only a session whose own hook
-          # puts the turn-log notice beside its prompts needs it, and that takes a recent client.
+        # After the older window (#508), inside the current one: the calls a hooked client still
+        # makes, and for a client whose model logs, the notice rule, which only a session whose own
+        # hook puts the turn-log notice beside its prompts needs, and that takes a recent client.
+        *((part("start", "server-load-hook"), part("finish", "hook-calls")) if _hook(hook)
           else (part("start", "server-load"), part("finish", "notice-rule"))),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
@@ -205,9 +206,11 @@ def server_instructions(hook: bool | None = None) -> str:
 def _server_opening(hook: bool | None = None) -> str:
     """The per-turn lines that open the server instructions and their pointer.
 
-    Their finish line leaves logging to the client's Stop hook when ``hook`` (``_hook``).
+    Their finish line leaves logging to the client's Stop hook when ``hook`` (``_hook``); the calls
+    such a client still makes (``finish:hook-calls``) follow the delegation request, so the older
+    window keeps ``Require status: prepared.``.
     """
-    finish = ((("finish", "hook"), ("finish", "hook-calls"), ("finish", "server-hook")) if _hook(hook)
+    finish = ((("finish", "hook"), ("finish", "server-hook")) if _hook(hook)
               else (("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
     return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"), _sentences_of(*finish))
 
@@ -225,7 +228,8 @@ def server_pointer(hook: bool | None = None) -> str:
     file for everything between them, which the template states in full.
     """
     pointer = " ".join(part("pointer", "server").replace("{revision}", template_revision()).split())
-    return "\n\n".join([_server_opening(hook), pointer, _server_tail()])
+    calls = [part("finish", "hook-calls")] if _hook(hook) else []
+    return "\n\n".join([_server_opening(hook), *calls, pointer, _server_tail()])
 
 
 # The variants of the ``SUCCESS`` instruction, in order. ``bundle_pointer`` names each rule they

@@ -11,7 +11,7 @@ worker mode, the first-work repository description, work another session owns, t
 and finish each answer with that footer and log_interaction unless this turn's Agents-Core turn-log notice says that the session's Stop hook records it.
 
 <!-- variant: bundle-finish-hook -->
-and finish each answer with that footer but no per-turn log_interaction call: this client's Stop hook records each turn, and a call a flow or the user asks for is still made, its timestamp alone giving a time line.
+and finish each answer with that footer but no per-turn log_interaction call: this client's Stop hook records each turn, and a call a flow or the user asks for is still made; its timestamp gives a time line only when the footer lists answer-timestamp.
 
 <!-- variant: no-change -->
 Keep the existing activation and its instructions,

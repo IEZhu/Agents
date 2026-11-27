@@ -49,7 +49,7 @@ Progress messages, the text shown before the turn's final answer, carry no foote
 
 Except for the unavailable-MCP fallback below, compose the answer plus saved
 footer. Unless this turn's Agents-Core turn-log notice, or the server instructions
-or the latest SUCCESS, report that a Stop hook logs the turn, call before delivering it
+or the latest SUCCESS or NO_CHANGE, report that a Stop hook logs the turn, call before delivering it
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
 request verbatim as `query` (except for the redactions below), the complete composed answer plus
