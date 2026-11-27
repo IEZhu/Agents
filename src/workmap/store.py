@@ -839,6 +839,29 @@ class WorkmapStore:
         return [workmap for name, workmap in folded
                 if workmap is not None and f"{map_key(workmap.task_id)}.jsonl" == name], len(names)
 
+    def changes(self, task_id: object) -> tuple[WorkMap | None, dict[str, list[dict]]]:
+        """The map and, per node, each committed change of its status or level, oldest first.
+
+        Each change is {rev, at, op, by, status, level}: the revision and time of the event that
+        made it, as the fold applied it, so a skipped or torn commit shows no step either.
+        """
+        task_id = _task_id(task_id)
+        steps: dict[str, list[dict]] = {}
+        workmap = None
+        for workmap, commit in _applied(self._read(f"{map_key(task_id)}.jsonl")):
+            for event in commit:
+                node = workmap.nodes.get(event.get("id")) if isinstance(event.get("id"), str) else None
+                if node is None:
+                    continue
+                history = steps.setdefault(node["id"], [])
+                if history and (history[-1]["status"], history[-1]["level"]) == (node["status"], node["level"]):
+                    continue
+                history.append({"rev": event["rev"], "at": event.get("at"), "op": event.get("op"),
+                                "by": event.get("by"), "status": node["status"], "level": node["level"]})
+        if workmap is not None and workmap.task_id != task_id:
+            raise WorkmapError("key_collision", "another task's map holds this file; choose another task_id")
+        return workmap, steps
+
     def _result(self, task_id: str, node: dict) -> str | None:
         sha256 = node["refs"].get("result_sha256")
         if sha256 is None:

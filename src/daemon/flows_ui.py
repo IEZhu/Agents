@@ -20,7 +20,9 @@ the landing page's statistics and overview (``/ui/api/stats``, ``usage.py``; ``/
 the Autodev page (``/ui/api/autodev…``, ``autodev_ui.py``), which reads and writes the
 autodev schedule's settings and runs the CLIs' ``--version`` and ``--help``, and the overview's
 Updates section (``/ui/api/updates``, ``updates_ui.py``), which saves the branch the
-installation follows.
+installation follows, and the Work map tab (``/ui/api/workmap…``, ``workmap_ui.py``), which shows
+the repositories' work maps and stored stage results. The Work map tab's polls, like the
+statistics', are not activity.
 """
 import asyncio
 import hashlib
@@ -48,6 +50,7 @@ from .state import atomic_private, read_json
 from .sync_loop import DRAINING
 from .sync_ui import SyncUI, is_sync_path
 from .updates_ui import UpdatesUI, is_updates_path
+from .workmap_ui import WorkmapUI, is_workmap_path
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
@@ -120,6 +123,7 @@ class FlowsUI:
         self.memory = MemoryUI(service)
         self.autodev = AutodevUI(service)
         self.updates = UpdatesUI(service)
+        self.workmap = WorkmapUI(service)
 
     # --- access ----------------------------------------------------------------------
 
@@ -202,7 +206,8 @@ class FlowsUI:
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
         page_only = (syncing or path in PAGE_READS or is_history_path(path) or is_memory_path(path)
-                     or is_autodev_path(path) or is_updates_path(path) or path == "/ui/api/mcp")
+                     or is_autodev_path(path) or is_updates_path(path) or is_workmap_path(path)
+                     or path == "/ui/api/mcp")
         if page_only and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
@@ -219,7 +224,7 @@ class FlowsUI:
         # The Sync page's and the statistics' polls are not activity: an open page must not hold
         # back an automatic update.
         active = not ((syncing and self.sync.passive(request.method, path)) or path in PAGE_READS
-                      or (is_updates_path(path) and request.method == "GET"))
+                      or (is_updates_path(path) and request.method == "GET") or is_workmap_path(path))
         if counted:
             self.service.inflight += 1
         if active:
@@ -330,6 +335,8 @@ class FlowsUI:
             return await self.autodev.handle(request, path)
         if is_updates_path(path):
             return await self.updates.handle(request, path)
+        if is_workmap_path(path):
+            return await self.workmap.handle(request, path)
         query = request.query_params
         try:
             if path == STATS_PATH and request.method == "GET":
