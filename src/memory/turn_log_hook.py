@@ -1,12 +1,22 @@
-"""Claude Code Stop hook that logs the turn it ends: ``python -m src.memory.turn_log_hook`` (#734).
+"""Claude Code Stop hook that logs the turn it ends: ``python -m src.memory.turn_log_hook`` (#734, #701).
 
 A headless run that logs through ``log_interaction`` pays twice for every answer: the model
 writes the whole answer again as ``response_content``, and one more model call re-reads the
-whole context after the tool returns. With ``AGENTS_TURN_LOG_HOOK=1`` and the headless profile
-(``config.turn_log_hook()``) the server tells the model not to log (``finish`` variants ``hook``,
-``server-hook`` and ``bundle-hook`` in ``src/engine/protocol/finish.md``), and this hook writes
-the entry instead, from the hook input and the session transcript, with no model call and no
-network.
+whole context after the tool returns. An interactive session has a worse problem (#701): the
+model logs one text and may deliver another, reworded, translated or followed by a later note,
+so the journal keeps an answer the user never read. In both cases this hook writes the entry
+instead, from the hook input and the session transcript, with no model call and no network, and
+the server tells the model not to log (``finish`` variants ``hook``, ``server-hook`` and
+``bundle-hook`` in ``src/engine/protocol/finish.md``). The answer it logs is the last assistant
+text of the turn, the one the user saw last.
+
+Two ways switch it on. A headless run sets ``AGENTS_TURN_LOG_HOOK=1`` and the headless profile
+(``config.turn_log_hook()``) for both the server and the hook. An interactive Claude Code session
+registers the hook with ``--interactive``: the hook then writes, and the server, reading the same
+registration in the session's settings files, leaves logging to it for that client only
+(``client_instructions.stop_hook_logs``). Where the server cannot see the registration, it keeps
+the model's logging step, and the hook leaves a turn whose ``log_interaction`` call was recorded
+alone, so a turn is never logged twice.
 
 The entry is the one ``log_interaction`` writes with its defaults: the prompt that started the
 turn as intent, ``Agent: <agent>`` and the persona attribution line as action, the final answer
@@ -18,8 +28,11 @@ Secrets are masked by format (``SECRET_PATTERNS`` of the schedule records plus
 ``EXTRA_SECRET_PATTERNS`` here) and by key name; other personal details are not redacted,
 because no model reads the text first.
 
-Without both switches, or without a prompt, an answer, a persona or a safe project, nothing is
-written. The hook always exits 0 and prints nothing to stdout: a failure leaves the turn
+A turn without an applied persona is still written, attributed to the footer's agent or to
+``unattributed`` and marked ``unverified``, as ``log_interaction`` marks a call without a
+descriptor. A turn is written once: a Stop event of a turn whose entry exists (the same
+``prompt_id``), and a re-entry (``stop_hook_active``) without a ``prompt_id``, write nothing.
+Without a switch, or without a prompt, an answer or a safe project, nothing is written. The hook always exits 0 and prints nothing to stdout: a failure leaves the turn
 unlogged and never blocks or disturbs the client.
 """
 from __future__ import annotations
@@ -39,11 +52,19 @@ from src.engine.config import ClientRootError
 
 # The hook input carries the last assistant message; a larger input is not a Stop event.
 MAX_INPUT_BYTES = 8 * 1024 * 1024
-# A headless run's transcript is far smaller; a larger one is left unlogged rather than parsed.
-MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024
+# A long interactive session's transcript reached 58 MB on 2026-11-27; a larger one than this is
+# left unlogged rather than parsed.
+MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024
 PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
 # run_flow returns a flow persona's activation nested under persona_activation (#734 review).
 FLOW_TOOL = "run_flow"
+LOG_TOOL = "log_interaction"
+# The history statuses of a log_interaction call that wrote the turn or found it written.
+LOGGED_STATUSES = ("recorded", "duplicate")
+# The agent of an entry whose turn has no applied persona and whose answer names none in a footer.
+UNATTRIBUTED = "unattributed"
+FOOTER_AGENT = re.compile(r"\*\*Agent\*\*: *([A-Za-z0-9_.-]+)")
+INTERACTIVE_ARGUMENT = "--interactive"
 PERSONA_STATUSES = ("SUCCESS", "NO_CHANGE")
 # What Claude Code places before a typed prompt, and user rows it writes itself.
 REMINDER_OPEN, REMINDER_CLOSE = "<system-reminder>", "</system-reminder>"
@@ -80,6 +101,7 @@ class Turn:
     answer: str | None
     persona: dict | None
     persona_action: str | None
+    logged: bool = False  # a log_interaction call of this turn recorded it
 
 
 def _content_text(content) -> str | None:
@@ -94,17 +116,23 @@ def _content_text(content) -> str | None:
 def prompt_text(record: dict) -> str | None:
     """The text of a main-thread user row that starts a turn, without leading system reminders.
 
-    None for tool results, sidechain, meta and compaction rows, for the rows Claude Code
-    writes itself (Stop hook feedback, an interruption marker), and for a prompt without text.
+    None for tool results, sidechain and compaction rows, for meta rows other than a turn's
+    opener, for the rows Claude Code writes itself (Stop hook feedback, an interruption marker),
+    and for a prompt without text.
     """
     return _turn_start(record)[1]
 
 
 def _turn_start(record: dict) -> tuple[bool, str | None]:
     """Whether a row starts a turn, and its prompt text (None for a prompt with no text, such
-    as an image alone, which still ends the previous turn; #734 review)."""
-    if (record.get("type") != "user" or record.get("isSidechain") or record.get("isMeta")
-            or record.get("isCompactSummary")):
+    as an image alone, which still ends the previous turn; #734 review).
+
+    A meta row starts a turn only when it carries ``turnOrigin``, as a message from another
+    session or a scheduled task does (#701); Stop hook feedback and the client's other meta
+    rows carry none and stay inside the turn.
+    """
+    if (record.get("type") != "user" or record.get("isSidechain") or record.get("isCompactSummary")
+            or record.get("isMeta") and not record.get("turnOrigin")):
         return False, None
     message = record.get("message")
     content = message.get("content") if isinstance(message, dict) else None
@@ -151,10 +179,11 @@ def _tool_payload(block: dict) -> dict | None:
 
 
 def _persona_tool(name) -> str | None:
+    """The Agents-Core tool the hook reads a result of: a persona tool, run_flow or log_interaction."""
     if not isinstance(name, str) or not name.startswith("mcp__"):
         return None
     tool = name.rsplit("__", 1)[-1]
-    return tool if tool in PERSONA_TOOLS or tool == FLOW_TOOL else None
+    return tool if tool in PERSONA_TOOLS or tool in (FLOW_TOOL, LOG_TOOL) else None
 
 
 def _action(status: str, tool: str, arguments: dict, in_turn: bool) -> str:
@@ -175,12 +204,14 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     ``promptId`` and ends before a later prompt; without it, the last prompt row starts it. A
     ``prompt_id`` that no row carries gives None: the hook's own prompt may not be written yet,
     and an earlier prompt must not take its answer (#734 review). Sidechain rows are skipped.
+    ``logged`` tells whether a ``log_interaction`` call of the turn recorded it (#701).
     """
     from src.engine.subagent_exchange import final_message
 
     tools: dict[str, tuple[str, dict]] = {}
     prompt = start = matched = None
     persona = None  # (descriptor, status, tool, arguments, row)
+    logged = False
     answer_lines: list[str] = []
     for row, line in enumerate(lines):
         if '"user"' not in line and '"assistant"' not in line:
@@ -197,7 +228,7 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
             if matched and not own:
                 break  # the hook's own turn ended before this prompt
             if not matched:
-                prompt, start, matched, answer_lines = text or "", row, own, []
+                prompt, start, matched, answer_lines, logged = text or "", row, own, [], False
             continue
         message = record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
@@ -215,6 +246,10 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                         and isinstance(block.get("tool_use_id"), str) and block["tool_use_id"] in tools):
                     continue
                 response = _tool_payload(block)
+                if tools[block["tool_use_id"]][0] == LOG_TOOL:
+                    history = response.get("history") if response is not None else None
+                    logged |= isinstance(history, dict) and history.get("status") in LOGGED_STATUSES
+                    continue
                 if response is not None and tools[block["tool_use_id"]][0] == FLOW_TOOL:
                     activation = response.get("persona_activation")
                     response = activation if isinstance(activation, dict) else None
@@ -230,7 +265,7 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     if persona is not None:
         descriptor, status, tool, arguments, row = persona
         action = _action(status, tool, arguments, row > start)
-    return Turn(prompt, final_message(answer_lines), descriptor, action)
+    return Turn(prompt, final_message(answer_lines), descriptor, action, logged)
 
 
 def _read_transcript(path) -> list[str]:
@@ -268,40 +303,76 @@ def journal_root(payload: dict) -> Path:
     return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve(), source=source).require_root()
 
 
-def record_turn(payload) -> dict:
-    """Write the turn a Stop event ends to the project journal; return what happened."""
-    from src.engine.persona import parse_persona_for_logging, persona_history_line
+def _already_logged(history_path: Path, prompt_id: str) -> bool:
+    """Whether the live journal holds this hook's entry for ``prompt_id``."""
+    from src.memory.history import HistoryReader
+
+    try:
+        text = history_path.read_text(encoding="utf-8", errors="surrogateescape")
+    except FileNotFoundError:
+        return False
+    return any((entry.metadata or {}).get("prompt_id") == prompt_id
+               and (entry.metadata or {}).get("logged_by") == "stop_hook" for entry in HistoryReader._parse(text))
+
+
+def _attribution(turn: Turn, answer: str) -> tuple[str, str | None]:
+    """The agent and the persona line of the entry: the turn's applied persona, else the footer's
+    agent or ``UNATTRIBUTED``, marked unverified like a log_interaction call without a descriptor."""
+    from src.engine.persona import LoggedPersona, parse_persona_for_logging, persona_history_line
+
+    agent = turn.persona.get("agent") if turn.persona is not None else None
+    if isinstance(agent, str) and agent.strip():
+        return agent, persona_history_line(parse_persona_for_logging(turn.persona, agent), turn.persona_action)
+    footer = FOOTER_AGENT.findall(answer)
+    if footer:
+        return footer[-1], persona_history_line(parse_persona_for_logging({"agent": footer[-1]}, footer[-1]), None)
+    return UNATTRIBUTED, persona_history_line(LoggedPersona(status="unverified", missing=["persona"]), None)
+
+
+def record_turn(payload, interactive: bool = False) -> dict:
+    """Write the turn a Stop event ends to the project journal; return what happened.
+
+    ``interactive`` is the hook's ``--interactive`` argument; without it only the headless
+    switches (``config.turn_log_hook()``) let the hook write.
+    """
     from src.memory.history import HistoryWriter
     from src.schedules.records import mask
 
-    if not config.turn_log_hook():
+    if not (interactive or config.turn_log_hook()):
         return {"status": "skipped", "reason": "disabled"}
     if not isinstance(payload, dict) or payload.get("hook_event_name") != "Stop":
         return {"status": "skipped", "reason": "not_a_stop_event"}
     root = journal_root(payload)
     prompt_id = payload.get("prompt_id")
-    turn = read_turn(_read_transcript(payload.get("transcript_path")),
-                     prompt_id if isinstance(prompt_id, str) and prompt_id else None)
+    prompt_id = prompt_id if isinstance(prompt_id, str) and prompt_id else None
+    if prompt_id is None and payload.get("stop_hook_active") is True:
+        # A re-entry after another Stop hook asked for one more step: the first Stop of this turn
+        # has logged it, and without a prompt_id the entry cannot be told apart (#701).
+        return {"status": "skipped", "reason": "stop_hook_active"}
+    history_path = root / "history.md"
+    if prompt_id is not None and _already_logged(history_path, prompt_id):
+        return {"status": "skipped", "reason": "already_logged"}
+    turn = read_turn(_read_transcript(payload.get("transcript_path")), prompt_id)
     if turn is None:
         return {"status": "skipped", "reason": "no_prompt"}
-    if turn.persona is None:
-        return {"status": "skipped", "reason": "no_persona"}
+    if turn.logged:
+        # The model logged this turn itself: the server did not leave logging to this hook (#701).
+        return {"status": "skipped", "reason": "logged_by_model"}
     given = payload.get("last_assistant_message")
     answer = given if isinstance(given, str) and given.strip() else turn.answer
     answer = TIME_LINE.sub("", answer or "", count=1).strip()
     if not answer:
         return {"status": "skipped", "reason": "no_answer"}
-    agent = turn.persona.get("agent")
-    if not isinstance(agent, str) or not agent.strip():
-        return {"status": "skipped", "reason": "no_persona"}
-    logged = parse_persona_for_logging(turn.persona, agent)
+    agent, line = _attribution(turn, answer)
     action = f"Agent: {agent}"
-    attributed = action
-    if line := persona_history_line(logged, turn.persona_action):
-        attributed += "\n" + line
+    attributed = action + ("\n" + line if line else "")
     metadata = {"answer_timestamp": datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"),
                 "logged_by": "stop_hook"}
-    writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
+    if prompt_id is not None:
+        metadata["prompt_id"] = prompt_id
+    if interactive:
+        metadata["client"] = "claude-code"
+    writer = HistoryWriter(str(history_path), str(root / "history"))
     return writer.append_entry(_masked(turn.prompt, mask), attributed, _masked(answer, mask), None, None,
                                metadata, dedupe_action=action)
 
@@ -315,10 +386,13 @@ def _masked(text: str, mask) -> str:
 
 
 def main(argv=None) -> int:
+    """Read the Stop event from stdin and log its turn; ``--interactive`` switches the hook on
+    for an interactive session. Other arguments are ignored: a hook must never fail on them."""
+    interactive = INTERACTIVE_ARGUMENT in (sys.argv[1:] if argv is None else argv)
     try:
         raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
         if len(raw) <= MAX_INPUT_BYTES:
-            record_turn(json.loads(raw))
+            record_turn(json.loads(raw), interactive)
     except Exception as error:  # noqa: BLE001 - a Stop hook must never fail or block its client
         print(f"agents-core turn log: turn not logged ({type(error).__name__})", file=sys.stderr)
     return 0
