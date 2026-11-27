@@ -1239,7 +1239,7 @@ def test_a_set_runs_only_under_the_hold_it_was_loaded_under(tmp_path, repo, monk
     later = _locked(control_dir)  # a new hold of the same directory, after the first was released
     with pytest.raises(dataclasses.FrozenInstanceError):
         loaded.lock = later.lock
-    for name, value in (("control_dir", tmp_path), ("running", threading.Lock()), ("loaded", set())):
+    for name, value in (("control_dir", tmp_path), ("running", threading.Lock())):
         with pytest.raises(dataclasses.FrozenInstanceError):  # the hold cannot be retargeted or disarmed
             setattr(later.lock, name, value)
     moved = dataclasses.replace(loaded, lock=later.lock)  # the earlier read of the set under the later hold
@@ -1326,6 +1326,24 @@ def test_a_build_holds_the_run_lock_from_before_it_looks_for_a_set_until_its_man
     monkeypatch.setattr(control, "write_private", write)
     builder.build(control_dir=fresh, **options)
     assert refused == ["export", "manifest"]
+
+
+def test_a_build_does_not_overwrite_a_set_published_while_it_was_prepared(tmp_path, repo, monkeypatch):
+    # Where file_lock falls back to a process-local lock, another process's build is not kept out;
+    # its set appears while this build prepares, written past the lock as that process would.
+    control_dir = control.open_private(tmp_path / "state" / control.DIRECTORY_NAME)
+    real_export, theirs = builder.export_snapshot, '{"item": "theirs"}\n'
+
+    def export(*args, **kwargs):
+        (control_dir / control.STATEMENTS).write_text(theirs, encoding="utf-8")
+        return real_export(*args, **kwargs)
+
+    monkeypatch.setattr(builder, "export_snapshot", export)
+    with pytest.raises(builder.BuildError, match="already holds a set"):
+        builder.build(repo=repo, commit="HEAD", control_dir=control_dir, snapshots=tmp_path / "state" / "snaps",
+                      name="t", items=4, seed=7, v2_per_class=None, installation_roots=[tmp_path / "installation"])
+    assert (control_dir / control.STATEMENTS).read_text(encoding="utf-8") == theirs
+    assert not (control_dir / control.LABELS).exists() and not (control_dir / control.MANIFEST).exists()
 
 
 def test_a_run_counts_done_slots_from_its_own_set_s_records_only(tmp_path, repo, monkeypatch):

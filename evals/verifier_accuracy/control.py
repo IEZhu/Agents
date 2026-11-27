@@ -22,7 +22,6 @@ import os
 from pathlib import Path
 import threading
 from typing import Iterable, Iterator
-import weakref
 
 from src.daemon import state
 from src.file_lock import file_lock
@@ -79,15 +78,13 @@ class RunLock:
 
     ``held`` is no stored flag a caller could set: it is true only while ``exclusive`` holds the
     file lock for this very object, so a hold made by hand, or kept after its ``with`` block,
-    never reads as held. The hold is frozen, so neither its directory nor its guards can be
+    never reads as held. The hold is frozen, so neither its directory nor its guard can be
     swapped once it is given out. ``running`` keeps runs that share this hold apart: the file
     lock excludes other processes and other opens of the lock file, not a second Runner in this
-    process loaded under the hold. ``loaded`` holds the sets ``runner.load`` read under it, the
-    only ones a run accepts under this hold.
+    process loaded under the hold.
     """
     control_dir: Path
     running: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    loaded: weakref.WeakSet = field(default_factory=weakref.WeakSet, repr=False)
 
     @property
     def held(self) -> bool:

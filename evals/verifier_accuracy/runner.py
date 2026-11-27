@@ -25,6 +25,7 @@ import shlex
 import threading
 from typing import Callable
 import uuid
+import weakref
 
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
@@ -167,6 +168,10 @@ class LoadedSet:
         return self.manifest["set"]
 
 
+# Each set load read under a run lock, mapped to that hold; module-private, so only load fills it.
+_LOADED_UNDER: weakref.WeakKeyDictionary[LoadedSet, control.RunLock] = weakref.WeakKeyDictionary()
+
+
 def _checkouts(manifest: dict) -> list[Path]:
     """The directories a worker of this set receives, which the control directory must lie apart from."""
     return [Path(manifest["snapshot"]), Path(manifest["repository"])]
@@ -201,7 +206,7 @@ def load(control_dir: Path, *, installation_roots: list[Path], lock: control.Run
         raise control.ControlError("Statements and labels name different items.")
     loaded = LoadedSet(control_dir, manifest, statements, labels, lock)
     if lock is not None:
-        lock.loaded.add(loaded)  # the hold now vouches for this set, and for no copy of it
+        _LOADED_UNDER[loaded] = lock  # the hold now vouches for this set, and for no copy of it
     return loaded
 
 
@@ -402,7 +407,7 @@ class Runner:
         """
         lock = self.loaded.lock
         control.ensure_held(lock, self.loaded.control_dir)
-        if self.loaded not in lock.loaded:
+        if _LOADED_UNDER.get(self.loaded) is not lock:
             raise control.ControlError("This set was not loaded under the run lock it carries: load it again "
                                        "under that lock.")
         if not lock.running.acquire(blocking=False):
