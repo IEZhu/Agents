@@ -1763,6 +1763,96 @@ def test_a_part_left_without_entries_is_removed_and_its_month_still_syncs(two, c
     assert "september again" in a.exported() and history_sync.status(a.machine.state).get("history_error") is None
 
 
+# --- the turn-log hook: entries it replaced or removed after a reconcile (#701 review) ------------
+
+
+@pytest.fixture
+def hook_process(monkeypatch):
+    """The Stop hook runs as its own process, which shares nothing itself: it finds this machine's sync
+    state where a server finds it, and reads its transcript without waiting."""
+    from src.memory import turn_log_hook as hook
+    monkeypatch.setattr(hook, "TRANSCRIPT_WAIT_SECONDS", 0.0)
+    monkeypatch.setattr(hook, "TRANSCRIPT_POLL_SECONDS", 0.01)
+    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    return hook
+
+
+def as_this_machine(monkeypatch, box: Box) -> None:
+    """Where the hook process finds the sync state and library: the defaults a server uses."""
+    monkeypatch.setattr(history_sync.engine, "default_state_dir", lambda: box.machine.state)
+    monkeypatch.setattr(history_sync.engine, "default_library", lambda: box.machine.lib)
+
+
+def hook_stop(box: Box, transcript: Path, **extra) -> dict:
+    return {"session_id": "5f0c7a2e-1b6d-4c2a-9e51-0d7b3c4a8f10", "transcript_path": str(transcript),
+            "cwd": str(box.repo), "hook_event_name": "Stop", "stop_hook_active": False, "prompt_id": "p1", **extra}
+
+
+def reconcile(box: Box) -> dict:
+    """What a server process of this machine runs after any append, at its start or on resume."""
+    return history_sync.reconcile(box.repo, state_dir=box.machine.state, library=box.machine.lib)
+
+
+def own_segments(box: Box) -> str:
+    return "".join(text for name, text in box.segments().items() if name.startswith(box.label + "/"))
+
+
+def test_a_corrected_answer_the_hook_wrote_after_a_reconcile_replaces_the_shared_one(
+        shared, clock, hook_process, monkeypatch, tmp_path):
+    """r5a: a server reconciled the checkout between the two Stops of one turn. The hook records the
+    entry it replaced, so the next reconcile shares the corrected answer and takes the first one out,
+    and the other machine reads the corrected answer."""
+    from tests.test_turn_log_hook import CORRECTED, FEEDBACK, LONG_ANSWER, activation_rows, answer_row, flat, opener, \
+        rows_file
+    a, b = shared
+    as_this_machine(monkeypatch, a)
+    assert journal._sync is None  # the hook process: no sync of its own
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *activation_rows(),
+                                                  answer_row(LONG_ANSWER, "m1"), FEEDBACK, answer_row(CORRECTED, "m2")])
+    first = hook_process.record_turn(hook_stop(a, transcript, last_assistant_message=LONG_ANSWER), interactive=True)
+    assert first["status"] == "recorded" and reconcile(a)["status"] == "exported"
+    again = hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=CORRECTED),
+                                     interactive=True)
+    assert again["replaced"]["entry_id"] == first["entry_id"] == again["entry_id"]
+    assert history_sync._read_state(a.machine.state)["deleted"] == {KEY: [[first["entry_id"], first["timestamp"]]]}
+    outcome = reconcile(a)
+    assert (outcome["removed"], outcome["written"]) == ([first["entry_id"]], [again["entry_id"]]), outcome
+    assert reconcile(a)["status"] == "unchanged"
+    assert flat(CORRECTED) in own_segments(a) and flat(LONG_ANSWER) not in own_segments(a)
+    for box in (a, b, a, b):
+        box.sync()
+    assert [entry.outcome for entry in b.read(limit=20) if entry.intent == "question"] == [flat(CORRECTED)]
+    assert [entry.outcome for entry in a.read(limit=20) if entry.intent == "question"] == [flat(CORRECTED)]
+
+
+def test_an_entry_the_hook_withdrew_after_a_reconcile_leaves_the_shared_history(
+        shared, clock, hook_process, monkeypatch, tmp_path):
+    """r5b: another Stop hook demanded log_interaction, whose append made the server's worker share the
+    checkout while the hook's entry of the turn was in it. The hook records its withdrawal, so merged
+    reads leave that entry out at once and the next reconcile takes it out of what this machine shared."""
+    from tests.test_turn_log_hook import FEEDBACK, LONG_ANSWER, activation_rows, answer_row, flat, log_rows, opener, \
+        rows_file
+    a, b = shared
+    as_this_machine(monkeypatch, a)
+    rows = [opener("p1", "question"), *activation_rows(), answer_row(LONG_ANSWER, "m1")]
+    transcript = rows_file(tmp_path / "t.jsonl", rows)
+    first = hook_process.record_turn(hook_stop(a, transcript, last_assistant_message=LONG_ANSWER), interactive=True)
+    model = "The model's own redacted text of the same turn."
+    assert a.log("question", model)["status"] == "recorded"  # the server appends and its worker reconciles
+    assert flat(LONG_ANSWER) in own_segments(a)
+    rows_file(transcript, [*rows, FEEDBACK, *log_rows({"status": "recorded"}), answer_row("Logged.", "m2")])
+    gone = hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message="Logged."),
+                                    interactive=True)
+    assert gone == {"status": "skipped", "reason": "logged_by_model", "withdrawn": True}
+    assert [entry.outcome for entry in a.read(limit=20) if entry.intent == "question"] == [model]  # at once
+    assert reconcile(a)["removed"] == [first["entry_id"]]
+    assert flat(LONG_ANSWER) not in own_segments(a) and model in own_segments(a)
+    for box in (a, b, a, b):
+        box.sync()
+    assert [entry.outcome for entry in b.read(limit=20) if entry.intent == "question"] == [model]
+
+
 # --- the fallback journal (#292) ----------------------------------------------------------------
 
 FALLBACK_SEGMENTS = f"repos/{history_sync.FALLBACK_KEY}/history"

@@ -20,6 +20,7 @@ from src.engine import config, protocol_text
 from src.memory import fallback
 from src.memory import history as history_module
 from src.memory import turn_log_hook as hook
+from src.memory import turn_redaction as redaction
 from src.memory.history import HistoryReader, HistoryWriter, JournalBusy
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -275,7 +276,7 @@ def test_a_turn_without_an_applied_persona_is_logged_unverified(switches, projec
 
 def test_the_hook_inputs_last_message_wins_without_its_time_line_and_secrets(switches, project):
     given = f"2026.11.24 10:00:00\n\nDeployed with token {FAKE_ANTHROPIC_KEY}.\n\n" + FOOTER
-    hook.record_turn(stop_event(project, last_assistant_message=given))
+    hook.record_turn(stop_event(project, prompt_id="prompt-2", last_assistant_message=given))
     [entry] = entries(project)
     assert entry.outcome == f"Deployed with token sk-ant-***. {FOOTER}"
     assert "abcdefghijklmnop" not in entry.outcome and "2026.11.24" not in entry.outcome
@@ -380,14 +381,19 @@ def test_both_switches_leave_logging_to_the_hook_in_the_server_and_success_instr
 
 
 def test_a_call_a_flow_or_the_user_asks_for_is_still_made_with_its_time_line():
-    """#701 review: thread-close's record and tags and autodev-retro's tag need the model's own call."""
+    """#701 review: thread-close's record and tags and autodev-retro's tag need the model's own call;
+    the notice says when a redacted call or journal=false is due, that journal=false takes
+    placeholders, and that the time line keeps the answer-timestamp condition."""
     calls = flat(protocol_text.part("finish", "hook-calls"))
-    for phrase in ("when a flow or the user asks for it", "record, tags or files", "to log the turn redacted",
-                   "journal=false", "the hook then leaves that turn to the call",
-                   "Add a time line only when such a call returns a timestamp."):
+    for phrase in ("when a flow or the user asks for it", "record, tags or files",
+                   "when the prompt or the answer holds personal details or a secret the hook's detectors "
+                   "may not recognise: log the turn redacted yourself, or pass journal=false",
+                   "with placeholders, not the turn's text, as query and response_content",
+                   "The hook then leaves that turn to the call.",
+                   "Add a time line only when the footer lists answer-timestamp and such a call returns a timestamp."):
         assert phrase in calls, phrase
-    assert "a call a flow or the user asks for is still made, its timestamp alone giving a time line" in \
-        protocol_text.bundle_pointer(True)
+    assert ("a call a flow or the user asks for is still made; its timestamp gives a time line only when the "
+            "footer lists answer-timestamp") in protocol_text.bundle_pointer(True)
 
 
 @pytest.mark.parametrize("flag,profile", [(True, "interactive"), (False, "headless")])
@@ -431,18 +437,19 @@ def test_the_model_logging_texts_yield_to_the_turn_log_notice(model_logging):
     rule = flat(protocol_text.part("finish", "notice-rule"))
     server = protocol_text.server_instructions()
     assert rule in server and server.index(rule) + len(rule) < CLAUDE_CODE_WINDOW
-    assert "the latest SUCCESS decides over the server instructions" in rule
+    assert "the latest SUCCESS or NO_CHANGE decides over the server instructions" in rule
     assert rule in protocol_text.bundle_instruction()
     for text in (protocol_text.bundle_pointer(), protocol_text.bundle_section_pointer(),
                  protocol_text.no_change_instruction()):
         assert "footer and log_interaction unless this turn's Agents-Core turn-log notice" in text
     template = flat(protocol_text.template())
     assert ("When this turn's prompt carries the Agents-Core turn-log notice of the session's own Stop hook, "
-            "or the server instructions or the latest `SUCCESS`, which decides over them, say that this "
-            "client's Stop hook logs each turn, follow that notice or instruction in place of the "
+            "or the server instructions or the latest `SUCCESS` or `NO_CHANGE`, which decides over them, say "
+            "that this client's Stop hook logs each turn, follow that notice or instruction in place of the "
             "`log_interaction` steps of this protocol") in template
     reminder = flat(protocol_text.memory_reminder())
-    assert "Unless this turn's Agents-Core turn-log notice, or the server instructions or the latest SUCCESS" in reminder
+    assert ("Unless this turn's Agents-Core turn-log notice, or the server instructions or the latest SUCCESS "
+            "or NO_CHANGE, report") in reminder
     # The turn-end sentence no longer tells a hooked session to log (#701 review).
     assert "log it and include the footer" not in reminder and "is logged like any other" in reminder
 
@@ -451,7 +458,9 @@ def test_the_notice_states_what_the_hook_records_and_what_the_model_still_does()
     notice = protocol_text.turn_log_notice()
     assert notice.startswith("Agents-Core turn log: this session's Stop hook records this turn")
     for phrase in ("still ends with the footer", "journal=false", "when a flow or the user asks for it",
-                   "Add a time line only when such a call returns a timestamp",
+                   "personal details or a secret the hook's detectors may not recognise",
+                   "placeholders, not the turn's text",
+                   "Add a time line only when the footer lists answer-timestamp and such a call returns a timestamp",
                    "Before a closing call such as wrap_up, deliver the final answer as text"):
         assert phrase in notice, phrase
     assert len(notice) < 2000  # Claude Code adds up to 10,000 characters of a hook's context in full
@@ -546,7 +555,7 @@ def test_a_bare_capability_in_prose_is_masked_and_commit_and_digest_hashes_are_n
 def test_a_capability_missing_a_character_class_is_still_masked(token):
     """#734 review: secrets.token_urlsafe(32) can lack a digit or a case."""
     assert len(token) == 43
-    assert hook.redact(f"use {token} now") == (f"use {hook.MASK} now", True)
+    assert hook.redact(f"use {token} now") == (f"use {redaction.MASK} now", True)
 
 
 @pytest.mark.parametrize("text,leak", [
@@ -560,7 +569,7 @@ def test_a_capability_missing_a_character_class_is_still_masked(token):
 def test_a_quoted_secret_is_masked_up_to_its_own_closing_quote(text, leak):
     """#734 review: the other quote character or an escaped quote must not end the value."""
     masked, clean = hook.redact(text)
-    assert clean and leak not in masked and hook.MASK in masked
+    assert clean and leak not in masked and redaction.MASK in masked
 
 
 # --- Secrets cleaned with the repository's own detectors (#701, owner's decision 2026-11-27) ----
@@ -641,16 +650,16 @@ def test_a_high_entropy_string_is_masked():
 def test_the_turn_written_from_a_stop_holds_no_secret_of_the_hooks_environment(switches, project, monkeypatch):
     value = "correct-horse-battery-staple-42"
     monkeypatch.setenv("DEPLOY_SERVICE_TOKEN", value)
-    hook.record_turn(stop_event(project, last_assistant_message=f"Used {value} to deploy.\n\n{FOOTER}"))
+    hook.record_turn(stop_event(project, prompt_id="prompt-2", last_assistant_message=f"Used {value} to deploy.\n\n{FOOTER}"))
     [entry] = entries(project)
-    assert value not in entry.outcome and entry.outcome.startswith(f"Used {hook.MASK} to deploy.")
+    assert value not in entry.outcome and entry.outcome.startswith(f"Used {redaction.MASK} to deploy.")
 
 
 def test_text_the_scanner_cannot_clean_is_withheld_and_the_entry_marked(switches, project, monkeypatch):
     """The hook never writes a text its detector could not clean; the turn stays, marked."""
     from src.schedules import scan
     monkeypatch.setattr(scan, "MAX_TEXT_LENGTH", 60)  # the answer is longer: unscannable
-    hook.record_turn(stop_event(project, last_assistant_message="x" * 80 + "\n\n" + FOOTER))
+    hook.record_turn(stop_event(project, prompt_id="prompt-2", last_assistant_message="x" * 80 + "\n\n" + FOOTER))
     [entry] = entries(project)
     assert entry.outcome == hook.WITHHELD and entry.intent == PROMPT
     assert entry.metadata["redaction"] == {"withheld": ["outcome"]}
@@ -707,19 +716,16 @@ def test_the_logged_answer_is_the_last_assistant_text_of_the_turn(project, tmp_p
     assert entry.action.startswith("Agent: software_engineer Persona (client-reported)")
 
 
-@pytest.mark.parametrize("history,logged", [
-    ({"status": "recorded"}, True), ({"status": "duplicate"}, True),
-    ({"status": "queued"}, True),  # a daemon older than this hook accepted the write
-    ({"status": "error", "state": "unknown", "error": "history_timeout"}, True),  # it may still commit
-    ({"status": "error", "state": "rejected", "error": "history_busy"}, False),
+@pytest.mark.parametrize("history", [
+    {"status": "recorded"}, {"status": "duplicate"},
+    {"status": "queued"},  # a daemon older than this hook accepted the write
+    {"status": "error", "state": "unknown", "error": "history_timeout"},  # it may still commit
 ])
-def test_a_turn_the_model_logged_or_may_have_logged_is_left_to_it(project, tmp_path, history, logged):
+def test_a_turn_the_model_logged_or_may_have_logged_is_left_to_it(project, tmp_path, history):
     transcript = rows_file(tmp_path / "t.jsonl", [
         opener("p1", "question"), *activation_rows(), *log_rows(history), answer_row("Answer.\n\n" + FOOTER)])
     result = hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)
-    assert (result["status"] == "skipped") is logged
-    if logged:
-        assert result == {"status": "skipped", "reason": "logged_by_model", "withdrawn": False}
+    assert result == {"status": "skipped", "reason": "logged_by_model", "withdrawn": False}
 
 
 def test_a_log_call_of_an_earlier_turn_does_not_count(project, tmp_path):
@@ -1109,3 +1115,678 @@ async def test_a_session_that_does_not_run_the_hook_keeps_log_interaction(case, 
         ci.REQUEST_CLIENT.reset(token)
     assert first["instruction"] == persona.APPLY_INSTRUCTION
     assert first["instruction_revision"] == persona.INSTRUCTION_REVISION
+
+
+# --- The second review's redaction corpus (#701 review, attempt 3) --------------------------------
+# Every secret is made at run time from a seeded generator, so this file's own text stays clean for
+# the tracked-files scan. A secret item is masked when no run of its own characters longer than the
+# format's kept prefix, or a third of it, is left; the items docs/memory.md names as still passing
+# are pinned as passing, so that list stays true.
+
+ALNUM = string.ascii_letters + string.digits
+UPPER_DIGITS = string.ascii_uppercase + string.digits
+BASE64_ALPHABET = ALNUM + "+/"
+URLSAFE = ALNUM + "-_"
+HEX = "0123456789abcdef"
+LOWER_DIGITS = string.ascii_lowercase + string.digits
+
+
+def longest_left(secret: str, masked: str) -> int:
+    """The longest run of ``secret``'s own characters that ``masked`` still holds."""
+    best = 0
+    for start in range(len(secret)):
+        length = best + 1
+        while start + length <= len(secret) and secret[start:start + length] in masked:
+            best = length
+            length += 1
+    return best
+
+
+def masked_away(secret: str, masked: str, allowance: int = 0) -> bool:
+    return secret not in masked and longest_left(secret, masked) <= max(allowance, len(secret) // 3)
+
+
+def key_block(kind: str, seed: int, block: str = "") -> str:
+    body = "\n".join(fake(64, BASE64_ALPHABET, seed + index) for index in range(6))
+    marker = "PRIVATE " + "KEY" + block
+    return f"-----BEGIN {kind}{marker}-----\n{body}\n-----END {kind}{marker}-----"
+
+
+def corpus_secrets():
+    """``{name: (text, secret, allowance)}``: the real-format cases of the review's redaction probe."""
+    out = {}
+
+    def add(name, text, secret=None, allowance=0):
+        out[name] = (text, text if secret is None else secret, allowance)
+
+    asia, aws_secret = "ASIA" + fake(16, UPPER_DIGITS, 2), fake(40, BASE64_ALPHABET, 3)
+    add("AWS access key id", "AKIA" + fake(16, UPPER_DIGITS, 1), None, 4)
+    add("AWS temporary key id", asia, None, 4)
+    add("AWS secret key, labelled", "aws_secret_access_key=" + aws_secret, aws_secret)
+    add("AWS secret key, bare in prose", "the secret access key is: " + aws_secret, aws_secret)
+    add("AWS secret key, STS JSON", '{"AccessKeyId": "%s", "SecretAccessKey": "%s"}' % (asia, aws_secret), aws_secret)
+    session_token = fake(400, BASE64_ALPHABET, 4)
+    add("AWS session token, STS JSON", '"SessionToken": "' + session_token + '"', session_token)
+    for index, prefix in enumerate(("ghp_", "gho_", "ghu_", "ghs_", "ghr_")):
+        add(f"GitHub token {prefix}", prefix + fake(36, ALNUM, 10 + index), None, 4)
+    add("GitHub fine-grained token", "github_pat_" + fake(22, ALNUM, 16) + "_" + fake(59, ALNUM, 17), None, 11)
+    add("Slack bot token", "xoxb-" + fake(12, string.digits, 20) + "-" + fake(13, string.digits, 21) + "-"
+        + fake(24, ALNUM, 22), None, 5)
+    add("Slack user token", "xoxp-" + fake(12, string.digits, 23) + "-" + fake(12, string.digits, 24) + "-"
+        + fake(32, HEX, 25), None, 5)
+    add("Slack app-level token", "xapp-1-A" + fake(10, UPPER_DIGITS, 26) + "-" + fake(13, string.digits, 27) + "-"
+        + fake(64, HEX, 28), None, 7)
+    add("Slack rotating token", "xoxe.xoxp-1-" + fake(160, ALNUM, 29), None, 12)
+    webhook = fake(24, ALNUM, 32)
+    add("Slack webhook URL", "https://hooks.slack.com/services/T" + fake(10, UPPER_DIGITS, 30) + "/B"
+        + fake(10, UPPER_DIGITS, 31) + "/" + webhook, webhook)
+    add("OpenAI legacy key", "sk-" + fake(48, ALNUM, 40), None, 3)
+    add("OpenAI project key", "sk-proj-" + fake(120, URLSAFE, 41), None, 8)
+    add("OpenAI service-account key", "sk-svcacct-" + fake(120, URLSAFE, 42), None, 11)
+    add("OpenAI admin key", "sk-admin-" + fake(120, URLSAFE, 43), None, 9)
+    add("Anthropic API key", "sk-ant-api03-" + fake(93, URLSAFE, 44) + "AA", None, 13)
+    add("Anthropic OAuth token", "sk-ant-oat01-" + fake(93, URLSAFE, 45) + "AA", None, 13)
+    add("OpenRouter key", "sk-or-v1-" + fake(64, HEX, 46), None, 9)
+    jwt = ".".join(base64.urlsafe_b64encode(part).decode().rstrip("=") for part in (
+        b'{"alg":"HS256","typ":"JWT"}', b'{"sub":"1234567890","name":"Synthetic","iat":1516239022}',
+        fake(32, ALNUM, 50).encode()))
+    add("JWT", jwt, None, 3)
+    add("JWT in an Authorization header", "Authorization: Bearer " + jwt, jwt, 3)
+    for index, kind in enumerate(("RSA ", "EC ", "OPENSSH ", "", "ENCRYPTED ", "DSA ")):
+        block = key_block(kind, 60 + 10 * index)
+        add(f"private key ({kind.strip() or 'PKCS#8'})", block, "\n".join(block.splitlines()[1:-1]))
+    pgp = key_block("PGP ", 130, " BLOCK")
+    add("PGP private key block", pgp, "\n".join(pgp.splitlines()[1:-1]))
+    escaped = key_block("", 140).replace("\n", "\\n")
+    add("private key in a JSON string", '{"private_key": "%s\\n"}' % escaped, escaped.split("-----")[2])
+    headerless = "\n".join(key_block("RSA ", 150).splitlines()[1:-1])
+    add("private key body without its BEGIN line", "key material:\n" + headerless, headerless)
+    add("Google API key", "AIza" + fake(35, URLSAFE, 160), None, 4)
+    add("Stripe secret key", "sk_live_" + fake(24, ALNUM, 161), None, 8)
+    add("Stripe restricted key", "rk_live_" + fake(24, ALNUM, 162), None, 8)
+    add("Stripe webhook secret", "whsec_" + fake(32, ALNUM, 163), None, 6)
+    add("GitLab token", "glpat-" + fake(20, URLSAFE, 164), None, 6)
+    add("npm token", "npm_" + fake(36, ALNUM, 165), None, 4)
+    add("Hugging Face token", "hf_" + fake(34, ALNUM, 166), None, 3)
+    add("SendGrid key", "SG." + fake(22, URLSAFE, 167) + "." + fake(43, URLSAFE, 168), None, 3)
+    add("Twilio API key", "SK" + fake(32, HEX, 169), None, 2)
+    add("Telegram bot token", fake(10, string.digits, 170) + ":AA" + fake(33, URLSAFE, 171))
+    add("Discord bot token", fake(24, ALNUM, 172) + "." + fake(6, ALNUM, 173) + "." + fake(38, URLSAFE, 174))
+    azure = fake(86, BASE64_ALPHABET, 175)
+    add("Azure storage key", "AccountKey=" + azure + "==", azure)
+    datadog = fake(32, HEX, 176)
+    add("32-digit hex key, unlabelled", "use " + datadog + " for the agent", datadog)
+    labelled_hex = fake(32, HEX, 177)
+    add("32-digit hex key, labelled", "api_key=" + labelled_hex, labelled_hex)
+    password = fake(14, ALNUM, 178)
+    add("database URL with a password", "postgres://deploy:" + password + "@db.example.com:5432/app", password)
+    basic = base64.b64encode(("admin:" + fake(12, ALNUM, 179)).encode()).decode()
+    add("HTTP Basic header", "Authorization: Basic " + basic, basic)
+    curl = fake(12, ALNUM, 180)
+    add("curl -u user:password", "curl -u admin:" + curl + " https://example.com", curl)
+    add("cooperation capability", fake(43, URLSAFE, 181))
+    add("labelled short password", "password: hunter2", "hunter2")
+    sshpass = fake(10, ALNUM, 182)
+    add("sshpass -p", "sshpass -p '" + sshpass + "' ssh host", sshpass)
+    for length in (20, 24, 32, 40, 64):
+        run = fake(length, ALNUM, 190 + length)
+        add(f"random alphanumeric, {length}", "value " + run + " end", run)
+    base64_run = fake(43, BASE64_ALPHABET, 300)
+    add("random base64 with + and /", "value " + base64_run + "= end", base64_run)
+    lower = fake(32, LOWER_DIGITS, 301)
+    add("random lowercase and digits, 32", "value " + lower + " end", lower)
+    return out
+
+
+# docs/memory.md, "these shapes still pass": a short password in prose, and hex keys of 40 and 64 digits,
+# which have the shape of commit names and SHA-256 digests.
+CORPUS_PASSING = {
+    "unlabelled short password in prose": ("I typed hunter2 into the form", "hunter2"),
+    "40-digit hex key, unlabelled": ("value " + fake(40, HEX, 330) + " end", fake(40, HEX, 330)),
+    "64-digit hex key, unlabelled": ("value " + fake(64, HEX, 354) + " end", fake(64, HEX, 354)),
+}
+
+
+@pytest.mark.parametrize("name", sorted(corpus_secrets()))
+def test_every_secret_of_the_review_corpus_is_masked(name):
+    text, secret, allowance = corpus_secrets()[name]
+    masked, clean = redaction.redact(f"Deployed it.\n{text}\nAll green.")
+    assert clean, name
+    assert masked.startswith("Deployed it.") and masked.endswith("All green."), (name, masked)
+    assert masked_away(secret, masked, allowance), (name, masked)
+
+
+@pytest.mark.parametrize("name", sorted(CORPUS_PASSING))
+def test_the_shapes_the_docs_name_as_passing_still_pass(name):
+    text, secret = CORPUS_PASSING[name]
+    assert secret in redaction.redact(text)[0]
+
+
+def corpus_false_positives():
+    """The review's false-positive set: text that is no secret and must stay as written."""
+    session = "session_01" + fake(22, ALNUM, 400)
+    return {
+        "UUID lower": "session 5f0c7a2e-1b6d-4c2a-9e51-0d7b3c4a8f10 ended",
+        "UUID upper": "device 5F0C7A2E-1B6D-4C2A-9E51-0D7B3C4A8F10 paired",
+        "git SHA 40": "merged at " + fake(40, HEX, 401) + " on dev",
+        "git SHA short": "see 93b8dd84 and 10e1e6a1e18c",
+        "sha256 hex": "digest " + fake(64, HEX, 402) + " matches",
+        "sha512 hex": "sha512 " + fake(128, HEX, 403),
+        "unix path": "edited /Users/dev/repos/Agents/src/memory/turn_log_hook.py:610 and tests/test_turn_log_hook.py",
+        "path with a long dashed component":
+            "scratch /private/tmp/claude-501/-Users-dev-repos-Agents/5dd7911c-d0f8-42e2-807d-d64dbb5fcdd8/scratchpad/x.py",
+        "windows path": r"C:\Users\dev\AppData\Local\agents-core\history.md",
+        "long test name": "tests/test_schedules_scan.py::test_tracked_files_are_clean_except_known_fixtures passed",
+        "identifier of exactly 43 characters": "def test_a_rotation_between_two_stops_keeps_one(): pass",
+        "GitHub PR URL": "opened https://github.com/IEZhu/Agents/pull/773 against dev",
+        "claude.ai session link": "https://claude.ai/code/" + session,
+        "bare session id": session,
+        "tool-use id": "the call toolu_01" + fake(22, ALNUM, 404) + " returned",
+        "message id": "message msg_01" + fake(22, ALNUM, 405),
+        "Google Docs URL": "https://docs.google.com/document/d/1" + fake(43, URLSAFE, 406) + "/edit",
+        "YouTube URL": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "npm integrity hash": "integrity sha512-" + fake(86, BASE64_ALPHABET, 407) + "==",
+        "docker image digest": "image@sha256:" + fake(64, HEX, 408),
+        "CamelCase identifier with digits": "class Http2ConnectionPoolManagerFactoryBean3 extends Base",
+        "python code: token variable": 'token = response.json()["access_token"]',
+        "python code: password parameter": "def login(user: str, password: str = None) -> Session:",
+        "python code: api_key from env": 'client = Client(api_key=os.environ["OPENAI_API_KEY"])',
+        "python code: a keyword argument passed on": "client = Client(api_key=api_key, password=password)",
+        "yaml docs: token key": "token: the unit a model reads",
+        "prose: password is": "the password is stored hashed with argon2id",
+        "prose: secret word": "secret: keep the launch date quiet",
+        "cli help": "use --password PASS or set PGPASSWORD",
+        "max_tokens setting": "max_tokens=4096, temperature=0.2",
+        "placeholder": "password=<your password> and token=${TOKEN}",
+        "ISO timestamp and version": "2026-11-27T18:52:09Z v2.1.296 mcp==1.30.0",
+        "email and phone": "write to dev@example.com or +1 415 555 0100",
+        "base64 PNG": "data:image/png;base64," + base64.b64encode(random.Random(409).randbytes(70)).decode(),
+        "ARN": "arn:aws:iam::123456789012:role/service-role/AmazonSageMaker-ExecutionRole-20200101T000001",
+        "commit trailer": "Claude-Session: https://claude.ai/code/" + session,
+        "footer": "**Agent**: software_engineer | **Skills**: skill-dev-testing | **Rules**: no-fabrication",
+        "entry id and receipt digest": "entry 3afab3fea63f, key digest " + fake(64, HEX, 410),
+        "GitHub node id": "thread PRRT_kwDOQ2gBfc5" + fake(16, URLSAFE, 411) + " resolved",
+        "target triple and model name": "built for x86_64-pc-windows-msvc with all-MiniLM-L6-v2",
+        "macOS temporary directory": "/var/folders/32/rg0fhsh169zgd30_3plv74_c0000gp/T/pytest-of-dev",
+    }
+
+
+@pytest.mark.parametrize("name", sorted(corpus_false_positives()))
+def test_no_false_positive_of_the_review_corpus_is_masked(name):
+    text = corpus_false_positives()[name]
+    assert redaction.redact(text) == (text, True)
+
+
+ENVIRONMENT_VALUE = "s3cr3t-Deploy-pass-phrase-2026"
+ENVIRONMENT = {"DEPLOY_SERVICE_TOKEN": ENVIRONMENT_VALUE, "PGPASSWORD": "hunter2", "BUILD_FLAVOUR": "plain-setting-value",
+               "HOME": "/Users/dev", "GIT_AUTHOR_NAME": "Synthetic Person", "GIT_AUTHOR_EMAIL": "person@example.com",
+               "AUTH_MODE": "password", "GOPRIVATE": "github.com/example/*", "SSH_KEY_NAME": "id_ed25519",
+               "KEYBOARD_LAYOUT": "us-intl-altgr", "PIP_KEYRING_PROVIDER": "subprocess"}
+
+
+def environment_forms():
+    """``{form: (text, what must not be left)}``: one environment secret in the forms of the review's probes."""
+    value, encoded = ENVIRONMENT_VALUE, base64.b64encode(ENVIRONMENT_VALUE.encode()).decode()
+    blob = base64.b64encode(("user:" + value + ":x").encode()).decode()
+    return {
+        "raw": (f"deployed with {value} today", value),
+        "split over two lines": (f"deployed with {value[:14]}\n    {value[14:]} today", value[:14]),
+        "split by a space": (f"deployed with {value[:14]} {value[14:]} today", value[:14]),
+        "base64": (f"deployed with {encoded} today", encoded),
+        "base64, split over two lines": (f"blob {encoded[:20]}\n{encoded[20:]} end", encoded[:20]),
+        "base64 inside a larger blob": ("blob " + blob, blob),
+        "base64url": ("t=" + base64.urlsafe_b64encode(value.encode()).decode().rstrip("="),
+                      base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")),
+        "hex lower": (f"deployed with {value.encode().hex()} today", value.encode().hex()),
+        "hex upper": (f"deployed with {value.encode().hex().upper()} today", value.encode().hex().upper()),
+        "hex with colons": ("bytes " + ":".join(f"{byte:02x}" for byte in value.encode()),
+                            ":".join(f"{byte:02x}" for byte in value.encode())),
+        "percent-encoded": ("u?p=" + "".join(f"%{byte:02X}" for byte in value.encode()),
+                            "".join(f"%{byte:02X}" for byte in value.encode())),
+        "double base64": ("x " + base64.b64encode(encoded.encode()).decode(), base64.b64encode(encoded.encode()).decode()),
+        "in a JSON string": ('{"env": {"DEPLOY_SERVICE_TOKEN": "%s"}}' % value, value),
+        "in a shell export": (f"export DEPLOY_SERVICE_TOKEN={value}", value),
+        "JSON-escaped inside a JSON string": ('{"env": "{\\"T\\": \\"%s\\"}"}' % value, value),
+        "with zero-width spaces": ("deployed with " + "\u200b".join(value) + " today", value),
+    }
+
+
+# docs/memory.md, "these shapes still pass": forms of an environment secret the scanner does not decode.
+ENVIRONMENT_FORMS_PASSING = {
+    "concatenated pieces": (f'"{ENVIRONMENT_VALUE[:14]}" + "{ENVIRONMENT_VALUE[14:]}"', ENVIRONMENT_VALUE[14:]),
+    "base32": ("x " + base64.b32encode(ENVIRONMENT_VALUE.encode()).decode(),
+               base64.b32encode(ENVIRONMENT_VALUE.encode()).decode()),
+    "reversed": (f"deployed with {ENVIRONMENT_VALUE[::-1]} today", ENVIRONMENT_VALUE[::-1]),
+    "upper-cased": (f"deployed with {ENVIRONMENT_VALUE.upper()} today", ENVIRONMENT_VALUE.upper()),
+    "a 15-character prefix": (f"it starts with {ENVIRONMENT_VALUE[:15]}", ENVIRONMENT_VALUE[:15]),
+    "a value under eight characters": ("psql with PGPASSWORD hunter2 worked", "hunter2"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(environment_forms()))
+def test_an_environment_secret_is_masked_in_every_form_the_scanner_decodes(form):
+    text, secret = environment_forms()[form]
+    masked, clean = redaction.redact(text, redaction.environment_secrets(ENVIRONMENT))
+    assert clean and masked_away(secret, masked, 5), (form, masked)
+
+
+@pytest.mark.parametrize("form", sorted(ENVIRONMENT_FORMS_PASSING))
+def test_the_environment_forms_the_docs_name_as_passing_still_pass(form):
+    text, kept = ENVIRONMENT_FORMS_PASSING[form]
+    assert kept in redaction.redact(text, redaction.environment_secrets(ENVIRONMENT))[0]
+
+
+@pytest.mark.parametrize("text", ["commit as Synthetic Person today", "write to person@example.com",
+                                  "reset my password please", "clone github.com/example/* repos",
+                                  "the key file id_ed25519 is missing", "layout us-intl-altgr set",
+                                  "run it in a subprocess"])
+def test_environment_names_count_by_word_so_their_values_stay(text):
+    """#701 review: KEYRING, KEYBOARD, AUTHOR, GOPRIVATE, SSH_KEY_NAME and AUTH_MODE name no secret."""
+    known = redaction.environment_secrets(ENVIRONMENT)
+    assert sorted(secret.label for secret in known) == ["environment:DEPLOY_SERVICE_TOKEN"]
+    assert redaction.redact(text, known) == (text, True)
+
+
+@pytest.mark.parametrize("name,counts", [
+    ("DB_PASS", True), ("MYSQL_PWD", True), ("SMTP_PASS", True), ("SENTRY_DSN", True), ("DATABASE_URL", True),
+    ("REDIS_URL", True), ("PGPASSWORD", True), ("API_TOKEN", True), ("accessToken", True), ("SecretAccessKey", True),
+    ("Authorization", True), ("credentials", True), ("KEYRING", False), ("KEYBOARD_LAYOUT", False),
+    ("GIT_AUTHOR_NAME", False), ("GOPRIVATE", False), ("SSH_KEY_NAME", False), ("AUTH_MODE", False), ("PWD", False),
+    ("PASS", False), ("max_tokens", False), ("TOKEN_TYPE", False), ("GITHUB_API_URL", False),
+])
+def test_a_name_names_a_secret_by_its_words(name, counts):
+    assert redaction.secret_name(name) is counts
+
+
+def env_file_lines():
+    """The review's 190 env-file lines: 38 names in 5 spellings, each with 24 lowercase letters and digits."""
+    generator = random.Random(7)
+    names = ["DB_PASSWORD", "PGPASSWORD", "MYSQL_ROOT_PASSWORD", "API_TOKEN", "MY_SERVICE_TOKEN", "GITHUB_TOKEN",
+             "JWT_SECRET", "SESSION_SECRET", "WEBHOOK_SECRET", "DJANGO_SECRET_KEY", "SECRET_KEY", "CLIENT_SECRET",
+             "OAUTH_CLIENT_SECRET", "STRIPE_API_KEY", "API_KEY", "X_API_KEY", "ENCRYPTION_KEY", "REDIS_AUTH",
+             "DB_PASS", "SMTP_PASS", "PRIVATE_KEY_PASSPHRASE", "ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "TOKEN",
+             "PASSWORD", "SECRET", "token", "apiKey", "clientSecret", "accessToken", "refresh_token", "auth_token",
+             "authToken", "bearerToken", "x-api-key", "Authorization", "private_key", "credentials"]
+    lines = []
+    for name in names:
+        secret = "".join(generator.choice(LOWER_DIGITS) for _ in range(24))
+        for form in ("{n}={v}", "export {n}={v}", '{n}="{v}"', "{n}: {v}", '"{n}": "{v}"'):
+            lines.append((form.format(n=name, v=secret), secret))
+    return lines
+
+
+def test_every_env_file_line_of_the_review_is_masked():
+    lines = env_file_lines()
+    assert len(lines) == 190
+    for line, secret in lines:
+        masked, clean = redaction.redact(line)
+        assert clean and secret not in masked, line
+
+
+SHAPE_CLASSES = {
+    # name: (make one, frame, least share masked of 100 samples)
+    "AWS secret key in STS JSON": (lambda g: rnd(g, 40, BASE64_ALPHABET), '{{"SecretAccessKey": "{}"}}', 100),
+    "AWS secret key in prose": (lambda g: rnd(g, 40, BASE64_ALPHABET), "the secret access key is {} ok", 100),
+    "random alphanumeric 20": (lambda g: rnd(g, 20, ALNUM), "value {} end", 90),
+    "random alphanumeric 24": (lambda g: rnd(g, 24, ALNUM), "value {} end", 90),
+    "random alphanumeric 32": (lambda g: rnd(g, 32, ALNUM), "value {} end", 95),
+    "random alphanumeric 40": (lambda g: rnd(g, 40, ALNUM), "value {} end", 98),
+    "token_urlsafe(24)": (lambda g: rnd(g, 32, URLSAFE), "value {} end", 95),
+    "random hex 32": (lambda g: rnd(g, 32, HEX), "value {} end", 100),
+    "random lowercase and digits 32": (lambda g: rnd(g, 32, LOWER_DIGITS), "value {} end", 90),
+    "base64 of 24 random bytes": (lambda g: rnd(g, 32, BASE64_ALPHABET), "value {} end", 95),
+    "HTTP Basic value": (lambda g: rnd(g, 27, BASE64_ALPHABET) + "=", "Authorization: Basic {}", 100),
+    "Slack xapp token": (lambda g: "xapp-1-A" + rnd(g, 10, UPPER_DIGITS) + "-" + rnd(g, 13, string.digits) + "-"
+                         + rnd(g, 64, HEX), "token {} end", 100),
+    "Telegram bot token": (lambda g: rnd(g, 10, string.digits) + ":AA" + rnd(g, 33, URLSAFE), "bot {} end", 100),
+}
+ID_CLASSES = {  # ids that look random and are no secret: none of them is masked
+    "tool-use id": (lambda g: "toolu_01" + rnd(g, 22, ALNUM), "call {} done"),
+    "bare session id": (lambda g: "session_01" + rnd(g, 22, ALNUM), "see {} now"),
+    "request id": (lambda g: "req_011C" + rnd(g, 20, ALNUM), "id {} now"),
+    "64-digit hex digest": (lambda g: rnd(g, 64, HEX), "value {} end"),
+}
+
+
+def rnd(generator, length, alphabet):
+    return "".join(generator.choice(alphabet) for _ in range(length))
+
+
+@pytest.mark.parametrize("name", sorted(SHAPE_CLASSES))
+def test_secret_shapes_of_the_review_are_masked_at_their_rate(name):
+    """The review's Monte Carlo classes, seeded: those it found written whole 33 to 100 times in 100."""
+    make, frame, least = SHAPE_CLASSES[name]
+    generator = random.Random(2026)
+    secrets_ = [make(generator) for _ in range(100)]
+    masked = sum(secret not in redaction.redact(frame.format(secret))[0] for secret in secrets_)
+    assert masked >= least, (name, masked)
+
+
+@pytest.mark.parametrize("name", sorted(ID_CLASSES))
+def test_random_looking_ids_are_not_masked(name):
+    make, frame = ID_CLASSES[name]
+    generator = random.Random(2026)
+    for _ in range(100):
+        text = frame.format(make(generator))
+        assert redaction.redact(text) == (text, True)
+
+
+def test_a_pgp_private_key_block_keeps_no_line_of_its_body():
+    generator = random.Random(11)
+    body = "\n".join(rnd(generator, 64, BASE64_ALPHABET) for _ in range(12))
+    marker = "PGP PRIVATE " + "KEY BLOCK"
+    text = f"-----BEGIN {marker}-----\n\n{body}\n=" + rnd(generator, 4, BASE64_ALPHABET) + f"\n-----END {marker}-----"
+    masked, clean = redaction.redact("Here is the key:\n" + text + "\nDone.")
+    assert clean and masked.endswith("Done.")
+    assert all(longest_left(line, masked) <= 4 for line in body.splitlines()), masked
+
+
+def test_redaction_keeps_its_time_on_large_texts():
+    """#701 review: a megabyte of prose took 1.2 s; the rules added in attempt 3 keep that order."""
+    generator = random.Random(5)
+    words = ["the", "journal", "entry", "is", "written", "under", "a", "key", "made", "of", "session", "and",
+             "prompt", "ids", "`history.md`", "rotation", "archive", "lock", "timeout", "hook", "Stop", "event"]
+    text = "\n".join(" ".join(generator.choice(words) for _ in range(14)) for _ in range(4000))  # about 300 kB
+    started = time.monotonic()
+    masked, clean = redaction.redact(text)
+    assert clean and masked == text
+    assert time.monotonic() - started < 10
+
+
+def test_redaction_stops_at_its_deadline():
+    """A round the deadline leaves no time for is not started: the field is not clean, so it is withheld."""
+    assert redaction.redact("password: hunter2", deadline=time.monotonic() - 1) == ("password: hunter2", False)
+    assert redaction.redact("password: hunter2", deadline=time.monotonic() + 60) == ("password: <secret>", True)
+
+
+# --- The second review's reproductions, now asserting the fixed behaviour (#701 review) -----------
+
+FIRST_TURN = ("The first turn's answer explains the four release steps in the order the installer runs them.\n\n"
+              + FOOTER)
+SECOND_TURN = "The second turn's answer lists the three files that changed and why each one changed.\n\n" + FOOTER
+
+
+def test_a_promptless_stop_on_a_lagging_transcript_never_replaces_the_previous_turns_entry(project, tmp_path):
+    """r1: without a prompt id the hook pairs the Stop's answer only with a turn that holds it."""
+    def promptless(text, row_id):  # an older Claude Code: neither the row nor the hook input has a prompt id
+        row = {**opener("ignored", text), "uuid": row_id}
+        del row["promptId"]
+        return row
+    rows = [promptless("first question", "row-1"), *activation_rows(), answer_row(FIRST_TURN, "m1")]
+    transcript = rows_file(tmp_path / "t.jsonl", rows)
+    assert hook.record_turn(stop_event(project, transcript, last_assistant_message=FIRST_TURN),
+                            interactive=True)["status"] == "recorded"
+    # The second turn ends while the transcript still lags: its rows are not there yet.
+    with pytest.raises(hook.TurnNotLogged, match="does not hold the Stop's answer"):
+        hook.record_turn(stop_event(project, transcript, last_assistant_message=SECOND_TURN), interactive=True)
+    assert [(entry.intent, entry.outcome) for entry in entries(project)] == [("first question", flat(FIRST_TURN))]
+    # Once the transcript holds the turn, the same Stop logs it as its own entry.
+    rows_file(transcript, [*rows, promptless("second question", "row-2"), answer_row(SECOND_TURN, "m2")])
+    assert hook.record_turn(stop_event(project, transcript, last_assistant_message=SECOND_TURN),
+                            interactive=True)["status"] == "recorded"
+    assert [(entry.intent, entry.outcome) for entry in entries(project)] == [
+        ("first question", flat(FIRST_TURN)), ("second question", flat(SECOND_TURN))]
+
+
+def test_a_hook_killed_between_the_append_and_the_archive_rewrite_keeps_the_new_answer(project, tmp_path, monkeypatch):
+    """r2: the replacement is written into history.md first, the archived copy removed after it, so a
+    kill between the two leaves the corrected answer, which readers show; the next write under the
+    key removes the older copy."""
+    monkeypatch.setattr(history_module, "HistoryWriter", SmallJournal)
+    transcript = corrected_turn(tmp_path, answer_row(CORRECTED, "m2"))
+    first = hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                             interactive=True)
+    [archive] = (project / "history").glob("*.md")
+    assert first["entry_id"] in archive.read_text(encoding="utf-8")
+    real_replace, calls = history_module._replace, []
+
+    def killed_at_the_second_replace(path, text, *, info):
+        calls.append(os.path.basename(path))
+        if len(calls) == 2:
+            raise KeyboardInterrupt("the client cancelled the hook at its timeout")
+        return real_replace(path, text, info=info)
+    monkeypatch.setattr(history_module, "_replace", killed_at_the_second_replace)
+    with pytest.raises(KeyboardInterrupt):
+        hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                    last_assistant_message=CORRECTED), interactive=True)
+    monkeypatch.setattr(history_module, "_replace", real_replace)
+    assert calls == ["history.md", archive.name]  # the live file first, then the archive
+    reader = HistoryReader(str(project / "history.md"), str(project / "history"))
+    assert [entry.outcome for entry in reader.read_recent(limit=10) if entry.intent == "question"] == [flat(CORRECTED)]
+    # The same Stop again, as a retry would be: the older copy goes, the corrected one stays.
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                        last_assistant_message=CORRECTED), interactive=True)
+    assert again["entry_id"] == first["entry_id"]
+    assert [entry.outcome for entry in entries(project) if entry.intent == "question"] == [flat(CORRECTED)]
+
+
+def blocks(root):
+    return {entry.id + entry.timestamp: block for entry, block in
+            history_module.journal_blocks(str(root / "history.md"), str(root / "history"))}
+
+
+def test_supersede_and_withdraw_touch_only_the_hooks_own_keyed_entry(project, tmp_path):
+    """r3, kept as a regression test: every other entry stays byte for byte."""
+    writer = HistoryWriter(str(project / "history.md"), str(project / "history"), rotation_kb=1)
+    transcript = corrected_turn(tmp_path, answer_row(CORRECTED, "m2"))
+    writer.append_entry("model unkeyed before", "Agent: a", "x" * 300)
+    writer.append_entry("model keyed before", "Agent: a", "y" * 300, idempotency_key="uuid-model-1")
+    other = {**stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+             "session_id": "another-session"}
+    assert hook.record_turn(other, interactive=True)["status"] == "recorded"
+    first = hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                             interactive=True)
+    for index in range(8):  # push the hook's entry into an archive
+        writer.append_entry(f"model filler {index}", "Agent: a", "z" * 300)
+    writer.append_entry("model keyed after", "Agent: a", "w" * 300, idempotency_key="uuid-model-2")
+    own = lambda: [entry for entry in entries(project) if (entry.metadata or {}).get("session_id") == SESSION]  # noqa: E731
+    before = blocks(project)
+    mine = [key for key in before if key.startswith(first["entry_id"])]
+    assert len(mine) == 1
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                        last_assistant_message=CORRECTED), interactive=True)
+    assert again["status"] == "recorded" and [entry.outcome for entry in own()] == [flat(CORRECTED)]
+    after = blocks(project)
+    assert {k: v for k, v in before.items() if k not in mine} == {
+        k: v for k, v in after.items() if not k.startswith(first["entry_id"])}
+    rows_file(transcript, [opener("p1", "question"), *activation_rows(), answer_row(LONG_ANSWER, "m1"), FEEDBACK,
+                           *log_rows({"status": "recorded"}), answer_row("Logged.", "m3")])
+    gone = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                       last_assistant_message="Logged."), interactive=True)
+    assert gone == {"status": "skipped", "reason": "logged_by_model", "withdrawn": True} and own() == []
+    assert blocks(project) == {k: v for k, v in after.items() if not k.startswith(first["entry_id"])}
+
+
+def test_withdraw_finds_the_entry_in_a_pending_first_rotation(project, tmp_path):
+    """r6: a first rotation that moved history.md aside left no history.md and no archive directory."""
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "do not record this"), *activation_rows(),
+                                                  answer_row(LONG_ANSWER, "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                     interactive=True)
+    os.replace(project / "history.md", project / "history.md.rotating")
+    assert not (project / "history").exists()
+    rows_file(transcript, [opener("p1", "do not record this"), *activation_rows(), answer_row(LONG_ANSWER, "m1"),
+                           FEEDBACK, *log_rows({"status": "withheld", "state": "not_written"},
+                                               arguments={"journal": False}), answer_row("Kept out.", "m2")])
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                        last_assistant_message="Kept out."), interactive=True)
+    assert again == {"status": "skipped", "reason": "not_journaled", "withdrawn": True}
+    assert entries(project) == []
+
+
+def test_a_secret_in_the_footers_place_never_reaches_the_action_line(project, tmp_path):
+    """r7: only a canonical agent name counts as the footer's; any other text there is no footer."""
+    token = "sk-ant-" + "api03-" + fake(32, ALNUM, 7)
+    answer = "Done.\n\n**Agent**: " + token
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *activation_rows(), answer_row(answer, "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=answer), interactive=True)
+    [entry] = entries(project)
+    assert token not in entry.outcome and token not in entry.action
+    assert entry.action.startswith("Agent: software_engineer Persona (unverified)") and "missing=footer" in entry.action
+
+
+def test_a_malformed_receipt_comment_stops_no_later_turn(project, tmp_path, monkeypatch, capsys):
+    """r13: the hook's writes skip a receipt comment cut short, as a Meta line that is no object."""
+    writer = HistoryWriter(str(project / "history.md"), str(project / "history"))
+    writer.append_entry("an old turn", "Agent: x", "an old answer")
+    with open(project / "history.md", "a", encoding="utf-8") as stream:
+        stream.write('\n<!-- agents-write-receipt {"key_digest": "cut short -->\n')
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), answer_row("Answer.", "m1")])
+    event = stop_event(project, transcript, prompt_id="p1", last_assistant_message="Answer.")
+    assert run_main(monkeypatch, capsys, json.dumps(event).encode(), ["--interactive"]) == (0, "", "")
+    assert [entry.intent for entry in entries(project)] == ["an old turn", "question"]
+
+
+def test_a_pasted_env_file_and_its_echo_reach_the_journal_masked(project, tmp_path, monkeypatch):
+    """r14: values after secret names, in every spelling, whatever their shape."""
+    generator = random.Random(14)
+    api_token, jwt_secret = rnd(generator, 32, HEX), rnd(generator, 28, LOWER_DIGITS)
+    db_password = rnd(generator, 16, LOWER_DIGITS)
+    xapp = "xapp-1-A0" + rnd(generator, 9, string.digits) + "-" + rnd(generator, 13, string.digits) + "-" + \
+        rnd(generator, 64, HEX)
+    prompt = ("Why does the deploy fail? My .env:\n"
+              f"API_TOKEN={api_token}\nJWT_SECRET={jwt_secret}\ndb_password: {db_password}\nSLACK_APP_TOKEN={xapp}\n")
+    answer = (f"The deploy fails because JWT_SECRET={jwt_secret} is shorter than 32 bytes; API_TOKEN={api_token} "
+              "is fine.\n\n" + FOOTER)
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", prompt), *activation_rows(), answer_row(answer, "m1")])
+    assert hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=answer),
+                            interactive=True)["status"] == "recorded"
+    text = (project / "history.md").read_text(encoding="utf-8")
+    for secret in (api_token, jwt_secret, db_password, xapp):
+        assert secret not in text, secret
+    [entry] = entries(project)
+    assert "redaction" not in entry.metadata and "JWT_SECRET=<secret>" in entry.intent
+
+
+def test_a_turn_whose_own_call_the_server_refused_is_not_logged(project, tmp_path, monkeypatch, capsys):
+    """The protocol review's probe: a redacted call refused with history_busy left the hook writing the
+    raw turn. A refused call left no entry before the hook, and the hook must not write what it may
+    have been redacting: it removes its own entry and exits 1 with the call's error code."""
+    private = "My neighbour Ivan Petrov of 12 Elm Street was diagnosed with PRIVATE-DETAIL-2."
+    rows = [opener("p1", private), *activation_rows(), answer_row(LONG_ANSWER, "m1")]
+    transcript = rows_file(tmp_path / "t.jsonl", rows)
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                     interactive=True)
+    rows_file(transcript, [*rows, FEEDBACK, *log_rows({"status": "error", "state": "rejected", "error": "history_busy"},
+                                                      arguments={"query": "[a question about a third party]"}),
+                           answer_row("Logged.", "m2")])
+    event = stop_event(project, transcript, prompt_id="p1", stop_hook_active=True, last_assistant_message="Logged.")
+    code, out, err = run_main(monkeypatch, capsys, json.dumps(event).encode(), ["--interactive"])
+    assert (code, out) == (1, "") and "its own log_interaction call was refused (history_busy)" in err
+    assert entries(project) == [] and "Petrov" not in (project / "history.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("history,reason", [
+    ({"status": "recorded", "state": "durably_accepted"}, "a server older than journal=false wrote the turn"),
+    ({"status": "error", "state": "rejected", "error": "history_busy"}, "was refused (history_busy), not withheld"),
+])
+def test_a_journal_false_call_that_was_not_withheld_is_reported(project, tmp_path, monkeypatch, capsys, history, reason):
+    """The protocol review's probe: a server older than journal=false ignores it and writes the turn,
+    and the hook used to answer skipped with exit 0. It now removes its own entry and exits 1."""
+    rows = [opener("p1", "my diagnosis, keep it out of the journal"), *activation_rows(), answer_row(LONG_ANSWER, "m1")]
+    transcript = rows_file(tmp_path / "t.jsonl", rows)
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                     interactive=True)
+    rows_file(transcript, [*rows, FEEDBACK, *log_rows(history, arguments={"journal": False}), answer_row("Done.", "m2")])
+    event = stop_event(project, transcript, prompt_id="p1", stop_hook_active=True, last_assistant_message="Done.")
+    code, out, err = run_main(monkeypatch, capsys, json.dumps(event).encode(), ["--interactive"])
+    assert (code, out) == (1, "") and reason in err
+    assert entries(project) == []
+
+
+@pytest.mark.parametrize("value", [False, "false", "0", "no"])
+def test_journal_false_counts_as_the_server_reads_it(value):
+    assert hook._journal_false({"journal": value}) and not hook._journal_false({"journal": True})
+
+
+def test_a_replaced_or_withdrawn_entry_is_recorded_for_user_sync(project, tmp_path, monkeypatch):
+    """#701 review: the hook process shares nothing, but it records what it removes, so the next
+    reconcile of a process that shares this repository's history takes it out of the shared copy."""
+    from src.user_sync import history as history_sync
+    recorded = []
+    monkeypatch.setattr(history_sync, "record_deletion",
+                        lambda path, entry_id, timestamp: recorded.append((path, entry_id, timestamp)))
+    transcript = corrected_turn(tmp_path, answer_row(CORRECTED, "m2"))
+    first = hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                             interactive=True)
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                        last_assistant_message=CORRECTED), interactive=True)
+    journal = str(project / "history.md")
+    assert recorded == [(journal, first["entry_id"], first["timestamp"])]
+    rows_file(transcript, [opener("p1", "question"), *activation_rows(), answer_row(LONG_ANSWER, "m1"), FEEDBACK,
+                           *log_rows({"status": "recorded"}), answer_row("Logged.", "m3")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                last_assistant_message="Logged."), interactive=True)
+    assert recorded[1:] == [(journal, again["entry_id"], again["timestamp"])]
+    assert history_module._sync is None  # the hook's integration is gone once the write is done
+
+
+def build_archives(root, megabytes, months=12):
+    """Synthetic archives of about ``megabytes`` in all, months of 3 kB entries, written directly."""
+    (root / "history").mkdir(parents=True, exist_ok=True)
+    body = " ".join(["journal entry answer release notes review finding worker contract rotation"] * 38)
+    per_month = megabytes * 1024 * 1024 // months
+    for month in range(months):
+        name = f"2025-{month + 1:02d}"
+        blocks_, size, index = [], 0, 0
+        while size < per_month:
+            block = HistoryWriter._render_entry(f"{month:02d}{index:010x}", f"{name}-10T10:00:00+00:00",
+                                                f"prompt {month}-{index}", "Agent: software_engineer", body, None, None,
+                                                {"answer_timestamp": "2026.11.27 10:00:00"})
+            blocks_.append(block)
+            size += len(block)
+            index += 1
+        (root / "history" / f"{name}.md").write_text("".join(blocks_), encoding="utf-8")
+
+
+def test_a_hook_write_on_a_large_journal_parses_only_what_holds_its_key(project, tmp_path, monkeypatch):
+    """#701 review: every hook write parsed every archive under the journal's lock (6 s at 400 MB). A
+    file without the key's entry id is skipped after a substring search of its bytes."""
+    build_archives(project, 24)
+    parsed = []
+    real_parse = HistoryReader._parse
+
+    def counting(content):
+        parsed.append(len(content))
+        return real_parse(content)
+    monkeypatch.setattr(HistoryReader, "_parse", staticmethod(counting))
+    transcript = corrected_turn(tmp_path, answer_row(CORRECTED, "m2"))
+    started = time.monotonic()
+    first = hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                             interactive=True)
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                        last_assistant_message=CORRECTED), interactive=True)
+    withdrawn = HistoryWriter(str(project / "history.md"), str(project / "history")).withdraw(
+        hook.turn_key({"session_id": SESSION}, "p1"))
+    elapsed = time.monotonic() - started
+    assert first["status"] == again["status"] == "recorded" and withdrawn["status"] == "withdrawn"
+    assert max(parsed) < 1024 * 1024  # never an archive: only history.md, which holds the key
+    assert elapsed < 5, elapsed
+
+
+def test_stale_temporary_files_of_killed_writes_are_removed(project):
+    """#701 review: a write killed before its move left a full copy beside the journal for good."""
+    writer = HistoryWriter(str(project / "history.md"), str(project / "history"), rotation_kb=0)
+    writer.append_entry("first", "Agent: a", "rotated into an archive")
+    stale = [project / ".history.md.0123456789abcdef.tmp", project / "history" / ".2025-01.md.fedcba9876543210.tmp"]
+    others = [project / ".CLAUDE.md.0123456789abcdef.tmp", project / ".history.md.lock", project / "history.md.tmp"]
+    for path in stale + others:
+        path.write_text("x", encoding="utf-8")
+    writer.append_entry("second", "Agent: a", "the next write removes the leftovers")
+    assert not any(path.exists() for path in stale)
+    assert all(path.exists() for path in others)
+
+
+def test_a_stop_past_its_deadline_writes_nothing_and_says_so(project):
+    with pytest.raises(hook.TurnNotLogged, match="ran out of time"):
+        hook.record_turn(stop_event(project, prompt_id="prompt-2"), interactive=True, deadline=time.monotonic() - 1)
+    assert not (project / "history.md").exists()
+
+
+def test_the_command_ends_itself_before_the_clients_timeout():
+    """The watchdog of the command line: exit 1 with the reason, before Claude Code would cancel it."""
+    probe = ("import time; from src.memory import turn_log_hook as hook; hook._watchdog(0.2); time.sleep(30)")
+    result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, capture_output=True, timeout=60,
+                            env={**os.environ, "LANGFUSE_TRACING_ENABLED": "false"})
+    assert result.returncode == 1 and b"turn not logged (the hook ran out of time)" in result.stderr
+    assert hook.DEADLINE_SECONDS < hook.WATCHDOG_SECONDS < 30
