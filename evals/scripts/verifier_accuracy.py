@@ -16,6 +16,9 @@ output without unblinding itself.
              projection of the whole set from a stage
   status     attempt counts and cost so far
   discard    move the current set aside inside the control directory
+
+build, probe, run and discard take the set's run lock before they read the set and hold it
+until they end; each is refused at once while another of them holds it.
 """
 from __future__ import annotations
 
@@ -99,9 +102,11 @@ def simulate(arguments) -> int:
 
 
 def probe(arguments) -> int:
-    loaded = runner.load(_control(arguments), installation_roots=_roots(arguments))
-    with control.exclusive(loaded.control_dir, "a separate probe"):  # its cost would escape a run's budget
-        control.ensure_unchanged(loaded.control_dir, loaded.manifest["version"])
+    control_dir = _control(arguments)
+    # The lock comes before the load, so the probe records against the set on disk, and stays
+    # until the probe is recorded, since its cost would otherwise escape a run's budget.
+    with control.exclusive(control_dir, "a separate probe") as lock:
+        loaded = runner.load(control_dir, installation_roots=_roots(arguments), lock=lock)
         launcher = _launcher(arguments, loaded)
         model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
         result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
@@ -125,19 +130,22 @@ def _simulation(control_dir: Path, loaded: runner.LoadedSet) -> dict | None:
 
 def run(arguments) -> int:
     control_dir = _control(arguments)
-    loaded = runner.load(control_dir, installation_roots=_roots(arguments))
-    simulation = _simulation(control_dir, loaded)
-    if simulation is None:
-        return 1
-    if not simulation.get("held") and not arguments.pipeline_check:
-        print("The coverage simulation did not hold for this set; its bands would not hold their level.",
-              file=sys.stderr)
-        return 1
-    worker_runner = runner.Runner(loaded, _launcher(arguments, loaded), concurrency=arguments.concurrency,
-                                  batch_size=arguments.batch_size, timeout=arguments.timeout,
-                                  max_total_usd=arguments.max_total_usd, seed=arguments.seed,
-                                  stage_runs=arguments.stage_runs, log=lambda line: print(line, flush=True))
-    summary = worker_runner.run()
+    # Held from before the load to the last record: no discard, build, probe or second run can
+    # touch the set between them, which Runner.run requires.
+    with control.exclusive(control_dir, "a run") as lock:
+        loaded = runner.load(control_dir, installation_roots=_roots(arguments), lock=lock)
+        simulation = _simulation(control_dir, loaded)
+        if simulation is None:
+            return 1
+        if not simulation.get("held") and not arguments.pipeline_check:
+            print("The coverage simulation did not hold for this set; its bands would not hold their level.",
+                  file=sys.stderr)
+            return 1
+        worker_runner = runner.Runner(loaded, _launcher(arguments, loaded), concurrency=arguments.concurrency,
+                                      batch_size=arguments.batch_size, timeout=arguments.timeout,
+                                      max_total_usd=arguments.max_total_usd, seed=arguments.seed,
+                                      stage_runs=arguments.stage_runs, log=lambda line: print(line, flush=True))
+        summary = worker_runner.run()
     _print(summary)
     return 0
 
@@ -270,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
         return arguments.handler(arguments)
-    except (runner.ScheduleError, control.RunInProgress, control.SetChanged) as error:  # before anything ran
+    except (runner.ScheduleError, control.RunInProgress) as error:  # before anything ran
         print(error, file=sys.stderr)
         return 1
 

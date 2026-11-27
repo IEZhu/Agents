@@ -261,6 +261,10 @@ def build(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: 
           same_bundle: Callable[[Path], Callable[[str], bool]] | None = None) -> dict:
     """Write a new set into ``control_dir`` and return its manifest (aggregates only).
 
+    The set's run lock is taken once the control directory exists, before the check for a set
+    already there, and held until the manifest is written, so no run, probe, discard or second
+    build acts on the directory while a set is built in it.
+
     ``same_bundle(snapshot)`` returns the check that a statement's packages keep the reference
     bundle; without it every statement is accepted.
     """
@@ -268,11 +272,21 @@ def build(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: 
         raise BuildError("A set needs at least two items.")
     repo = repo.resolve()
     commit = resolve_commit(repo, commit)
-    snapshot = (snapshots / commit).resolve()
-    control.ensure_separate(control_dir, installation_roots=installation_roots, checkouts=[repo, snapshot])
-    control.open_private(control_dir)
-    if (control_dir / control.STATEMENTS).exists():
-        raise BuildError(f"{control_dir} already holds a set; discard it first.")
+    control.ensure_separate(control_dir, installation_roots=installation_roots,
+                            checkouts=[repo, (snapshots / commit).resolve()])
+    control.open_private(control_dir)  # before the lock, whose file would otherwise create the directory
+    with control.exclusive(control_dir, "building a set"):
+        if (control_dir / control.STATEMENTS).exists():
+            raise BuildError(f"{control_dir} already holds a set; discard it first.")
+        return _build_locked(repo=repo, commit=commit, control_dir=control_dir, snapshots=snapshots, name=name,
+                             items=items, seed=seed, v2_per_class=v2_per_class, claims_store=claims_store,
+                             same_bundle=same_bundle)
+
+
+def _build_locked(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: str, items: int,
+                  seed: int, v2_per_class: int | None, claims_store: Path | None,
+                  same_bundle: Callable[[Path], Callable[[str], bool]] | None) -> dict:
+    """``build`` once it holds the run lock and found no set there."""
     snapshot = export_snapshot(repo, commit, snapshots)
     files, directories = snapshot_files(snapshot)
     file_set = set(files)
@@ -323,26 +337,23 @@ def build(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: 
         return {name: sum(1 for row in statements if row[key] and truth_of[row["item"]] is truth)
                 for name, truth in (("true", True), ("false", False))}
 
-    with control.exclusive(control_dir, "writing a set"):
-        if (control_dir / control.STATEMENTS).exists():  # another build finished in the meantime
-            raise BuildError(f"{control_dir} already holds a set; discard it first.")
-        control.write_jsonl(control_dir / control.STATEMENTS, statements)
-        control.write_jsonl(control_dir / control.LABELS, labels)
-        control.write_jsonl(control_dir / control.OWNER_REVIEW, selector.owner)
-        control.write_private(control_dir / control.CANARY, f"canary {secrets.token_hex(16)}\n")
-        version = control.set_version(control_dir)
-        manifest = {
-            "name": name, "version": version, "set": f"{name}@{version}", "commit": commit,
-            "snapshot": str(snapshot), "repository": str(repo), "created_at": control.now(), "seed": seed,
-            "items": len(chosen), "classes": {"true": items // 2, "false": items - items // 2},
-            "strata": dict(Counter(row["stratum"] for row in statements)),
-            "clusters": dict(Counter(row["cluster"] for row in statements)),
-            "perturbations": dict(Counter(item.kind for item in chosen if not item.truth)),
-            "command_checkable": by_class("command_checkable"), "v2": by_class("v2"),
-            "skipped": dict(selector.skipped), "owner_review": len(selector.owner),
-            "labels_sha256": control.file_digest(control_dir / control.LABELS),
-        }
-        control.write_private(control_dir / control.MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    control.write_jsonl(control_dir / control.STATEMENTS, statements)
+    control.write_jsonl(control_dir / control.LABELS, labels)
+    control.write_jsonl(control_dir / control.OWNER_REVIEW, selector.owner)
+    control.write_private(control_dir / control.CANARY, f"canary {secrets.token_hex(16)}\n")
+    version = control.set_version(control_dir)
+    manifest = {
+        "name": name, "version": version, "set": f"{name}@{version}", "commit": commit,
+        "snapshot": str(snapshot), "repository": str(repo), "created_at": control.now(), "seed": seed,
+        "items": len(chosen), "classes": {"true": items // 2, "false": items - items // 2},
+        "strata": dict(Counter(row["stratum"] for row in statements)),
+        "clusters": dict(Counter(row["cluster"] for row in statements)),
+        "perturbations": dict(Counter(item.kind for item in chosen if not item.truth)),
+        "command_checkable": by_class("command_checkable"), "v2": by_class("v2"),
+        "skipped": dict(selector.skipped), "owner_review": len(selector.owner),
+        "labels_sha256": control.file_digest(control_dir / control.LABELS),
+    }
+    control.write_private(control_dir / control.MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
 
 
@@ -351,8 +362,9 @@ def discard(control_dir: Path) -> Path:
 
     The target is new every time: the set version from the statement file (or ``incomplete``
     when a build stopped before writing it) and the time of the discard, so a rebuilt set
-    with the same version never overwrites the records of an earlier one. A run of the set that
-    is going holds its run lock, and the discard is refused, so no run splits across two sets.
+    with the same version never overwrites the records of an earlier one. The run lock is taken
+    before the set version is read: while a run, a probe or a build holds it the discard is
+    refused, so no run splits across two sets.
     """
     with control.exclusive(control_dir, "discarding the set"):
         version = (control.set_version(control_dir) if (control_dir / control.STATEMENTS).exists()

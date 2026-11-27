@@ -6,6 +6,7 @@ transcripts, and the analysis by simulated verdicts.
 from __future__ import annotations
 
 from collections import Counter
+import contextlib
 import json
 import math
 import os
@@ -435,9 +436,24 @@ def _prepared(arguments):
     return worker.Prepared(package=package, launch="launch", revision=revision, context_path=Path("/x"))
 
 
+_HELD = contextlib.ExitStack()  # run locks a test loaded its set under, released when the test ends
+
+
+@pytest.fixture(autouse=True)
+def _release_run_locks():
+    yield
+    _HELD.close()
+
+
+def _locked(control_dir: Path) -> runner.LoadedSet:
+    """The set loaded the way the run command loads it: under its run lock, held until the test ends."""
+    lock = _HELD.enter_context(control.exclusive(control_dir, "a test run"))
+    return runner.load(control_dir, installation_roots=[], lock=lock)
+
+
 def _runner(tmp_path, repo, launcher_factory, *, validate=None, **options):
     control_dir, manifest = _build(tmp_path, repo, items=6)
-    loaded = runner.load(control_dir, installation_roots=[])
+    loaded = _locked(control_dir)
     launcher = launcher_factory(loaded)
     verdicts = validate or (lambda revision, path: worker.Validated("verdict", "confirmed", None))
     return runner.Runner(loaded, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None,
@@ -730,7 +746,7 @@ def test_a_resumed_run_starts_from_the_recorded_spend(tmp_path, repo, monkeypatc
     assert again.spent == pytest.approx(runner.recorded_spend(loaded)) and again.spent > 0
 
 
-def test_a_run_reads_the_spend_again_once_it_holds_the_lock(tmp_path, repo, monkeypatch):
+def test_a_run_reads_the_spend_again_when_it_starts(tmp_path, repo, monkeypatch):
     monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
     work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
                                      stage_runs=10)
@@ -1082,9 +1098,11 @@ def test_every_record_names_the_seed_and_a_later_run_with_another_is_refused(tmp
     (loaded.control_dir / control.SIMULATION).write_text(json.dumps({"set": loaded.set_id, "held": True,
                                                                      "look": "final", "d_floor": 1.0}))
     arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    _HELD.close()  # the command takes the run lock itself
     assert cli.main([*arguments, "run", "--seed", "6"]) == 1
     assert "scheduled with seed 5" in capsys.readouterr().err
-    same = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None, seed=5)
+    same = runner.Runner(_locked(loaded.control_dir), launcher, prepare=_prepared, validate=work.validate,
+                         log=lambda line: None, seed=5)
     assert same.run()["run"] == len(runner.schedule(list(loaded.statements.values()), 5)) - len(first)
 
 
@@ -1124,18 +1142,18 @@ def test_records_without_a_seed_continue_only_with_the_seed_they_were_run_with()
 def test_a_second_run_of_the_set_at_once_is_refused(tmp_path, repo, monkeypatch, capsys):
     from evals.scripts import verifier_accuracy as cli
     from src.file_lock import file_lock
-    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
-    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
-    (loaded.control_dir / control.SIMULATION).write_text(json.dumps({"set": loaded.set_id, "held": True,
-                                                                     "look": "final", "d_floor": 1.0}))
-    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
-    with file_lock(loaded.control_dir / control.RUN_LOCK, blocking=False):  # the other run's lock
-        with pytest.raises(control.RunInProgress, match="a second run is refused"):
-            work.run()
+    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the run launched a worker"))
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    (control_dir / control.SIMULATION).write_text(json.dumps({"set": manifest["set"], "held": True,
+                                                              "look": "final", "d_floor": 1.0}))
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    with file_lock(control_dir / control.RUN_LOCK, blocking=False):  # the other run's lock
         assert cli.main([*arguments, "run"]) == 1
-    assert "A run of this set is in progress" in capsys.readouterr().err
-    assert not launcher.calls and not work.recorder.recorded()  # no probe, no record
-    assert work.run()["run"] == len(runner.schedule(list(loaded.statements.values()), 0))  # free again
+        with pytest.raises(control.RunInProgress, match="a test run is refused"):  # nor can a library caller load
+            _locked(control_dir)
+    assert "holds this set's run lock; a run is refused" in capsys.readouterr().err
+    assert not (control_dir / control.ATTEMPTS).exists() and not (control_dir / control.PROBES).exists()
+    assert _locked(control_dir).lock.held  # free again
 
 
 def test_a_probe_a_discard_and_a_build_wait_for_no_run_and_are_refused_during_one(tmp_path, repo, capsys,
@@ -1151,7 +1169,7 @@ def test_a_probe_a_discard_and_a_build_wait_for_no_run_and_are_refused_during_on
         assert "a separate probe is refused" in capsys.readouterr().err
         with pytest.raises(control.RunInProgress, match="discarding the set is refused"):
             builder.discard(control_dir)
-        with pytest.raises(control.RunInProgress, match="writing a set is refused"):
+        with pytest.raises(control.RunInProgress, match="building a set is refused"):
             builder.build(repo=repo, commit="HEAD", control_dir=fresh, snapshots=tmp_path / "state" / "snaps",
                           name="t", items=4, seed=7, v2_per_class=None, installation_roots=[tmp_path / "installation"])
     assert not (control_dir / control.PROBES).exists() and (control_dir / control.STATEMENTS).exists()
@@ -1159,23 +1177,140 @@ def test_a_probe_a_discard_and_a_build_wait_for_no_run_and_are_refused_during_on
     assert builder.discard(control_dir).is_dir()  # the lock is free again
 
 
-def test_a_run_or_probe_refuses_a_set_discarded_or_rebuilt_after_it_was_loaded(tmp_path, repo, monkeypatch, capsys):
+# --- The run lock before the load (follow-up of review round 5) --------------------------------
+
+
+@pytest.mark.parametrize("command, code", [(["probe", "--model", "sonnet"], 0), (["run"], 1)])
+def test_run_and_probe_load_the_set_only_under_its_run_lock(tmp_path, repo, monkeypatch, command, code):
     from evals.scripts import verifier_accuracy as cli
+    monkeypatch.setattr(worker, "HeadlessLauncher",
+                        lambda **options: FakeLauncher(tmp_path / "home", options["snapshot"]))
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    real_load, refused = runner.load, []
+
+    def load(directory, **options):  # a discard at the moment the command loads the set
+        with pytest.raises(control.RunInProgress, match="discarding the set is refused"):
+            builder.discard(directory)
+        refused.append(command[0])
+        return real_load(directory, **options)
+
+    monkeypatch.setattr(runner, "load", load)
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    assert cli.main([*arguments, *command]) == code  # the probe ran blind; the run stops at the missing simulation
+    assert refused == [command[0]] and (control_dir / control.STATEMENTS).exists()
+
+
+def test_a_runner_refuses_a_set_not_loaded_under_a_run_lock_it_still_holds(tmp_path, repo, monkeypatch):
     monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
-    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the probe launched a worker"))
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    with control.exclusive(control_dir, "a test run") as lock:
+        released = runner.load(control_dir, installation_roots=[], lock=lock)
+    assert not lock.held
+    launcher = FakeLauncher(tmp_path / "home", released.snapshot)
+
+    def verdicts(revision, path):
+        return worker.Validated("verdict", "confirmed", None)
+
+    for loaded in (runner.load(control_dir, installation_roots=[]), released):  # no lock, and one let go since
+        work = runner.Runner(loaded, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
+        with pytest.raises(control.ControlError, match="loaded under its run lock, still held"):
+            work.run()
+    assert not launcher.calls and not (control_dir / control.ATTEMPTS).exists()  # no probe, no worker, no record
+    work = runner.Runner(_locked(control_dir), launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
+    assert work.run()["run"] == len(runner.schedule(list(work.loaded.statements.values()), 0))
+
+
+def test_two_runners_under_one_hold_of_the_lock_do_not_run_at_once(tmp_path, repo, monkeypatch):
+    import threading
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    started, finish = threading.Event(), threading.Event()
+
+    class Waiting(FakeLauncher):
+        def __call__(self, prompt, **options):
+            started.set()
+            finish.wait(10)
+            return super().__call__(prompt, **options)
+
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: Waiting(tmp_path / "home", loaded.snapshot))
+    first = threading.Thread(target=work.run)
+    first.start()
+    try:
+        assert started.wait(10)  # the first run is at its first probe
+        second = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None)
+        with pytest.raises(control.RunInProgress, match="a second run is refused"):
+            second.run()
+    finally:
+        finish.set()
+        first.join(30)
+    assert second.run()["run"] == 0  # free once the first has finished, which ran every slot
+
+
+def test_load_takes_only_a_held_lock_of_the_same_directory(tmp_path, repo):
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    other = control.open_private(tmp_path / "other" / control.DIRECTORY_NAME)
+    with control.exclusive(other, "another set") as foreign:
+        with pytest.raises(control.ControlError, match="belongs to another control directory"):
+            runner.load(control_dir, installation_roots=[], lock=foreign)
+    with control.exclusive(control_dir, "a test run") as lock:
+        spelled = control_dir.parent / ".." / control_dir.parent.name / control_dir.name  # the same directory
+        assert runner.load(spelled, installation_roots=[], lock=lock).lock is lock
+    with pytest.raises(control.ControlError, match="already released"):
+        runner.load(control_dir, installation_roots=[], lock=lock)
+
+
+def test_a_build_holds_the_run_lock_from_before_it_looks_for_a_set_until_its_manifest(tmp_path, repo, monkeypatch):
+    from src.file_lock import file_lock
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    options = dict(repo=repo, commit="HEAD", snapshots=tmp_path / "state" / "snaps", name="t", items=4, seed=7,
+                   v2_per_class=None, installation_roots=[tmp_path / "installation"])
+    with file_lock(control_dir / control.RUN_LOCK, blocking=False):  # a set is there and another command holds the lock
+        with pytest.raises(control.RunInProgress, match="building a set is refused"):
+            builder.build(control_dir=control_dir, **options)  # the lock is asked for before the set is looked for
+    fresh = control.open_private(tmp_path / "fresh" / control.DIRECTORY_NAME)
+    real_export, real_write, refused = builder.export_snapshot, control.write_private, []
+
+    def run_now(moment: str) -> None:  # a run that starts at this moment of the build
+        with pytest.raises(control.RunInProgress, match="a run is refused"):
+            with control.exclusive(fresh, "a run"):
+                pass
+        refused.append(moment)
+
+    def export(*args, **kwargs):
+        run_now("export")
+        return real_export(*args, **kwargs)
+
+    def write(path, text):
+        if Path(path).name == control.MANIFEST:
+            run_now("manifest")
+        return real_write(path, text)
+
+    monkeypatch.setattr(builder, "export_snapshot", export)
+    monkeypatch.setattr(control, "write_private", write)
+    builder.build(control_dir=fresh, **options)
+    assert refused == ["export", "manifest"]
+
+
+def test_a_run_counts_done_slots_from_its_own_set_s_records_only(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
     work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
-    builder.discard(loaded.control_dir)  # between the load and the run, which takes the lock only in run()
-    with pytest.raises(control.SetChanged, match="discarded or rebuilt"):
-        work.run()
-    builder.build(repo=repo, commit="HEAD", control_dir=loaded.control_dir, snapshots=tmp_path / "state" / "snaps",
-                  name="t", items=6, seed=8, v2_per_class=None, installation_roots=[tmp_path / "installation"])
-    with pytest.raises(control.SetChanged, match="discarded or rebuilt"):
-        work.run()
-    assert not launcher.calls and not (loaded.control_dir / control.ATTEMPTS).exists()  # nothing ran, nothing written
-    monkeypatch.setattr(cli.runner, "load", lambda *args, **options: loaded)  # the probe's load sees the old set
-    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
-    assert cli.main([*arguments, "probe", "--model", "sonnet"]) == 1
-    assert "discarded or rebuilt" in capsys.readouterr().err
+    scheduled = runner.schedule(list(loaded.statements.values()), 0)
+    # Another set's attempt at the same item, arm and slot, under another seed.
+    work.recorder.write({**work._base(scheduled[0]), "set": "other@" + "0" * 16, "seed": 9, "status": "abstained"})
+    assert work.run()["run"] == len(scheduled)  # neither marks a slot of this set done nor names its seed
+    own = [row for row in work.recorder.recorded() if row["set"] == loaded.set_id]
+    assert sorted((row["item"], row["arm"], row["slot"]) for row in own) == sorted(slot.key for slot in scheduled)
+
+
+def test_the_run_lock_refuses_a_missing_control_directory_instead_of_creating_it(tmp_path, repo):
+    from evals.scripts import verifier_accuracy as cli
+    missing = tmp_path / "state" / control.DIRECTORY_NAME
+    with pytest.raises(control.ControlError, match="no control directory"):
+        with control.exclusive(missing, "a run"):
+            pass
+    with pytest.raises(control.ControlError, match="no control directory"):
+        cli.main(["--installation", str(tmp_path / "installation"), "--control-dir", str(missing),
+                  "probe", "--model", "sonnet"])
+    assert not missing.exists()
 
 
 def _slot_rows(statements: list[dict], seed: int, wrong: set[tuple]) -> list[dict]:
