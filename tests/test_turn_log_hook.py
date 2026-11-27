@@ -314,12 +314,16 @@ def unresolved_cwd(case, project, tmp_path, monkeypatch):
     if case == "home":
         home = tmp_path / "home"
         home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
+        for name in ("HOME", "USERPROFILE"):  # what os.path.expanduser reads on POSIX and on Windows
+            monkeypatch.setenv(name, str(home))
         return str(home)
     outside = tmp_path / "outside.md"
     outside.write_text("", encoding="utf-8")
     (project / "CLAUDE.md").unlink()
-    (project / "CLAUDE.md").symlink_to(outside)
+    try:
+        (project / "CLAUDE.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("this system cannot create a symbolic link")
     return str(project / "app")
 
 
