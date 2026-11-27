@@ -378,43 +378,80 @@ for the person following the work rather than the parent's context. Everything o
 drawn in the browser from the daemon's read-only routes below, so following a map costs no
 model tokens; the page calls no model.
 
-- **Summary.** The goal's title, `open` or `closed`, the revision, the time and age of the
-  last change with the nodes it touched, and the poll interval; a select of the registered
-  repositories' maps. A stacked bar and a chip per category (done, running, ready, waiting,
-  need action, blocked; set aside counted beside), each chip dimming the other categories
-  on the graph. Then the rows: **Running now** with each stage's elapsed time, **Needs
-  attention** grouped by who acts (you, the orchestrator, or nobody while a verifier
-  runs) with the reason, **Next** (ready stages) and the **Longest remaining chain** with
-  the stages the goal waits on now.
+- **Summary.** Three rows that never wrap, so the summary keeps one height whatever the
+  map holds. The goal's title (the first goal created, as the text views name it), `open`
+  or `closed`, then the task id, the repository, the revision, the time and age of the
+  last change with every node its last commit touched, and the poll interval; a select
+  of the registered repositories' maps. Then a stacked bar, the settled count, the
+  **critical path** (the longest chain of stages still to settle, with a sample of the
+  bar that underlines the cards the goal waits on now), a tile per category (waiting for
+  you, needs attention, running, ready, waiting, done, blocked, set aside), each dimming
+  the other categories on the graph, and the view's tools: zoom, **Fit**, **Present**
+  and **Legend**. Then one row of four slots, always drawn: **Waiting for you**,
+  **Needs attention** (orchestrator first, then what a verifier is checking), **Running
+  now** with each stage's elapsed time and **Next**. A slot names nodes by id, ends in
+  "and N more" when they do not fit, and says "nothing" when it is empty; a tile and its
+  slot use one term and count the same nodes. Labels and counts are set at the title size
+  and chips at the body size, so the projector-wide step enlarges them.
 - **Graph.** Layers top to bottom in dependency order, the goal alone in the last layer.
   A card shows its status as a disc and a word (`running` for `prepared`, with the elapsed
-  time and the attempt), the level reached and needed, the risk, stale or ready, and the
-  check counts. A verifier docks in a tray under the node it checks. Edges differ by line
-  and head: `depends_on` from the prerequisite to its dependant, the head hollow while the
-  prerequisite is not settled; `verifies` dashed; `supersedes` dotted; `contradicts`
-  dash-dot. With one goal and no edge into it, a dotted connector marked derived leads to
-  it from the nodes nothing follows. The edges of the longest remaining chain are drawn at
-  double weight and the stages the goal waits on are underlined. A node set aside stays in
-  place as a ghost.
-- **Panel.** A node's kind, id, status and risk; a sentence on its state and who acts;
-  the plan beside the result; the verification ladder V0 to V4 with what the level means
-  and why it is needed; the worker's status, hand-back, question and escalation; checks
-  and findings; relations, a verifier's with its verdict (pending, no critical or high,
-  critical or high found, checked an older result, no verdict, withdrawn); the result
-  hash, contract and pinned inputs marked current or older; the artifacts the stored
-  result names; the status history. The stored result itself is fetched only by **Show
-  full result** and shown as text, never as markup.
+  time and the attempt), its level, the risk, stale or ready, and the check counts; its
+  state row wraps rather than leave the card. A level reached is a filled box (`V2`), a
+  level still needed an outlined one with an arrow (`→V3`), and while nothing is reached
+  one outlined box says both (`V0→V3`). A node whose who acts is the owner has a solid
+  attention border and a filled `you` badge. A verifier docks in a tray under the node it
+  checks, as a pill that names its id and shows its verdict on the target's current
+  result: an empty ring while pending (a running one keeps its turning ring), a check
+  when clean, the attention triangle and the counts for a critical or high finding, a
+  struck ring when it judged an older result, a dash when no verdict was recorded. Edges
+  differ by line and head: `depends_on` from the prerequisite to its dependant, the head
+  hollow while the prerequisite is not settled; `verifies` dashed; `supersedes` dotted;
+  `contradicts` dash-dot. With one goal and no edge into it, a dotted connector marked
+  derived leads to it from the nodes nothing follows. The edges of the critical path are
+  drawn at double weight and the stages the goal waits on are underlined: what runs,
+  can start or needs someone on it, the verifier checking a node on it, and a stale node
+  on it. A node set aside stays in place as a ghost. A map of more than 400 nodes, or
+  whose long edges would need more than 2,000 lanes, is not drawn: the page says so and
+  the summary still shows how it stands.
+- **Panel.** A node's kind, id, status and risk; the verification ladder V0 to V4 first,
+  with what the level means and why it is needed (V0 on a node that holds a result says
+  that nothing is established yet and why); a sentence on its state and who acts; the
+  plan beside the result, three lines each with **more**, or one **Summary** row when the
+  two are the same text; the worker's status, hand-back, question and escalation; checks
+  and findings; relations, a verifier's with its verdict; the result hash, contract and
+  pinned inputs marked current or older; the artifacts the stored result names; the
+  status history, dated when a step is not today's. The stored result itself is fetched
+  only by **Show full result** and shown as text, never as markup, in a dialog a room can
+  read, whose scroll a live update leaves alone.
+- **Who acts and verdicts.** The page derives who acts: you for a ready decision or
+  question, or a critical node below V3 without a live verifier; nobody while a verifier
+  that was given the result the node holds runs on it; the orchestrator otherwise, and a
+  verifier that is ready to start is its step. A verdict is the one the store recorded
+  for the verifier's current attempt (`verdicts` in the map route): the page never
+  derives one from findings. On a closed map nobody acts: the summary lists what was
+  left unfinished, and no card is ready or running.
+- **Present** hides the page header, the slots, the ids and the map select and refits the
+  graph into the room they leave, for a projector; the button or Escape brings them
+  back. Measured on the release map: 115 % at 1920 x 1080 and 125 % with Present, the
+  whole map at 90 % on 1440 x 900; **Fit** may go below the automatic 75 % floor, and
+  "N more below" marks what a canvas still cannot show.
 - Light, dark or the system's theme from the header's switch (remembered in the browser);
   the running disc turns and its halo breathes unless the reader asked for reduced
   motion; at 760 px and below the layers become an outline of steps without edges and the
   panel a bottom sheet.
 
 The page polls the open map every five seconds and redraws when its revision changes; a
-status change repaints the cards in place and rings the changed ones briefly, and only a
-change of nodes or edges lays the graph out again. `/ui#workmap/<workspace id>/<task id>`
-opens one map and the address bar keeps that link; `/ui#workmap/<task id>` finds the most
-recently written map of that task id among the registered workspaces; `/ui#workmap` opens
-the open map that changed last.
+status change repaints the cards in place and rings the changed ones briefly, a new node
+is ringed too, and only a change of nodes or edges lays the graph out again. The graph is
+fitted only on the first load, a change of nodes or edges, a window resize, **Fit** and
+**Present**: opening the panel keeps the zoom and scrolls the selected card back under
+the pointer, and the refresh alert and the legend open over the canvas, so neither
+rescales the graph. `/ui#workmap/<workspace id>/<task id>` opens one map and the address
+bar keeps that link; `/ui#workmap/<task id>` finds the most recently written map of that
+task id among the registered workspaces; `/ui#workmap` opens the open map that changed
+last. When the page chose among several (more than one open map, or one task id in
+several repositories), a line beside the select says so and the select stays ringed until
+the viewer picks.
 
 The data comes from `GET /ui/api/workmap/maps`, `/ui/api/workmap/map?workspace=&task_id=`,
 `/ui/api/workmap/node?workspace=&task_id=&node=` and
@@ -422,8 +459,21 @@ The data comes from `GET /ui/api/workmap/maps`, `/ui/api/workmap/map?workspace=&
 `src/workmap/web.py`), behind the UI session and the page header like the History tab's
 reads. They address a workspace by its registry id, never by a path, and none of them
 writes. Beside the stored fields a node carries the states the store derives (`settled`,
-`ready`, `stale`, `attention`), the time of its current status and its number of attempts,
-so the page repeats none of the store's rules and needs no request per node.
+`ready`, `stale`, `attention`), the time of its current status and its number of attempts
+(the same package issued again is no new attempt), so the page repeats none of the store's
+rules and needs no request per node; the map carries the nodes its last commit touched and
+the verdicts each verifier's current attempt recorded. No answer names a path: a store
+refusal says what failed instead.
+
+The page polls, so the routes fold a map file once per change: a cache keyed on the
+file's device, inode, size and change time answers a poll of an unchanged map with one
+stat. A log over 2 MiB is not folded for the page (`map_too_large`, and counted in the
+list); `workmap_view` still reads it. The reads run on two threads of their own, so a
+slow one never holds the daemon's shared executor, and the fold itself is linear: a
+commit is applied in place and undone when one of its events fails, and the edges are
+indexed for the cycle check. A time or author in a log that is not the writers' own form
+is dropped, and a time later than now counts as none, so a planted log can neither break
+the list nor stay the latest map.
 
 **Two designs, one view.** The view applies an information design (what each mark encodes
 and what each state means) and a visual design (tokens, layout direction, card anatomy,
@@ -433,13 +483,13 @@ visual design how it looks:
 | Point | Information design | Visual design | Chosen |
 |---|---|---|---|
 | Direction | columns left to right, goal rightmost | layers top to bottom, goal last | top to bottom; the goal alone in the last layer |
-| Verifiers | own column after the target | docked in a tray under the target | docked, unless it follows a node level with its target; the comb's head points into the target, and it never crosses a layer |
+| Verifiers | own column after the target | docked in a tray under the target | docked, unless it follows a node level with its target; the comb's head points into the target, and it never crosses a layer; a pill names its id and shows its recorded verdict |
 | Glyphs | text glyphs | SVG discs | SVG discs; ready and stale as marks |
 | Words | status names, `prepared` as running | `attention` on a card | status names everywhere, `needs attention` included |
 | Running | word and elapsed time | word, attempt | word, elapsed time and attempt |
-| Card | id on the card | title only, id in the panel | title; the id in the tooltip, the panel and the lists |
-| Risk, level | spine width and a mark; a four-segment meter | chevrons; solid and dashed level boxes, a five-step ladder | chevrons, boxes and ladder; the ladder's words say what each level means |
-| Summary | categories by who acts, ids | status families, titles | the categories, `need action` grouped by who acts, ids |
+| Card | id on the card | title only, id in the panel | title; the id in the tooltip, the panel, the slots and the verifier pills |
+| Risk, level | spine width and a mark; a four-segment meter | chevrons; solid and dashed level boxes, a five-step ladder | chevrons; a filled box for a level reached and an outlined arrow for one needed; the ladder, first in the panel, says what each level means |
+| Summary | categories by who acts, ids | status families, titles | the categories, `waiting for you` and `needs attention` apart, one row of slots of ids |
 | Blocked | stuck: its own category, full contrast | set-aside family, ghosted | its own category and solid border, the set-aside colour and hatch |
 | depends_on head | filled when settled, hollow when not | always filled | filled or hollow |
 | Goal | banner with no level, derived connector | wide card with a level badge | wide card, `open` or `closed`, no level, derived connector |
@@ -454,8 +504,11 @@ panel carry what they would show.
 bare UI link the persona footer carries under the daemon; a footer without that link (a
 stdio server, which has no page) gets nothing. The rule lives in the description of
 `workmap_view`. The link is the same for every map, so no tool answer carries a URL: the
-page opens the open map changed last, which is the thread's own while it works on it, and
-the select switches. Measured against the first version, which returned a per-map
+page opens the open map changed last, which is the thread's own while it alone writes a
+map, and the select switches. With two open maps the link may open the other thread's;
+the page then says which one it chose and of how many, and rings the select. A link
+naming the task (`#workmap/<task id>`) would avoid that at 27 more characters per footer
+for this task; it is left out to keep the footer's cost below. Measured against the first version, which returned a per-map
 `map_url` in every answer about a map and linked it in the footer:
 
 | Model-side cost | First version | Now |

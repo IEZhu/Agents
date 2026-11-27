@@ -1004,16 +1004,31 @@ seconds while the browser tab is visible (see
     `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 - **Work map** shows the [work maps](workmap-plan.md#web-view-and-footer-link) of every
   registered workspace, read-only, in the place of the list and the item: a summary of
-  the chosen map (progress by category, what runs now, what needs attention and who acts,
-  the longest remaining chain), its graph top to bottom with the goal last, and the panel
-  of the node selected in it. The stored result is fetched only on **Show full result**
-  and shown as text. Everything is drawn in the browser, so following a map costs no
-  model tokens. The open map is polled every five seconds; the polls are not activity, so
-  an open map never holds back an automatic update. `/ui#workmap` opens the open map
-  that changed last, `/ui#workmap/<workspace id>/<task id>` one map. The reads
+  the chosen map (progress by category, the critical path, and one row of slots for what
+  waits for you, what needs attention, what runs now and what can start next), its graph
+  top to bottom with the goal last, and the panel of the node selected in it. The stored
+  result is fetched only on **Show full result** and shown as text in a dialog.
+  **Present** hides the page header and the slots for a projector. Everything is drawn in
+  the browser, so following a map costs no model tokens. The open map is polled every
+  five seconds; the polls are not activity, so an open map never holds back an automatic
+  update. `/ui#workmap` opens the open map that changed last, and says so when another
+  is open; `/ui#workmap/<workspace id>/<task id>` opens one map. The reads
   (`GET /ui/api/workmap/maps`, `/map`, `/node`, `/result`, `workmap_ui.py`) need the
-  page's `X-Agents-UI` header, as History's do, and none of them writes. The header's
-  **Auto**, **Light** and **Dark** switch sets the theme of every tab.
+  page's `X-Agents-UI` header, as History's do, and none of them writes; they fold each
+  map file once per change, on two threads of their own, draw no log over 2 MiB, and
+  name no path in an answer. Signing out takes the map and a shown result off the page
+  and stops its polls. The header's **Auto**, **Light** and **Dark** switch sets the
+  theme of every tab.
+
+  What a UI session can read here: the maps and the stored stage results of every
+  registered workspace, each result up to 2,000,000 characters and unredacted (a result
+  is whatever its worker wrote), with each node's history. This is the model of the
+  History and Memory tabs, by design: a UI session is the owner's, and any process of the
+  daemon's OS user can open one by automatic sign-in unless `flows-ui --auto off` turned
+  it off. A tool confined to one directory but allowed to reach loopback can therefore
+  read the results of other repositories through this tab; the MCP tools themselves read
+  only the store of the workspace a session is registered for. If that matters for such a
+  tool, turn automatic sign-in off.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev
 schedule's settings ([#348](https://github.com/IEZhu/Agents/issues/348)) in the place
