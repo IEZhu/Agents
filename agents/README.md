@@ -291,5 +291,5 @@ read or copy.
 
 ---
 
-**Total agents**: 45
-**Updated**: 2026-10-16
+**Total agents**: 46
+**Updated**: 2026-11-26
