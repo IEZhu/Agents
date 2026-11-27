@@ -258,6 +258,65 @@ def test_artifacts_follow_the_result_format_and_cost_linear_time():
     assert time.perf_counter() - started < 1  # was 4.5 s for 32,000 spaces, quadratic in the run
 
 
+def test_the_artifact_scan_is_linear_in_every_crafted_shape():
+    """A separator is found without a pattern, so a run of spaces before it costs one pass: the scan's
+    own cap of 200,000 characters in one item took 188 s with the patterns, and a result that
+    workmap_submit accepts (30 items of 3,940 spaces) 2.3 s. Continuation lines and citations are
+    joined and cut once, not rebuilt per line or per citation."""
+    from src.workmap.web import ARTIFACT_SCAN_CHARS, artifacts
+    started = time.perf_counter()
+    for separator, found in (("", {"ref": "x yz", "purpose": ""}), (" -- ", {"ref": "x y", "purpose": "z"}),
+                             (" — ", {"ref": "x y", "purpose": "z"})):
+        text = "## artifacts\n- x" + " " * (ARTIFACT_SCAN_CHARS - 40) + "y" + separator + "z\n"
+        assert len(text) < ARTIFACT_SCAN_CHARS and artifacts(text) == [found]
+    accepted = "## artifacts\n" + "".join(f"- out/f{index}.md" + " " * 3_940 + f"x -- purpose {index}\n" for index in range(30))
+    assert artifacts(accepted) == [{"ref": f"out/f{index}.md x", "purpose": f"purpose {index}"} for index in range(30)]
+    assert artifacts("## artifacts\n- a\n" + "  b\n" * 60_000) == [{"ref": "a" + " b" * 249 + "…", "purpose": ""}]
+    assert artifacts("## artifacts\n- out/a.md" + "[^e1]" * 39_000 + " — cited\n") == [{"ref": "out/a.md", "purpose": "cited"}]
+    assert time.perf_counter() - started < 1  # milliseconds each; a quadratic step takes seconds to minutes
+
+
+@pytest.mark.asyncio
+async def test_a_hostile_result_never_stalls_the_node_route(daemon):
+    """The security review's planted result, with runs of 30,000 spaces in a heading-like line and in
+    its artifacts items, read through the node route while the event loop keeps time: the route
+    answers at once (it took 4.2 s, and stopped the loop as long, while a pattern backtracked over
+    the run), and every reference stays plain text."""
+    http, ids, project, _ = daemon
+    store = WorkmapStore(project, clock=lambda: 1_764_100_000.0)
+    store.apply(TASK, [{"op": "add_node", "id": "hostile", "title": "A planted result"}])
+    run = " " * 30_000
+    text = ("task: x\nstatus: completed\n\n## summary\n# a" + run + "b\n\n## artifacts\n"
+            "- javascript:window.__xss=7 — <b onclick=window.__xss=71>purpose</b>\n"
+            "- `file:///etc/passwd` — a local path\n"
+            "- out/report.md" + run + "x -- a run before the double hyphen\n"
+            "- out/log.md" + run + "x — a run before the em dash\n")
+    store.record_prepared(TASK, "hostile", contract_revision="a" * 64, attempt_id="1", complexity=None)
+    store.record_result(TASK, "hostile", contract_revision="a" * 64, attempt_id="1", text=text,
+                        sha256=hashlib.sha256(text.encode()).hexdigest(), handback="line",
+                        outcome={"status": "validated", "level": "V1", "summary": "planted", "checks": None,
+                                 "findings": None, "limitations": 0, "result_status": "completed",
+                                 "question": None, "escalation": None})
+    await login(http)
+
+    async def sleep_measured():
+        started = time.perf_counter()
+        await asyncio.sleep(0.05)
+        return time.perf_counter() - started
+
+    started = time.perf_counter()
+    response, slept = await asyncio.gather(
+        http.get(f"/ui/api/workmap/node?workspace={ids['project']}&task_id={TASK}&node=hostile", headers=UI),
+        sleep_measured())
+    assert response.status_code == 200
+    assert slept < 1 and time.perf_counter() - started < 2  # the loop kept running while the record was read
+    assert response.json()["artifacts"] == [
+        {"ref": "javascript:window.__xss=7", "purpose": "<b onclick=window.__xss=71>purpose</b>"},
+        {"ref": "file:///etc/passwd", "purpose": "a local path"},
+        {"ref": "out/report.md x", "purpose": "a run before the double hyphen"},
+        {"ref": "out/log.md x", "purpose": "a run before the em dash"}]
+
+
 def _append(root, task, event):
     """Append one committed event to a map's log as a hand-written or planted line would be."""
     path = root / "data" / "workmap" / f"{map_key(task)}.jsonl"

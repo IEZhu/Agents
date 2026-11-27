@@ -32,10 +32,12 @@ ARTIFACT_REF = re.compile(rf"artifact://{_ID}/[0-9a-f]{{64}}/{_ID}")
 ARTIFACTS_MAX = 50
 ARTIFACT_LINE_MAX = 500
 # A result workmap_submit takes is at most 128,000 characters; only a planted one is longer, and the
-# artifact scan reads no further than this.
+# artifact scan reads no further than this. Every step of the scan is linear in what it reads: no
+# pattern that can backtrack over a run of spaces, no string rebuilt once per line or per citation.
 ARTIFACT_SCAN_CHARS = 200_000
-# The separators of the result format, as the validator reads them: spaced, and outside code spans.
-SEPARATORS = (re.compile(r"\s+—\s+"), re.compile(r"\s+--\s+"))
+# The separators of the result format, as the validator reads them: whitespace on both sides, and
+# outside code spans. The em dash wins over the double hyphen wherever each stands in the item.
+SEPARATORS = ("—", "--")
 _BACKTICKS = re.compile(r"`+")
 _CITATION = re.compile(r"\[\^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\]")
 # A map log the page folds: the writers' maps stay far below it (a day of work on a release map is
@@ -147,24 +149,46 @@ def _outside_code(text: str) -> str:
     return "".join(masked)
 
 
+def _separator(outside: str, mark: str) -> tuple[int, int] | None:
+    """Where the first ``mark`` with whitespace right before and after it stands in ``outside``,
+    widened over the whitespace around it: the span a pattern ``\\s+mark\\s+`` finds, found with
+    string methods, so a long run of spaces costs one pass instead of one pass per space."""
+    at = outside.find(mark)
+    while at >= 0:
+        end = at + len(mark)
+        if at > 0 and end < len(outside) and outside[at - 1].isspace() and outside[end].isspace():
+            start = at - 1
+            while start > 0 and outside[start - 1].isspace():
+                start -= 1
+            while end < len(outside) and outside[end].isspace():
+                end += 1
+            return start, end
+        at = outside.find(mark, at + 1)
+    return None
+
+
 def _parts(item: str) -> tuple[str, str]:
     """An artifacts item split at its separator outside code spans: (reference, purpose)."""
     outside = _outside_code(item)
-    for separator in SEPARATORS:
-        found = separator.search(outside)
+    for mark in SEPARATORS:
+        found = _separator(outside, mark)
         if found:
-            return item[:found.start()], item[found.end():]
+            return item[:found[0]], item[found[1]:]
     return item, ""
 
 
 def _uncited(ref: str) -> str:
-    """A reference without the footnote citations written right after it, as in ``x[^e1]``."""
-    while ref.endswith("]"):
-        start = ref.rfind("[^")
-        if start < 0 or not _CITATION.fullmatch(ref, start):
+    """A reference without the footnote citations written right after it, as in ``x[^e1]``. The
+    end moves back over each citation; the text is cut once."""
+    end = len(ref)
+    while end and ref[end - 1] == "]":
+        start = ref.rfind("[^", 0, end)
+        if start < 0 or not _CITATION.fullmatch(ref, start, end):
             break
-        ref = ref[:start].rstrip()
-    return ref
+        while start and ref[start - 1].isspace():
+            start -= 1
+        end = start
+    return ref[:end]
 
 
 def artifacts(text: str | None) -> list[dict]:
@@ -178,7 +202,7 @@ def artifacts(text: str | None) -> list[dict]:
     if not text:
         return []
     text = text[:ARTIFACT_SCAN_CHARS]
-    items: list[str] = []
+    items: list[list[str]] = []  # each item's lines, joined once: never rebuilt per continuation line
     section = False
     for line in text.splitlines():
         heading = _heading(line)
@@ -188,13 +212,13 @@ def artifacts(text: str | None) -> list[dict]:
         if not section or not line.strip():
             continue
         if line.startswith("- "):
-            items.append(line[2:])
+            items.append([line[2:]])
         elif line[:1] in (" ", "\t") and items:
-            items[-1] += " " + line.strip()
+            items[-1].append(line.strip())
     found: list[dict] = []
     seen: set[str] = set()
-    for item in items:
-        ref, purpose = _parts(item)
+    for lines in items:
+        ref, purpose = _parts(" ".join(lines))
         ref = _uncited(ref.strip().strip("`").strip())
         if ref and ref not in seen:
             seen.add(ref)
