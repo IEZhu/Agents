@@ -126,7 +126,7 @@ async def test_the_list_shows_each_workspaces_maps_newest_first(daemon):
 
 
 @pytest.mark.asyncio
-async def test_one_map_is_a_graph_with_its_current_stage(daemon):
+async def test_one_map_is_a_graph_of_its_nodes_and_edges(daemon):
     http, ids, _, sha = daemon
     await login(http)
     response = await http.get(f"/ui/api/workmap/map?workspace={ids['project']}&task_id={TASK}", headers=UI)
@@ -139,17 +139,38 @@ async def test_one_map_is_a_graph_with_its_current_stage(daemon):
     assert (build["status"], build["level"], build["result_status"]) == ("validated", "V2", "completed")
     assert build["checks"] == {"passed": 3, "failed": 0, "not_run": 1} and build["limitations"] == 2
     assert build["contract_revision"] == CONTRACT and build["result_sha256"] == sha and build["attempt_id"] == "1"
-    assert graph["current"] == "build"  # nothing runs, so the node that changed last
+    # What the page shows without repeating the store's rules: settled, and the plan beside the result.
+    assert build["settled"] is True and build["needs"] == "V2" and build["ready"] is False
+    assert build["summary"] == "Built it" and build["planned_summary"] == ""
+    review = next(node for node in graph["nodes"] if node["id"] == "review")
+    assert review["ready"] is True and review["settled"] is False and review["attempts"] == 0
+    assert "current" not in graph  # every running card is marked, not one chosen node
 
 
 @pytest.mark.asyncio
-async def test_a_prepared_stage_is_the_current_one(daemon):
+async def test_a_node_carries_the_time_of_its_status_and_counts_its_attempts(daemon):
+    """A running card says how long it has run: the graph dates each node's current status, and a
+    second preparation of a prepared node is a new attempt, not a repeated step."""
+    from src.workmap.store import _iso
     http, ids, project, _ = daemon
-    WorkmapStore(project).record_prepared(TASK, "review", contract_revision="f" * 64, attempt_id="1",
-                                          complexity="high")
+    now = [1_900_000_000.0]
+    store = WorkmapStore(project, clock=lambda: now[0])
+    store.record_prepared(TASK, "review", contract_revision="f" * 64, attempt_id="1", complexity="high")
+    now[0] += 600
+    store.record_prepared(TASK, "review", contract_revision="e" * 64, attempt_id="2", complexity="high")
     await login(http)
     graph = (await http.get(f"/ui/api/workmap/map?workspace={ids['project']}&task_id={TASK}", headers=UI)).json()
-    assert graph["current"] == "review" and graph["running"] == ["review"]
+    review = next(node for node in graph["nodes"] if node["id"] == "review")
+    assert graph["running"] == ["review"] and review["status"] == "prepared" and review["needs"] == "V3"
+    assert review["attempts"] == 2 and review["since"] == _iso(1_900_000_600.0)
+    build = next(node for node in graph["nodes"] if node["id"] == "build")
+    assert build["attempts"] == 1 and build["since"] == "2027-01-15T08:00:00Z"
+    record = (await http.get(f"/ui/api/workmap/node?workspace={ids['project']}&task_id={TASK}&node=review",
+                             headers=UI)).json()
+    assert [(step["status"], step["op"], step["at"]) for step in record["history"]] == [
+        ("planned", "add_node", "2027-01-15T08:00:00Z"), ("prepared", "prepared", _iso(1_900_000_000.0)),
+        ("prepared", "prepared", _iso(1_900_000_600.0))]
+    assert record["node"]["attempts"] == 2
 
 
 @pytest.mark.asyncio

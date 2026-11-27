@@ -1,15 +1,17 @@
 """JSON views of work maps for the daemon's web UI: what the Work map tab draws and lists.
 
 The text views (``view.py``) fit a model's context; these carry every node and edge as data, so
-the page lays the graph out itself. They only read: nothing here writes to a map.
+the page lays the graph out itself. They only read: nothing here writes to a map. Beside the stored
+fields, a node carries the states the store and the text view derive (``settled``, ``ready``,
+``stale``, ``attention``), so the page never repeats their rules, and the time of its current status,
+so a running stage can show how long it has run without one request per node.
 """
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
 
 from src.workmap.store import (WorkMap, WorkmapError, WorkmapStore, EdgeIndex, is_ready, is_stale, map_key,
-                               required_level)
+                               required_level, settled)
 from src.workmap.view import needs_attention, ordered
 
 # What a node shows of its stored result's artifacts: references and the items of its artifacts section.
@@ -19,34 +21,11 @@ ARTIFACT_LINE_MAX = 500
 SEPARATORS = (" — ", " -- ")
 
 
-def map_fragment(workspace_id: str | None, task_id: str) -> str:
-    """The /ui fragment that opens one map: #workmap/<workspace id>/<task id>, or without the
-    workspace when it is unknown, which the page resolves among the registered workspaces."""
-    task = quote(task_id, safe="")
-    return f"#workmap/{quote(workspace_id, safe='')}/{task}" if workspace_id else f"#workmap/{task}"
-
-
-def map_url(ui_link: str | None, workspace_id: str | None, task_id: str) -> str | None:
-    """The link to one map on the daemon's page, or None where the server has no page to link."""
-    return f"{ui_link}{map_fragment(workspace_id, task_id)}" if ui_link else None
-
-
 def _counts(workmap: WorkMap) -> dict[str, int]:
     counts: dict[str, int] = {}
     for node in workmap.nodes.values():
         counts[node["status"]] = counts.get(node["status"], 0) + 1
     return dict(sorted(counts.items()))
-
-
-def _current(workmap: WorkMap) -> str | None:
-    """The stage running now, a prepared node (the most recently prepared one), or else the node
-    that changed last; None for an empty map."""
-    nodes = list(workmap.nodes.values())
-    running = [node for node in nodes if node["status"] == "prepared"]
-    pool = running or nodes
-    if not pool:
-        return None
-    return max(pool, key=lambda node: node["changed"])["id"]
 
 
 def summary(workmap: WorkMap) -> dict:
@@ -58,12 +37,17 @@ def summary(workmap: WorkMap) -> dict:
             "running": [node["id"] for node in workmap.nodes.values() if node["status"] == "prepared"]}
 
 
-def _node(workmap: WorkMap, node: dict, edges: EdgeIndex) -> dict:
+def _node(workmap: WorkMap, node: dict, edges: EdgeIndex, steps: list[dict]) -> dict:
+    """One node as the page reads it. ``steps`` is its status and level history (``changes``): the
+    last step dates the current status, and each ``prepared`` step is one attempt."""
     contract = node["refs"].get("contract_revision")
     return {"id": node["id"], "kind": node["kind"], "title": node["title"], "summary": node["summary"],
+            "planned_summary": node["planned_summary"],
             "risk": node["risk"], "status": node["status"], "level": node["level"], "reason": node["reason"],
             "needs": required_level(node), "complexity": node["complexity"], "changed": node["changed"],
-            "ready": is_ready(workmap, node, edges), "stale": is_stale(workmap, node, edges),
+            "since": steps[-1]["at"] if steps else None,
+            "attempts": sum(step["op"] == "prepared" for step in steps),
+            "settled": settled(node), "ready": is_ready(workmap, node, edges), "stale": is_stale(workmap, node, edges),
             "attention": needs_attention(node), "result_status": node.get("result_status"),
             "checks": node["checks"], "findings": node["findings"], "limitations": node["limitations"],
             "handback": node["handback"], "question": node.get("question"), "escalation": node.get("escalation"),
@@ -73,11 +57,11 @@ def _node(workmap: WorkMap, node: dict, edges: EdgeIndex) -> dict:
             "invalid_codes": list(dict.fromkeys(workmap.invalid_codes.get(contract, []))) if contract else []}
 
 
-def graph(workmap: WorkMap) -> dict:
-    """The whole map: nodes in dependency order, edges, and the node to highlight."""
+def graph(workmap: WorkMap, steps: dict[str, list[dict]]) -> dict:
+    """The whole map: nodes in dependency order (``view.ordered``, the page's tie order) and edges."""
     edges = EdgeIndex(workmap)
-    return {**summary(workmap), "current": _current(workmap),
-            "nodes": [_node(workmap, node, edges) for node in ordered(workmap, edges)],
+    return {**summary(workmap),
+            "nodes": [_node(workmap, node, edges, steps.get(node["id"], [])) for node in ordered(workmap, edges)],
             "edges": [{"from": source, "to": target, "type": kind} for source, target, kind in workmap.edges]}
 
 
@@ -121,10 +105,10 @@ def artifacts(text: str | None) -> list[dict]:
 
 
 def load_graph(store: WorkmapStore, task_id: str) -> dict:
-    workmap = store.load(task_id)
+    workmap, steps = store.changes(task_id)
     if workmap is None:
         raise WorkmapError("unknown_map", f"no work map for task {task_id}")
-    return graph(workmap)
+    return graph(workmap, steps)
 
 
 def node_record(store: WorkmapStore, task_id: str, node_id: str) -> dict:
@@ -146,6 +130,7 @@ def node_record(store: WorkmapStore, task_id: str, node_id: str) -> dict:
                  "superseded_by": edges.sources(node_id, "supersedes"),
                  "contradicts": edges.targets(node_id, "contradicts"),
                  "contradicted_by": edges.sources(node_id, "contradicts")}
-    return {"task_id": workmap.task_id, "revision": workmap.revision, "node": _node(workmap, node, edges),
+    return {"task_id": workmap.task_id, "revision": workmap.revision,
+            "node": _node(workmap, node, edges, steps.get(node_id, [])),
             "history": steps.get(node_id, []), "relations": relations, "artifacts": artifacts(text),
             "has_result": text is not None, "result_chars": len(text) if text is not None else 0}

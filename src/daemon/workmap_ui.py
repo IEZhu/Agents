@@ -8,9 +8,10 @@ workspace id and never by a path from the request, behind the UI session and the
   ``LIST_LIMIT``), newest first: task id, goal, open or closed, revision, counts by status and
   the prepared (running) nodes.
 - ``GET /ui/api/workmap/map?workspace=&task_id=``: one map as a graph, nodes in dependency order
-  with status, level and result fields, edges by type, and ``current``, the prepared node or else
-  the one that changed last. Without ``workspace`` the registered workspaces are searched, and the
-  most recently written map of that task id answers.
+  with status, level and result fields, the states the store derives (settled, ready, stale,
+  needs attention), the time of each node's current status and its attempts, and edges by type.
+  Without ``workspace`` the registered workspaces are searched, and the most recently written map
+  of that task id answers.
 - ``GET /ui/api/workmap/node?workspace=&task_id=&node=``: one node's record, with its status and
   level history, relations and the artifacts its stored result names.
 - ``GET /ui/api/workmap/result?workspace=&task_id=&node=``: the node's stored result text, which

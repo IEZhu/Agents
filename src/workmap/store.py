@@ -843,7 +843,9 @@ class WorkmapStore:
         """The map and, per node, each committed change of its status or level, oldest first.
 
         Each change is {rev, at, op, by, status, level}: the revision and time of the event that
-        made it, as the fold applied it, so a skipped or torn commit shows no step either.
+        made it, as the fold applied it, so a skipped or torn commit shows no step either. Every
+        ``prepared`` event is a step, even one that leaves a prepared node prepared: it starts a new
+        attempt, so the steps count the attempts and date the current one.
         """
         task_id = _task_id(task_id)
         steps: dict[str, list[dict]] = {}
@@ -854,7 +856,8 @@ class WorkmapStore:
                 if node is None:
                     continue
                 history = steps.setdefault(node["id"], [])
-                if history and (history[-1]["status"], history[-1]["level"]) == (node["status"], node["level"]):
+                if (history and event.get("op") != "prepared"
+                        and (history[-1]["status"], history[-1]["level"]) == (node["status"], node["level"])):
                     continue
                 history.append({"rev": event["rev"], "at": event.get("at"), "op": event.get("op"),
                                 "by": event.get("by"), "status": node["status"], "level": node["level"]})
