@@ -146,7 +146,9 @@ set's run lock before they read the set and hold it until they end, and each is 
 while another holds it. A set a run or a probe loaded is therefore the one on disk until
 it finishes, with no check afterwards. Before they create the lock file, `run` and `probe`
 check, writing nothing, that the directory holds a set and lies apart from the installation
-and the checkouts, so a refused command leaves no lock file behind. `Runner.run` refuses a set that was not loaded
+and the checkouts, so a refused command leaves no lock file behind. A control directory on
+a file system without byte-range locks is refused, since the run lock would keep only this
+process's threads apart there, not another process's run, discard or build. `Runner.run` refuses a set that was not loaded
 under a run lock it still holds, so a caller outside the command line takes the lock
 first too, and it counts done slots only from records of its own set.
 

@@ -1328,22 +1328,30 @@ def test_a_build_holds_the_run_lock_from_before_it_looks_for_a_set_until_its_man
     assert refused == ["export", "manifest"]
 
 
-def test_a_build_does_not_overwrite_a_set_published_while_it_was_prepared(tmp_path, repo, monkeypatch):
-    # Where file_lock falls back to a process-local lock, another process's build is not kept out;
-    # its set appears while this build prepares, written past the lock as that process would.
-    control_dir = control.open_private(tmp_path / "state" / control.DIRECTORY_NAME)
-    real_export, theirs = builder.export_snapshot, '{"item": "theirs"}\n'
+def test_the_run_lock_refuses_a_file_system_where_it_would_only_be_process_local(tmp_path, repo, monkeypatch):
+    from evals.scripts import verifier_accuracy as cli
+    control_dir, manifest = _build(tmp_path, repo, items=4)
 
-    def export(*args, **kwargs):
-        (control_dir / control.STATEMENTS).write_text(theirs, encoding="utf-8")
-        return real_export(*args, **kwargs)
+    @contextlib.contextmanager
+    def process_local(path, *, blocking=True, shared=False):  # file_lock without byte-range locks
+        yield None
 
-    monkeypatch.setattr(builder, "export_snapshot", export)
-    with pytest.raises(builder.BuildError, match="already holds a set"):
-        builder.build(repo=repo, commit="HEAD", control_dir=control_dir, snapshots=tmp_path / "state" / "snaps",
-                      name="t", items=4, seed=7, v2_per_class=None, installation_roots=[tmp_path / "installation"])
-    assert (control_dir / control.STATEMENTS).read_text(encoding="utf-8") == theirs
-    assert not (control_dir / control.LABELS).exists() and not (control_dir / control.MANIFEST).exists()
+    monkeypatch.setattr(control, "file_lock", process_local)
+    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the probe launched a worker"))
+    with pytest.raises(control.ControlError, match="would not keep other processes out"):
+        with control.exclusive(control_dir, "a run"):
+            pass
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    for command in (["probe", "--model", "sonnet"], ["run"]):
+        with pytest.raises(control.ControlError, match="would not keep other processes out"):
+            cli.main([*arguments, *command])
+    for write in (lambda: builder.discard(control_dir),
+                  lambda: builder.build(repo=repo, commit="HEAD", control_dir=control_dir, name="t", items=4, seed=7,
+                                        snapshots=tmp_path / "state" / "snaps", v2_per_class=None,
+                                        installation_roots=[tmp_path / "installation"])):
+        with pytest.raises(control.ControlError, match="would not keep other processes out"):
+            write()
+    assert (control_dir / control.STATEMENTS).exists() and not (control_dir / control.PROBES).exists()
 
 
 def test_a_run_counts_done_slots_from_its_own_set_s_records_only(tmp_path, repo, monkeypatch):

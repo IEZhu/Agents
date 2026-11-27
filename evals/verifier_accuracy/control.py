@@ -113,16 +113,21 @@ def exclusive(control: Path, action: str) -> Iterator[RunLock]:
     it looks for one already there, a discard before it reads the set version. A set loaded
     under the lock is therefore the set on disk until the lock is released, and no second
     writer changes its records meanwhile. The lock is not reentrant: another open of it in the
-    same process is refused too. A missing control directory is refused rather than created.
+    same process is refused too. A missing control directory is refused rather than created, and
+    so is one on a file system where ``file_lock`` can only fall back to a process-local lock,
+    since that lock would not keep another process's run, discard or build out.
     """
     if not Path(control).is_dir():
         raise ControlError(f"There is no control directory at {control}; build a set first.")
     with contextlib.ExitStack() as stack:
         try:
-            stack.enter_context(file_lock(Path(control) / RUN_LOCK, blocking=False))
+            lease = stack.enter_context(file_lock(Path(control) / RUN_LOCK, blocking=False))
         except BlockingIOError:
             raise RunInProgress("Another command (a run, a probe, a discard or a build) holds this set's run "
                                 f"lock; {action} is refused until it finishes.") from None
+        if lease is None:  # file_lock's process-local fallback: no byte-range locks on this file system
+            raise ControlError(f"The file system of {control} offers no byte-range lock, so the run lock would not "
+                               "keep other processes out; keep the control directory on a local file system.")
         lock = RunLock(Path(control))
         _HOLDS.add(lock)  # after the file lock is taken, and gone again before it is released
         try:

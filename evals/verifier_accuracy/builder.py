@@ -337,11 +337,6 @@ def _build_locked(*, repo: Path, commit: str, control_dir: Path, snapshots: Path
         return {name: sum(1 for row in statements if row[key] and truth_of[row["item"]] is truth)
                 for name, truth in (("true", True), ("false", False))}
 
-    # Checked again before publishing: where file_lock falls back to a process-local lock (a file
-    # system without byte-range locks), the run lock does not keep out another process's build,
-    # and this keeps that build's set from being overwritten.
-    if (control_dir / control.STATEMENTS).exists():
-        raise BuildError(f"{control_dir} already holds a set; discard it first.")
     control.write_jsonl(control_dir / control.STATEMENTS, statements)
     control.write_jsonl(control_dir / control.LABELS, labels)
     control.write_jsonl(control_dir / control.OWNER_REVIEW, selector.owner)
