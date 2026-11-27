@@ -176,9 +176,7 @@ already exists, and any other `expected_revision` refuses a stale write the same
 server-owned status is refused with `status_reserved`, `accepted` on a node that is not
 `validated`, `verified` or `accepted` with `invalid_transition`, a `depends_on` cycle with `cycle`, a
 `depends_on` edge onto a goal with `invalid_request`, and any write to a closed map with
-`map_closed`. The parent sets level `V4` only together with `accepted`. Under the daemon
-the answer also carries `map_url`, the map's page on the web UI
-([Web view and footer link](#web-view-and-footer-link)).
+`map_closed`. The parent sets level `V4` only together with `accepted`.
 
 **`workmap_view(task_id?, node?, since?, detail?, budget?, workspace?)`** renders text,
 never the raw event log.
@@ -208,9 +206,6 @@ never the raw event log.
   all of them.
 - With `node` and `detail="result"`: the stored result itself. This is the explicit escape
   hatch, the one call that brings a stage's work into the parent's context.
-
-An answer about one map (every mode but the list) carries `map_url` under the daemon, as
-`workmap_update`'s does.
 
 **`get_subagent_context`** gains two optional arguments, both requiring `task_id` to name
 the map, and a bound package uses `result_format` text.
@@ -378,47 +373,99 @@ it states.
 
 ### Web view and footer link
 
-The daemon's web UI (`/ui`) has a **Work map** tab that shows the maps of every
-registered workspace, read-only, for the person following the work rather than the
-parent's context:
+The daemon's web UI (`/ui`) has a **Work map** tab that shows one map at a time, read-only,
+for the person following the work rather than the parent's context. Everything on it is
+drawn in the browser from the daemon's read-only routes below, so following a map costs no
+model tokens; the page calls no model.
 
-- The list names each workspace's most recently written maps, newest first: task id,
-  goal, open or closed, counts by status, last change.
-- An open map is drawn as a graph. A node stands right of the nodes it `depends_on` or
-  `verifies`, so the goal, which nothing may depend on, heads the first column. Each node
-  names its title, status, level and kind, and its check counts and worker status once it
-  has a result; its border and stripe repeat the status in color (planned, running for
-  `prepared`, validated, needs attention, verified, disputed, accepted, refuted,
-  superseded, blocked). `depends_on` edges run solid from the prerequisite to its
-  dependant, `verifies` dashed, `supersedes` dotted and `contradicts` red. The prepared
-  (running) stage, or else the node that changed last, is ringed. The page polls the open
-  map every five seconds and redraws when its revision changes.
-- A click on a node opens its record: summary, risk and needed level, status and level
-  history (each committed change with its revision, operation and time), worker status,
-  checks, limitations, findings, question, escalation, invalid submissions,
-  `contract_revision`, `attempt_id`, `result_sha256`, pinned inputs, relations, and the
-  artifacts the stored result names (the items of its `## artifacts` section and every
-  `artifact://` reference). The stored result itself is fetched only by **Show full
-  result** and shown as text, never as markup.
-- `/ui#workmap/<workspace id>/<task id>` opens one map directly, and the address bar keeps
-  that link while a map is open; `/ui#workmap/<task id>` finds the most recently written
-  map of that task id among the registered workspaces.
+- **Summary.** The goal's title, `open` or `closed`, the revision, the time and age of the
+  last change with the nodes it touched, and the poll interval; a select of the registered
+  repositories' maps. A stacked bar and a chip per category (done, running, ready, waiting,
+  need action, blocked; set aside counted beside), each chip dimming the other categories
+  on the graph. Then the rows: **Running now** with each stage's elapsed time, **Needs
+  attention** grouped by who acts (you, the orchestrator, or nobody while a verifier
+  runs) with the reason, **Next** (ready stages) and the **Longest remaining chain** with
+  the stages the goal waits on now.
+- **Graph.** Layers top to bottom in dependency order, the goal alone in the last layer.
+  A card shows its status as a disc and a word (`running` for `prepared`, with the elapsed
+  time and the attempt), the level reached and needed, the risk, stale or ready, and the
+  check counts. A verifier docks in a tray under the node it checks. Edges differ by line
+  and head: `depends_on` from the prerequisite to its dependant, the head hollow while the
+  prerequisite is not settled; `verifies` dashed; `supersedes` dotted; `contradicts`
+  dash-dot. With one goal and no edge into it, a dotted connector marked derived leads to
+  it from the nodes nothing follows. The edges of the longest remaining chain are drawn at
+  double weight and the stages the goal waits on are underlined. A node set aside stays in
+  place as a ghost.
+- **Panel.** A node's kind, id, status and risk; a sentence on its state and who acts;
+  the plan beside the result; the verification ladder V0 to V4 with what the level means
+  and why it is needed; the worker's status, hand-back, question and escalation; checks
+  and findings; relations, a verifier's with its verdict (pending, no critical or high,
+  critical or high found, checked an older result, no verdict, withdrawn); the result
+  hash, contract and pinned inputs marked current or older; the artifacts the stored
+  result names; the status history. The stored result itself is fetched only by **Show
+  full result** and shown as text, never as markup.
+- Light, dark or the system's theme from the header's switch (remembered in the browser);
+  the running disc turns and its halo breathes unless the reader asked for reduced
+  motion; at 760 px and below the layers become an outline of steps without edges and the
+  panel a bottom sheet.
+
+The page polls the open map every five seconds and redraws when its revision changes; a
+status change repaints the cards in place and rings the changed ones briefly, and only a
+change of nodes or edges lays the graph out again. `/ui#workmap/<workspace id>/<task id>`
+opens one map and the address bar keeps that link; `/ui#workmap/<task id>` finds the most
+recently written map of that task id among the registered workspaces; `/ui#workmap` opens
+the open map that changed last.
 
 The data comes from `GET /ui/api/workmap/maps`, `/ui/api/workmap/map?workspace=&task_id=`,
 `/ui/api/workmap/node?workspace=&task_id=&node=` and
 `/ui/api/workmap/result?workspace=&task_id=&node=` (`src/daemon/workmap_ui.py` over
 `src/workmap/web.py`), behind the UI session and the page header like the History tab's
 reads. They address a workspace by its registry id, never by a path, and none of them
-writes.
+writes. Beside the stored fields a node carries the states the store derives (`settled`,
+`ready`, `stale`, `attention`), the time of its current status and its number of attempts,
+so the page repeats none of the store's rules and needs no request per node.
 
-Under the daemon, `workmap_update` and `workmap_view` answer about one map with
-`map_url`, that map's link on the page (the bare UI link the persona footer's version
-already uses, plus the fragment above). The description of `workmap_view` carries the
-footer rule: while a thread works on an open map, each answer's footer ends with
-` · [Work map](<map_url>)`, using the last `map_url` returned for that map, and the link
-is dropped once the map is closed. The persona footer itself is unchanged, since it
-belongs to an activation and a map to a task. A stdio server has no page and returns no
-`map_url`, so its answers carry no link.
+**Two designs, one view.** The view applies an information design (what each mark encodes
+and what each state means) and a visual design (tokens, layout direction, card anatomy,
+motion). Where they differed, the information design decided what is encoded and the
+visual design how it looks:
+
+| Point | Information design | Visual design | Chosen |
+|---|---|---|---|
+| Direction | columns left to right, goal rightmost | layers top to bottom, goal last | top to bottom; the goal alone in the last layer |
+| Verifiers | own column after the target | docked in a tray under the target | docked, unless it follows a node level with its target; the comb's head points into the target, and it never crosses a layer |
+| Glyphs | text glyphs | SVG discs | SVG discs; ready and stale as marks |
+| Words | status names, `prepared` as running | `attention` on a card | status names everywhere, `needs attention` included |
+| Running | word and elapsed time | word, attempt | word, elapsed time and attempt |
+| Card | id on the card | title only, id in the panel | title; the id in the tooltip, the panel and the lists |
+| Risk, level | spine width and a mark; a four-segment meter | chevrons; solid and dashed level boxes, a five-step ladder | chevrons, boxes and ladder; the ladder's words say what each level means |
+| Summary | categories by who acts, ids | status families, titles | the categories, `need action` grouped by who acts, ids |
+| Blocked | stuck: its own category, full contrast | set-aside family, ghosted | its own category and solid border, the set-aside colour and hatch |
+| depends_on head | filled when settled, hollow when not | always filled | filled or hollow |
+| Goal | banner with no level, derived connector | wide card with a level badge | wide card, `open` or `closed`, no level, derived connector |
+| Motion | none for running | turning disc, breathing halo | turning and breathing; nothing under reduced motion |
+
+Left out for now: the foundation lens and underline, the hide-set-aside toggle, a
+changed-since-your-last-visit dot and the narrow layout's graph toggle; the lists and the
+panel carry what they would show.
+
+**Footer link.** While a thread works on an open map, each answer's footer ends with
+` · [Work map](<url>#workmap)`, where `<url>` is the footer's own Agents-Core link, the
+bare UI link the persona footer carries under the daemon; a footer without that link (a
+stdio server, which has no page) gets nothing. The rule lives in the description of
+`workmap_view`. The link is the same for every map, so no tool answer carries a URL: the
+page opens the open map changed last, which is the thread's own while it works on it, and
+the select switches. Measured against the first version, which returned a per-map
+`map_url` in every answer about a map and linked it in the footer:
+
+| Model-side cost | First version | Now |
+|---|---|---|
+| Tool descriptions (`workmap_update`, `workmap_view`), against dev | +435 characters | +175 characters |
+| Each `workmap_update` or `workmap_view` answer about a map | +111 characters | 0 |
+| Each answer's footer | +111 characters | +47 characters |
+
+The persona footer itself is unchanged, since it belongs to an activation and a map to a
+task.
 
 ### Rollback
 

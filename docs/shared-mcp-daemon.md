@@ -1003,15 +1003,17 @@ seconds while the browser tab is visible (see
     type and time.
     `CLAUDE.md`, `AGENTS.md` and other instruction files are not edited here.
 - **Work map** shows the [work maps](workmap-plan.md#web-view-and-footer-link) of every
-  registered workspace, read-only, in the place of the list and the item: the maps newest
-  first, the open map as a graph colored by status with the running stage ringed, and a
-  node's record with its status history, references and artifacts. The stored result is
-  fetched only on **Show full result** and shown as text. The open map is polled every
-  five seconds; the polls are not activity, so an open map never holds back an automatic
-  update. `/ui#workmap/<workspace id>/<task id>` opens one map, and `map_url` in the
-  answers of `workmap_update` and `workmap_view` is that link. The reads
+  registered workspace, read-only, in the place of the list and the item: a summary of
+  the chosen map (progress by category, what runs now, what needs attention and who acts,
+  the longest remaining chain), its graph top to bottom with the goal last, and the panel
+  of the node selected in it. The stored result is fetched only on **Show full result**
+  and shown as text. Everything is drawn in the browser, so following a map costs no
+  model tokens. The open map is polled every five seconds; the polls are not activity, so
+  an open map never holds back an automatic update. `/ui#workmap` opens the open map
+  that changed last, `/ui#workmap/<workspace id>/<task id>` one map. The reads
   (`GET /ui/api/workmap/maps`, `/map`, `/node`, `/result`, `workmap_ui.py`) need the
-  page's `X-Agents-UI` header, as History's do, and none of them writes.
+  page's `X-Agents-UI` header, as History's do, and none of them writes. The header's
+  **Auto**, **Light** and **Dark** switch sets the theme of every tab.
 
 The **Autodev** chip under the version, and `/ui#autodev`, open the autodev
 schedule's settings ([#348](https://github.com/IEZhu/Agents/issues/348)) in the place
