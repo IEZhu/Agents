@@ -1,8 +1,12 @@
 # Verifier accuracy: stage 1 of the full set
 
 **Status:** run on 2026-11-24 as the first stage of the 240-item measurement, which
-the owner approved in stages after [the pilot](verifier-accuracy-pilot.md); the
-rest of the set waits for the owner. A stage decides only whether the run goes on:
+the owner approved in stages after [the pilot](verifier-accuracy-pilot.md). On
+2026-11-26 the owner stopped after this stage and did not run the remaining 684
+slots: a run with no wrong verdict would leave every prior where it is (see
+[What the stage shows](#what-the-stage-shows)). No value is applied. The set stays in
+the control directory, so a later stage could still continue it with the same seed, 0.
+A stage decides only whether the run goes on:
 its bands carry no replacement-rule case and nothing is applied to the claim
 filter. The code is [evals/verifier_accuracy](../../evals/verifier_accuracy/__init__.py),
 driven by the [verifier accuracy flow](../../flows/verifier-accuracy.md). Every number
@@ -181,4 +185,8 @@ Continuing costs about $118 and 35 minutes. What it can buy:
 
 No value is applied to the claim filter, and the production audit that rule 2 needs
 is not built. `VOLATILITY`, V1 and V4 keep their priors. The set stays in the control
-directory for the next stage.
+directory. Since this stage the harness takes a stage's cluster count from its budget
+instead of cutting where the clusters stop fitting, and records the schedule seed on
+every line ([schedule and stages](../verifier-accuracy-measurement.md#the-runs)). This
+stage's records name no seed, so a later run accepts seed 0 for them only after checking
+that they hold exactly the leading clusters of its order.

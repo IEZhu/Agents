@@ -9,9 +9,11 @@ output without unblinding itself.
   simulate   coverage simulation at the priors and at b = 0.995; sets the floor under D
   probe      one canary probe: a sandboxed worker must fail to read the canary file
   run        every scheduled attempt not yet recorded, a probe before each batch;
-             --stage-runs stops at the leading complete clusters that fit
+             --stage-runs stops at the leading complete clusters that many runs hold
+             on average; a seed other than the set's recorded one is refused
   analyze    the report: fits per configuration and family, checks, strata, cost;
-             --look planning adds the projection of the whole set from a stage
+             --look interim fits the first half alone, --look planning adds the
+             projection of the whole set from a stage
   status     attempt counts and cost so far
   discard    move the current set aside inside the control directory
 """
@@ -98,10 +100,12 @@ def simulate(arguments) -> int:
 
 def probe(arguments) -> int:
     loaded = runner.load(_control(arguments), installation_roots=_roots(arguments))
-    launcher = _launcher(arguments, loaded)
-    model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
-    result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
-    runner.record_probe(loaded, result, model=model, batch=None)  # its cost counts towards the set's spend
+    with control.exclusive(loaded.control_dir, "a separate probe"):  # its cost would escape a run's budget
+        control.ensure_unchanged(loaded.control_dir, loaded.manifest["version"])
+        launcher = _launcher(arguments, loaded)
+        model = arguments.model or runner.Runner(loaded, launcher)._probe_model()
+        result = runner.probe(loaded, launcher, model=model, effort=None, timeout=arguments.timeout)
+        runner.record_probe(loaded, result, model=model, batch=None)  # its cost counts towards the set's spend
     _print({"model": model, **result.__dict__})
     return 0 if result.blind else 2
 
@@ -133,7 +137,8 @@ def run(arguments) -> int:
                                   batch_size=arguments.batch_size, timeout=arguments.timeout,
                                   max_total_usd=arguments.max_total_usd, seed=arguments.seed,
                                   stage_runs=arguments.stage_runs, log=lambda line: print(line, flush=True))
-    _print(worker_runner.run())
+    summary = worker_runner.run()
+    _print(summary)
     return 0
 
 
@@ -151,8 +156,19 @@ def analyze(arguments) -> int:
     simulation = _simulation(control_dir, loaded)  # a missing or another set's floor would mislabel every band
     if simulation is None:
         return 1
+    first_half = None
+    if arguments.look == "interim":
+        own = [row for row in rows if row.get("set") == loaded.set_id]
+        try:
+            first_half = {slot.key for slot in runner.first_half(list(loaded.statements.values()), own)}
+        except runner.ScheduleError as error:
+            print(error, file=sys.stderr)
+            return 1
     report = analysis.analyze(rows, loaded.statements, look=arguments.look, d_floor=simulation["d_floor"],
-                              seed=arguments.seed, resamples=arguments.resamples, probes=probes)
+                              seed=arguments.seed, resamples=arguments.resamples, probes=probes,
+                              first_half=first_half)
+    if first_half is not None:
+        report["first_half"]["schedule_seed"] = runner.schedule_seed(own)
     report["set"] = loaded.set_id
     report["simulation_held"] = simulation.get("held")
     if arguments.look == "planning":
@@ -222,17 +238,23 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--concurrency", type=int, default=4)
             command.add_argument("--batch-size", type=int, default=20)
             command.add_argument("--max-total-usd", type=float, default=40.0)
-            command.add_argument("--seed", type=int, default=0)
+            command.add_argument("--seed", type=int, default=0,
+                                 help="The schedule's seed; every record names it, and a set's later runs "
+                                      "must use the seed of its first.")
             command.add_argument("--stage-runs", type=_positive,
-                                 help="Stop at the leading complete clusters of the schedule whose slots fit "
-                                      "this many runs; a later run with a larger value or none continues.")
+                                 help="Stop at the leading complete clusters of the schedule, as many as this "
+                                      "many runs hold on average (runs x clusters // slots), so every cluster "
+                                      "is as likely to be in the stage; its slots vary with the clusters drawn "
+                                      "and can exceed the value. A later run with a larger value or none "
+                                      "continues.")
             command.add_argument("--pipeline-check", action="store_true",
                                  help="Run although the coverage simulation did not hold: a check of the "
                                       "runner whose bands are not a measurement.")
 
     analyzing = commands.add_parser("analyze")
     analyzing.add_argument("--look", choices=sorted(analysis.QUANTILES), default="final")
-    analyzing.add_argument("--seed", type=int, default=0)
+    analyzing.add_argument("--seed", type=int, default=0,
+                           help="Resampling seed; the interim look reads the schedule's seed from the records.")
     analyzing.add_argument("--resamples", type=int, default=400)
     analyzing.add_argument("--projection-sets", type=_positive, default=200,
                            help="Simulated whole sets behind the planning look's projection.")
@@ -246,7 +268,11 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
-    return arguments.handler(arguments)
+    try:
+        return arguments.handler(arguments)
+    except (runner.ScheduleError, control.RunInProgress, control.SetChanged) as error:  # before anything ran
+        print(error, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

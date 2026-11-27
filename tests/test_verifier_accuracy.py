@@ -5,6 +5,7 @@ transcripts, and the analysis by simulated verdicts.
 """
 from __future__ import annotations
 
+from collections import Counter
 import json
 import math
 import os
@@ -95,7 +96,7 @@ def test_control_dir_refuses_the_installation_and_any_worker_checkout(tmp_path):
 
 def _record(**changes) -> dict:
     record = {"set": "t@0123456789abcdef", "item": "i001", "stratum": "path", "truth": False, "arm": "V3", "slot": 1,
-              "status": "verdict", "level": "V3", "family": "model", "verdict": "confirmed", "outcome": "FN",
+              "seed": 0, "status": "verdict", "level": "V3", "family": "model", "verdict": "confirmed", "outcome": "FN",
               "task": "abcd", "attempt_id": "1", "contract_revision": "0" * 64, "client": "claude",
               "tier": "standard", "model": "claude-x", "reasoning_effort": None, "bundle_revision": "1" * 64}
     record.update(changes)
@@ -123,6 +124,9 @@ def test_recorder_writes_one_private_line_per_attempt(tmp_path):
     ({"arm": "V1"}, "unknown arm"),
     ({"truth": "no"}, "boolean"),
     ({"model": ...}, "lacks"),
+    ({"seed": ...}, "lacks"),
+    ({"seed": "0"}, "integer seed"),
+    ({"seed": True}, "integer seed"),
 ])
 def test_a_malformed_record_is_a_runner_bug(tmp_path, changes, message):
     with pytest.raises(ValueError, match=message):
@@ -726,6 +730,22 @@ def test_a_resumed_run_starts_from_the_recorded_spend(tmp_path, repo, monkeypatc
     assert again.spent == pytest.approx(runner.recorded_spend(loaded)) and again.spent > 0
 
 
+def test_a_run_reads_the_spend_again_once_it_holds_the_lock(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
+                                     stage_runs=10)
+    late = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None)
+    assert late.spent == 0.0  # constructed before the stage ran
+    work.run()
+    spent = runner.recorded_spend(loaded)
+    late.max_total_usd = late.run_reserve_usd + spent / 2  # affordable at the old spend, not at the new one
+    before, calls = len(work.recorder.recorded()), len(launcher.calls)
+    late.run()
+    added = late.recorder.recorded()[before:]
+    assert len(launcher.calls) == calls  # no probe and no worker beyond the budget
+    assert added and {row["reason"] for row in added} == {"budget"}
+
+
 def test_a_runner_error_records_the_later_batches_too(tmp_path, repo, monkeypatch):
     monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
 
@@ -988,7 +1008,10 @@ def test_the_schedule_keeps_clusters_together_and_a_stage_takes_whole_ones():
     statements = _statements({"a": 3, "b": 1, "c": 4, "d": 2, "e": 5})
     cluster_of = {row["item"]: row["cluster"] for row in statements}
     slots = runner.schedule(statements, 3)
-    assert sorted(slot.key for slot in slots) == sorted(slot.key for row in statements for slot in runner._slots(row))
+    # Two V3 slots for every item and two V2 slots for the V2 items only, built apart from runner._slots.
+    expected = [(row["item"], "V3", number) for row in statements for number in (1, 2)]
+    expected += [(row["item"], "V2", number) for row in statements if row["v2"] for number in (1, 2)]
+    assert sorted(slot.key for slot in slots) == sorted(expected)
     order = [cluster_of[slot.item] for slot in slots]
     assert all(order.index(name) + order.count(name) - 1 == len(order) - 1 - order[::-1].index(name)
                for name in set(order))  # every cluster is one contiguous block
@@ -997,15 +1020,31 @@ def test_the_schedule_keeps_clusters_together_and_a_stage_takes_whole_ones():
               for seed in range(8)}
     assert len(orders) > 1 and orders != {tuple(sorted(set(order)))}  # a stage is a seeded cluster sample
     assert runner.stage(statements, 3, None) == slots
-    for runs in (0, 5, 17, 30, len(slots)):
+    clusters_in_order = list(dict.fromkeys(order))
+    for runs, count in ((17, 1), (30, 3), (len(slots), 5), (10 * len(slots), 5)):  # 50 slots in 5 clusters
         taken = runner.stage(statements, 3, runs)
-        assert len(taken) <= runs and taken == slots[:len(taken)]
-        clusters = {cluster_of[slot.item] for slot in taken}
-        assert all(sum(cluster_of[slot.item] == name for slot in taken)
-                   == sum(cluster_of[slot.item] == name for slot in slots) for name in clusters)  # whole clusters
-        following = slots[len(taken):]
-        assert not following or len(taken) + sum(
-            cluster_of[slot.item] == cluster_of[following[0].item] for slot in following) > runs  # nothing more fits
+        assert taken == slots[:len(taken)]  # leading slots, so a later stage continues this one
+        assert list(dict.fromkeys(cluster_of[slot.item] for slot in taken)) == clusters_in_order[:count]
+        assert len(taken) == sum(order.count(name) for name in clusters_in_order[:count])  # whole clusters
+    with pytest.raises(runner.ScheduleError, match="5 runs hold no cluster"):
+        runner.stage(statements, 3, 5)
+
+
+def test_every_cluster_is_as_likely_to_be_in_a_stage_whatever_its_size():
+    # One cluster of 10 items (32 slots) among nine single items (30 slots): 62 slots in 10 clusters.
+    statements = _statements({"big": 10, **{f"s{index}": 1 for index in range(9)}})
+    cluster_of = {row["item"]: row["cluster"] for row in statements}
+    seeds = range(2000)
+    for runs, count in ((20, 3), (40, 6)):  # 20 runs hold 3 clusters on average, 40 runs 6
+        held = Counter(name for seed in seeds
+                       for name in {cluster_of[slot.item] for slot in runner.stage(statements, seed, runs)})
+        # Cutting where the clusters stop fitting never took the big one at 20 runs and took it
+        # less often than a single item at 40; drawing the count from the budget gives each cluster
+        # the chance count / clusters.
+        assert all(abs(held[name] / len(seeds) - count / 10) < 0.05 for name in cluster_of.values())
+    big_first = next(seed for seed in seeds if runner.schedule(statements, seed)[0].item in
+                     {row["item"] for row in statements if row["cluster"] == "big"})
+    assert len(runner.stage(statements, big_first, 20)) > 32  # a cluster above the budget is not out of reach
 
 
 def test_a_staged_run_takes_its_clusters_and_a_later_run_continues(tmp_path, repo, monkeypatch):
@@ -1015,13 +1054,178 @@ def test_a_staged_run_takes_its_clusters_and_a_later_run_continues(tmp_path, rep
     statements = list(loaded.statements.values())
     expected = runner.stage(statements, 0, 10)
     summary = work.run()
-    assert 0 < summary["run"] == summary["scheduled"] == len(expected) <= 10
+    assert 0 < summary["run"] == summary["scheduled"] == len(expected) < len(runner.schedule(statements, 0))
     assert {(row["item"], row["arm"], row["slot"]) for row in work.recorder.recorded()} == {
         slot.key for slot in expected}
     rest = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None,
                          concurrency=2, batch_size=4)
     assert rest.run()["run"] == len(runner.schedule(statements, 0)) - len(expected)
     assert len(rest.recorder.recorded()) == len(runner.schedule(statements, 0))  # each slot once
+
+
+# --- One seed per set, and the interim look's first half ---------------------------------------
+
+
+def test_every_record_names_the_seed_and_a_later_run_with_another_is_refused(tmp_path, repo, monkeypatch, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
+                                     seed=5, stage_runs=10)
+    assert work.run()["seed"] == 5
+    first = work.recorder.recorded()
+    assert first and {row["seed"] for row in first} == {5}
+    calls = len(launcher.calls)
+    other = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None, seed=6)
+    with pytest.raises(runner.ScheduleError, match="scheduled with seed 5"):
+        other.run()
+    assert len(launcher.calls) == calls and work.recorder.recorded() == first  # refused before any probe
+    (loaded.control_dir / control.SIMULATION).write_text(json.dumps({"set": loaded.set_id, "held": True,
+                                                                     "look": "final", "d_floor": 1.0}))
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    assert cli.main([*arguments, "run", "--seed", "6"]) == 1
+    assert "scheduled with seed 5" in capsys.readouterr().err
+    same = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None, seed=5)
+    assert same.run()["run"] == len(runner.schedule(list(loaded.statements.values()), 5)) - len(first)
+
+
+def test_records_without_a_seed_accept_only_the_seed_whose_leading_clusters_they_hold(tmp_path, repo, monkeypatch):
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot),
+                                     stage_runs=10)
+    work.run()
+    legacy = [{key: value for key, value in row.items() if key != "seed"} for row in work.recorder.recorded()]
+    control.write_jsonl(work.recorder.path, legacy)  # as a stage before seeds were recorded wrote them
+    statements = list(loaded.statements.values())
+    runner.check_seed(legacy, statements, 0)
+    cluster_of = {row["item"]: row["cluster"] for row in statements}
+    leading = lambda seed: {cluster_of[slot.item] for slot in runner.stage(statements, seed, 10)}
+    other = next(seed for seed in range(1, 50) if leading(seed) != leading(0))
+    with pytest.raises(runner.ScheduleError, match="predate the seed field"):
+        runner.check_seed(legacy, statements, other)
+    elsewhere = [{"item": slot.item} for slot in runner.stage(statements, other, 10)]  # not seed 0's lead
+    with pytest.raises(runner.ScheduleError, match="not the leading clusters"):
+        runner.check_seed(elsewhere, statements, 0)
+    rest = runner.Runner(loaded, launcher, prepare=_prepared, validate=work.validate, log=lambda line: None)
+    rest.run()
+    assert runner.schedule_seed(rest.recorder.recorded()) == 0  # the continuation records the seed
+    with pytest.raises(runner.ScheduleError, match="2 schedule seeds"):
+        runner.schedule_seed([{"seed": 0}, {"seed": 1}])
+
+
+def test_records_without_a_seed_continue_only_with_the_seed_they_were_run_with():
+    statements = _statements({"a": 2, "b": 1, "c": 3})
+    every_cluster = [{"item": row["item"]} for row in statements]  # any seed's leading clusters match these
+    runner.check_seed(every_cluster, statements, runner.LEGACY_SEED)
+    with pytest.raises(runner.ScheduleError, match="predate the seed field"):
+        runner.check_seed(every_cluster, statements, 7)
+    runner.check_seed([], statements, 7)  # a set with no records takes any seed, and records it
+
+
+def test_a_second_run_of_the_set_at_once_is_refused(tmp_path, repo, monkeypatch, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    from src.file_lock import file_lock
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+    (loaded.control_dir / control.SIMULATION).write_text(json.dumps({"set": loaded.set_id, "held": True,
+                                                                     "look": "final", "d_floor": 1.0}))
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    with file_lock(loaded.control_dir / control.RUN_LOCK, blocking=False):  # the other run's lock
+        with pytest.raises(control.RunInProgress, match="a second run is refused"):
+            work.run()
+        assert cli.main([*arguments, "run"]) == 1
+    assert "A run of this set is in progress" in capsys.readouterr().err
+    assert not launcher.calls and not work.recorder.recorded()  # no probe, no record
+    assert work.run()["run"] == len(runner.schedule(list(loaded.statements.values()), 0))  # free again
+
+
+def test_a_probe_a_discard_and_a_build_wait_for_no_run_and_are_refused_during_one(tmp_path, repo, capsys,
+                                                                                    monkeypatch):
+    from evals.scripts import verifier_accuracy as cli
+    from src.file_lock import file_lock
+    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the probe launched a worker"))
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(control_dir)]
+    fresh = control.open_private(tmp_path / "fresh" / control.DIRECTORY_NAME)
+    with file_lock(control_dir / control.RUN_LOCK, blocking=False), file_lock(fresh / control.RUN_LOCK, blocking=False):
+        assert cli.main([*arguments, "probe", "--model", "sonnet"]) == 1  # its cost would escape the run's budget
+        assert "a separate probe is refused" in capsys.readouterr().err
+        with pytest.raises(control.RunInProgress, match="discarding the set is refused"):
+            builder.discard(control_dir)
+        with pytest.raises(control.RunInProgress, match="writing a set is refused"):
+            builder.build(repo=repo, commit="HEAD", control_dir=fresh, snapshots=tmp_path / "state" / "snaps",
+                          name="t", items=4, seed=7, v2_per_class=None, installation_roots=[tmp_path / "installation"])
+    assert not (control_dir / control.PROBES).exists() and (control_dir / control.STATEMENTS).exists()
+    assert not (fresh / control.STATEMENTS).exists()
+    assert builder.discard(control_dir).is_dir()  # the lock is free again
+
+
+def test_a_run_or_probe_refuses_a_set_discarded_or_rebuilt_after_it_was_loaded(tmp_path, repo, monkeypatch, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    monkeypatch.setattr(worker, "HeadlessLauncher", lambda **options: pytest.fail("the probe launched a worker"))
+    work, loaded, launcher = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot))
+    builder.discard(loaded.control_dir)  # between the load and the run, which takes the lock only in run()
+    with pytest.raises(control.SetChanged, match="discarded or rebuilt"):
+        work.run()
+    builder.build(repo=repo, commit="HEAD", control_dir=loaded.control_dir, snapshots=tmp_path / "state" / "snaps",
+                  name="t", items=6, seed=8, v2_per_class=None, installation_roots=[tmp_path / "installation"])
+    with pytest.raises(control.SetChanged, match="discarded or rebuilt"):
+        work.run()
+    assert not launcher.calls and not (loaded.control_dir / control.ATTEMPTS).exists()  # nothing ran, nothing written
+    monkeypatch.setattr(cli.runner, "load", lambda *args, **options: loaded)  # the probe's load sees the old set
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    assert cli.main([*arguments, "probe", "--model", "sonnet"]) == 1
+    assert "discarded or rebuilt" in capsys.readouterr().err
+
+
+def _slot_rows(statements: list[dict], seed: int, wrong: set[tuple]) -> list[dict]:
+    """One V3 or V2 verdict for every slot of the schedule, on true items; the slots in ``wrong`` refute."""
+    rows = []
+    for slot in runner.schedule(statements, seed):
+        verdict = "refuted" if slot.key in wrong else "confirmed"
+        rows.append({**_rows([(slot.item, True, slot.arm, verdict)])[0], "slot": slot.slot, "seed": seed})
+    return rows
+
+
+def test_the_interim_look_fits_the_first_half_alone():
+    statements = _statements({f"k{index}": 1 + index % 3 for index in range(24)})
+    half = runner.first_half(statements, [{"seed": 2}])
+    assert half == runner.stage(statements, 2, len(runner.schedule(statements, 2)) // 2)
+    keys = {slot.key for slot in half}
+    rows = _slot_rows(statements, 2, wrong={slot.key for slot in runner.schedule(statements, 2)} - keys)
+    by_item = {row["item"]: row for row in statements}
+    report = analysis.analyze(rows, by_item, look="interim", first_half=keys, resamples=20, grid=GRID, coarse=COARSE)
+    items = {slot.item for slot in half}
+    model = report["configurations"][0]["families"]["model"]["all"]
+    assert model["items"] == len(items) and model["categories"]["2/2"] == len(items)  # no wrong verdict counted
+    assert report["tally"]["attempts"] == len(keys) and report["first_half"] == {"slots": len(keys),
+                                                                                  "launched": len(keys)}
+    assert all(parameter["rule"] in (3, None) for families in report["configurations"][0]["families"].values()
+               for parameter in families["all"]["parameters"].values())  # rule 3 alone
+    whole = analysis.analyze(rows, by_item, look="final", resamples=20, grid=GRID, coarse=COARSE)
+    assert whole["configurations"][0]["families"]["model"]["all"]["categories"]["2/0"] > 0
+    with pytest.raises(ValueError, match="first half alone"):
+        analysis.analyze(rows, by_item, look="interim", resamples=20, grid=GRID, coarse=COARSE)
+    with pytest.raises(runner.ScheduleError, match="no definition"):
+        runner.first_half(statements, [{"item": "i000"}])  # records that name no seed
+
+
+def test_analyze_reads_the_interim_half_from_the_recorded_seed(tmp_path, repo, monkeypatch, capsys):
+    from evals.scripts import verifier_accuracy as cli
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    work, loaded, _ = _runner(tmp_path, repo, lambda loaded: FakeLauncher(tmp_path / "home", loaded.snapshot), seed=4)
+    (loaded.control_dir / control.SIMULATION).write_text(json.dumps({"set": loaded.set_id, "held": True,
+                                                                     "look": "final", "d_floor": 1.0}))
+    arguments = ["--installation", str(tmp_path / "installation"), "--control-dir", str(loaded.control_dir)]
+    assert cli.main([*arguments, "analyze", "--look", "interim"]) == 1  # no record names a seed yet
+    assert "no definition" in capsys.readouterr().err
+    work.run()
+    assert cli.main([*arguments, "analyze", "--look", "interim", "--resamples", "20"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    statements = list(loaded.statements.values())
+    half = runner.stage(statements, 4, len(runner.schedule(statements, 4)) // 2)
+    assert report["first_half"] == {"slots": len(half), "launched": len(half), "schedule_seed": 4}
+    assert report["tally"]["attempts"] == len(half) < len(work.recorder.recorded())
 
 
 def test_the_planning_look_applies_no_replacement_rule():

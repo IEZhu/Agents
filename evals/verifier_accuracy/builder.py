@@ -317,29 +317,32 @@ def build(*, repo: Path, commit: str, control_dir: Path, snapshots: Path, name: 
                            "v2": id(item) in v2})
         labels.append({"item": identifier, "truth": item.truth, "kind": item.kind, "source": item.source,
                        "stratum": item.claim.stratum, "subject": item.claim.subject_dict(), "check": "agreed"})
-    control.write_jsonl(control_dir / control.STATEMENTS, statements)
-    control.write_jsonl(control_dir / control.LABELS, labels)
-    control.write_jsonl(control_dir / control.OWNER_REVIEW, selector.owner)
-    control.write_private(control_dir / control.CANARY, f"canary {secrets.token_hex(16)}\n")
-    version = control.set_version(control_dir)
     truth_of = {row["item"]: row["truth"] for row in labels}
 
     def by_class(key: str) -> dict:
         return {name: sum(1 for row in statements if row[key] and truth_of[row["item"]] is truth)
                 for name, truth in (("true", True), ("false", False))}
 
-    manifest = {
-        "name": name, "version": version, "set": f"{name}@{version}", "commit": commit,
-        "snapshot": str(snapshot), "repository": str(repo), "created_at": control.now(), "seed": seed,
-        "items": len(chosen), "classes": {"true": items // 2, "false": items - items // 2},
-        "strata": dict(Counter(row["stratum"] for row in statements)),
-        "clusters": dict(Counter(row["cluster"] for row in statements)),
-        "perturbations": dict(Counter(item.kind for item in chosen if not item.truth)),
-        "command_checkable": by_class("command_checkable"), "v2": by_class("v2"),
-        "skipped": dict(selector.skipped), "owner_review": len(selector.owner),
-        "labels_sha256": control.file_digest(control_dir / control.LABELS),
-    }
-    control.write_private(control_dir / control.MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    with control.exclusive(control_dir, "writing a set"):
+        if (control_dir / control.STATEMENTS).exists():  # another build finished in the meantime
+            raise BuildError(f"{control_dir} already holds a set; discard it first.")
+        control.write_jsonl(control_dir / control.STATEMENTS, statements)
+        control.write_jsonl(control_dir / control.LABELS, labels)
+        control.write_jsonl(control_dir / control.OWNER_REVIEW, selector.owner)
+        control.write_private(control_dir / control.CANARY, f"canary {secrets.token_hex(16)}\n")
+        version = control.set_version(control_dir)
+        manifest = {
+            "name": name, "version": version, "set": f"{name}@{version}", "commit": commit,
+            "snapshot": str(snapshot), "repository": str(repo), "created_at": control.now(), "seed": seed,
+            "items": len(chosen), "classes": {"true": items // 2, "false": items - items // 2},
+            "strata": dict(Counter(row["stratum"] for row in statements)),
+            "clusters": dict(Counter(row["cluster"] for row in statements)),
+            "perturbations": dict(Counter(item.kind for item in chosen if not item.truth)),
+            "command_checkable": by_class("command_checkable"), "v2": by_class("v2"),
+            "skipped": dict(selector.skipped), "owner_review": len(selector.owner),
+            "labels_sha256": control.file_digest(control_dir / control.LABELS),
+        }
+        control.write_private(control_dir / control.MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
 
 
@@ -348,19 +351,21 @@ def discard(control_dir: Path) -> Path:
 
     The target is new every time: the set version from the statement file (or ``incomplete``
     when a build stopped before writing it) and the time of the discard, so a rebuilt set
-    with the same version never overwrites the records of an earlier one.
+    with the same version never overwrites the records of an earlier one. A run of the set that
+    is going holds its run lock, and the discard is refused, so no run splits across two sets.
     """
-    version = (control.set_version(control_dir) if (control_dir / control.STATEMENTS).exists()
-               else "incomplete")
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    target = control_dir / control.DISCARDED / f"{version}-{stamp}"
-    if target.exists():
-        raise BuildError(f"{target} already exists")
-    control.open_private(control_dir / control.DISCARDED)
-    control.open_private(target)
-    for name in (control.STATEMENTS, control.LABELS, control.ATTEMPTS, control.PROBES, control.OWNER_REVIEW,
-                 control.CANARY, control.MANIFEST, control.SIMULATION):
-        source = control_dir / name
-        if source.exists():
-            os.replace(source, target / name)
+    with control.exclusive(control_dir, "discarding the set"):
+        version = (control.set_version(control_dir) if (control_dir / control.STATEMENTS).exists()
+                   else "incomplete")
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        target = control_dir / control.DISCARDED / f"{version}-{stamp}"
+        if target.exists():
+            raise BuildError(f"{target} already exists")
+        control.open_private(control_dir / control.DISCARDED)
+        control.open_private(target)
+        for name in (control.STATEMENTS, control.LABELS, control.ATTEMPTS, control.PROBES, control.OWNER_REVIEW,
+                     control.CANARY, control.MANIFEST, control.SIMULATION):
+            source = control_dir / name
+            if source.exists():
+                os.replace(source, target / name)
     return target

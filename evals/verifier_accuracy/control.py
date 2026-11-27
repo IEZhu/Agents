@@ -13,15 +13,17 @@ completing a biased subset.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
 import os
 from pathlib import Path
 import threading
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from src.daemon import state
+from src.file_lock import file_lock
 
 DIRECTORY_NAME = "claims-control"
 SNAPSHOTS_NAME = "claims-snapshots"
@@ -33,6 +35,7 @@ OWNER_REVIEW = "owner-review.jsonl"
 CANARY = "canary.txt"
 MANIFEST = "set.json"
 SIMULATION = "simulation.json"
+RUN_LOCK = "run.lock"  # held by a run, a separate probe, a discard and a build's writes
 DISCARDED = "discarded"
 VERSION_CHARS = 16
 
@@ -50,7 +53,7 @@ LEVEL_FAMILY = {"V3": "model", "unsupported": "model", "V1": "model", "V2": "exe
 # Unfinished rows written for a slot that never ran: a resumed run schedules the slot again.
 PLACEHOLDER_REASONS = ("probe_failed", "runner_stopped", "budget")
 # Every line carries these keys; values may be null where the attempt never got that far.
-RECORD_KEYS = ("at", "event", "set", "item", "stratum", "truth", "arm", "slot", "status", "task",
+RECORD_KEYS = ("at", "event", "set", "item", "stratum", "truth", "arm", "slot", "seed", "status", "task",
                "attempt_id", "contract_revision", "client", "tier", "model", "reasoning_effort",
                "bundle_revision")
 VERDICT_KEYS = ("level", "family", "verdict", "outcome")
@@ -62,6 +65,37 @@ class ControlError(RuntimeError):
 
 class RecorderError(RuntimeError):
     """An attempt record could not be written; the run must stop."""
+
+
+class RunInProgress(ControlError):
+    """Another process holds the set's run lock."""
+
+
+class SetChanged(ControlError):
+    """The set on disk is no longer the one a run or a probe loaded."""
+
+
+def ensure_unchanged(control: Path, version: str) -> None:
+    """Refuse a set that was discarded or rebuilt after it was loaded; call it under the run lock,
+    which a discard and a build's writes also take, so the answer holds for as long as the lock."""
+    if not (Path(control) / STATEMENTS).exists() or set_version(control) != version:
+        raise SetChanged("The set was discarded or rebuilt after it was loaded; load it again.")
+
+
+@contextlib.contextmanager
+def exclusive(control: Path, action: str) -> Iterator[None]:
+    """Hold the set's run lock for ``action``, refusing at once while another process holds it.
+
+    A run holds it from its first record read to its last write; a separate probe, a discard
+    and a build's writes hold it too, so none of them can change the records or move the set
+    under a run that is going.
+    """
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(file_lock(Path(control) / RUN_LOCK, blocking=False))
+        except BlockingIOError:
+            raise RunInProgress(f"A run of this set is in progress; {action} is refused until it finishes.") from None
+        yield
 
 
 def default_control_dir(installation=None) -> Path:
@@ -151,6 +185,8 @@ def check_record(record: dict) -> None:
         raise ValueError(f"unknown arm or slot: {record['arm']!r} {record['slot']!r}")
     if not isinstance(record["truth"], bool):
         raise ValueError("truth must be a boolean")
+    if not isinstance(record["seed"], int) or isinstance(record["seed"], bool):
+        raise ValueError("seed must be the schedule's integer seed")
     if record["status"] not in STATUSES:
         raise ValueError(f"unknown status {record['status']!r}")
     if record["status"] == "verdict":
