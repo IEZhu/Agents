@@ -119,60 +119,120 @@ A Claude Code session can leave logging to its client: a headless run (#734) and
 interactive session (#701). Through `log_interaction` the model writes its whole answer once
 more as `response_content`, one more model call re-reads the whole context after the tool
 returns, and nothing checks that the answer the user then reads is the one logged: a reworded or
-translated delivery, or a note the model adds after another Stop hook asks for one more step,
-leaves the journal holding an answer the user never saw. When the Stop hook logs the turn, the
-journal holds the last assistant text of the turn, the one the user saw.
+translated delivery, or a corrected answer after another Stop hook asked for one more step,
+leaves the journal holding an answer the user never saw. When the Stop hook
+[`python -m src.memory.turn_log_hook`](../src/memory/turn_log_hook.py) logs the turn, the
+journal holds the last answer the turn delivered.
 
-Where the hook logs, the server instructions and the full `SUCCESS` instruction tell the model
-to end its answers with the footer, add no time line and not call `log_interaction` (the
-`finish` variants `hook`, `server-hook` and `bundle-hook` in
-[finish.md](../src/engine/protocol/finish.md)); the pointer of a later `SUCCESS`, the section
-pointer and the server pointer end the same way (`bundle-finish-hook` in
-[pointer.md](../src/engine/protocol/pointer.md)). The managed section states the same rule for
-a client that reads it: skip every `log_interaction` step and add no time line. The time line
-needs the `timestamp` that only a `log_interaction` call returns, so the
-[answer-timestamp](../rules/rule-answer-timestamp.mdc) rule omits it; the hook records the time
-in the entry's `answer_timestamp` instead.
+**Who decides.** The session itself, never a settings file the server can read, because a hook
+that does not run cannot announce anything. An interactive session registers the hook with
+`--interactive` for both `UserPromptSubmit` and `Stop`. Before each prompt reaches the model, the
+hook puts the Agents-Core turn-log notice beside it (`turn_log_notice` in
+[protocol_text.py](../src/engine/protocol_text.py), composed from the `finish` variants `notice`,
+`hook-calls` and `notice-close`): this session's Stop hook records the turn, so the model makes no
+per-turn `log_interaction` call and adds no time line. Every surface that tells the model to log
+yields to that notice for its turn: the server instructions and the full `SUCCESS` instruction
+(`finish:notice-rule`), both pointers and the `NO_CHANGE` instruction, the managed section and the
+memory reminder. A session that does not run the hook gets no notice and logs through
+`log_interaction` as before: another `CLAUDE_CONFIG_DIR` than the one that holds the
+registration, `claude --bare`, `claude --restricted`, `--setting-sources` without the source that
+holds it, `disableAllHooks`, `allowManagedHooksOnly`, or a folder whose workspace trust was not
+accepted. So does a session whose project does not resolve: the hook gives no notice there, and
+the model's call keeps the turn in the fallback journal. Codex, Cursor and the Claude desktop chat
+never see a notice.
 
-Two setups switch this on. A headless run sets `AGENTS_TURN_LOG_HOOK=1` and
-`AGENTS_CLIENT_PROFILE=headless` in the environment of both the server and the hook, and the
-server then leaves logging to the hook for every client it serves; either switch alone changes
-nothing. An interactive Claude Code session registers the hook with `--interactive`. The server
-decides per client, because one daemon serves several (`stop_hook_logs` in
-[client_instructions.py](../src/client_instructions.py)): only a request that names
-`X-Agents-Client: claude-code` and whose Claude Code settings register
-`python -m src.memory.turn_log_hook --interactive` as a Stop hook gets the hook wording. The
-server reads the user's `settings.json` (in `CLAUDE_CONFIG_DIR` of the server's environment, else
-`~/.claude`) and `.claude/settings.json` and `.claude/settings.local.json` of the session's
-checkouts; a registration in the user's file counts for every project, one in project settings
-must be in every checkout the session may run in, and `disableAllHooks` in any of these files
-keeps the model's logging step. Codex, Cursor, the Claude desktop chat, a stdio server without
-the headless switches and a Claude Code session whose settings the server cannot see that
-registration in keep `log_interaction`. Where the server cannot see a registration that Claude
-Code does load (managed settings, `--settings`, a plugin's hooks), the model still logs, and the
-hook leaves alone a turn whose `log_interaction` call was recorded, so no turn is logged twice.
+A headless run sets `AGENTS_TURN_LOG_HOOK=1` and `AGENTS_CLIENT_PROFILE=headless` in the
+environment of both the server and the hook, and the server then tells every client it serves
+that the Stop hook logs (the `finish` variants `hook`, `hook-calls`, `server-hook` and
+`bundle-hook` in [finish.md](../src/engine/protocol/finish.md), `bundle-finish-hook` in
+[pointer.md](../src/engine/protocol/pointer.md)); either switch alone changes nothing. When the
+two sources differ, the notice decides its own turn and the latest `SUCCESS` decides over the
+server instructions; a `NO_CHANGE` carries the current decision as well.
 
-The Claude Code Stop hook [`python -m src.memory.turn_log_hook`](../src/memory/turn_log_hook.py)
-then writes the entry that `log_interaction` writes with its defaults, through the same journal
-writer and its deduplication: the prompt that started the turn, the final answer without a time
-line, and the persona of the last `SUCCESS` or `NO_CHANGE` in the transcript with the persona
-action that follows from where it happened. It takes the final answer from the hook input's
-`last_assistant_message` when Claude Code sends one, else from the transcript, and resolves the
-project as a stdio server does: `AGENTS_CLIENT_REPO_ROOT`, then `CLAUDE_PROJECT_DIR`, then the
-session's `cwd`. It makes no model call, sends no Langfuse trace and uses no network. A turn is
-logged once: the entry carries the hook input's `prompt_id`, a later Stop event of the same
-turn (the re-entry after another Stop hook blocked it, `stop_hook_active`) finds it and writes
-nothing, and a re-entry without a `prompt_id` writes nothing either. A turn the user did not
-type, opened by a task notification, a message from another session, a scheduled task or a
-host event (`turnOrigin` other than `human`), is its own turn and is logged once like any
-other; Stop hook feedback stays inside the turn it continues. A turn without an applied persona
-is still logged, as `log_interaction` logs a call without a descriptor: attributed to the agent
-of the answer's footer, or to `unattributed`, and marked `Persona (unverified)`. Secrets are masked by format (GitHub, Anthropic, OpenRouter, OpenAI, Slack and Google keys,
-AWS key ids and secret keys, JWTs, private keys and Bearer tokens) and by key name (`capability`,
-`api_key`, `secret`, `token`, `password`), but no model reads the text first, so other details of a
-prompt or an answer stay as written. A persona that `run_flow` activated attributes the turn too. Without a switch, a prompt, an
-answer or a safe project it writes nothing; it always exits 0 and prints nothing, so
-a failure never blocks the client.
+**What the model still does.** It ends every final answer with the footer. It still calls
+`log_interaction` when a flow or the user asks for one, as `thread-close` does for its record and
+tags and `autodev-retro` for its tag, to log a turn redacted itself, or with `journal=false` to
+keep a turn out of the journal; the hook then leaves that turn to the call, and the timestamp the
+call returns gives the time line as the [answer-timestamp](../rules/rule-answer-timestamp.mdc)
+rule says. Before a closing call after which no text is shown, such as the next-step box of the
+Claude desktop app (`wrap_up`), it gives the final answer as text: the hook logs the last text of
+the turn and never the box. A Stop hook of your own that demands a `log_interaction` call at the
+end of a turn has to be switched off together with this registration: otherwise every turn it
+blocks is logged by the model, so the journal keeps the model's text again, and the hook removes
+its own entry of the turn in favour of that call.
+
+**The entry.** It is the one `log_interaction` writes with its defaults, through the same journal
+writer: the prompt that opened the turn as intent (`[image]` or `[no text]` for a prompt without
+text), `Agent: <agent>` and the persona attribution line as action, and the final answer without
+a time line as outcome, taken from the hook input's `last_assistant_message`, else from the
+transcript (`[no text answer]` for a turn that delivered none). The persona is the descriptor of
+the last `SUCCESS` or `NO_CHANGE` in the transcript, a `run_flow` activation included; the agent
+is the one the delivered footer names, and the descriptor is reported against it: `mismatch`
+when the footer names another agent, `unverified` with `missing=footer` when the answer has no
+footer, `unverified` and the footer's agent without a descriptor, and `unattributed` without
+either. A `SUCCESS` in the turn decides its persona action, whatever `NO_CHANGE` follows it. The
+metadata holds `logged_by: stop_hook`, `client`, `session_id`, `prompt_id` and the time of the
+Stop as `answer_timestamp`. A turn the user did not type, opened by a task notification, a
+message from another session, a scheduled task or a host event, is its own turn; Stop hook
+feedback stays inside the turn it continues, and a prompt the user typed is a prompt even when it
+begins like such a row.
+
+**One entry per turn, the one delivered last.** The entry is written under an idempotency key made
+of the session's and the prompt's ids. A later Stop of the same turn, after another Stop hook
+continued it, replaces the entry under the journal lock, wherever rotation has moved it, so a
+corrected re-delivery is what the journal keeps; the same text again writes nothing. A later text
+under a quarter of the entry's answer, footers aside, is a note beside it, such as "Chapter
+marked.", and leaves the entry as it is. Two sessions never share a key. A turn whose
+`log_interaction` call recorded it (`recorded`, `duplicate`, or `queued` from an older daemon), may
+have recorded it (an `unknown` state such as `history_timeout`, whose write may still commit), or
+whose call has no result in the transcript after the hook read it again for two seconds, is the
+model's: the hook removes its own earlier entry of the turn, keeping its receipt so that no later
+Stop writes it again, and writes nothing. A call with `journal=false` does the same and keeps the
+turn out altogether.
+
+**Secrets and private details.** The owner decided on 2026-11-27 that the hook writes by default
+and that secrets are cleaned, not written. Before anything is written, the hook masks what the
+repository's own detectors find: the token formats of the schedule records and of the hook,
+which keep a token's prefix or a key's name (`ghp_***`, `password=<secret>`); then, until a scan
+finds nothing, the outgoing-text scanner of self-development
+([autodev guards](autodev-guards.md): GitHub, Anthropic, OpenRouter and OpenAI keys, AWS key ids,
+private keys and JWTs, also split over lines or encoded, and high-entropy strings), every
+secret-looking value of the hook's own environment as a known secret, raw, split, base64 or hex,
+and the credentials that [shared memory](shared-memory.md) and [user sync](user-sync.md) refuse
+to serve or publish (labelled passwords and tokens, credentials in URLs, Stripe, Google, Hugging
+Face, npm, GitLab and Slack tokens, Bearer values). A variable counts as secret-looking when its
+name holds `TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `AUTH`,
+`COOKIE` or `PRIVATE`, or when its value scans as a secret; a value under eight characters, or one
+naming an existing path, is not one. A text the scanner cannot clean, too large or with too many
+hits, is not written: the field holds a placeholder and the entry's metadata `redaction` names it.
+
+Deterministic redaction cannot catch everything. Free-form personal details, such as a name, an
+address, a diagnosis or an account written out in prose, are not detected at all, and neither is a
+short or low-entropy secret without a label that the hook's environment does not hold. A turn that
+holds such details is protected by the model's own call: a `log_interaction` call with the turn
+redacted, which the hook leaves alone, or `journal=false`, which keeps the turn out. The journal is
+a file in the project that may be committed; check its ignore rules as above.
+
+**Failures.** The hook makes no model call and uses no network. A Stop event it could not log exits
+1, which Claude Code shows as a non-blocking hook error with the reason, such as
+`turn not logged (journal_busy)`; it never exits 2, which would keep the turn going. It waits ten
+seconds at most for the journal lock, below the 30-second timeout of the registration below. It
+reads the transcript line by line, so memory follows the turn and not the file, up to 1 GiB, and
+a larger transcript is such a failure too. A turn whose prompt row is still missing after two
+seconds of reading again is a failure as well. A Stop event of a turn whose project does not
+resolve writes to the installation's fallback journal that `log_interaction` uses, with the
+session's directory as unverified metadata, and `read_history` reads it there.
+
+**Limits.** A server entry that pins the workspace, through the `X-Agents-Workspace` header or
+`AGENTS_CLIENT_REPO_ROOT` in the entry's `env`, does not pin the hook, which resolves the project
+from its own environment: `AGENTS_CLIENT_REPO_ROOT`, then `CLAUDE_PROJECT_DIR`, then the session's
+`cwd`. Set the same `AGENTS_CLIENT_REPO_ROOT` in the environment Claude Code starts hooks with, or
+the two write to different journals. A Stop input without a `prompt_id`, from a Claude Code
+version before it, takes the transcript's last prompt, which a lagging transcript can make the
+previous one. A turn interrupted with Esc has no Stop event and no entry, as it had no logging
+call before. Entries the hook writes reach [user sync](user-sync.md#repository-history) with the
+next reconcile of a process that runs it, such as the daemon's next append, a server start or a
+resume, not at once.
 
 To enable it for a headless installation, register the hook in Claude Code's managed settings
 (`managed-settings.json` in `/Library/Application Support/ClaudeCode` on macOS or
@@ -205,13 +265,24 @@ so the hook and the server read the same switches; a switch set only in the serv
 `env` does not reach the hook. Interactive sessions on the same machine start without them: they
 keep logging through `log_interaction`, and the hook writes nothing for them.
 
-To enable it for interactive Claude Code sessions, register the same hook with `--interactive`
-in the user's settings (`~/.claude/settings.json`) or in a project's `.claude/settings.json` or
-`.claude/settings.local.json`:
+To enable it for interactive Claude Code sessions, register the hook with `--interactive` for
+both events in one settings file: the user's (`~/.claude/settings.json`, or `settings.json` in
+`CLAUDE_CONFIG_DIR`) or a project's `.claude/settings.json` or `.claude/settings.local.json`:
 
 ```json
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /absolute/path/to/Agents && .venv/bin/python -m src.memory.turn_log_hook --interactive",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -227,7 +298,7 @@ in the user's settings (`~/.claude/settings.json`) or in a project's `.claude/se
 }
 ```
 
-No environment switch is needed, and the server needs no restart: it reads the registration at
-each initialize and each activation. A session started before the registration keeps the
-instructions it was initialized with until its next activation, and the hook leaves the turns it
-logs through `log_interaction` alone. Remove the registration to return to model-side logging.
+Keep the two entries together: a `UserPromptSubmit` entry that runs where its `Stop` entry does
+not would tell the model that a hook logs turns nobody logs. No environment switch is needed, and
+the server needs no restart. Remove both entries to return to model-side logging: the next prompt
+carries no notice, and the model logs that turn itself.

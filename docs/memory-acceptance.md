@@ -34,6 +34,11 @@ described in [turn records](turn-records.md).
   ([workspace targeting](routing_flow.md)).
 - `idempotency_key` is a fresh UUID for each logical write, reused only for retries
   of that exact payload; see [results and retries](#results-and-retries).
+- `journal=false` keeps the turn out of the journal: nothing is validated, written or
+  traced, and `history.status` is `withheld` with `state` `not_written`. It is the
+  signal for a turn that is not to be journaled at all, which a
+  [Stop hook that logs turns](memory.md#turn-logging-by-a-stop-hook) honours as well:
+  it removes its own entry of that turn and writes nothing (#701).
 
 **Sinks.** The call writes to two sinks, independent of each other:
 
