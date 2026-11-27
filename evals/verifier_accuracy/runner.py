@@ -186,12 +186,8 @@ def load(control_dir: Path, *, installation_roots: list[Path], lock: control.Run
     """The set in ``control_dir``. A set a run will use is loaded with ``lock``, the hold
     ``control.exclusive`` yields for this directory, and ``Runner.run`` refuses one loaded without
     it; commands that only read the set load it without the lock."""
-    if lock is not None and not lock.held:
-        raise control.ControlError("The run lock passed to load is not held: take it with control.exclusive "
-                                   "and load inside its with block.")
-    if lock is not None and not os.path.samefile(lock.control_dir, control_dir):
-        raise control.ControlError(f"The run lock passed to load belongs to another control directory, "
-                                   f"{lock.control_dir}.")
+    if lock is not None:
+        control.ensure_held(lock, control_dir)
     manifest = json.loads((control_dir / control.MANIFEST).read_text(encoding="utf-8"))
     if control.set_version(control_dir) != manifest["version"]:
         raise control.ControlError("The statement file no longer matches the set version; the set was changed.")
@@ -395,13 +391,12 @@ class Runner:
         ``run`` command does: ``with control.exclusive(directory, action) as lock:`` and then
         ``load(directory, ..., lock=lock)``. A set loaded without the lock, or under one released
         since, is refused: a discard or a rebuild could have replaced it on disk after the load, and
-        a second run could schedule the same slots or record another seed. A second Runner under
-        the same hold is refused while this one is going, for the same reason.
+        a second run could schedule the same slots or record another seed. The hold is checked
+        against the set's own directory again here, since ``LoadedSet.lock`` can be replaced after
+        the load. A second Runner under the same hold is refused while this one is going.
         """
         lock = self.loaded.lock
-        if lock is None or not lock.held:
-            raise control.ControlError("Runner.run needs a set loaded under its run lock, still held: load it "
-                                       "with lock= inside control.exclusive.")
+        control.ensure_held(lock, self.loaded.control_dir)
         if not lock.running.acquire(blocking=False):
             raise control.RunInProgress("Another Runner of this set is going under the same run lock; a second "
                                         "run is refused until it finishes.")

@@ -93,6 +93,16 @@ class RunLock:
 _HOLDS: set[RunLock] = set()  # the holds exclusive gave out whose file lock it still holds
 
 
+def ensure_held(lock: RunLock | None, control: Path) -> None:
+    """Refuse unless ``lock`` is a hold ``exclusive`` gave out for ``control`` and still holds."""
+    if lock is None or not lock.held:
+        raise ControlError(f"No run lock is held for {control}: take it with control.exclusive and load the set "
+                           "inside its with block.")
+    if not os.path.samefile(lock.control_dir, control):
+        raise ControlError(f"The run lock belongs to another control directory, {lock.control_dir}, "
+                           f"not {control}.")
+
+
 @contextlib.contextmanager
 def exclusive(control: Path, action: str) -> Iterator[RunLock]:
     """Hold the set's run lock for ``action``, refusing at once while another command holds it.

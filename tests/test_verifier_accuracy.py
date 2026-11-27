@@ -1215,7 +1215,14 @@ def test_a_runner_refuses_a_set_not_loaded_under_a_run_lock_it_still_holds(tmp_p
     forged.lock = control.RunLock(control_dir)  # a hold made by hand, which exclusive never gave out
     for loaded in (runner.load(control_dir, installation_roots=[]), released, forged):  # no lock, let go, forged
         work = runner.Runner(loaded, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
-        with pytest.raises(control.ControlError, match="loaded under its run lock, still held"):
+        with pytest.raises(control.ControlError, match="No run lock is held"):
+            work.run()
+    other = control.open_private(tmp_path / "other" / control.DIRECTORY_NAME)
+    with control.exclusive(other, "another set") as foreign:
+        swapped = runner.load(control_dir, installation_roots=[])
+        swapped.lock = foreign  # held, but for another directory, set after the load
+        work = runner.Runner(swapped, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
+        with pytest.raises(control.ControlError, match="belongs to another control directory"):
             work.run()
     assert not launcher.calls and not (control_dir / control.ATTEMPTS).exists()  # no probe, no worker, no record
     work = runner.Runner(_locked(control_dir), launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
@@ -1256,12 +1263,12 @@ def test_load_takes_only_a_held_lock_of_the_same_directory(tmp_path, repo):
     with control.exclusive(control_dir, "a test run") as lock:
         spelled = control_dir.parent / ".." / control_dir.parent.name / control_dir.name  # the same directory
         assert runner.load(spelled, installation_roots=[], lock=lock).lock is lock
-    with pytest.raises(control.ControlError, match="is not held"):
+    with pytest.raises(control.ControlError, match="No run lock is held"):
         runner.load(control_dir, installation_roots=[], lock=lock)  # released at the end of its with block
     forged = control.RunLock(control_dir)
     with pytest.raises(AttributeError):
         forged.held = True  # held is the coordinator's word, not a flag to set
-    with pytest.raises(control.ControlError, match="is not held"):
+    with pytest.raises(control.ControlError, match="No run lock is held"):
         runner.load(control_dir, installation_roots=[], lock=forged)
 
 
