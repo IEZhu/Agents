@@ -166,20 +166,36 @@ class LoadedSet:
         return self.manifest["set"]
 
 
+def _checkouts(manifest: dict) -> list[Path]:
+    """The directories a worker of this set receives, which the control directory must lie apart from."""
+    return [Path(manifest["snapshot"]), Path(manifest["repository"])]
+
+
+def preflight(control_dir: Path, *, installation_roots: list[Path]) -> None:
+    """Refuse a directory that holds no set, or that a worker could reach, before the run lock's
+    file is created in it. It writes nothing and decides nothing: ``load`` checks both again under
+    the lock."""
+    path = control_dir / control.MANIFEST
+    if not path.is_file():
+        raise control.ControlError(f"{control_dir} holds no set; build one first.")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    control.ensure_separate(control_dir, installation_roots=installation_roots, checkouts=_checkouts(manifest))
+
+
 def load(control_dir: Path, *, installation_roots: list[Path], lock: control.RunLock | None = None) -> LoadedSet:
     """The set in ``control_dir``. A set a run will use is loaded with ``lock``, the hold
     ``control.exclusive`` yields for this directory, and ``Runner.run`` refuses one loaded without
     it; commands that only read the set load it without the lock."""
     if lock is not None and not lock.held:
-        raise control.ControlError("The run lock passed to load was already released.")
+        raise control.ControlError("The run lock passed to load is not held: take it with control.exclusive "
+                                   "and load inside its with block.")
     if lock is not None and not os.path.samefile(lock.control_dir, control_dir):
         raise control.ControlError(f"The run lock passed to load belongs to another control directory, "
                                    f"{lock.control_dir}.")
     manifest = json.loads((control_dir / control.MANIFEST).read_text(encoding="utf-8"))
     if control.set_version(control_dir) != manifest["version"]:
         raise control.ControlError("The statement file no longer matches the set version; the set was changed.")
-    control.ensure_separate(control_dir, installation_roots=installation_roots,
-                            checkouts=[Path(manifest["snapshot"]), Path(manifest["repository"])])
+    control.ensure_separate(control_dir, installation_roots=installation_roots, checkouts=_checkouts(manifest))
     if control.file_digest(control_dir / control.LABELS) != manifest.get("labels_sha256"):
         raise control.ControlError("The label file no longer matches the one the set was built with.")
     statements = {row["item"]: row for row in control.read_jsonl(control_dir / control.STATEMENTS)}

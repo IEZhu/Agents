@@ -103,6 +103,7 @@ def simulate(arguments) -> int:
 
 def probe(arguments) -> int:
     control_dir = _control(arguments)
+    runner.preflight(control_dir, installation_roots=_roots(arguments))  # before the lock file is made there
     # The lock comes before the load, so the probe records against the set on disk, and stays
     # until the probe is recorded, since its cost would otherwise escape a run's budget.
     with control.exclusive(control_dir, "a separate probe") as lock:
@@ -130,6 +131,7 @@ def _simulation(control_dir: Path, loaded: runner.LoadedSet) -> dict | None:
 
 def run(arguments) -> int:
     control_dir = _control(arguments)
+    runner.preflight(control_dir, installation_roots=_roots(arguments))  # before the lock file is made there
     # Held from before the load to the last record: no discard, build, probe or second run can
     # touch the set between them, which Runner.run requires.
     with control.exclusive(control_dir, "a run") as lock:

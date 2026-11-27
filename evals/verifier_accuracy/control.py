@@ -72,16 +72,25 @@ class RunInProgress(ControlError):
     """Another command holds the set's run lock."""
 
 
-@dataclass
+@dataclass(eq=False)
 class RunLock:
-    """This process's hold on a set's run lock; ``held`` turns False once ``exclusive`` releases it.
+    """This process's hold on a set's run lock, as ``exclusive`` gives it out.
 
-    ``running`` keeps runs that share this hold apart: the file lock excludes other processes
-    and other opens of the lock file, not a second Runner in this process loaded under the hold.
+    ``held`` is no stored flag a caller could set: it is true only while ``exclusive`` holds the
+    file lock for this very object, so a hold made by hand, or kept after its ``with`` block,
+    never reads as held. ``running`` keeps runs that share this hold apart: the file lock
+    excludes other processes and other opens of the lock file, not a second Runner in this
+    process loaded under the hold.
     """
     control_dir: Path
-    held: bool = True
-    running: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    running: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    @property
+    def held(self) -> bool:
+        return self in _HOLDS
+
+
+_HOLDS: set[RunLock] = set()  # the holds exclusive gave out whose file lock it still holds
 
 
 @contextlib.contextmanager
@@ -104,10 +113,11 @@ def exclusive(control: Path, action: str) -> Iterator[RunLock]:
             raise RunInProgress("Another command (a run, a probe, a discard or a build) holds this set's run "
                                 f"lock; {action} is refused until it finishes.") from None
         lock = RunLock(Path(control))
+        _HOLDS.add(lock)  # after the file lock is taken, and gone again before it is released
         try:
             yield lock
         finally:
-            lock.held = False
+            _HOLDS.discard(lock)
 
 
 def default_control_dir(installation=None) -> Path:

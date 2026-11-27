@@ -1211,7 +1211,9 @@ def test_a_runner_refuses_a_set_not_loaded_under_a_run_lock_it_still_holds(tmp_p
     def verdicts(revision, path):
         return worker.Validated("verdict", "confirmed", None)
 
-    for loaded in (runner.load(control_dir, installation_roots=[]), released):  # no lock, and one let go since
+    forged = runner.load(control_dir, installation_roots=[])
+    forged.lock = control.RunLock(control_dir)  # a hold made by hand, which exclusive never gave out
+    for loaded in (runner.load(control_dir, installation_roots=[]), released, forged):  # no lock, let go, forged
         work = runner.Runner(loaded, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
         with pytest.raises(control.ControlError, match="loaded under its run lock, still held"):
             work.run()
@@ -1254,8 +1256,13 @@ def test_load_takes_only_a_held_lock_of_the_same_directory(tmp_path, repo):
     with control.exclusive(control_dir, "a test run") as lock:
         spelled = control_dir.parent / ".." / control_dir.parent.name / control_dir.name  # the same directory
         assert runner.load(spelled, installation_roots=[], lock=lock).lock is lock
-    with pytest.raises(control.ControlError, match="already released"):
-        runner.load(control_dir, installation_roots=[], lock=lock)
+    with pytest.raises(control.ControlError, match="is not held"):
+        runner.load(control_dir, installation_roots=[], lock=lock)  # released at the end of its with block
+    forged = control.RunLock(control_dir)
+    with pytest.raises(AttributeError):
+        forged.held = True  # held is the coordinator's word, not a flag to set
+    with pytest.raises(control.ControlError, match="is not held"):
+        runner.load(control_dir, installation_roots=[], lock=forged)
 
 
 def test_a_build_holds_the_run_lock_from_before_it_looks_for_a_set_until_its_manifest(tmp_path, repo, monkeypatch):
@@ -1307,10 +1314,25 @@ def test_the_run_lock_refuses_a_missing_control_directory_instead_of_creating_it
     with pytest.raises(control.ControlError, match="no control directory"):
         with control.exclusive(missing, "a run"):
             pass
-    with pytest.raises(control.ControlError, match="no control directory"):
+    with pytest.raises(control.ControlError, match="holds no set"):  # the command stops before the lock
         cli.main(["--installation", str(tmp_path / "installation"), "--control-dir", str(missing),
                   "probe", "--model", "sonnet"])
     assert not missing.exists()
+
+
+@pytest.mark.parametrize("command", [["probe", "--model", "sonnet"], ["run"]])
+def test_run_and_probe_make_no_lock_file_where_the_directory_is_refused(tmp_path, repo, command):
+    from evals.scripts import verifier_accuracy as cli
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    (control_dir / control.RUN_LOCK).unlink()  # the build's own
+    inside = ["--installation", str(control_dir.parent), "--control-dir", str(control_dir)]  # the directory lies in it
+    with pytest.raises(control.ControlError, match="inside the installation root"):
+        cli.main([*inside, *command])
+    assert not (control_dir / control.RUN_LOCK).exists()
+    empty = control.open_private(tmp_path / "empty" / control.DIRECTORY_NAME)
+    with pytest.raises(control.ControlError, match="holds no set"):
+        cli.main(["--installation", str(tmp_path / "installation"), "--control-dir", str(empty), *command])
+    assert not (empty / control.RUN_LOCK).exists()
 
 
 def _slot_rows(statements: list[dict], seed: int, wrong: set[tuple]) -> list[dict]:

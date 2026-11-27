@@ -144,7 +144,9 @@ they ran with, and only when they hold exactly the leading clusters of its order
 command that writes a set goes at a time: `run`, `probe`, `discard` and `build` take the
 set's run lock before they read the set and hold it until they end, and each is refused
 while another holds it. A set a run or a probe loaded is therefore the one on disk until
-it finishes, with no check afterwards. `Runner.run` refuses a set that was not loaded
+it finishes, with no check afterwards. Before they create the lock file, `run` and `probe`
+check, writing nothing, that the directory holds a set and lies apart from the installation
+and the checkouts, so a refused command leaves no lock file behind. `Runner.run` refuses a set that was not loaded
 under a run lock it still holds, so a caller outside the command line takes the lock
 first too, and it counts done slots only from records of its own set.
 
