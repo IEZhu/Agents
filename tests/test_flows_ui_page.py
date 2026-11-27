@@ -224,13 +224,14 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     assert tab["padding"] == "8px 8px var(--edge)" and top["header > *"]["margin"] == "8px 0 var(--edge)"
     assert top["#item-actions"]["margin"] == "0" and top["main"]["padding"] == "0 var(--edge) var(--edge)"
     # Only the tab, its joints and the open item's pane are tinted: the version, the section tabs,
-    # New flow, the list, the welcome pane and the sign-in screen keep the normal colors.
+    # New flow, the list, the welcome pane and the sign-in screen keep the normal colors. On the Work
+    # map the open item is the selected node: its card and its panel take the same tint.
     tinted = {selector for media in css.values() for selector, rule in media.items()
               if any("var(--tint)" in value for value in rule.values())}
     assert tinted == {"#e-actions, #c-actions, #h-actions, #m-actions",
                       "#e-actions::before, #c-actions::before, #h-actions::before, #m-actions::before",
                       "#e-actions::after, #c-actions::after, #h-actions::after, #m-actions::after",
-                      "#editor, #component, #hist, #mem"}
+                      "#editor, #component, #hist, #mem", '.wm-node[aria-pressed="true"]', ".wm-detail"}
     # Forced colors replace the tint and the bars; an outline keeps the shapes.
     assert top["nav, main > section, #e-actions, #c-actions, #h-actions, #m-actions, .list-tabs button.active::after"] == {
         "outline": "1px solid transparent", "outline-offset": "-1px"}
@@ -267,9 +268,16 @@ def test_every_corner_radius_is_a_token_and_no_two_tokens_share_a_value():
     assert len(set(tokens.values())) == len(tokens), tokens
     declarations = re.findall(r"(border(?:-[a-z]+)*-radius): ([^;}]+)", style)
     assert len(declarations) >= 15
+    # The Work map scales its radii with the zoom: a token times --k, or less a space step where a
+    # control sits inside a rounded box; its card's own --r is such a product. Discs are circles.
+    scale = {"k", "s2", "r"}
+    assert re.search(r"--r: calc\(var\(--r-node\) \* var\(--k\)\)", style)
     for name, value in declarations:
-        for token, other in re.findall(r"var\(--([a-z-]+)\)|(\S+)", value):
-            assert token in tokens or other == "0", (name, value)  # 0 only where the tab joins its pane
+        value = value.replace("!important", "").strip()
+        if value in ("50%", "inherit"):
+            continue
+        for token, other in re.findall(r"var\(--([a-z0-9-]+)\)|([^\s*()+-]+)", value.replace("calc(", "(")):
+            assert token in tokens or token in scale or other == "0", (name, value)  # 0 where a tab joins its pane
 
 
 def _contrast(first, second):
@@ -281,10 +289,26 @@ def _contrast(first, second):
     return (light + 0.05) / (dark + 0.05)
 
 
+def _dark_blocks(style):
+    """The dark theme twice: for the system setting unless the page is set to light, and for the
+    page set to dark with the header's theme switch."""
+    system = re.search(r'@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{([^}]*)\}', style)
+    chosen = re.search(r':root\[data-theme="dark"\] \{([^}]*)\}', style)
+    return system.group(1), chosen.group(1)
+
+
+def test_the_dark_theme_follows_the_system_or_the_switch_with_one_set_of_values():
+    html, script, style = page_parts()
+    system, chosen = _dark_blocks(style)
+    assert " ".join(system.split()) == " ".join(chosen.split())
+    assert "color-scheme: dark;" in system and "color-scheme: light;" in re.search(r":root \{([^}]*)\}", style).group(1)
+    assert re.search(r'<div class="seg" id="theme" role="group" aria-label="Theme">', html)
+    assert 'const WM_THEME_KEY = "agents-core.theme";' in script
+
+
 def test_text_on_the_tint_keeps_a_contrast_of_at_least_4_5_in_both_themes():
     _, _, style = page_parts()
-    themes = re.findall(r":root \{([^}]*)\}", style)
-    assert len(themes) == 2  # light, and dark under prefers-color-scheme
+    themes = [re.search(r":root \{([^}]*)\}", style).group(1), _dark_blocks(style)[0]]
     for theme in themes:
         colors = dict(re.findall(r"--([a-z-]+): (#[0-9a-f]{6})", theme))
         for name in ("text", "muted"):
@@ -1839,59 +1863,150 @@ def test_codex_memory_is_plain_text_and_a_new_file_starts_empty():
 # --- the Work map tab ---------------------------------------------------------------------------
 
 
-def test_the_work_map_layout_puts_prerequisites_left_and_the_goal_first():
-    layout = run("workmap_layout")
-    # b follows a, c follows both, the review follows what it verifies; the goal follows nothing.
-    assert layout["columns"] == {"goal": 0, "a": 0, "q": 0, "b": 1, "c": 2, "review": 3}
-    assert layout["cycle_drawn"] == ["p", "r"]  # a damaged map with a cycle still draws every node
-    assert layout["empty"]["positions"] == {}
+@pytest.fixture(scope="module")
+def workmap_layout():
+    return run("workmap_layout")
+
+
+def test_the_work_map_lays_out_top_down_with_the_goal_last(workmap_layout):
+    # Layers by dependency: a node sits below everything it follows; the goal is alone in the last layer.
+    assert workmap_layout["layers"] == [["build", "old", "triage"], ["audit", "decide", "fix", "port"], ["docs"], ["goal"]]
+    # A long edge passes an empty lane in each layer it crosses, so it never runs through a card.
+    assert workmap_layout["via"]["docs|build|depends_on"] == 1 and workmap_layout["lanes"] == [0, 2, 4, 0]
+    # The goal stores no edge: every node nothing follows leads to it by a derived connector.
+    assert workmap_layout["derived"] == [["check-fix", "goal"], ["audit", "goal"], ["docs", "goal"], ["old", "goal"],
+                                         ["port", "goal"]]
+    assert workmap_layout["cycle"] == [["p", "r"]]  # a damaged map with a cycle still draws every node
+    assert workmap_layout["empty"] == {"layers": [], "layer": {}, "docked": {}, "via": {}, "derived": [], "crossings": 0}
+
+
+def test_a_verifier_docks_under_the_node_it_checks_unless_it_follows_a_node_beside_it(workmap_layout):
+    assert workmap_layout["docked"] == {"check-fix": "fix"} and workmap_layout["trays"] == {"fix": ["check-fix"]}
+    # v verifies a but also depends on b, in a's layer: docked, it would sit level with what it follows.
+    assert workmap_layout["own"] == {"layers": [["a", "b"], ["v"]], "docked": {}}
+
+
+def test_the_view_derives_categories_who_acts_verdicts_and_the_longest_chain(workmap_layout):
+    layout = workmap_layout
+    assert layout["counts"] == {"done": 1, "running": 2, "ready": 1, "waiting": 1, "action": 2, "blocked": 1, "aside": 1}
+    assert layout["categories"]["port"] == "blocked" and layout["categories"]["old"] == "aside"  # stuck is not set aside
+    # The map records no actor: a ready decision is the owner's, a node below its need is being checked
+    # while its verifier runs, everything else that needs action is the orchestrator's.
+    assert layout["who"] == {"decide": "you", "fix": "checking", "audit": "orchestrator"}
+    assert layout["reasons"] == {"decide": "decision ready to take", "fix": "V2 of V3 needed, checked by check-fix",
+                                 "audit": "partial result, 1 of 3 checks failed"}
+    assert layout["verdicts"] == ["pending", "found", "clean", "older", "none", "none", "withdrawn"]
+    # Two stages remain on the heaviest path; the goal waits on the ready decision and the running stages.
+    chain = layout["chain"]
+    assert chain["length"] == 2 and chain["band"] == ["decide", "fix", "check-fix", "build", "docs"]
+    assert chain["frontier"] == ["decide", "check-fix", "build"]
+    assert "docs|goal|derived" in chain["edges"] and "port|triage|depends_on" not in chain["edges"]
+
+
+def test_status_words_level_badges_and_links(workmap_layout):
+    layout = workmap_layout
+    assert layout["words"] == ["open", "running", "needs attention", "superseded"] and layout["closed_goal"] == "closed"
+    assert layout["badges"] == [["met", [["met", "V2"]]], ["gap", [["met", "V2"], ["target", "V3"]]],
+                                ["target", [["target", "V2"]]], None, None]  # set aside and the goal: no level
+    assert layout["ages"] == ["0m", "13m", "2h 5m", "3d"]
     assert layout["links"] == [{"workspace": "", "task": ""}, {"workspace": "", "task": "task:1"},
                                {"workspace": "ws-1", "task": "task:1"}, {"workspace": "ws", "task": ""}, None, None]
     assert layout["hashes"] == ["#workmap/ws-1/task%3A1", "#workmap/a%2Fb"]
-    assert layout["forward"].startswith("M216 35 C")
-    assert layout["same_column"].startswith("M216 35 C") and layout["same_column"].endswith(" 216 135")
+    assert layout["latest"] == {"workspace": "ws-1", "task": "task:1"}  # the open map, though a closed one changed later
 
 
 @pytest.fixture(scope="module")
 def workmap_page():
-    return run("workmap")
+    return run_sync("workmap")  # times in UTC
 
 
-def test_a_work_map_link_opens_the_tab_and_draws_the_map(workmap_page):
+def test_a_bare_work_map_link_opens_the_open_map_changed_last(workmap_page):
     opened = workmap_page["opened"]
     assert opened["tabs"][-1] == "true" and opened["main_hidden"] and not opened["page_hidden"]
-    assert opened["landing_hidden"]  # a link opens the map, not the overview
+    assert opened["landing_hidden"] and opened["state"] == "ready"
     assert opened["requests"] == ["/ui/api/workmap/maps", "/ui/api/workmap/map?task_id=task%3A1&workspace=ws-1"]
-    assert opened["url"] == "/ui#workmap/ws-1/task%3A1"  # the address bar keeps the map's link
-    assert opened["list"][:4] == ["agents", "task:1", "Ship the demo", "open"]
-    assert "2 older maps not listed" in opened["list"]
-    assert opened["nodes"] == 3 and opened["edges"] == 2
-    assert opened["goal"] == "wm-node wm-s-planned" and opened["build"] == "wm-node wm-s-validated"
-    assert opened["review"] == "wm-node wm-s-prepared wm-current wm-running"  # the running stage is ringed
+    assert opened["url"] == "/ui#workmap/ws-1/task%3A1"  # the address bar keeps the map's own link
+    assert opened["picker"] == [["agents (1 older not listed)", [["task:old (closed)", False], ["task:1", True]]]]
     assert opened["polls"] == 1
 
 
-def test_a_node_opens_its_record_and_the_result_only_on_a_click_as_text(workmap_page):
+def test_the_summary_says_how_far_the_map_is_what_runs_and_who_must_act(workmap_page):
+    opened = workmap_page["opened"]
+    assert (opened["goal"], opened["flag"]) == ("Ship the demo", "open")
+    assert opened["ids"].startswith("revision 9 · last change 10:00 (") and opened["ids"].endswith("): docs, old · updates every 5 s")
+    assert opened["progress"] == "1 of 9 settled · 1 set aside"
+    assert opened["bar"] == "1 done, 2 running, 1 ready, 1 waiting, 2 need action, 1 blocked"
+    assert opened["tiles"] == [["done", "1 done"], ["running", "2 running"], ["ready", "1 ready"], ["waiting", "1 waiting"],
+                               ["action", "2 need action"], ["blocked", "1 blocked"], ["aside", "1 set aside"]]
+    lists = dict(opened["lists"])
+    assert re.fullmatch(r"Running now \(2\) build {2}13m check-fix {2}10m", lists["run"])  # oldest first, with times
+    assert lists["attn"] == ("Needs attention (3) you: decide   decision ready to take orchestrator: audit   partial result, "
+                             "1 of 3 checks failed being checked: fix   V2 of V3 needed, checked by check-fix")
+    assert lists["path"] == "Longest remaining chain: 2 stages now waiting on decide check-fix build"
+
+
+def test_cards_show_status_words_levels_risk_and_counts_and_verifiers_dock(workmap_page):
+    opened = workmap_page["opened"]
+    assert opened["captions"] == ["Step 1 of 3", "Step 2 of 3", "Step 3 of 3", "Goal"]
+    assert opened["layer_ids"] == [["build", "old", "triage"], ["audit", "decide", "fix", "port"], ["docs"], ["goal"]]
+    cards = opened["cards"]
+    assert cards["build"]["text"][:4] == ["Build the page", "running", "13m · attempt 2 · 1/5 invalid", "V2"]
+    assert cards["build"]["path"] == "frontier" and cards["build"]["cat"] == "running"
+    assert cards["fix"]["text"][:5] == ["Fix the bug", "validated", "V2", "V3", "5"]  # reached V2, needs V3; 5 passed
+    assert cards["audit"]["text"][:5] == ["Audit the release", "needs attention", "V2", "1", "2"]  # failed first
+    assert cards["check-fix"]["pill"] and cards["check-fix"]["text"][:2] == ["Review the fix", "V3"]
+    assert cards["check-fix"]["text"][-1].endswith("verdict on fix: pending.")
+    assert cards["goal"]["text"] == ["Ship the demo", "open", "1 of 9 settled", "goal, open."]  # no level: a goal never settles
+    assert cards["old"]["text"][:2] == ["Old approach", "superseded"] and cards["old"]["cat"] == "aside"
+    assert cards["docs"]["text"][3] == "after Fix the bug, Build the page, Pick the fixes · supersedes Old approach"
+    assert {card["status"] for card in cards.values()} >= {"prepared", "validated", "accepted", "planned", "needs_attention",
+                                                         "superseded", "blocked"}
+
+
+def test_a_node_opens_its_panel_and_its_result_only_on_a_click_as_text(workmap_page):
     record = workmap_page["node"]
-    assert not record["hidden"] and record["view"] and record["selected"].endswith("wm-selected")
-    for text in ("validated · V2", "passed 3, failed 0, not run 1", "c" * 64, "a" * 64, "the report",
-                 "r8 validated V2 (result by server) · 2026-11-27 10:00:00 UTC", "Show full result (31 characters)"):
-        assert any(text in shown for shown in record["text"]), text
-    assert not record["result_requested"]
+    assert record["panel"] == "open" and record["hidden"] is False and record["pressed"] == "true"
+    text = record["text"]
+    for shown in ("Fix the bug", "critical risk", "Who acts: nobody yet. A clean review makes it verified; a critical or "
+                  "high finding makes it disputed.", "V2 of V3 needed, checked by check-fix.", "Fix bug 1", "Fixed it",
+                  "Needs V3 (critical)", "one line: submitted by the worker, not read by the orchestrator",
+                  "Show full result (31 characters)", "pending", "ffffffffffff…", "the report", "validated V2 (server)",
+                  "No pinned inputs: given by the orchestrator, provenance not recorded."):
+        assert any(shown in item for item in text), shown
+    assert any(re.fullmatch(r"Being checked by check-fix\. Validated at V2 since \d\d:\d\d \(20m\); its dependants wait for V3\.",
+                            item) for item in text)
+    assert not record["result_requested"]  # the stored text is fetched only on the click
     result = workmap_page["result"]
     assert result["text"] == "<script>alert(1)</script> <b>x</b>" and result["html_children"] == 0
-    assert result["button"] == "Hide full result"
+    assert result["requested"] == "/ui/api/workmap/result?workspace=ws-1&task_id=task%3A1&node=fix"
 
 
-def test_the_open_map_is_polled_and_the_poll_stops_with_the_tab(workmap_page):
+def test_a_tile_dims_the_other_categories_and_the_theme_switch_is_remembered(workmap_page):
+    assert workmap_page["filter"] == ["running", "true", None]
+    assert workmap_page["theme"] == ["dark", "dark", "true", None]  # Auto removes the override again
+
+
+def test_the_open_map_is_polled_and_a_changed_status_is_marked_briefly(workmap_page):
     polled = workmap_page["polled"]
     assert polled["requests"] == ["/ui/api/workmap/map?workspace=ws-1&task_id=task%3A1",
-                                  "/ui/api/workmap/node?workspace=ws-1&task_id=task%3A1&node=build"]
-    assert polled["review"] == "wm-node wm-s-validated wm-current" and polled["result_kept"] and polled["polls"] == 1
+                                  "/ui/api/workmap/node?workspace=ws-1&task_id=task%3A1&node=fix"]
+    assert polled["build"]["status"] == "validated" and polled["build"]["changed"] and polled["build"]["cat"] == "done"
+    assert polled["changed_cleared"] == 1  # the ring comes off after three seconds
+    assert polled["result_kept"] and polled["polls"] == 1
+
+
+def test_escape_closes_the_panel_and_leaving_the_tab_stops_the_polls(workmap_page):
+    assert workmap_page["escaped"] == {"panel": "closed", "hidden": True, "pressed": "false"}
     assert workmap_page["left"] == {"page_hidden": True, "main_hidden": False, "polls": 0, "url": "/ui"}
 
 
-def test_the_work_map_script_never_writes_markup():
-    _, script, _ = page_parts()
+def test_the_work_map_script_never_writes_markup_or_style():
+    _, script, style = page_parts()
     section = script[script.index("// --- Work map"):script.index("// --- tabs")]
     assert "innerHTML" not in section and "insertAdjacentHTML" not in section and "outerHTML" not in section
+    assert ".style" not in section and "setAttribute(\"style" not in section
+    assert "/ui/api/" in section and not re.search(r"anthropic|openai|/v1/messages|completions", section)  # no model API
+    # Motion: the running disc turns and breathes unless the reader asked for less, and then nothing moves.
+    reduced = style[style.index("@media (prefers-reduced-motion: reduce) {\n  .wm-node"):]
+    reduced = reduced[:reduced.index("\n}\n")]
+    assert '.wm-node[data-status="prepared"] > .wm-disc, .wm-pulse::after, .wm-skel, .wm-node[data-changed] { animation: none; }' in reduced

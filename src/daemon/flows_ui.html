@@ -6,36 +6,69 @@
 <title>Agents-Core Settings</title>
 <style nonce="{{NONCE}}">
 :root {
+  color-scheme: light;
   --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
   --accent: #2f5bd3; --accent-text: #ffffff; --warn: #9a5b00; --warn-bg: #fff4e0;
   --danger: #b3261e; --ok: #1f7a3a; --code-bg: #fbfbf9; --chip: #efeee9;
   /* The open item's tab and pane; text on it, muted text included, keeps 4.5:1. */
   --tint: #eaeff7;
-  /* Work map statuses: the node's border and stripe, beside the words that name them. */
-  --wm-planned: #8a8a84; --wm-prepared: #2f5bd3; --wm-validated: #1d7f74; --wm-attention: #b86e00;
-  --wm-verified: #1f7a3a; --wm-disputed: #c2410c; --wm-accepted: #0f5f2c; --wm-refuted: #b3261e;
-  --wm-superseded: #b9b8b1; --wm-blocked: #7a4bb3;
+  /* The Work map's structure: surfaces alias existing tokens, so they follow the theme by themselves.
+     --wm-line is the quiet border of a settled card, --wm-rule the line that carries meaning (edges,
+     dashed and dotted borders): at least 3:1 on every surface it crosses. */
+  --wm-surface: var(--code-bg); --wm-node: var(--panel); --wm-on: var(--panel);
+  --wm-tray: #f0efea; --wm-line: #c9c8c0; --wm-rule: #85847d;
+  /* One colour role per status family of the Work map, and one for risk. Each is at least 4.5:1 as
+     text on a card, on a selected card, on the canvas and on its own -bg tint. */
+  --st-run: var(--accent);   --st-run-bg: #e6ecfb;
+  --st-done: #117555;        --st-done-bg: #e0f3ea;
+  --st-verified: #11697a;    --st-verified-bg: #dff1f4;
+  --st-attn: var(--warn);    --st-attn-bg: var(--warn-bg);
+  --st-idle: var(--muted);   --st-idle-bg: var(--chip);
+  --st-aside: #6e584c;       --st-aside-bg: #f1ebe6;
+  --risk: #7a1b52;           --risk-bg: #f7e4ee;
+  /* The Work map's type and space in px at 100 %; it multiplies them by --k. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-micro: 11px; --fs-meta: 12px; --fs-node: 13px; --fs-body: 14px; --fs-title: 16px; --fs-page: 18px;
+  --lh-tight: 1.25;
+  --sp-1: 2px; --sp-2: 4px; --sp-3: 6px; --sp-4: 8px; --sp-5: 12px; --sp-6: 16px; --sp-7: 24px; --sp-8: 36px;
+  --wm-spin: 1.4s; --wm-pulse: 2.8s;
   /* One radius per kind of element, no two alike. A nested element gets a smaller one than its
      container, concentric where the padding allows (inner = outer - padding). */
   --r-block: 22px; --r-list: 18px; --r-dialog: 16px; --r-tab: 14px; --r-joint: 13px; --r-text: 12px;
   --r-toc: 11px; --r-persona: 10px; --r-notice: 9px; --r-code: 8px; --r-field: 7px; --r-button: 6px;
   --r-item: 5px; --r-toc-item: 3px; --r-inline: 2px; --r-pill: 999px;
   --r-card: 20px; --r-step: 4px; --r-bar: 1px;
+  --r-node: 15px; --r-float: 17px; --r-badge: 3.5px;
   /* The space around and between the panels, the list's width, and where the tab may start: to the
      right of the pane's rounded corner and of its own joint. */
   --edge: 12px; --list-width: 280px;
   --tab-start: calc(var(--list-width) + var(--edge) + var(--r-block) + var(--r-joint));
 }
+/* Dark, twice with the same declarations: once for the system setting unless the page was set to
+   light, once for the page set to dark with the header's theme switch. Keep the two blocks identical. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #9d9c95; --line: #34332f;
     --accent: #7ea0ff; --accent-text: #0e1320; --warn: #f0b560; --warn-bg: #3a2b12;
     --danger: #ff8a80; --ok: #7fd49a; --code-bg: #1a1a18; --chip: #2b2a27;
     --tint: #232a38;
-    --wm-planned: #8f8e87; --wm-prepared: #7ea0ff; --wm-validated: #5cc8b8; --wm-attention: #f0b560;
-    --wm-verified: #7fd49a; --wm-disputed: #ff9a62; --wm-accepted: #a6e3b8; --wm-refuted: #ff8a80;
-    --wm-superseded: #5a5954; --wm-blocked: #c4a0f5;
+    --wm-tray: #262624; --wm-line: #4a4944; --wm-rule: #8b8a82;
+    --st-run-bg: #222c47; --st-done: #7cd2ae; --st-done-bg: #18332a;
+    --st-verified: #69cee6; --st-verified-bg: #15333c; --st-aside: #bea598;
+    --st-aside-bg: #302a26; --risk: #dc98c5; --risk-bg: #3a2233;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #9d9c95; --line: #34332f;
+  --accent: #7ea0ff; --accent-text: #0e1320; --warn: #f0b560; --warn-bg: #3a2b12;
+  --danger: #ff8a80; --ok: #7fd49a; --code-bg: #1a1a18; --chip: #2b2a27;
+  --tint: #232a38;
+  --wm-tray: #262624; --wm-line: #4a4944; --wm-rule: #8b8a82;
+  --st-run-bg: #222c47; --st-done: #7cd2ae; --st-done-bg: #18332a;
+  --st-verified: #69cee6; --st-verified-bg: #15333c; --st-aside: #bea598;
+  --st-aside-bg: #302a26; --risk: #dc98c5; --risk-bg: #3a2233;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
@@ -90,6 +123,10 @@ header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; 
 #item-actions button, #item-actions select { padding: 4px 6px; white-space: nowrap; }
 #history { width: 8em; }
 #tabs { flex-wrap: wrap; }
+/* The MCP page is a page of its own, so a link, but it reads as one of the tabs beside it. */
+#tabs > a { display: inline-flex; align-items: center; padding: 5px 10px; color: inherit; text-decoration: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-button); }
+#tabs > a:hover, #tabs > a:focus-visible { background: var(--chip); }
 /* placeItemActions() measures where the group fits and sets data-place on #item-actions and #main:
    "tab" (the default): at the divider, the tab of its pane, on the pane's straight top edge (right
    of its rounded corner and of the tab's own joint);
@@ -316,82 +353,489 @@ details.persona summary { cursor: pointer; }
 .ad-profile legend { padding: 0 0 6px; font-weight: 600; }
 .ad-profile .meta { margin: 8px 0 0; }
 .ad-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-/* The Work map page takes the place of the list and the item, like the Sync page: the maps on the
-   left, the open map's graph, and the record of the node clicked in it. Colors only repeat what the
-   node's words say: every node also names its status and level. */
-#workmap-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 0 var(--edge) var(--edge); }
+/* ==========================================================================================
+   WORK MAP — the read-only view of a task's work map. The visual language (tokens, card
+   anatomy, layout direction, motion) is the visual design's; what each mark encodes and what
+   each state means is the information design's (docs/workmap-plan.md, "Web view and footer
+   link"). Sections: 3 page · 4 summary · 5 canvas · 6 graph · 7 status mapping · 8 edges ·
+   9 detail panel · 10 states · 11 responsive (1 tokens is at the top of this sheet).
+   No style is written by script: positions come from CSS layout, zoom from a data attribute,
+   edge geometry from SVG attributes.
+   ========================================================================================== */
+
+/* 3. PAGE — takes the place of the list and the item under the same header, like the Sync,
+      Autodev and Overview pages. Everything inside is sized from the scale tokens times --k:
+      --k is 1 up to 1799 px and 1.143 (a 16 px body) on a projector-wide viewport, and inside
+      the graph it is the zoom step. */
+#workmap-page {
+  --k: 1;
+  flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--edge);
+  padding: 0 var(--edge) var(--edge); overflow: hidden; font-size: var(--f-body); }
+@media (min-width: 1800px) { #workmap-page { --k: 1.143; } }
+#workmap-page, .wm-stage {
+  --s1: calc(var(--sp-1) * var(--k)); --s2: calc(var(--sp-2) * var(--k)); --s3: calc(var(--sp-3) * var(--k));
+  --s4: calc(var(--sp-4) * var(--k)); --s5: calc(var(--sp-5) * var(--k)); --s6: calc(var(--sp-6) * var(--k));
+  --s7: calc(var(--sp-7) * var(--k)); --s8: calc(var(--sp-8) * var(--k));
+  --f-micro: calc(var(--fs-micro) * var(--k)); --f-meta: calc(var(--fs-meta) * var(--k));
+  --f-node: calc(var(--fs-node) * var(--k)); --f-body: calc(var(--fs-body) * var(--k));
+  --f-title: calc(var(--fs-title) * var(--k)); --f-page: calc(var(--fs-page) * var(--k)); }
+#workmap-page code { font-family: var(--font-mono); font-size: .92em; }
+#workmap-page [hidden] { display: none !important; }
+/* The title takes the focus when the view opens; the ring shows for the keyboard only (as on #sync-page). */
 #workmap-page [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
-.wm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
-.wm-head h2 { margin: 0; font-size: 18px; }
-#wm-alert { overflow-wrap: anywhere; }
-#wm-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: var(--edge); }
-#wm-list { min-height: 0; overflow-y: auto; padding: 8px; background: var(--panel); border-radius: var(--r-list); }
-#wm-list h3 { margin: 10px 6px 4px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
-#wm-list h3:first-child { margin-top: 2px; }
-.wm-map { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; color: var(--text);
-  border: 0; background: transparent; border-radius: var(--r-item); padding: 6px 8px; }
-.wm-map:hover { box-shadow: inset 0 0 0 1px var(--line); }
-.wm-map[aria-current="true"] { background: var(--chip); box-shadow: inset 3px 0 0 var(--accent); }
-.wm-map strong { overflow-wrap: anywhere; font-size: 13px; }
-.wm-map .meta { word-break: normal; overflow-wrap: anywhere; }
-.wm-chip { display: inline-block; font-size: 11px; line-height: 14px; padding: 0 6px; border-radius: var(--r-pill);
-  background: var(--chip); color: var(--muted); }
-.wm-chip.open { color: var(--ok); }
-#wm-view { min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px; }
-#wm-view.with-node { grid-template-columns: minmax(0, 1fr) 22rem; }
-#wm-title { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
-#wm-title strong { font-size: 15px; overflow-wrap: anywhere; }
-#wm-canvas { min-height: 0; min-width: 0; overflow: auto; background: var(--panel); border-radius: var(--r-block); }
-#wm-graph { display: block; }
-#wm-graph text { fill: var(--text); font-size: 12px; font-family: inherit; }
-#wm-graph text.wm-title { font-size: 13px; font-weight: 600; }
-#wm-graph text.wm-sub { fill: var(--muted); font-size: 11px; }
-#wm-graph text.wm-badge { fill: var(--accent); font-size: 11px; font-weight: 600; }
-.wm-node { cursor: pointer; }
-.wm-node:focus { outline: none; }
-.wm-box { fill: var(--panel); stroke: var(--wm-color); stroke-width: 1.5; }
-.wm-stripe { fill: var(--wm-color); }
-.wm-node:hover .wm-box, .wm-node:focus-visible .wm-box { stroke-width: 3; }
-.wm-node.wm-selected .wm-box { fill: var(--chip); stroke-width: 3; }
-.wm-ring { fill: none; stroke: none; }
-.wm-node.wm-current .wm-ring { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 3; }
-.wm-node.wm-running .wm-ring { animation: wm-pulse 1.6s ease-in-out infinite; }
-@keyframes wm-pulse { 50% { stroke-opacity: .25; } }
-@media (prefers-reduced-motion: reduce) { .wm-node.wm-running .wm-ring { animation: none; } }
-.wm-s-planned { --wm-color: var(--wm-planned); } .wm-s-prepared { --wm-color: var(--wm-prepared); }
-.wm-s-validated { --wm-color: var(--wm-validated); } .wm-s-needs_attention { --wm-color: var(--wm-attention); }
-.wm-s-verified { --wm-color: var(--wm-verified); } .wm-s-disputed { --wm-color: var(--wm-disputed); }
-.wm-s-accepted { --wm-color: var(--wm-accepted); } .wm-s-refuted { --wm-color: var(--wm-refuted); }
-.wm-s-superseded { --wm-color: var(--wm-superseded); } .wm-s-blocked { --wm-color: var(--wm-blocked); }
-.wm-s-superseded text.wm-title { text-decoration: line-through; }
-.wm-edge { fill: none; stroke-width: 1.5; }
-.wm-e-depends_on { stroke: var(--muted); }
-.wm-e-verifies { stroke: var(--accent); stroke-dasharray: 6 4; }
-.wm-e-supersedes { stroke: var(--muted); stroke-dasharray: 2 4; }
-.wm-e-contradicts { stroke: var(--danger); stroke-dasharray: 8 3 2 3; }
-.wm-arrow-depends_on, .wm-arrow-supersedes { fill: var(--muted); }
-.wm-arrow-verifies { fill: var(--accent); }
-.wm-arrow-contradicts { fill: var(--danger); }
-#wm-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 11px; color: var(--muted); }
-#wm-legend .wm-key { display: inline-flex; align-items: center; gap: 4px; }
-#wm-legend .wm-dot { width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--wm-color); }
-#wm-node { min-height: 0; overflow-y: auto; padding: 12px 14px; background: var(--panel); border-radius: var(--r-block); }
-#wm-node h3 { margin: 0 0 4px; font-size: 15px; overflow-wrap: anywhere; }
-#wm-node h4 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); }
-#wm-node dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; margin: 0; font-size: 12px; }
-#wm-node dt { color: var(--muted); }
-#wm-node dd { margin: 0; overflow-wrap: anywhere; }
-#wm-node code { font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-#wm-node ul, #wm-node ol { margin: 0; padding-left: 1.2em; font-size: 12px; }
-#wm-node li { overflow-wrap: anywhere; }
-#wm-node .wm-actions { display: flex; gap: 6px; margin-top: 10px; }
-#wm-result { margin: 8px 0 0; max-height: 28rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px; background: var(--code-bg);
+/* Text for assistive technology only. */
+.wm-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; }
+/* Icons take the colour of their text and the size of their line. */
+.wm-i { flex: none; width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.wm-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+/* A group label, the list heading of the existing page (nav h2). */
+.wm-h { margin: 0; font-size: var(--f-meta); font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); }
+.wm-body { --panel-w: calc(24 * var(--f-body)); display: grid; gap: var(--edge); min-height: 0; position: relative;
+  grid-template-columns: minmax(0, 1fr) var(--panel-w); }
+@media (min-width: 1500px) { .wm-body { --panel-w: calc(26 * var(--f-body)); } }
+.wm-body[data-panel="closed"] { grid-template-columns: minmax(0, 1fr); }
+.wm-body[data-panel="closed"] > .wm-detail { display: none; }
+
+/* 4. SUMMARY — one card: what the map is, how far it is, what runs now, what needs someone. */
+.wm-summary { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; padding: var(--s5) var(--s6);
+  background: var(--panel); border-radius: var(--r-card); outline: 1px solid transparent; outline-offset: -1px; }
+.wm-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s5); min-width: 0; }
+.wm-title { flex: 0 1 auto; min-width: 0; margin: 0; font-size: var(--f-page); line-height: var(--lh-tight);
+  overflow-wrap: anywhere; }
+/* Open or closed: the word says it; a closed map also gets a filled chip. */
+.wm-flag { flex: none; padding: 0 var(--s4); font-size: var(--f-meta); line-height: 1.6; border-radius: var(--r-pill);
+  color: var(--muted); box-shadow: inset 0 0 0 1px var(--wm-rule); }
+.wm-flag[data-flag="closed"] { color: var(--text); background: var(--chip); box-shadow: none; font-weight: 600; }
+.wm-ids { color: var(--muted); font-size: var(--f-meta); overflow-wrap: anywhere; }
+.wm-grow { flex: 1; }
+.wm-pick { display: inline-flex; align-items: center; gap: var(--s3); min-width: 0; color: var(--muted); font-size: var(--f-meta); }
+/* The select and its copy button wrap together. */
+.wm-pick-row { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; max-width: 100%; }
+.wm-pick select { max-width: 22em; padding: var(--s2) var(--s4); color: var(--text); }
+.wm-summary-stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) var(--s5); min-width: 0; }
+/* The stacked bar: one segment per category, in a fixed order, drawn with attributes only. */
+.wm-progress { flex: none; width: calc(11 * var(--f-body)); height: var(--s4); border-radius: var(--r-pill);
+  overflow: hidden; }
+.wm-bar-run { fill: var(--st-run); } .wm-bar-done { fill: var(--st-done); } .wm-bar-verified { fill: var(--st-verified); }
+.wm-bar-attn { fill: var(--st-attn); } .wm-bar-idle { fill: var(--wm-line); } .wm-bar-aside { fill: url(#wm-hatch); }
+.wm-bar-pass { fill: var(--st-done); } .wm-bar-fail { fill: var(--danger); } .wm-bar-skip { fill: var(--wm-line); }
+.wm-hatch-bg { fill: var(--wm-surface); } .wm-hatch-line { stroke: var(--st-aside); stroke-width: 1.4; }
+/* Ready: planned work that can start, striped in the running colour, so it reads apart from both. */
+.wm-bar-ready { fill: url(#wm-ready); } .wm-ready-line { stroke: var(--st-run); stroke-width: 1.6; }
+.wm-progress-text { color: var(--muted); font-size: var(--f-meta); white-space: nowrap; }
+/* Category tiles: a count each, and a toggle that dims every other category in the graph. */
+.wm-tiles { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.wm-tile { --disc: calc(1.15 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s2);
+  min-height: max(24px, calc(26px * var(--k))); padding: 0 var(--s4) 0 var(--s2); font-size: var(--f-meta);
+  white-space: nowrap; color: var(--text); background: var(--chip); border: 0; border-radius: var(--r-pill); }
+.wm-tile b { font-variant-numeric: tabular-nums; }
+.wm-tile:hover { box-shadow: inset 0 0 0 1px var(--wm-rule); }
+.wm-tile[aria-pressed="true"] { background: var(--sb); color: var(--s); font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--s); }
+.wm-lists { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s7); min-width: 0; font-size: var(--f-meta); }
+.wm-list { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); min-width: 0; }
+.wm-list-label { display: inline-flex; align-items: center; gap: var(--s3); font-weight: 600; white-space: nowrap; }
+.wm-list[data-list="run"] .wm-list-label { color: var(--st-run); }
+.wm-list[data-list="attn"] .wm-list-label { color: var(--st-attn); }
+/* Who acts on what needs attention: you, the orchestrator, or nobody while its verifiers run. */
+.wm-who { color: var(--muted); font-weight: 600; white-space: nowrap; }
+/* The dot beside "Running now" breathes with the running cards. */
+.wm-pulse { position: relative; width: var(--s4); height: var(--s4); border-radius: 50%; background: var(--st-run); }
+.wm-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--st-run);
+  animation: wm-ping var(--wm-pulse) ease-out infinite; }
+/* A node named in running text: a link-like button that selects it. */
+.wm-jump { --disc: calc(1.15 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s2);
+  min-height: max(24px, calc(24px * var(--k))); padding: 0 var(--s4) 0 var(--s2); font-size: var(--f-meta);
+  color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pill);
+  max-width: 100%; }
+.wm-jump:hover { border-color: var(--wm-rule); }
+.wm-jump > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-note { color: var(--muted); }
+
+/* 5. CANVAS — a scroll container, so wheel, trackpad and touch pan natively; drag pans too. */
+.wm-canvas-wrap { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: var(--wm-surface); border-radius: var(--r-block); overflow: hidden;
+  outline: 1px solid transparent; outline-offset: -1px; }
+.wm-canvas { flex: 1; min-height: 0; display: flex; overflow: auto; cursor: grab; scrollbar-width: thin;
+  scrollbar-gutter: stable both-edges;
+  background: radial-gradient(circle, var(--line) 1px, transparent 1.3px) 0 0 / 20px 20px local; }
+.wm-canvas.is-panning { cursor: grabbing; -webkit-user-select: none; user-select: none; }
+.wm-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* margin: auto centres the stage while it fits and never hides its start when it does not. */
+.wm-stage { --k: var(--wm-k, 1); position: relative; isolation: isolate; margin: auto; padding: 16px;
+  font-size: var(--f-node); }
+/* The floating tools take the canvas's top right corner: the first layer starts below them. */
+.wm-canvas > .wm-stage { padding-top: 52px; }
+/* Zoom steps: the script sets data-zoom, this table turns it into the graph's --k. */
+.wm-stage[data-zoom="50"] { --wm-k: 0.5; } .wm-stage[data-zoom="55"] { --wm-k: 0.55; } .wm-stage[data-zoom="60"] { --wm-k: 0.6; }
+.wm-stage[data-zoom="65"] { --wm-k: 0.65; } .wm-stage[data-zoom="70"] { --wm-k: 0.7; } .wm-stage[data-zoom="75"] { --wm-k: 0.75; }
+.wm-stage[data-zoom="80"] { --wm-k: 0.8; } .wm-stage[data-zoom="85"] { --wm-k: 0.85; } .wm-stage[data-zoom="90"] { --wm-k: 0.9; }
+.wm-stage[data-zoom="95"] { --wm-k: 0.95; } .wm-stage[data-zoom="100"] { --wm-k: 1; } .wm-stage[data-zoom="105"] { --wm-k: 1.05; }
+.wm-stage[data-zoom="110"] { --wm-k: 1.1; } .wm-stage[data-zoom="115"] { --wm-k: 1.15; } .wm-stage[data-zoom="120"] { --wm-k: 1.2; }
+.wm-stage[data-zoom="125"] { --wm-k: 1.25; } .wm-stage[data-zoom="130"] { --wm-k: 1.3; } .wm-stage[data-zoom="135"] { --wm-k: 1.35; }
+.wm-stage[data-zoom="140"] { --wm-k: 1.4; } .wm-stage[data-zoom="145"] { --wm-k: 1.45; } .wm-stage[data-zoom="150"] { --wm-k: 1.5; }
+.wm-stage[data-zoom="155"] { --wm-k: 1.55; } .wm-stage[data-zoom="160"] { --wm-k: 1.6; }
+.wm-tools { position: absolute; top: var(--s4); right: var(--s4); z-index: 5; display: flex; align-items: center;
+  gap: var(--s2); padding: var(--s2); background: var(--panel); border-radius: var(--r-float);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .14), inset 0 0 0 1px var(--line); }
+.wm-tools button { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-width: max(28px, calc(28px * var(--k))); min-height: max(28px, calc(28px * var(--k)));
+  padding: 0 var(--s3); font-size: var(--f-meta); border-color: transparent; background: none;
+  border-radius: calc(var(--r-float) - var(--s2)); }
+.wm-tools button:hover { background: var(--chip); }
+.wm-tools button[aria-pressed="true"], .wm-tools button[aria-expanded="true"] { background: var(--chip); font-weight: 600; }
+.wm-tools output { min-width: 3.2em; text-align: center; font-size: var(--f-meta); font-variant-numeric: tabular-nums;
+  color: var(--muted); }
+.wm-tools .wm-sep { align-self: stretch; width: 1px; margin: var(--s2) 0; background: var(--line); }
+/* The legend is a strip under the canvas: it never covers a node. */
+.wm-legend { flex: none; display: flex; flex-wrap: wrap; gap: var(--s3) var(--s7); padding: var(--s4) var(--s6);
+  background: var(--panel); border-top: 1px solid var(--line); font-size: var(--f-meta); }
+.wm-lg { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s5); min-width: 0; }
+.wm-lg > .wm-h { font-size: var(--f-micro); }
+.wm-lg-item { --disc: calc(1.3 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s2);
+  white-space: nowrap; }
+.wm-lg-item .wm-kind { margin: 0; color: var(--muted); }
+.wm-lg-edge { flex: none; width: 40px; height: 12px; overflow: visible; }
+
+/* 6. GRAPH — layers are flex rows, top to bottom in dependency order; CSS places every card.
+      A group is a node with the verifiers that check it docked in a tray under it. A lane is
+      an empty slot a long edge passes through. */
+.wm-layers { position: relative; display: flex; flex-direction: column; align-items: center; gap: calc(var(--s8) + var(--s2));
+  width: max-content; margin: 0; padding: 0; list-style: none; }
+.wm-layer { display: flex; align-items: flex-start; justify-content: center; gap: calc(var(--s6) + var(--s2)); }
+.wm-layer-cap { display: none; }
+.wm-group { --node-w: calc(232px * var(--k)); display: flex; flex-direction: column; width: var(--node-w); }
+.wm-group[data-kind="goal"] { --node-w: calc(528px * var(--k)); }
+.wm-lane { align-self: stretch; width: var(--s7); }
+
+/* The card. One row of name, one row of state; the disc on the left carries the status. */
+.wm-node { --disc: calc(24px * var(--k)); --r: calc(var(--r-node) * var(--k));
+  position: relative; z-index: 2; display: flex; align-items: center; gap: var(--s4); width: 100%;
+  min-height: calc(56px * var(--k)); padding: var(--s3) var(--s5) var(--s3) var(--s4);
+  text-align: left; color: var(--text); background: var(--wm-node);
+  border: 1px solid var(--wm-line); border-radius: var(--r);
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease, opacity .15s ease; }
+.wm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.wm-name { display: flex; align-items: flex-start; gap: var(--s2); min-width: 0; }
+.wm-kind { width: var(--f-body); height: var(--f-body); margin-top: calc(.2 * var(--f-title)); color: var(--muted);
+  stroke-width: 1.5; }
+.wm-t { min-width: 0; font-size: var(--f-title); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.wm-meta { display: flex; align-items: center; gap: var(--s3); min-width: 0; font-size: var(--f-meta);
+  line-height: 1.5; white-space: nowrap; }
+/* The status word is a chip in the family tint; the disc beside the name repeats it as a shape. */
+.wm-status { padding: 0 var(--s3); border-radius: var(--r-pill); font-weight: 600; color: var(--s);
+  background: var(--sb); }
+.wm-extra { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+/* The level badge: square-cornered and monospaced, so it never reads as a status chip.
+   A solid box is a level reached, a dashed box a level still needed — the grammar of the cards,
+   where dashed is "not yet". One solid box: at its level. One dashed box: nothing reached yet.
+   Both, in the attention colour: reached the first, needs the second. */
+.wm-lvs { flex: none; display: inline-flex; gap: var(--s1); }
+.wm-lv { padding: 0 var(--s2); font-family: var(--font-mono); font-size: .92em; font-weight: 600; line-height: 1.45;
+  color: var(--text); border: 1px solid var(--wm-rule); border-radius: calc(var(--r-badge) * var(--k)); }
+.wm-lv[data-lv="target"] { color: var(--muted); border-style: dashed; }
+.wm-lvs[data-lvs="gap"] .wm-lv { color: var(--st-attn); background: var(--st-attn-bg); border-color: var(--st-attn); }
+/* Risk: no mark for routine, one chevron for load-bearing, two in the risk colour for critical. */
+.wm-risk { flex: none; display: inline-flex; color: var(--muted); }
+.wm-risk[data-risk="critical"] { color: var(--risk); }
+.wm-risk .wm-i { stroke-width: 2; }
+/* A derived mark: stale or ready. An outline, never a fill, so it cannot pass for a status. */
+.wm-mark { flex: none; padding: 0 var(--s3); border-radius: var(--r-pill); font-weight: 600; line-height: 1.4;
+  box-shadow: inset 0 0 0 1px currentColor; }
+.wm-mark[data-mark="stale"] { color: var(--st-attn); }
+.wm-mark[data-mark="ready"] { color: var(--st-run); }
+/* Check counts: failed first and in the danger colour, then passed. The panel has all three. */
+.wm-tally { flex: none; display: inline-flex; align-items: center; gap: var(--s3); margin-left: auto;
+  color: var(--muted); font-variant-numeric: tabular-nums; }
+.wm-c { display: inline-flex; align-items: center; gap: 1px; }
+.wm-c[data-c="fail"] { color: var(--danger); font-weight: 600; }
+.wm-c .wm-i { width: 1em; height: 1em; stroke-width: 2; }
+/* The goal's mini progress: the same stacked bar as the summary, and settled of total. */
+.wm-mini { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: var(--s3); margin-left: auto;
+  justify-content: flex-end; color: var(--muted); }
+.wm-mini .wm-progress { width: calc(96px * var(--k)); height: var(--s3); }
+/* Shown only where the edges are not drawn (the narrow layout): the same relation in words. */
+.wm-after { display: none; }
+/* The frontier of the longest remaining chain, what the goal waits on now: a bar under the card. */
+.wm-node[data-path="frontier"]::before { content: ""; position: absolute; left: var(--s5); right: var(--s5);
+  bottom: calc(-1 * var(--s1)); height: var(--s2); border-radius: var(--r-pill); background: var(--text); }
+
+/* The status disc. Outline, fill and silhouette differ by status, so it reads without colour. */
+.wm-disc { flex: none; display: grid; place-items: center; width: var(--disc); height: var(--disc);
+  color: var(--s); border: max(1.5px, calc(1.5px * var(--k))) solid currentColor; border-radius: 50%; }
+.wm-disc .wm-i { width: 64%; height: 64%; stroke-width: 2; }
+
+/* A verifier: a node whose verifies edge points at the card above it. Compact, docked, indented. */
+.wm-verifiers { display: flex; flex-direction: column; gap: var(--s2); margin: calc(-1 * var(--r-node) * var(--k)) 0 0;
+  padding: calc(var(--r-node) * var(--k) + var(--s3)) var(--s3) var(--s3) calc(var(--s7) + var(--s4)); list-style: none;
+  background: var(--wm-tray); border-radius: 0 0 calc(var(--r-node) * var(--k)) calc(var(--r-node) * var(--k)); }
+.wm-pill { --disc: calc(16px * var(--k)); min-height: max(24px, calc(24px * var(--k))); gap: var(--s3);
+  padding: 0 var(--s4) 0 var(--s2); border-radius: var(--r-pill); }
+.wm-pill .wm-kind { width: var(--f-meta); height: var(--f-meta); margin: 0; }
+.wm-pill .wm-t { flex: 1; display: block; font-size: var(--f-meta); font-weight: 500; white-space: nowrap;
+  text-overflow: ellipsis; }
+.wm-pill .wm-find { flex: none; font-size: var(--f-micro); font-weight: 600; color: var(--st-attn); }
+/* A verdict that says nothing about the target's current result: the verifier checked an older one. */
+.wm-pill .wm-find[data-find="older"] { color: var(--muted); }
+.wm-pill .wm-lvs { font-size: var(--f-micro); }
+
+/* 7. STATUS MAPPING — the one table that binds the store's status values to the six families.
+      Move a status to another family here and nowhere else. --s is the family colour, --sb its
+      tint. Each status then has its own form, so no two read alike without colour. */
+[data-status="prepared"]                                        { --s: var(--st-run);      --sb: var(--st-run-bg); }
+[data-status="validated"], [data-status="accepted"]             { --s: var(--st-done);     --sb: var(--st-done-bg); }
+[data-status="verified"]                                        { --s: var(--st-verified); --sb: var(--st-verified-bg); }
+[data-status="needs_attention"], [data-status="disputed"]       { --s: var(--st-attn);     --sb: var(--st-attn-bg); }
+[data-status="planned"]                                         { --s: var(--st-idle);     --sb: var(--st-idle-bg); }
+[data-status="refuted"], [data-status="superseded"], [data-status="blocked"]
+                                                                { --s: var(--st-aside);    --sb: var(--st-aside-bg); }
+
+/* planned: an empty dashed ring, a dashed card */
+[data-status="planned"] > .wm-disc { border-style: dashed; }
+.wm-node[data-status="planned"] { border-style: dashed; border-color: var(--wm-rule); }
+/* prepared, shown as running: a turning ring with a dot, an accent outline, a breathing halo */
+[data-status="prepared"] > .wm-disc { border-width: max(2px, calc(2px * var(--k))); border-color: var(--sb);
+  border-top-color: var(--s); border-right-color: var(--s); }
+.wm-node[data-status="prepared"] > .wm-disc { animation: wm-spin var(--wm-spin) linear infinite; }
+.wm-node[data-status="prepared"] { border-color: var(--st-run); box-shadow: 0 0 0 1px var(--st-run); }
+.wm-node[data-status="prepared"]::after { content: ""; position: absolute; inset: -1px; border-radius: inherit;
+  pointer-events: none; animation: wm-halo var(--wm-pulse) ease-out infinite; }
+/* validated: an outlined ring with a check — the worker's own report */
+/* accepted: the same check on a filled disc — the parent signed it off */
+[data-status="accepted"] > .wm-disc { color: var(--wm-on); background: var(--s); border-color: var(--s); }
+/* verified: a filled shield with a check — an independent verifier vouched for it */
+[data-status="verified"] > .wm-disc { color: var(--wm-on); background: var(--s); border: 0; border-radius: 0;
+  clip-path: polygon(50% 0, 96% 13%, 96% 50%, 85% 75%, 50% 100%, 15% 75%, 4% 50%, 4% 13%); }
+[data-status="verified"] > .wm-disc .wm-i { width: 56%; height: 56%; margin-bottom: 8%; }
+/* needs_attention: a filled triangle with an exclamation mark, a tinted card */
+[data-status="needs_attention"] > .wm-disc { color: var(--wm-on); background: var(--s); border: 0; border-radius: 0;
+  clip-path: polygon(50% 2%, 100% 94%, 0 94%); }
+[data-status="needs_attention"] > .wm-disc .wm-i { width: 52%; height: 52%; margin-top: 26%; }
+/* disputed: a filled disc with a not-equal sign, a tinted card */
+[data-status="disputed"] > .wm-disc { color: var(--wm-on); background: var(--s); border-color: var(--s); }
+.wm-node[data-status="needs_attention"], .wm-node[data-status="disputed"] { background: var(--st-attn-bg);
+  border-color: var(--st-attn); }
+/* refuted and superseded: a dotted ring, a dotted ghost card, a struck title */
+[data-status="refuted"] > .wm-disc, [data-status="superseded"] > .wm-disc { border-style: dotted; }
+.wm-node[data-status="refuted"], .wm-node[data-status="superseded"], .wm-node[data-status="blocked"] {
+  background-color: transparent; border-style: dotted; border-color: var(--wm-rule);
+  border-width: max(1.5px, calc(1.5px * var(--k))); }
+.wm-node[data-status="refuted"] .wm-t, .wm-node[data-status="superseded"] .wm-t { color: var(--st-aside);
+  text-decoration: line-through; text-decoration-thickness: 1px; }
+/* blocked: a barred ring, a hatched ghost card, the title left readable */
+.wm-node[data-status="blocked"] { background-image: repeating-linear-gradient(135deg, transparent 0 6px,
+  var(--wm-line) 6px 7px); }
+/* 7b. Blocked is stuck, not set aside: it keeps a solid border so it never reads as a ghost. */
+.wm-node[data-status="blocked"] { border-style: solid; border-color: var(--st-aside); }
+
+/* 8. EDGES — one SVG under the cards. Line style and arrowhead differ by type, so the four
+      read apart without colour. depends_on is drawn in the direction work flows: tail at the
+      dependency, head at the node that waits for it. */
+.wm-edges { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; overflow: visible;
+  pointer-events: none; }
+.wm-edge { fill: none; stroke: var(--wm-rule); stroke-width: 1.5; transition: opacity .15s ease; }
+.wm-edge[data-type="verifies"] { stroke: var(--st-verified); stroke-dasharray: 5 4; }
+.wm-edge[data-type="supersedes"] { stroke: var(--st-aside); stroke-width: 2.2; stroke-dasharray: .1 5.5;
+  stroke-linecap: round; }
+.wm-edge[data-type="contradicts"] { stroke: var(--st-attn); stroke-width: 1.8; stroke-dasharray: 9 4 2 4; }
+.wm-mk-depends { fill: var(--wm-rule); }
+.wm-mk-verifies { fill: var(--wm-tray); stroke: var(--st-verified); stroke-width: 1.5; stroke-linejoin: round; }
+.wm-mk-supersedes { fill: none; stroke: var(--st-aside); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wm-mk-contradicts { fill: none; stroke: var(--st-attn); stroke-width: 2.2; stroke-linecap: round; }
+/* 8b. A hollow head: the prerequisite is not settled yet, so the edge still holds its dependant back. */
+.wm-mk-depends-open { fill: var(--wm-surface); stroke: var(--wm-rule); stroke-width: 1.3; stroke-linejoin: round; }
+/* The goal stores no edge: a thin dotted connector from the plan's last stages, marked derived. */
+.wm-edge[data-type="derived"] { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 2 4; }
+/* The longest remaining chain: its edges at double weight. */
+.wm-edge.is-path { stroke-width: 3; }
+
+/* 9. DETAIL PANEL — the open item's pane, in the tint the existing page gives an open item;
+      its blocks are panel-coloured boxes, like the rendered Markdown in a flow's pane. */
+.wm-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto;
+  padding: var(--s5); background: var(--tint); border-radius: var(--r-block); scrollbar-width: thin;
+  outline: 1px solid transparent; outline-offset: -1px; }
+.wm-d { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.wm-d-head { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s2) var(--s2) var(--s3); }
+.wm-d-top { display: flex; align-items: center; gap: var(--s3); color: var(--muted); font-size: var(--f-meta); }
+.wm-d-top .wm-kind { margin: 0; }
+.wm-close { display: inline-flex; align-items: center; justify-content: center; width: max(28px, calc(28px * var(--k)));
+  height: max(28px, calc(28px * var(--k))); margin-left: auto; padding: 0; color: var(--text);
+  border-color: transparent; background: none; border-radius: var(--r-button); }
+.wm-close:hover { background: var(--panel); }
+.wm-d-title { margin: 0; font-size: var(--f-title); line-height: var(--lh-tight); overflow-wrap: anywhere; }
+.wm-d-id { display: flex; align-items: center; gap: var(--s3); color: var(--muted); font-size: var(--f-meta); }
+.wm-copy { display: inline-flex; align-items: center; justify-content: center; width: max(24px, calc(24px * var(--k)));
+  height: max(24px, calc(24px * var(--k))); padding: 0; color: var(--muted); border-color: transparent; background: none; }
+.wm-copy:hover { color: var(--text); background: var(--panel); }
+.wm-d-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+/* The status as a chip: disc and word together, where a card would be too much. */
+.wm-chip { --disc: calc(1.25 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s3);
+  padding: var(--s1) var(--s4) var(--s1) var(--s2); font-size: var(--f-meta); font-weight: 600; white-space: nowrap;
+  color: var(--s); background: var(--sb); border-radius: var(--r-pill); }
+.wm-risk-tag { display: inline-flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s4) var(--s1) var(--s3);
+  font-size: var(--f-meta); color: var(--muted); border-radius: var(--r-pill); box-shadow: inset 0 0 0 1px var(--wm-rule); }
+.wm-risk-tag[data-risk="critical"] { color: var(--risk); background: var(--risk-bg); box-shadow: none; font-weight: 600; }
+.wm-sec { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; padding: var(--s5);
+  background: var(--panel); border-radius: var(--r-text); }
+.wm-sec p { margin: 0; overflow-wrap: anywhere; }
+.wm-sec .facts { gap: var(--s2) var(--s5); font-size: var(--f-meta); }
+.wm-sec .facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.wm-sec .notice { font-size: var(--f-meta); overflow-wrap: anywhere; }
+.wm-quiet { color: var(--muted); font-size: var(--f-meta); }
+/* The level meter: five steps, filled up to the level reached, dashed up to the level needed. */
+.wm-meter { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s1); margin: 0; padding: 0;
+  list-style: none; }
+.wm-meter li { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; font-size: var(--f-micro);
+  line-height: 1.3; color: var(--muted); }
+.wm-meter li::before { content: ""; height: var(--s3); border: 1px solid var(--wm-rule); border-radius: var(--r-pill); }
+.wm-meter li[data-m="on"]::before { background: var(--text); border-color: var(--text); }
+.wm-meter li[data-m="gap"]::before { border-style: dashed; }
+.wm-meter[data-alert] li[data-m="gap"]::before { border-color: var(--st-attn); background: var(--st-attn-bg); }
+.wm-meter b { font-family: var(--font-mono); color: var(--text); }
+.wm-meter li[data-need]::after { content: "needed"; font-weight: 600; color: var(--text); }
+.wm-meter[data-alert] li[data-need]::after, .wm-meter[data-alert] li[data-need] b { color: var(--st-attn); }
+.wm-meter small { font-size: inherit; overflow: hidden; text-overflow: ellipsis; }
+/* Checks: the bar, then the three counts in words. */
+.wm-sec .wm-progress { width: 100%; height: var(--s4); }
+.wm-counts { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); margin: 0; padding: 0; list-style: none;
+  font-size: var(--f-meta); }
+.wm-counts li { display: inline-flex; align-items: center; gap: var(--s2); color: var(--muted); }
+.wm-counts b { color: var(--text); font-variant-numeric: tabular-nums; }
+.wm-counts li[data-c="fail"] b, .wm-counts li[data-c="fail"] .wm-i { color: var(--danger); }
+.wm-counts .wm-i { stroke-width: 2; }
+.wm-sev { padding: 0 var(--s3); border-radius: var(--r-pill); background: var(--chip); color: var(--text);
+  font-size: var(--f-meta); white-space: nowrap; }
+.wm-sev[data-sev="critical"], .wm-sev[data-sev="high"] { color: var(--st-attn); background: var(--st-attn-bg);
+  font-weight: 600; }
+/* Relations: the edges of this node, in words. Each names a node and selects it. */
+.wm-rels { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s3) var(--s5); margin: 0;
+  font-size: var(--f-meta); }
+.wm-rels dt { color: var(--muted); padding-top: var(--s1); white-space: nowrap; }
+.wm-rels dd { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0; min-width: 0; }
+.wm-arts { display: flex; flex-direction: column; gap: var(--s3); margin: 0; padding: 0; list-style: none;
+  font-size: var(--f-meta); }
+.wm-arts li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 var(--s3); align-items: start; }
+.wm-arts .wm-i { margin-top: .15em; color: var(--muted); stroke-width: 1.5; }
+.wm-arts code { overflow-wrap: anywhere; }
+.wm-arts small { grid-column: 2; font-size: inherit; color: var(--muted); }
+/* The full result: fetched only on a click, shown as text in a box of its own. */
+.wm-result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
+.wm-result button { min-height: max(24px, calc(24px * var(--k))); font-size: var(--f-meta); }
+.wm-result pre { flex-basis: 100%; margin: var(--s3) 0 0; padding: var(--s4); max-height: 16em; overflow: auto; white-space: pre-wrap;
+  overflow-wrap: anywhere; font: var(--f-micro)/1.5 var(--font-mono); background: var(--code-bg);
   border: 1px solid var(--line); border-radius: var(--r-code); }
-@media (max-width: 1100px) { #wm-view.with-node { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(16rem, 1fr) auto; } }
-@media (max-width: 760px) { #wm-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  #wm-list { max-height: 12rem; } }
+/* History: each status and level step with its revision and local time. */
+.wm-steps { display: flex; flex-direction: column; gap: var(--s1); margin: 0; padding: 0; list-style: none;
+  font-size: var(--f-meta); }
+.wm-steps li { display: grid; grid-template-columns: 4em 3.4em minmax(0, 1fr); gap: var(--s3); }
+.wm-steps span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.wm-empty { padding: var(--s6); color: var(--muted); font-size: var(--f-meta); }
+
+/* 10. STATES — hover, focus, selection, dimming, motion, loading, empty, failure. */
+.wm-node:hover { border-color: var(--wm-rule); }
+.wm-node[data-status="prepared"]:hover { border-color: var(--st-run); }
+.wm-node[data-status="needs_attention"]:hover, .wm-node[data-status="disputed"]:hover { border-color: var(--st-attn); }
+.wm-node:focus-visible, .wm-tile:focus-visible, .wm-jump:focus-visible, .wm-tools button:focus-visible,
+.wm-close:focus-visible, .wm-copy:focus-visible, .wm-result button:focus-visible, .seg button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Selected: the tint of the open item's pane and an ink outline; the panel beside it shares the tint. */
+.wm-node[aria-pressed="true"] { background-color: var(--tint); background-image: none; border-style: solid;
+  border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+.wm-node[aria-pressed="true"]:hover { border-color: var(--text); }
+/* The selected node's edges are drawn heavier. While a node is hovered or holds the keyboard
+   focus, its edges stay full and all others step back, so one node's relations can be traced. */
+.wm-edge.is-sel, .wm-edge.is-on { stroke-width: 2.4; }
+.wm-edge.is-sel[data-type="supersedes"], .wm-edge.is-on[data-type="supersedes"] { stroke-width: 3; }
+.wm-edges.has-focus .wm-edge:not(.is-on) { opacity: .26; }
+/* A category tile dims every node of the other categories. */
+.wm-stage[data-filter="done"] .wm-node:not([data-cat="done"]),
+.wm-stage[data-filter="running"] .wm-node:not([data-cat="running"]),
+.wm-stage[data-filter="ready"] .wm-node:not([data-cat="ready"]),
+.wm-stage[data-filter="waiting"] .wm-node:not([data-cat="waiting"]),
+.wm-stage[data-filter="action"] .wm-node:not([data-cat="action"]),
+.wm-stage[data-filter="blocked"] .wm-node:not([data-cat="blocked"]),
+.wm-stage[data-filter="aside"] .wm-node:not([data-cat="aside"]) { opacity: .3; }
+.wm-stage[data-filter] .wm-edge { opacity: .2; }
+.wm-stage[data-filter] .wm-verifiers { background: none; }
+
+/* Just changed: data-changed marks a node whose status moved in the last refresh, for about three
+   seconds. One ring in the node's new colour, fading; never a loop. */
+.wm-node[data-changed] { outline: 2px solid var(--s); outline-offset: 3px; animation: wm-changed 2.4s ease-out 1 forwards; }
+@keyframes wm-changed { 0%, 35% { outline-color: var(--s); } 100% { outline-color: transparent; } }
+@keyframes wm-spin { to { transform: rotate(360deg); } }
+@keyframes wm-halo { 0% { box-shadow: 0 0 0 0 var(--st-run); opacity: .5; }
+  70%, 100% { box-shadow: 0 0 0 var(--s4) var(--st-run); opacity: 0; } }
+@keyframes wm-ping { 0% { transform: scale(1); opacity: .55; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes wm-shimmer { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
+/* Without motion the running state keeps its ring, its outline and a still halo. */
+@media (prefers-reduced-motion: reduce) {
+  .wm-node[data-status="prepared"] > .wm-disc, .wm-pulse::after, .wm-skel, .wm-node[data-changed] { animation: none; }
+  .wm-node[data-status="prepared"]::after { animation: none; opacity: .28; box-shadow: 0 0 0 var(--s2) var(--st-run); }
+  .wm-pulse::after { opacity: .3; transform: scale(1.9); }
+  .wm-node, .wm-edge { transition: none; }
+}
+/* Forced colours replace backgrounds: the borders above keep the shapes; filled discs need one. */
+@media (forced-colors: active) {
+  .wm-disc { border: 1.5px solid CanvasText !important; clip-path: none !important; border-radius: 50% !important; }
+  .wm-node[aria-pressed="true"] { outline: 3px solid Highlight; }
+  .wm-verifiers { outline: 1px solid CanvasText; outline-offset: -1px; }
+}
+
+/* Loading, empty and failed: the canvas keeps its place, so the page does not jump. */
+.wm-state { display: none; margin: auto; padding: var(--s7); max-width: 34em; text-align: center; color: var(--muted); }
+.wm-state strong { display: block; margin-bottom: var(--s2); color: var(--text); font-size: var(--f-title); }
+.wm-state .notice { margin-top: var(--s4); text-align: left; }
+.wm-state button { margin-top: var(--s4); }
+.wm-skeleton { display: none; margin: auto; flex-direction: column; align-items: center; gap: var(--sp-8); }
+.wm-skeleton > div { display: flex; gap: var(--sp-7); }
+.wm-skel { width: 232px; height: 56px; border-radius: var(--r-node); background: var(--chip);
+  animation: wm-shimmer 1.6s ease-in-out infinite; }
+#workmap-page[data-state="loading"] .wm-skeleton { display: flex; }
+#workmap-page[data-state="empty"] .wm-state[data-for="empty"],
+#workmap-page[data-state="error"] .wm-state[data-for="error"] { display: block; }
+#workmap-page:not([data-state="ready"]) :is(.wm-stage, .wm-tools, .wm-legend, .wm-summary-stats, .wm-lists, .wm-detail),
+#workmap-page:not([data-state="ready"]) [data-when="ready"], #workmap-page[data-state="ready"] [data-when="unready"],
+#workmap-page:is([data-state="empty"], [data-state="error"]) [data-when="has-maps"] { display: none; }
+#workmap-page:not([data-state="ready"]) .wm-body { grid-template-columns: minmax(0, 1fr); }
+#workmap-page:not([data-state="ready"]) .wm-canvas { cursor: default; }
+.wm-alert { font-size: var(--f-meta); }
+.wm-alert > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* 11. RESPONSIVE
+       1100 px and up: canvas and panel side by side (1280 laptop, 1920 projector).
+       761–1099 px:    the panel is a sheet over the right side of the canvas.
+       760 px and down: the page's own narrow layout. No edges are drawn; the layers stack as
+                        an outline in dependency order and each card names what it comes after. */
+@media (max-width: 1099px) {
+  .wm-body { grid-template-columns: minmax(0, 1fr); }
+  .wm-detail { position: absolute; z-index: 6; top: 0; right: 0; bottom: 0; width: min(var(--panel-w), 92%);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, .25); }
+}
+@media (max-width: 760px) {
+  #workmap-page { display: flex; flex-direction: column; overflow-y: auto; padding-top: 8px; }
+  .wm-body { display: block; position: static; }
+  .wm-canvas-wrap { overflow: visible; background: none; }
+  .wm-canvas { display: block; overflow: visible; cursor: default; background: none; scrollbar-gutter: auto; }
+  .wm-tools > :not([data-keep]) { display: none; }
+  .wm-tools { position: static; align-self: flex-end; margin: 0 0 var(--s4); box-shadow: inset 0 0 0 1px var(--line); }
+  .wm-stage { --k: 1.077; margin: 0; padding: 0; }
+  .wm-edges, .wm-lane { display: none; }
+  .wm-layers { width: auto; align-items: stretch; gap: var(--s5); }
+  .wm-layer { flex-direction: column; align-items: stretch; gap: var(--s4); }
+  .wm-layer-cap { display: block; }
+  .wm-group, .wm-group[data-kind="goal"] { width: auto; }
+  .wm-stage .wm-t { display: block; white-space: normal; }
+  .wm-after { display: block; font-size: var(--f-meta); line-height: 1.4; color: var(--muted); white-space: normal;
+    overflow-wrap: anywhere; }
+  .wm-legend { margin-top: var(--s5); border: 0; border-radius: var(--r-card); }
+  .wm-detail { position: fixed; z-index: 10; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 76%;
+    border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -2px 16px rgba(0, 0, 0, .28); }
+  .wm-pick select { max-width: 100%; }
+}
 /* The landing page (#188) takes the place of the list and the item, like the Sync page; only it scrolls. */
 #landing { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--edge) var(--edge); }
 #landing > * { width: 100%; max-width: 72rem; margin: 0 auto var(--edge); }
@@ -462,6 +906,56 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 </style>
 </head>
 <body>
+<!-- The Work map's icons, arrowheads and fills, referenced by <use href> and marker-end. Never
+     display:none, or the markers would not draw. -->
+<svg class="wm-sprite" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="wm-i-check" viewBox="0 0 16 16"><path d="M3.4 8.5l3.1 3.1 6.1-6.7"/></symbol>
+    <symbol id="wm-i-bang" viewBox="0 0 16 16"><path d="M8 3.2v5.6"/><path d="M8 12.2v.2"/></symbol>
+    <symbol id="wm-i-neq" viewBox="0 0 16 16"><path d="M3.6 6h8.8M3.6 10h8.8M10.6 3.2l-5.2 9.6"/></symbol>
+    <symbol id="wm-i-cross" viewBox="0 0 16 16"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></symbol>
+    <symbol id="wm-i-replaced" viewBox="0 0 16 16"><path d="M3 11.2c0-3.7 2-6 5-6s5 2.3 5 5.2"/><path d="M10.3 8.5l2.7 2 1.9-2.7"/></symbol>
+    <symbol id="wm-i-slash" viewBox="0 0 16 16"><path d="M4 12l8-8"/></symbol>
+    <symbol id="wm-i-dot" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="wm-i-goal" viewBox="0 0 16 16"><path d="M4 14.2V2.2"/><path d="M4 2.8h7.8l-2 2.8 2 2.8H4"/></symbol>
+    <symbol id="wm-i-decision" viewBox="0 0 16 16"><path d="M8 1.8l6.2 6.2L8 14.2 1.8 8z"/></symbol>
+    <symbol id="wm-i-question" viewBox="0 0 16 16"><path d="M5.4 6.1a2.65 2.65 0 1 1 3.9 2.3c-.9.5-1.3 1-1.3 1.9"/><path d="M8 13v.2"/></symbol>
+    <symbol id="wm-i-verifier" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2l3.6 3.6"/></symbol>
+    <symbol id="wm-i-risk1" viewBox="0 0 16 16"><path d="M3.6 10.2L8 5.8l4.4 4.4"/></symbol>
+    <symbol id="wm-i-risk2" viewBox="0 0 16 16"><path d="M3.6 8L8 3.6 12.4 8"/><path d="M3.6 12.6L8 8.2l4.4 4.4"/></symbol>
+    <symbol id="wm-i-dash" viewBox="0 0 16 16"><path d="M4 8h8"/></symbol>
+    <symbol id="wm-i-plus" viewBox="0 0 16 16"><path d="M3.5 8h9M8 3.5v9"/></symbol>
+    <symbol id="wm-i-fit" viewBox="0 0 16 16"><path d="M2.8 6V2.8H6M10 2.8h3.2V6M13.2 10v3.2H10M6 13.2H2.8V10"/></symbol>
+    <symbol id="wm-i-key" viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M2.8 8h10.4M2.8 11.5h6.4"/></symbol>
+    <symbol id="wm-i-copy" viewBox="0 0 16 16"><rect x="5.6" y="5.6" width="7.6" height="7.6" rx="1.6"/><path d="M10.4 5.6V4.2a1.4 1.4 0 0 0-1.4-1.4H4.2a1.4 1.4 0 0 0-1.4 1.4V9a1.4 1.4 0 0 0 1.4 1.4h1.4"/></symbol>
+    <symbol id="wm-i-file" viewBox="0 0 16 16"><path d="M4 2.2h5.2l2.8 2.8v8.8H4z"/><path d="M9.2 2.2V5H12"/></symbol>
+    <symbol id="wm-i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.9.9"/><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.9-.9"/></symbol>
+    <!-- Arrowheads, one per edge type. Sizes are in px (userSpaceOnUse), so they keep their size at every zoom. -->
+    <marker id="wm-mk-depends_on" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="10" refX="9.6" refY="5" orient="auto">
+      <path class="wm-mk-depends" d="M0.6 0.8L9.8 5 0.6 9.2z"/>
+    </marker>
+    <!-- The same head, hollow: the prerequisite is not settled, so the edge still holds its dependant back. -->
+    <marker id="wm-mk-depends_on-open" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="10" refX="9.6" refY="5" orient="auto">
+      <path class="wm-mk-depends-open" d="M0.6 0.8L9.8 5 0.6 9.2z"/>
+    </marker>
+    <marker id="wm-mk-verifies" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10.6" refY="6" orient="auto">
+      <path class="wm-mk-verifies" d="M1.4 1.6L10.6 6 1.4 10.4z"/>
+    </marker>
+    <marker id="wm-mk-supersedes" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="14" refX="10.6" refY="7" orient="auto">
+      <path class="wm-mk-supersedes" d="M2 1.8L10.6 7 2 12.2"/>
+    </marker>
+    <marker id="wm-mk-contradicts" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="13" refX="11.6" refY="6.5" orient="auto">
+      <path class="wm-mk-contradicts" d="M2 1.8l8.6 9.4M10.6 1.8L2 11.2"/>
+    </marker>
+    <!-- The hatch of the blocked segment in a stacked bar, and the stripes of the ready one. -->
+    <pattern id="wm-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)">
+      <rect class="wm-hatch-bg" width="4" height="4"/><path class="wm-hatch-line" d="M1 0v4"/>
+    </pattern>
+    <pattern id="wm-ready" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(-45)">
+      <rect class="wm-hatch-bg" width="4" height="4"/><path class="wm-ready-line" d="M1 0v4"/>
+    </pattern>
+  </defs>
+</svg>
 <header>
   <div id="brand">
     <h1 id="version"><a id="version-link" href="#overview" title="Overview of this installation">Agents-Core {{VERSION}}</a></h1>
@@ -510,6 +1004,12 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <a href="/ui/mcp">MCP</a>
   </div>
   <button id="new">New flow</button>
+  <!-- The page follows the system's theme unless one is chosen here (remembered in this browser). -->
+  <div class="seg" id="theme" role="group" aria-label="Theme">
+    <button type="button" data-theme="auto" class="active" aria-pressed="true">Auto</button>
+    <button type="button" data-theme="light" aria-pressed="false">Light</button>
+    <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+  </div>
 </header>
 <section id="signin" class="hidden"><h2>Sign in</h2><p>This browser could not sign in automatically. Automatic sign-in works only for a browser of the OS user who runs Agents-Core, and not after <code>flows-ui --auto off</code>. Run this command in the Agents-Core installation directory; it opens this page signed in for 30 days after your last visit:</p><p><code>.venv/bin/python -m src.daemon flows-ui</code></p></section>
 <main id="main">
@@ -574,17 +1074,58 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   <div id="autodev-alert" class="notice hidden" role="status"></div>
   <div id="autodev-body"></div>
 </section>
-<section id="workmap-page" class="hidden" aria-labelledby="workmap-title">
-  <div class="wm-head"><h2 id="workmap-title" tabindex="-1">Work maps</h2><span id="wm-meta" class="meta">Read-only: the staged, delegated work of each registered repository, as its parent session recorded it.</span></div>
-  <div id="wm-alert" class="notice hidden" role="status"></div>
-  <div id="wm-layout">
-    <nav id="wm-list" aria-label="Work maps"><div class="meta">Loading…</div></nav>
-    <div id="wm-view">
-      <div id="wm-title"></div>
-      <div id="wm-canvas"><div class="empty">Select a map.</div></div>
-      <aside id="wm-node" class="hidden" aria-label="Node record"></aside>
+<section id="workmap-page" class="hidden" aria-labelledby="wm-title" data-state="loading">
+  <div class="wm-summary">
+    <div class="wm-summary-head">
+      <!-- The title is the goal node's title; without a map it is the page's own name. -->
+      <h2 class="wm-title" id="wm-title" tabindex="-1"><span id="wm-goal" data-when="ready"></span><span data-when="unready">Work map</span></h2>
+      <span class="wm-flag" id="wm-flag" data-when="ready" data-flag="open">open</span>
+      <span class="wm-ids" id="wm-ids" data-when="ready"></span>
+      <span class="wm-grow"></span>
+      <span class="wm-pick-row" data-when="has-maps"><label class="wm-pick">Map <select id="wm-map" aria-label="Work map"></select></label><button type="button" class="wm-copy" id="wm-copy-task" aria-label="Copy the task id"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-copy"/></svg></button></span>
     </div>
+    <!-- A refresh that failed keeps the last map on screen and says so here. -->
+    <div class="notice bar wm-alert" id="wm-alert" role="status" hidden><span id="wm-alert-text"></span><button type="button" id="wm-alert-retry">Try again</button></div>
+    <div class="wm-summary-stats">
+      <svg class="wm-progress" id="wm-progress" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="Progress"></svg>
+      <span class="wm-progress-text" id="wm-progress-text"></span>
+      <div class="wm-tiles" id="wm-tiles" role="group" aria-label="Dim all but one category"></div>
+    </div>
+    <div class="wm-lists" id="wm-lists"></div>
   </div>
+  <div class="wm-body" id="wm-body" data-panel="closed">
+    <div class="wm-canvas-wrap">
+      <div class="wm-tools" role="group" aria-label="Canvas view">
+        <button type="button" id="wm-zoom-out" aria-label="Zoom out"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-dash"/></svg></button>
+        <output id="wm-zoom" aria-live="off" aria-label="Zoom">100%</output>
+        <button type="button" id="wm-zoom-in" aria-label="Zoom in"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-plus"/></svg></button>
+        <button type="button" id="wm-fit" aria-pressed="true" title="Show the whole map"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-fit"/></svg>Fit</button>
+        <span class="wm-sep" aria-hidden="true"></span>
+        <button type="button" id="wm-legend-toggle" data-keep aria-expanded="false" aria-controls="wm-legend"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-key"/></svg>Legend</button>
+      </div>
+      <div class="wm-canvas" id="wm-canvas" tabindex="0" role="group" aria-label="Work map graph">
+        <div class="wm-stage" id="wm-stage" data-zoom="100">
+          <!-- Edges: the script draws one path per edge here; markers live in the sprite. -->
+          <svg class="wm-edges" id="wm-edges" aria-hidden="true" focusable="false"></svg>
+          <ol class="wm-layers" id="wm-layers"></ol>
+        </div>
+        <!-- What the canvas shows in place of the graph while it loads, when no map exists, when the read failed. -->
+        <div class="wm-skeleton" aria-hidden="true">
+          <div><span class="wm-skel"></span><span class="wm-skel"></span></div>
+          <div><span class="wm-skel"></span><span class="wm-skel"></span><span class="wm-skel"></span></div>
+          <div><span class="wm-skel"></span></div>
+        </div>
+        <div class="wm-state" data-for="empty"><strong>No work maps yet</strong>A map appears here when a session splits a task into stages with workmap_update, in any registered repository.</div>
+        <div class="wm-state" data-for="error" role="alert"><strong>The work map could not be read</strong>Nothing was loaded, so there is no earlier map to show.<div class="notice error" id="wm-error-text"></div><button type="button" id="wm-error-retry">Try again</button></div>
+      </div>
+      <div class="wm-legend" id="wm-legend" role="group" aria-label="Legend" hidden></div>
+    </div>
+    <aside class="wm-detail" id="wm-detail" aria-label="Node details">
+      <p class="wm-empty" id="wm-detail-empty">Select a node to see its result, its checks and its artifacts.</p>
+      <article class="wm-d" id="wm-d" aria-labelledby="wm-d-title" hidden></article>
+    </aside>
+  </div>
+  <p class="wm-sr" id="wm-live" role="status" aria-live="polite"></p>
 </section>
 <section id="landing" class="hidden" aria-labelledby="landing-title">
   <h2 id="landing-title" tabindex="-1">Overview</h2>
@@ -5472,25 +6013,54 @@ async function switchAutodev(mode) {
 
 // --- Work map: the work maps of the registered repositories, read-only --------------------------
 //
-// The list names each repository's maps, newest first. An open map is drawn as a graph: a node's
-// border and stripe repeat its status, which its text also names with its level; edges are drawn by
-// type, and the running (prepared) stage, or else the one that changed last, is ringed. The page
-// polls the open map while it shows. A node opens its record; its stored result is fetched only on
-// an explicit click and shown as text. #workmap/<workspace>/<task id>, or #workmap/<task id>, opens
-// one map directly; the address bar keeps the open map's link.
+// One map at a time, chosen in the summary's select: what it is and how far it is (the goal, open or
+// closed, revision and last change, a stacked bar and a chip per category), what runs now and what
+// needs attention; then the graph, top to bottom in dependency order with the goal last, and the panel
+// of the node selected in it. Everything is drawn here, in the browser, from the daemon's read-only
+// routes: no model is asked anything. The visual design decides the look (tokens, card anatomy,
+// layout direction, motion), the information design what each mark encodes and what each state means;
+// docs/workmap-plan.md ("Web view and footer link") lists where the two differed and what was chosen.
+// The page polls the open map; a stored result is fetched only on an explicit click and shown as text.
+// #workmap opens the most recently changed open map, #workmap/<task id> or
+// #workmap/<workspace>/<task id> one map; the address bar keeps the open map's link.
 
 const WORKMAP_POLL_MS = 5000;
-const WORKMAP_LIST_EVERY = 6;  // the list refreshes on every sixth poll of the open map
-const WM_STATUS_LABEL = { planned: "planned", prepared: "running", validated: "validated",
+const WORKMAP_LIST_EVERY = 6;  // the map list refreshes on every sixth poll of the open map
+const WM_SETTLED = ["validated", "verified", "accepted"];
+const WM_SET_ASIDE = ["refuted", "superseded"];
+const WM_UNSETTLING = ["refuted", "superseded", "disputed"];
+const WM_LEVELS = ["V0", "V1", "V2", "V3", "V4"];
+// The words follow the text view's: the store's status names, but a prepared node is "running" (the
+// server issued its package; it cannot see the worker).
+const WM_STATUS_WORD = { planned: "planned", prepared: "running", validated: "validated",
   needs_attention: "needs attention", verified: "verified", disputed: "disputed", accepted: "accepted",
   refuted: "refuted", superseded: "superseded", blocked: "blocked" };
-const WM_EDGE_LABEL = { depends_on: "depends on", verifies: "verifies", supersedes: "supersedes",
-  contradicts: "contradicts" };
-const WM_NODE = { width: 216, height: 70, gapX: 76, gapY: 28, pad: 26 };
+const WM_STATUS_ICON = { planned: null, prepared: "dot", validated: "check", accepted: "check", verified: "check",
+  needs_attention: "bang", disputed: "neq", refuted: "cross", superseded: "replaced", blocked: "slash" };
+// The summary's categories, exclusive and in this order of precedence: [category, words, the status
+// whose disc its chip borrows]. Set aside is counted beside the bar, not in it.
+const WM_CATEGORIES = [["done", "done", "accepted"], ["running", "running", "prepared"], ["ready", "ready", "planned"],
+  ["waiting", "waiting", "planned"], ["action", "need action", "needs_attention"], ["blocked", "blocked", "blocked"],
+  ["aside", "set aside", "refuted"]];
+// What a level means: a short word on the ladder, the full sentence beside it.
+const WM_LEVEL_WORDS = { V0: "no result", V1: "completed", V2: "self-checked", V3: "reviewed", V4: "owner" };
+const WM_LEVEL_SENTENCE = { V0: "no result yet", V1: "completed, with no check passed",
+  V2: "the worker's own checks passed (self-reported; the server reruns nothing)",
+  V3: "an independent review found no critical or high issue", V4: "accepted by the owner" };
+const WM_RISK_WORDS = { routine: "routine", load_bearing: "load-bearing", critical: "critical" };
+const WM_KIND_WORDS = { goal: "Goal", stage: "Stage", decision: "Decision", question: "Question" };
+const WM_VERDICT_WORDS = { pending: "pending", clean: "no critical or high", found: "critical or high found",
+  older: "checked an older result", none: "no verdict", withdrawn: "withdrawn" };
+const WM_VERDICT_SHORT = { ...WM_VERDICT_WORDS, clean: "clean", found: "critical or high", older: "older result" };
+// padX, padY: the stage's padding across and down (the top keeps room for the floating tools).
+const WM_ZOOM = { min: 50, max: 160, step: 5, auto: 75, padX: 32, padY: 68 };
+const WM_THEME_KEY = "agents-core.theme";
+const WM_LIST_MAX = 5;  // ids a summary line names before "and N more"
 const SVG_NS = "http://www.w3.org/2000/svg";
 // `gen` drops an answer for a map or node that another one overtook; `listGen` does so for the list.
-const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, node: null, record: null,
-  timer: null, ticks: 0, result: null };
+const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, view: null, node: null,
+  record: null, timer: null, ticks: 0, result: null, zoom: 100, autoFit: true, filter: null, hovered: null,
+  frame: 0, structure: "", ages: [], changed: new Map(), cards: new Map() };
 
 // #workmap, #workmap/<task id> or #workmap/<workspace>/<task id>; null for any other fragment.
 function workmapLink(hash) {
@@ -5505,83 +6075,377 @@ function workmapHash(workspace, task) {
   return "#workmap/" + (workspace ? encodeURIComponent(workspace) + "/" : "") + encodeURIComponent(task);
 }
 
-// Columns by dependency: a node stands right of what it depends on or verifies, so a goal, which
-// nothing may depend on, heads the first column; within a column a node goes near the rows of what it
-// follows. Pure, so the tests can call it.
-function workmapLayout(nodes, edges) {
-  const { width: W, height: H, gapX, gapY, pad } = WM_NODE;
+// The map #workmap opens: the open map changed last in any registered workspace, else the map changed
+// last. A thread working on a map changes it, so its own map is the one this finds.
+function workmapLatest(list) {
+  let best = null;
+  for (const repo of list || []) {
+    for (const item of repo.maps || []) {
+      const key = [item.closed ? 0 : 1, item.updated || ""];
+      if (!best || key[0] > best.key[0] || (key[0] === best.key[0] && key[1] > best.key[1])) {
+        best = { key, workspace: repo.workspace, task: item.task_id };
+      }
+    }
+  }
+  return best && { workspace: best.workspace, task: best.task };
+}
+
+// --- what the view derives from a map (pure, so the tests call them) ----------------------------
+
+// The map's nodes and edges indexed once: what every derivation below asks.
+function workmapIndex(data) {
+  const byId = new Map(data.nodes.map((item) => [item.id, item]));
+  const out = new Map(), into = new Map();
+  const push = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
+  for (const edge of data.edges) {
+    if (!byId.has(edge.from) || !byId.has(edge.to)) continue;
+    push(out, edge.from + "\n" + edge.type, edge.to);
+    push(into, edge.to + "\n" + edge.type, edge.from);
+  }
+  return { byId, targets: (id, type) => out.get(id + "\n" + type) || [],
+           sources: (id, type) => into.get(id + "\n" + type) || [] };
+}
+
+const wmLive = (item) => !WM_SET_ASIDE.includes(item.status);
+const wmBelow = (item) => WM_SETTLED.includes(item.status) && !item.settled;
+
+// A node's category: set aside, blocked, needs action (view.needs_attention), done (settled), running
+// (prepared), ready or waiting; first match. A goal has none of its own.
+function workmapCategory(item) {
+  if (item.kind === "goal") return "goal";
+  if (WM_SET_ASIDE.includes(item.status)) return "aside";
+  if (item.status === "blocked") return "blocked";
+  if (item.attention) return "action";
+  if (item.settled) return "done";
+  if (item.status === "prepared") return "running";
+  return item.ready ? "ready" : "waiting";
+}
+
+// The verdict of verifier `verifier` on `target`, from the verifier's own node and the result it was
+// given (its pin): pending while it has no review result, older when it checked a result the target no
+// longer holds, then whether its findings hold a critical or high one.
+function workmapVerdict(verifier, target) {
+  if (WM_SET_ASIDE.includes(verifier.status)) return "withdrawn";
+  if (verifier.status === "planned" || verifier.status === "prepared") return "pending";
+  if (!verifier.findings || verifier.status === "needs_attention") return "none";
+  const pin = (verifier.inputs || {})[target.id];
+  if (pin && target.result_sha256 && pin !== target.result_sha256) return "older";
+  return verifier.findings.critical || verifier.findings.high ? "found" : "clean";
+}
+
+// Who acts on a node, derived (the map records no actor): "you" for a decision or question that is
+// ready, or a critical node below V3 with no live verifier; "checking" for a node below its need whose
+// verifier runs or is ready, so nobody acts until it returns; "orchestrator" for any other node that
+// needs action. Null when nothing is asked.
+function workmapWho(item, index) {
+  if ((item.kind === "decision" || item.kind === "question") && item.ready) return "you";
+  if (!item.attention) return null;
+  if (wmBelow(item)) {
+    const verifiers = index.sources(item.id, "verifies").map((id) => index.byId.get(id));
+    if (verifiers.some((other) => other.status === "prepared" || other.ready)) return "checking";
+    if (item.risk === "critical" && !verifiers.some(wmLive)) return "you";
+  }
+  return "orchestrator";
+}
+
+function wmIds(ids, max = WM_LIST_MAX) {
+  return ids.slice(0, max).join(", ") + (ids.length > max ? ` and ${ids.length - max} more` : "");
+}
+
+// Why a node needs someone, in a phrase built from its stored fields; `brief` leaves out the advice
+// on what to do, for the summary's lists (the panel says it in full).
+function workmapReason(item, index, brief = false) {
+  const parts = [];
+  if ((item.kind === "decision" || item.kind === "question") && item.ready) {
+    parts.push(item.kind === "decision" ? "decision ready to take" : "question ready to answer");
+  }
+  if (item.status === "disputed") {
+    const by = index.sources(item.id, "verifies").filter((id) => workmapVerdict(index.byId.get(id), item) === "found");
+    parts.push(by.length ? "disputed by " + wmIds(by) : "disputed");
+  }
+  if (item.result_status === "partial") parts.push("partial result");
+  if (item.result_status === "failed") parts.push("worker failed");
+  if (item.result_status === "input_required") parts.push("asks: " + clip(item.question || "a question", 80));
+  if (item.checks && item.checks.failed) {
+    const total = item.checks.passed + item.checks.failed + item.checks.not_run;
+    parts.push(`${item.checks.failed} of ${total} checks failed`);
+  }
+  if (item.invalid) parts.push(`${item.invalid}/5 invalid submissions` + (item.invalid_codes.length ? ` (${item.invalid_codes.join(", ")})` : ""));
+  if (wmBelow(item)) {
+    const verifiers = index.sources(item.id, "verifies");
+    const running = verifiers.filter((id) => { const other = index.byId.get(id); return other.status === "prepared" || other.ready; });
+    parts.push(`${item.level} of ${item.needs} needed` + (running.length ? ", checked by " + wmIds(running)
+      : brief ? "" : item.risk === "critical" ? ": add a verifier, or your V4" : ": add a verifier, or accept"));
+  }
+  if (item.escalation && item.escalation.complexity) parts.push("escalate: complexity " + item.escalation.complexity);
+  if (item.stale) {
+    const holding = index.targets(item.id, "depends_on").filter((id) => WM_UNSETTLING.includes(index.byId.get(id).status));
+    parts.push("stale: depends on " + holding.map((id) => `${id} (${index.byId.get(id).status})`).join(", "));
+  }
+  return parts.join(", ") || WM_STATUS_WORD[item.status] || item.status;
+}
+
+// The layout: layers top to bottom, the goal last. depends_on {from X, to Y} puts Y above X and
+// verifies {from V, to T} puts T above V; supersedes and contradicts place nothing. A layer is the
+// longest path from a node without predecessors (rounds in the payload's order, which is the text
+// view's), so a status change never moves a card. A verifier docks in a tray under its first target
+// when everything else it follows sits higher; an edge that crosses layers runs through an empty lane
+// in each; within a layer, four rounds of barycentre sweeps keep the order with the fewest crossings.
+// With one goal and no edge into it, the nodes nothing follows lead to it by a derived connector.
+function workmapLayers(nodes, edges) {
   const ids = nodes.map((item) => item.id), known = new Set(ids);
-  const follows = new Map(ids.map((id) => [id, []]));
+  const tie = new Map(ids.map((id, index) => [id, index]));
+  const isGoal = new Map(nodes.map((item) => [item.id, item.kind === "goal"]));
+  const pred = new Map(ids.map((id) => [id, []])), succ = new Map(ids.map((id) => [id, []]));
+  const checks = new Map(ids.map((id) => [id, []]));
   for (const edge of edges) {
     if (!known.has(edge.from) || !known.has(edge.to) || edge.from === edge.to) continue;
-    if (edge.type === "depends_on" || edge.type === "verifies") follows.get(edge.from).push(edge.to);
+    if (edge.type === "verifies") checks.get(edge.from).push(edge.to);
+    if ((edge.type === "depends_on" || edge.type === "verifies") && !pred.get(edge.from).includes(edge.to)) {
+      pred.get(edge.from).push(edge.to);
+      succ.get(edge.to).push(edge.from);
+    }
   }
-  const column = new Map(), visiting = new Set();
-  const depth = (id) => {
-    if (column.has(id)) return column.get(id);
-    if (visiting.has(id)) return 0;  // a cycle cannot be written, but a damaged map must still draw
-    visiting.add(id);
-    let value = 0;
-    for (const target of follows.get(id)) value = Math.max(value, depth(target) + 1);
-    visiting.delete(id);
-    column.set(id, value);
+  const work = ids.filter((id) => !isGoal.get(id)), goals = ids.filter((id) => isGoal.get(id));
+  // Rounds: each places, in tie order, what the earlier rounds released; a cycle (a damaged log) puts
+  // everything left into the next round, as view.ordered does.
+  const rounds = (members, predOf) => {
+    const layer = new Map(), inside = new Set(members);
+    const waiting = new Map(members.map((id) => [id, predOf(id).filter((other) => inside.has(other)).length]));
+    let round = members.filter((id) => !waiting.get(id)), depth = 0;
+    while (layer.size < members.length) {
+      if (!round.length) round = members.filter((id) => !layer.has(id));
+      for (const id of round) layer.set(id, depth);
+      const next = new Set();
+      for (const id of round) {
+        for (const other of members) {
+          if (layer.has(other) || !predOf(other).includes(id)) continue;
+          waiting.set(other, waiting.get(other) - 1);
+          if (waiting.get(other) <= 0) next.add(other);
+        }
+      }
+      round = [...next].sort((a, b) => tie.get(a) - tie.get(b));
+      depth += 1;
+    }
+    return layer;
+  };
+  const first = rounds(work, (id) => pred.get(id));
+  const docked = new Map();  // verifier -> the card it docks under
+  for (const id of work) {
+    const host = checks.get(id)[0];
+    if (host === undefined || isGoal.get(host) || checks.get(host).length) continue;
+    if (pred.get(id).some((other) => other !== host && !(first.get(other) < first.get(host)))) continue;
+    docked.set(id, host);
+  }
+  const groupOf = (id) => docked.get(id) || id;
+  const hosts = work.filter((id) => !docked.has(id));
+  const groupPred = new Map(hosts.map((id) => [id, []]));
+  for (const id of work) {
+    for (const other of pred.get(id)) {
+      if (isGoal.get(other)) continue;
+      const [from, to] = [groupOf(other), groupOf(id)];
+      if (from !== to && !groupPred.get(to).includes(from)) groupPred.get(to).push(from);
+    }
+  }
+  const layerOf = rounds(hosts, (id) => groupPred.get(id));
+  const last = hosts.length ? Math.max(...layerOf.values()) + 1 : 0;
+  for (const id of goals) layerOf.set(id, last);
+  // Derived connectors: one goal that nothing leads into, and the nodes nothing follows.
+  const derived = [];
+  if (goals.length === 1 && !pred.get(goals[0]).length) {
+    for (const id of work) if (!succ.get(id).length) derived.push([id, goals[0]]);
+  }
+  // Flow edges between groups, as the layout sees them: [key, from group, to group].
+  const flows = [];
+  for (const edge of edges) {
+    if (!known.has(edge.from) || !known.has(edge.to) || edge.from === edge.to) continue;
+    const key = `${edge.from}|${edge.to}|${edge.type}`;
+    if (edge.type === "depends_on") flows.push([key, groupOf(edge.to), groupOf(edge.from)]);
+    else if (edge.type === "verifies" && docked.get(edge.from) !== edge.to) flows.push([key, groupOf(edge.to), groupOf(edge.from)]);
+  }
+  for (const [from, to] of derived) flows.push([`${from}|${to}|derived`, groupOf(from), to]);
+  const layers = [];
+  const put = (entry, k) => { (layers[k] = layers[k] || []).push(entry); };
+  for (const id of [...hosts, ...goals]) put(id, layerOf.get(id));
+  for (let k = 0; k < layers.length; k++) layers[k] = layers[k] || [];
+  const via = {}, segments = [], order = new Map(tie);
+  let lanes = 0;
+  for (const [key, from, to] of flows) {
+    const a = layerOf.get(from), b = layerOf.get(to);
+    if (from === to || b <= a) continue;  // a back edge: drawn, but it places nothing
+    const points = [from];
+    for (let k = a + 1; k < b; k++) {
+      const lane = `wm-lane-${lanes++}`;
+      put(lane, k);
+      order.set(lane, tie.get(from) + 0.5);
+      layerOf.set(lane, k);
+      points.push(lane);
+    }
+    points.push(to);
+    if (points.length > 2) via[key] = points.slice(1, -1);
+    for (let i = 0; i + 1 < points.length; i++) segments.push([points[i], points[i + 1]]);
+  }
+  for (const entries of layers) entries.sort((a, b) => order.get(a) - order.get(b));
+  const above = new Map(), below = new Map();
+  const add = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
+  for (const [a, b] of segments) { add(below, a, b); add(above, b, a); }
+  const positions = () => { const at = new Map(); layers.forEach((entries) => entries.forEach((id, i) => at.set(id, i))); return at; };
+  const crossings = () => {
+    const at = positions();
+    let total = 0;
+    for (let k = 0; k + 1 < layers.length; k++) {
+      const pairs = segments.filter(([a]) => layerOf.get(a) === k).map(([a, b]) => [at.get(a), at.get(b)]);
+      for (let i = 0; i < pairs.length; i++) {
+        for (let j = i + 1; j < pairs.length; j++) if ((pairs[i][0] - pairs[j][0]) * (pairs[i][1] - pairs[j][1]) < 0) total += 1;
+      }
+    }
+    return total;
+  };
+  const sweep = (k, neighbours) => {
+    const at = positions();
+    const key = new Map(layers[k].map((id, i) => {
+      const near = (neighbours.get(id) || []).map((other) => at.get(other));
+      return [id, near.length ? near.reduce((sum, value) => sum + value, 0) / near.length : i];
+    }));
+    layers[k] = layers[k].map((id, i) => [id, i]).sort((x, y) => (key.get(x[0]) - key.get(y[0])) || (x[1] - y[1]))
+      .map(([id]) => id);
+  };
+  let best = layers.map((entries) => [...entries]), fewest = crossings();
+  for (let round = 0; round < 4 && fewest; round++) {
+    for (let k = 1; k < layers.length; k++) sweep(k, above);
+    for (let k = layers.length - 2; k >= 0; k--) sweep(k, below);
+    const count = crossings();
+    if (count < fewest) { fewest = count; best = layers.map((entries) => [...entries]); }
+  }
+  const verifiersOf = (id) => work.filter((other) => docked.get(other) === id);
+  return {
+    layers: best.map((entries) => entries.map((id) => (id.startsWith("wm-lane-") ? { id, lane: true }
+      : { id, lane: false, verifiers: verifiersOf(id) }))),
+    layer: Object.fromEntries([...layerOf].filter(([id]) => !id.startsWith("wm-lane-"))),
+    docked: Object.fromEntries(docked), via, derived, crossings: fewest,
+  };
+}
+
+// The longest remaining chain, a critical path without durations (the map holds none): along
+// depends_on and verifies to the goal, an unsettled live stage counts 1 and a settled one 0. Its band
+// is every unsettled node and edge on a heaviest path, its frontier what the goal waits on now.
+function workmapChain(data, index, layout) {
+  const nodes = data.nodes.filter((item) => item.kind !== "goal" && wmLive(item));
+  const live = new Set(nodes.map((item) => item.id));
+  const goals = data.nodes.filter((item) => item.kind === "goal").map((item) => item.id);
+  const weight = (id) => (index.byId.get(id).settled ? 0 : 1);
+  const after = (id) => [...index.sources(id, "depends_on"), ...index.sources(id, "verifies")].filter((other) => live.has(other));
+  const before = (id) => [...index.targets(id, "depends_on"), ...index.targets(id, "verifies")].filter((other) => live.has(other));
+  const toGoal = new Set();
+  for (const goal of goals) for (const id of index.targets(goal, "depends_on")) toGoal.add(id);
+  for (const [id] of layout.derived) if (live.has(id)) toGoal.add(id);
+  // A live node nothing live follows also ends the plan when its only followers were set aside.
+  if (goals.length === 1 && !index.targets(goals[0], "depends_on").length) {
+    for (const id of live) if (!after(id).length) toGoal.add(id);
+  }
+  // rest: the heaviest path from a node to the goal, the node included; head: from a source to the
+  // node, the node excluded. Both are memoized walks, so a verifier counts after the node it checks
+  // whatever order the payload lists them in; a cycle (a damaged log) stops a walk.
+  const rest = new Map(), head = new Map(), visiting = new Set();
+  const restOf = (id) => {
+    if (rest.has(id)) return rest.get(id);
+    if (visiting.has("r" + id)) return -Infinity;
+    visiting.add("r" + id);
+    let tail = toGoal.has(id) ? 0 : -Infinity;
+    for (const other of after(id)) tail = Math.max(tail, restOf(other));
+    visiting.delete("r" + id);
+    const value = tail === -Infinity ? -Infinity : weight(id) + tail;
+    rest.set(id, value);
     return value;
   };
-  ids.forEach(depth);
-  const columns = [];
-  for (const id of ids) (columns[column.get(id)] = columns[column.get(id)] || []).push(id);
-  const row = new Map();
-  columns.forEach((members = [], index) => {
-    const order = new Map(members.map((id, position) => [id, position]));
-    const centre = (id) => {
-      const rows = follows.get(id).filter((target) => row.has(target)).map((target) => row.get(target));
-      return rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : Infinity;
-    };
-    if (index) members.sort((a, b) => (centre(a) - centre(b)) || (order.get(a) - order.get(b)));
-    members.forEach((id, position) => row.set(id, position));
-    columns[index] = members;
-  });
-  const tallest = Math.max(1, ...columns.map((members = []) => members.length));
-  const positions = {};
-  columns.forEach((members = [], index) => {
-    const offset = (tallest - members.length) / 2;
-    members.forEach((id, position) => {
-      positions[id] = { x: pad + index * (W + gapX), y: pad + (offset + position) * (H + gapY), column: index, row: position };
-    });
-  });
-  return { positions, columns: columns.length,
-           width: pad * 2 + Math.max(1, columns.length) * (W + gapX) - gapX,
-           height: pad * 2 + tallest * (H + gapY) - gapY };
-}
-
-// A curve between two boxes: side to side across columns; within one, out of the right sides and
-// around, clear of the boxes between them. `shift` separates two edges between the same pair.
-function workmapEdgePath(from, to, shift = 0) {
-  const { width: W, height: H } = WM_NODE;
-  const midY = (box) => box.y + H / 2 + shift;
-  if (to.x !== from.x) {
-    const forward = to.x > from.x;
-    const sx = forward ? from.x + W : from.x, ex = forward ? to.x : to.x + W;
-    const bend = (ex - sx) / 2;
-    return `M${sx} ${midY(from)} C${sx + bend} ${midY(from)} ${ex - bend} ${midY(to)} ${ex} ${midY(to)}`;
+  const headOf = (id) => {
+    if (head.has(id)) return head.get(id);
+    if (visiting.has("h" + id)) return 0;
+    visiting.add("h" + id);
+    let value = 0;
+    for (const other of before(id)) value = Math.max(value, headOf(other) + weight(other));
+    visiting.delete("h" + id);
+    head.set(id, value);
+    return value;
+  };
+  const sorted = data.nodes.map((item) => item.id).filter((id) => live.has(id));
+  for (const id of sorted) { headOf(id); restOf(id); }
+  let length = 0;
+  for (const id of sorted) if (Number.isFinite(restOf(id))) length = Math.max(length, head.get(id) + restOf(id));
+  const band = new Set(), edges = new Set();
+  if (length > 0 && !data.closed) {
+    for (const id of sorted) if (weight(id) && head.get(id) + restOf(id) === length) band.add(id);
+    for (const edge of data.edges) {
+      const [a, b] = edge.type === "depends_on" ? [edge.to, edge.from] : edge.type === "verifies" ? [edge.to, edge.from] : [null, null];
+      if (a && live.has(a) && live.has(b) && head.get(a) + weight(a) + restOf(b) === length) edges.add(`${edge.from}|${edge.to}|${edge.type}`);
+    }
+    for (const [id, goal] of layout.derived) {
+      if (live.has(id) && toGoal.has(id) && head.get(id) + weight(id) === length) edges.add(`${id}|${goal}|derived`);
+    }
+    for (const goal of goals) {
+      for (const id of index.targets(goal, "depends_on")) {
+        if (live.has(id) && head.get(id) + weight(id) === length) edges.add(`${goal}|${id}|depends_on`);
+      }
+    }
   }
-  const x = from.x + W, bow = 28 + Math.min(Math.abs(to.y - from.y) / 6, 40) + Math.abs(shift);
-  return `M${x} ${midY(from)} C${x + bow} ${midY(from)} ${x + bow} ${midY(to)} ${x} ${midY(to)}`;
+  const frontier = [...band].filter((id) => {
+    const item = index.byId.get(id), category = workmapCategory(item);
+    return category === "running" || category === "ready" || category === "blocked"
+      || (category === "action" && workmapWho(item, index) !== "checking");
+  });
+  return { length: band.size ? length : 0, band, edges, frontier };
 }
 
-function workmapStatusLine(item) {
-  return `${WM_STATUS_LABEL[item.status] || item.status} · ${item.level} · ${item.kind}`;
+// Everything the page shows that it derives, computed once per answer of the map route.
+function workmapView(data, layout) {
+  const index = workmapIndex(data);
+  const view = { data, index, layout, categories: new Map(), who: new Map(), counts: {} };
+  for (const [category] of WM_CATEGORIES) view.counts[category] = 0;
+  for (const item of data.nodes) {
+    const category = workmapCategory(item);
+    view.categories.set(item.id, category);
+    if (category !== "goal") view.counts[category] += 1;
+    const who = workmapWho(item, index);
+    if (who) view.who.set(item.id, who);
+  }
+  view.chain = workmapChain(data, index, layout);
+  view.verifier = (id) => index.targets(id, "verifies").length > 0;
+  return view;
 }
 
-function workmapDetailLine(item) {
-  const parts = [];
-  if (item.checks) parts.push(`checks ${item.checks.passed}✓ ${item.checks.failed}✗ ${item.checks.not_run}–`);
-  if (item.result_status) parts.push(item.result_status);
-  if (item.stale) parts.push("stale");
-  else if (item.ready) parts.push("ready");
-  if (item.attention && item.status !== "needs_attention") parts.push("needs the parent");
-  return parts.join(" · ") || `risk ${item.risk}`;
+// "13m", "2h 5m", "3d": how long ago `iso` was, compact enough for a card.
+function workmapAge(iso, now = Date.now()) {
+  const seconds = (now - Date.parse(iso || "")) / 1000;
+  if (!Number.isFinite(seconds)) return "";
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h` + (minutes % 60 ? ` ${minutes % 60}m` : "");
+  return `${Math.floor(minutes / 1440)}d`;
 }
+
+function workmapClock(iso) {
+  const at = new Date(iso || "");
+  if (Number.isNaN(at.getTime())) return "";
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+// The status word a card shows: "running" for prepared, "open" or "closed" for a goal that stands.
+function workmapStatusWord(item, data) {
+  if (item.kind === "goal" && !["refuted", "superseded", "blocked"].includes(item.status)) return data && data.closed ? "closed" : "open";
+  return WM_STATUS_WORD[item.status] || item.status;
+}
+
+// The level badge: [state, [[kind, level], ...]], or null where a level says nothing (a goal, a node
+// set aside or blocked). met: one solid box. target: one dashed box. gap: reached and needed.
+function workmapLevelBadge(item) {
+  if (item.kind === "goal" || ["refuted", "superseded", "blocked"].includes(item.status)) return null;
+  if (["planned", "prepared", "needs_attention"].includes(item.status)) return ["target", [["target", item.needs]]];
+  if (item.settled || WM_LEVELS.indexOf(item.level) >= WM_LEVELS.indexOf(item.needs)) return ["met", [["met", item.level]]];
+  return ["gap", [["met", item.level], ["target", item.needs]]];
+}
+
+// --- small builders -------------------------------------------------------------------------------
 
 function clip(text, limit) {
   text = String(text || "");
@@ -5596,23 +6460,164 @@ function svgNode(tag, parent, attrs = {}, text) {
   return element;
 }
 
-function workmapAlert(message, tone) {
-  const box = $("wm-alert");
-  box.textContent = message || "";
-  box.className = "notice" + (tone === "error" ? " error" : "") + (message ? "" : " hidden");
+function wmIcon(name, parent, extra = "") {
+  const icon = svgNode("svg", parent, { class: ("wm-i " + extra).trim(), viewBox: "0 0 16 16", "aria-hidden": "true",
+    focusable: "false" });
+  svgNode("use", icon, { href: "#wm-i-" + name });
+  return icon;
+}
+
+function wmDisc(status, parent) {
+  const disc = node("span", parent, null, "wm-disc");
+  if (WM_STATUS_ICON[status]) wmIcon(WM_STATUS_ICON[status], disc);
+  return disc;
+}
+
+function wmKindGlyph(item, parent, verifier) {
+  if (verifier) return wmIcon("verifier", parent, "wm-kind");
+  if (item.kind !== "stage") return wmIcon(item.kind, parent, "wm-kind");
+  return null;
+}
+
+// A stacked bar as SVG rects, segments a hairline apart. parts: [[class, count], ...].
+function wmBar(svg, parts, label) {
+  svg.replaceChildren();
+  const total = parts.reduce((sum, [, count]) => sum + count, 0) || 1;
+  const shown = parts.filter(([, count]) => count);
+  const room = 100 - 1.2 * Math.max(0, shown.length - 1);
+  let x = 0;
+  for (const [className, count] of shown) {
+    const width = room * count / total;
+    svgNode("rect", svg, { class: className, x: x.toFixed(2), y: 0, width: width.toFixed(2), height: 8 });
+    x += width + 1.2;
+  }
+  svg.setAttribute("aria-label", label);
+  return svg;
+}
+
+function wmBarSvg(parent, className = "wm-progress") {
+  return svgNode("svg", parent, { class: className, viewBox: "0 0 100 8", preserveAspectRatio: "none", role: "img" });
+}
+
+// The summary's bar: done (reviewed or owner-accepted first), running, ready, waiting, need action,
+// blocked, in this order.
+function wmProgress(svg, view) {
+  const done = view.data.nodes.filter((item) => view.categories.get(item.id) === "done");
+  const trusted = done.filter((item) => WM_LEVELS.indexOf(item.level) >= 3).length;
+  const counts = view.counts;
+  const label = WM_CATEGORIES.filter(([category]) => category !== "aside")
+    .map(([category, words]) => `${counts[category]} ${words}`).join(", ");
+  return wmBar(svg, [["wm-bar-verified", trusted], ["wm-bar-done", done.length - trusted], ["wm-bar-run", counts.running],
+    ["wm-bar-ready", counts.ready], ["wm-bar-idle", counts.waiting], ["wm-bar-attn", counts.action],
+    ["wm-bar-aside", counts.blocked]], label);
+}
+
+function wmLevelBadge(item, parent) {
+  const badge = workmapLevelBadge(item);
+  if (!badge) return null;
+  const box = node("span", parent, null, "wm-lvs");
+  box.dataset.lvs = badge[0];
+  box.setAttribute("aria-hidden", "true");
+  for (const [kind, level] of badge[1]) node("span", box, level, "wm-lv").dataset.lv = kind;
+  return box;
+}
+
+function wmRisk(item, parent) {
+  if (item.risk === "routine" || item.kind === "goal") return null;
+  const mark = node("span", parent, null, "wm-risk");
+  mark.dataset.risk = item.risk;
+  wmIcon(item.risk === "critical" ? "risk2" : "risk1", mark);
+  return mark;
+}
+
+// A node named in a list or a relation: a button that selects it. It names the id, the word the chat
+// and workmap_view use; the title is its tooltip.
+function wmJump(view, id, parent, note, since) {
+  const item = view.index.byId.get(id);
+  const button = node("button", parent, null, "wm-jump");
+  button.type = "button";
+  button.dataset.status = item.status;
+  button.dataset.go = id;
+  button.title = `${item.title} (${WM_STATUS_WORD[item.status] || item.status})`;
+  wmDisc(item.status, button);
+  const label = node("span", button, id);
+  if (note) {
+    label.appendChild(document.createTextNode(" "));
+    node("span", label, note, "wm-note");
+  }
+  if (since) wmAgeSpan(label, since, "wm-note", (age) => " " + age);
+  button.addEventListener("click", () => selectWorkmapNode(id, true));
+  return button;
+}
+
+// The elapsed time of a running node, kept current between polls (see refreshWorkmapAges).
+function wmAgeSpan(parent, iso, className, format = (age) => age) {
+  const span = node("span", parent, format(workmapAge(iso)), className);
+  wm.ages.push([span, iso, format]);
+  return span;
+}
+
+function refreshWorkmapAges() {
+  for (const [span, iso, format] of wm.ages) span.textContent = format(workmapAge(iso));
+}
+
+// --- theme: no attribute follows the system, data-theme="light" or "dark" overrides it ---------------
+
+function storedTheme() { try { return localStorage.getItem(WM_THEME_KEY); } catch (_) { return null; } }
+
+function setTheme(theme, remember) {
+  const root = document.documentElement;
+  if (theme !== "light" && theme !== "dark") theme = "auto";
+  if (root) {
+    if (theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
+  }
+  for (const button of $("theme").children || []) {
+    const on = button.dataset.theme === theme;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-pressed", String(on));
+  }
+  if (remember) { try { localStorage.setItem(WM_THEME_KEY, theme); } catch (_) {} }
+}
+
+for (const button of $("theme").children || []) button.addEventListener("click", () => setTheme(button.dataset.theme, true));
+setTheme(storedTheme(), false);
+
+// --- the page -------------------------------------------------------------------------------------
+
+function wmNarrow() {
+  try { return window.matchMedia("(max-width: 760px)").matches; } catch (_) { return false; }
+}
+
+function wmCalm() {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { return false; }
+}
+
+function workmapAlert(message) {
+  $("wm-alert-text").textContent = message || "";
+  $("wm-alert").hidden = !message;
 }
 
 function workmapFailed(error) {
-  if (!error.signedOut) workmapAlert(error.message, "error");
+  if (error.signedOut) return;
+  if (wm.data) workmapAlert(`Could not refresh the map (${error.message}). Showing revision ${wm.data.revision}`
+    + (wm.data.updated ? ` as of ${workmapClock(wm.data.updated)}.` : "."));
+  else setWorkmapState("error", error.message);
+}
+
+function setWorkmapState(value, message) {
+  $("workmap-page").dataset.state = value;
+  if (value === "error") $("wm-error-text").textContent = message || "";
 }
 
 async function showWorkmapPage(link) {
   wm.shown = true;
   $("workmap-page").classList.remove("hidden");
-  $("workmap-title").focus();
+  $("wm-title").focus();
+  if (!wm.data) setWorkmapState("loading");
   await loadWorkmapList();
-  const target = link && link.task ? link : wm.open;
-  if (target && target.task) await openWorkmap(target.workspace, target.task, true).catch(workmapFailed);
+  const target = link && link.task ? link : (link ? workmapLatest(wm.list) : wm.open || workmapLatest(wm.list));
+  if (target && target.task) await openWorkmap(target.workspace, target.task, Boolean(wm.open && !link)).catch(workmapFailed);
+  else if (wm.list && !wm.list.length) setWorkmapState("empty");
   if (!wm.timer) scheduleWorkmapPoll();
 }
 
@@ -5635,35 +6640,30 @@ async function loadWorkmapList() {
   }
   if (gen !== wm.listGen) return;
   wm.list = data.workspaces || [];
-  renderWorkmapList();
+  renderWorkmapPicker();
 }
 
-function renderWorkmapList() {
-  const nav = $("wm-list");
-  nav.replaceChildren();
-  if (!wm.list || !wm.list.length) {
-    node("div", nav, "No work maps yet. A parent session creates one with workmap_update.", "meta");
-    return;
-  }
-  for (const repo of wm.list) {
-    node("h3", nav, repo.name + (repo.unreadable ? " (unreadable)" : ""));
+// The select names every listed map, grouped by repository, newest first.
+function renderWorkmapPicker() {
+  const select = $("wm-map");
+  select.replaceChildren();
+  for (const repo of wm.list || []) {
+    const group = node("optgroup", select);
+    group.label = repo.name + (repo.unreadable ? " (unreadable)" : "")
+      + (repo.total > repo.maps.length ? ` (${repo.total - repo.maps.length} older not listed)` : "");
     for (const item of repo.maps) {
-      const button = node("button", nav, null, "wm-map");
-      button.type = "button";
-      const current = wm.open && wm.open.workspace === repo.workspace && wm.open.task === item.task_id;
-      button.setAttribute("aria-current", String(Boolean(current)));
-      node("strong", button, item.task_id);
-      if (item.goal) node("span", button, item.goal);
-      const line = node("span", button, null, "meta");
-      node("span", line, item.closed ? "closed" : "open", "wm-chip" + (item.closed ? "" : " open"));
-      const counts = Object.entries(item.counts || {}).map(([status, count]) => `${WM_STATUS_LABEL[status] || status} ${count}`);
-      line.appendChild(document.createTextNode(" " + (counts.join(", ") || "empty")));
-      if (item.updated) node("span", button, "changed " + item.updated.replace("T", " ").replace("Z", " UTC"), "meta");
-      button.addEventListener("click", () => openWorkmap(repo.workspace, item.task_id).catch(workmapFailed));
+      const option = node("option", group, item.task_id + (item.closed ? " (closed)" : ""));
+      option.value = JSON.stringify([repo.workspace, item.task_id]);
+      option.selected = Boolean(wm.open && wm.open.workspace === repo.workspace && wm.open.task === item.task_id);
     }
-    if (repo.total > repo.maps.length) node("div", nav, `${repo.total - repo.maps.length} older maps not listed`, "meta");
   }
 }
+
+$("wm-map").addEventListener("change", () => {
+  let choice;
+  try { choice = JSON.parse($("wm-map").value); } catch (_) { return; }
+  openWorkmap(choice[0], choice[1]).catch(workmapFailed);
+});
 
 async function openWorkmap(workspace, task, keepNode = false) {
   const gen = ++wm.gen;
@@ -5674,19 +6674,18 @@ async function openWorkmap(workspace, task, keepNode = false) {
     data = await api("/ui/api/workmap/map?" + query.toString());
   } catch (error) {
     if (gen !== wm.gen) return;
-    wm.open = null; wm.data = null;
-    renderWorkmap();
+    wm.open = null; wm.data = null; wm.view = null;
     throw error;
   }
   if (gen !== wm.gen || !wm.shown) return;
   workmapAlert("");
   const same = wm.open && wm.open.workspace === data.workspace && wm.open.task === data.task_id;
   wm.open = { workspace: data.workspace, task: data.task_id };
-  wm.data = data;
-  if (!(same || keepNode) || (wm.node && !data.nodes.some((item) => item.id === wm.node))) closeWorkmapNode();
+  if (!same) { wm.data = null; wm.filter = null; wm.autoFit = true; }
+  if (!(same || keepNode) || (wm.node && !data.nodes.some((item) => item.id === wm.node))) closeWorkmapNode(false);
   history.replaceState(null, "", location.pathname + workmapHash(data.workspace, data.task_id));
-  renderWorkmapList();
-  renderWorkmap();
+  renderWorkmapPicker();
+  applyWorkmap(data);
   if (wm.node) await loadWorkmapNode(wm.node);
   scheduleWorkmapPoll();
 }
@@ -5695,111 +6694,656 @@ function scheduleWorkmapPoll() {
   clearTimeout(wm.timer);
   wm.timer = null;
   if (!wm.shown) return;
-  wm.timer = setTimeout(() => pollWorkmap().catch(() => {}).finally(scheduleWorkmapPoll), WORKMAP_POLL_MS);
+  wm.timer = setTimeout(() => pollWorkmap().catch(workmapFailed).finally(scheduleWorkmapPoll), WORKMAP_POLL_MS);
 }
 
 async function pollWorkmap() {
   wm.ticks += 1;
   if (!wm.open || wm.ticks % WORKMAP_LIST_EVERY === 0) await loadWorkmapList();
-  if (!wm.open) return;
+  if (!wm.open) {
+    const latest = workmapLatest(wm.list);
+    if (latest) await openWorkmap(latest.workspace, latest.task);
+    return;
+  }
   const gen = wm.gen, { workspace, task } = wm.open;
   const data = await api("/ui/api/workmap/map?" + new URLSearchParams({ workspace, task_id: task }).toString());
   if (gen !== wm.gen || !wm.shown || !wm.open || wm.open.task !== task) return;
-  if (wm.data && data.revision === wm.data.revision && data.closed === wm.data.closed) return;
-  wm.data = data;
-  renderWorkmap();
+  workmapAlert("");
+  if (wm.data && data.revision === wm.data.revision && data.closed === wm.data.closed) {
+    refreshWorkmapAges();
+    return;
+  }
+  applyWorkmap(data);
   if (wm.node) await loadWorkmapNode(wm.node);
 }
 
-function renderWorkmapLegend(parent) {
-  const legend = node("div", parent);
-  legend.id = "wm-legend";
-  for (const [status, label] of Object.entries(WM_STATUS_LABEL)) {
-    const key = node("span", legend, null, "wm-key wm-s-" + status);
-    node("span", key, null, "wm-dot");
-    key.appendChild(document.createTextNode(label));
+// The structure the layout depends on: node ids and edges. Statuses repaint in place.
+function workmapStructure(data) {
+  return JSON.stringify([data.nodes.map((item) => [item.id, item.kind]),
+    data.edges.map((edge) => [edge.from, edge.to, edge.type]).sort()]);
+}
+
+function applyWorkmap(data) {
+  const before = wm.data;
+  const structure = workmapStructure(data);
+  const relaid = !wm.view || structure !== wm.structure;
+  const layout = relaid ? workmapLayers(data.nodes, data.edges) : wm.view.layout;
+  if (before && before.task_id === data.task_id) {
+    const was = new Map(before.nodes.map((item) => [item.id, item.status + item.level]));
+    for (const item of data.nodes) {
+      if (was.has(item.id) && was.get(item.id) !== item.status + item.level) wm.changed.set(item.id, Date.now());
+    }
   }
-  node("span", legend, "Edges: depends on (solid, from the prerequisite), verifies (dashed), supersedes (dotted), contradicts (red). Dashed ring: running now, or the last change.");
+  wm.data = data;
+  wm.structure = structure;
+  wm.view = workmapView(data, layout);
+  setWorkmapState(data.nodes.length ? "ready" : "empty");
+  renderWorkmap();
+  if (relaid) wm.autoFit = wm.autoFit || !before;
+  scheduleWorkmapEdges();
+  if (wm.changed.size) setTimeout(clearWorkmapChanged, 3000);
+}
+
+function clearWorkmapChanged() {
+  const now = Date.now();
+  for (const [id, at] of wm.changed) {
+    if (now - at < 2900) continue;
+    wm.changed.delete(id);
+    for (const card of wmCards()) if (card.dataset.id === id) delete card.dataset.changed;
+  }
+}
+
+// The cards on screen, by the order they were drawn: what selection, focus and the edges look up.
+function wmCards() {
+  return [...wm.cards.values()];
 }
 
 function renderWorkmap() {
-  const title = $("wm-title"), canvas = $("wm-canvas");
-  title.replaceChildren();
-  canvas.replaceChildren();
-  const data = wm.data;
-  if (!data) {
-    node("div", canvas, "Select a map.", "empty");
-    return;
+  const view = wm.view;
+  if (!view) return;
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
+  wm.ages = [];
+  renderWorkmapSummary(view);
+  renderWorkmapGraph(view);
+  const page = $("workmap-page");
+  page.setAttribute("aria-busy", "false");
+  if (focused) {
+    const card = wmCards().find((item) => item.dataset.id === focused);
+    if (card) card.focus();
   }
-  node("strong", title, data.task_id);
-  node("span", title, [data.goal || "no goal", data.closed ? "closed" : "open", `revision ${data.revision}`,
-    data.name, data.updated ? "changed " + data.updated.replace("T", " ").replace("Z", " UTC") : ""]
-    .filter(Boolean).join(" · "), "meta");
-  renderWorkmapLegend(title);
-  if (!data.nodes.length) {
-    node("div", canvas, "This map has no nodes yet.", "empty");
-    return;
+  if (wm.node) renderWorkmapNode();
+}
+
+// --- summary --------------------------------------------------------------------------------------
+
+function renderWorkmapSummary(view) {
+  const data = view.data, index = view.index;
+  const goal = data.nodes.find((item) => item.kind === "goal");
+  $("wm-goal").textContent = goal ? goal.title : data.task_id;
+  const flag = $("wm-flag");
+  flag.textContent = data.closed ? "closed" : "open";
+  flag.dataset.flag = data.closed ? "closed" : "open";
+  const changed = data.nodes.filter((item) => item.changed === data.revision).map((item) => item.id);
+  const ids = $("wm-ids");
+  ids.replaceChildren();
+  ids.title = [data.task_id, data.name].filter(Boolean).join(" in ");
+  ids.appendChild(document.createTextNode(`revision ${data.revision}`));
+  if (data.updated) {
+    ids.appendChild(document.createTextNode(` · last change ${workmapClock(data.updated)} (`));
+    wmAgeSpan(ids, data.updated, "", (age) => age + " ago");
+    ids.appendChild(document.createTextNode(")" + (changed.length ? ": " + wmIds(changed) : "")));
   }
-  const layout = workmapLayout(data.nodes, data.edges);
-  const { width: W, height: H } = WM_NODE;
-  const svg = svgNode("svg", canvas, { id: "wm-graph", width: layout.width, height: layout.height,
-    viewBox: `0 0 ${layout.width} ${layout.height}`, role: "group", "aria-label": `Work map ${data.task_id}` });
-  const defs = svgNode("defs", svg);
-  for (const type of Object.keys(WM_EDGE_LABEL)) {
-    const marker = svgNode("marker", defs, { id: "wm-arrow-" + type, viewBox: "0 0 10 10", refX: 9, refY: 5,
-      markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
-    svgNode("path", marker, { d: "M0 0 L10 5 L0 10 z", class: "wm-arrow-" + type });
-  }
-  const pairs = new Map();
-  for (const edge of data.edges) {
-    const a = layout.positions[edge.from], b = layout.positions[edge.to];
-    if (!a || !b) continue;
-    // depends_on runs from the prerequisite to its dependant, the way the work flows; the others
-    // point from the node that verifies, supersedes or contradicts to the one it names.
-    const [from, to] = edge.type === "depends_on" ? [b, a] : [a, b];
-    const pair = [edge.from, edge.to].sort().join(" ");
-    const index = pairs.get(pair) || 0;
-    pairs.set(pair, index + 1);
-    const path = svgNode("path", svg, { d: workmapEdgePath(from, to, index ? (index % 2 ? 7 : -7) * Math.ceil(index / 2) : 0),
-      class: "wm-edge wm-e-" + edge.type, "marker-end": `url(#wm-arrow-${edge.type})` });
-    svgNode("title", path, {}, `${edge.from} ${WM_EDGE_LABEL[edge.type] || edge.type} ${edge.to}`);
-  }
-  for (const item of data.nodes) {
-    const at = layout.positions[item.id];
-    const current = item.id === data.current, running = item.status === "prepared";
-    const group = svgNode("g", svg, { class: "wm-node wm-s-" + item.status + (current ? " wm-current" : "")
-      + (running ? " wm-running" : "") + (item.id === wm.node ? " wm-selected" : ""),
-      transform: `translate(${at.x} ${at.y})`, tabindex: 0, role: "button",
-      "aria-label": `${item.title}: ${workmapStatusLine(item)}${current ? running ? ", running now" : ", last change" : ""}` });
-    svgNode("title", group, {}, `${item.id}: ${item.title}`);
-    svgNode("rect", group, { class: "wm-ring", x: -5, y: -5, width: W + 10, height: H + 10, rx: 12 });
-    svgNode("rect", group, { class: "wm-box", width: W, height: H, rx: 8 });
-    svgNode("rect", group, { class: "wm-stripe", width: 6, height: H, rx: 3 });
-    svgNode("text", group, { class: "wm-title", x: 14, y: 20 }, clip(item.title, 27));
-    svgNode("text", group, { x: 14, y: 39 }, clip(workmapStatusLine(item), 32));
-    svgNode("text", group, { class: "wm-sub", x: 14, y: 57 }, clip(workmapDetailLine(item), 34));
-    if (current) svgNode("text", group, { class: "wm-badge", x: W - 4, y: -9, "text-anchor": "end" }, running ? "running" : "last change");
-    const open = () => openWorkmapNode(item.id).catch(workmapFailed);
-    group.addEventListener("click", open);
-    group.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+  ids.appendChild(document.createTextNode(` · updates every ${WORKMAP_POLL_MS / 1000} s`));
+  const total = data.nodes.filter((item) => item.kind !== "goal").length;
+  const settled = data.nodes.filter((item) => item.kind !== "goal" && item.settled).length;
+  wmProgress($("wm-progress"), view);
+  const text = $("wm-progress-text");
+  text.replaceChildren();
+  node("b", text, String(settled));
+  text.appendChild(document.createTextNode(` of ${total} settled` + (view.counts.aside ? ` · ${view.counts.aside} set aside` : "")));
+  const tiles = $("wm-tiles");
+  tiles.replaceChildren();
+  for (const [category, words, face] of WM_CATEGORIES) {
+    if (!view.counts[category]) continue;
+    const tile = node("button", tiles, null, "wm-tile");
+    tile.type = "button";
+    tile.dataset.cat = category;
+    tile.dataset.status = face;
+    tile.title = `Dim all but the nodes that are ${words}`;
+    tile.setAttribute("aria-pressed", String(wm.filter === category));
+    wmDisc(face, tile);
+    node("b", tile, String(view.counts[category]));
+    tile.appendChild(document.createTextNode(" " + words));
+    tile.addEventListener("click", () => {
+      wm.filter = wm.filter === category ? null : category;
+      for (const other of tiles.children) other.setAttribute("aria-pressed", String(other.dataset.cat === wm.filter));
+      applyWorkmapFilter();
     });
   }
+  applyWorkmapFilter();
+  const lists = $("wm-lists");
+  lists.replaceChildren();
+  const list = (kind, label) => {
+    const row = node("div", lists, null, "wm-list");
+    row.dataset.list = kind;
+    const head = node("span", row, null, "wm-list-label");
+    if (kind === "run") node("span", head, null, "wm-pulse").setAttribute("aria-hidden", "true");
+    head.appendChild(document.createTextNode(label));
+    return row;
+  };
+  const running = data.nodes.filter((item) => item.status === "prepared")
+    .sort((a, b) => String(a.since || "").localeCompare(String(b.since || "")));
+  if (running.length) {
+    const row = list("run", `Running now (${running.length})`);
+    for (const item of running) wmJump(view, item.id, row, null, item.since);
+  }
+  const asked = data.nodes.filter((item) => view.who.has(item.id));
+  if (asked.length) {
+    const row = list("attn", `Needs attention (${asked.length})`);
+    for (const [who, words] of [["you", "you"], ["orchestrator", "orchestrator"], ["checking", "being checked"]]) {
+      const members = asked.filter((item) => view.who.get(item.id) === who);
+      if (!members.length) continue;
+      node("span", row, words + ":", "wm-who");
+      for (const item of members) wmJump(view, item.id, row, workmapReason(item, index, true));
+    }
+  }
+  const ready = data.nodes.filter((item) => item.ready && !view.who.has(item.id));
+  if (ready.length) {
+    const row = list("next", `Next (${ready.length})`);
+    for (const item of ready.slice(0, WM_LIST_MAX)) wmJump(view, item.id, row);
+    if (ready.length > WM_LIST_MAX) node("span", row, `and ${ready.length - WM_LIST_MAX} more`, "wm-note");
+  }
+  if (view.chain.length) {
+    const row = list("path", `Longest remaining chain: ${view.chain.length} stage${view.chain.length === 1 ? "" : "s"}`);
+    if (view.chain.frontier.length) {
+      node("span", row, "now waiting on", "wm-note");
+      for (const id of view.chain.frontier.slice(0, WM_LIST_MAX)) wmJump(view, id, row);
+      if (view.chain.frontier.length > WM_LIST_MAX) node("span", row, `and ${view.chain.frontier.length - WM_LIST_MAX} more`, "wm-note");
+    }
+  }
 }
 
-function closeWorkmapNode() {
-  wm.node = null; wm.record = null; wm.result = null;
-  $("wm-node").classList.add("hidden");
-  $("wm-node").replaceChildren();
-  $("wm-view").classList.remove("with-node");
+function applyWorkmapFilter() {
+  const stage = $("wm-stage");
+  if (wm.filter) stage.dataset.filter = wm.filter; else delete stage.dataset.filter;
 }
 
-async function openWorkmapNode(id) {
-  if (wm.node !== id) wm.result = null;
+// --- graph ----------------------------------------------------------------------------------------
+
+function renderWorkmapGraph(view) {
+  const layers = $("wm-layers");
+  layers.replaceChildren();
+  $("wm-edges").replaceChildren();
+  wm.cards = new Map();
+  const count = view.layout.layers.length;
+  const steps = count - (view.data.nodes.some((item) => item.kind === "goal") ? 1 : 0);
+  $("wm-canvas").setAttribute("aria-label", `Work map graph: ${view.data.nodes.length} nodes in ${steps} step${steps === 1 ? "" : "s"}, in dependency order`);
+  view.layout.layers.forEach((entries, index) => {
+    const isGoalLayer = entries.some((entry) => !entry.lane && view.index.byId.get(entry.id).kind === "goal");
+    const caption = isGoalLayer ? "Goal" : `Step ${index + 1} of ${steps}`;
+    const row = node("li", layers, null, "wm-layer");
+    row.setAttribute("aria-label", caption);
+    node("span", row, caption, "wm-layer-cap wm-h").setAttribute("aria-hidden", "true");
+    for (const entry of entries) {
+      if (entry.lane) {
+        const lane = node("span", row, null, "wm-lane");
+        lane.id = entry.id;
+        lane.setAttribute("aria-hidden", "true");
+        continue;
+      }
+      const item = view.index.byId.get(entry.id);
+      const group = node("div", row, null, "wm-group");
+      group.dataset.kind = item.kind;
+      group.dataset.id = item.id;
+      group.appendChild(workmapCard(view, item, false));
+      if (entry.verifiers.length) {
+        const tray = node("ul", group, null, "wm-verifiers");
+        tray.setAttribute("aria-label", "Verifiers of " + item.title);
+        for (const id of entry.verifiers) node("li", tray).appendChild(workmapCard(view, view.index.byId.get(id), true));
+      }
+    }
+  });
+}
+
+// One node as a card (or, docked under the node it verifies, a pill). Its state row is hidden from
+// assistive technology, which hears one sentence instead.
+function workmapCard(view, item, pill) {
+  const data = view.data, index = view.index;
+  const category = view.categories.get(item.id), word = workmapStatusWord(item, data);
+  const verifier = view.verifier(item.id);
+  const card = node("button", null, null, "wm-node" + (pill ? " wm-pill" : ""));
+  card.type = "button";
+  wm.cards.set(item.id, card);
+  Object.assign(card.dataset, { id: item.id, kind: item.kind, status: item.status, risk: item.risk, cat: category });
+  if (view.chain.frontier.includes(item.id)) card.dataset.path = "frontier";
+  if (wm.changed.has(item.id)) card.dataset.changed = "";
+  card.setAttribute("aria-pressed", String(wm.node === item.id));
+  card.title = `${item.id} — ${item.title} (${word})`;
+  wmDisc(item.status, card);
+  const spoken = [verifier ? "verifier" : WM_KIND_WORDS[item.kind].toLowerCase(), word];
+  if (item.status === "prepared" && item.since) spoken.push("for " + workmapAge(item.since));
+  if (item.attempts > 1 && item.status === "prepared") spoken.push(`attempt ${item.attempts}`);
+  const badge = workmapLevelBadge(item);
+  if (badge) spoken.push(badge[0] === "target" ? `needs level ${item.needs}` : badge[0] === "met" ? `level ${item.level}`
+    : `level ${item.level}, needs ${item.needs}`);
+  if (item.risk !== "routine" && item.kind !== "goal") spoken.push(`${WM_RISK_WORDS[item.risk]} risk`);
+  if (item.stale) spoken.push("stale");
+  if (item.ready) spoken.push("ready");
+  if (item.checks) spoken.push(`checks: ${item.checks.passed} passed, ${item.checks.failed} failed, ${item.checks.not_run} not run`);
+  if (view.who.has(item.id)) spoken.push(`needs attention: ${workmapReason(item, index)}`);
+  if (pill) {
+    node("span", card, item.title, "wm-t");
+    const target = index.targets(item.id, "verifies")[0];
+    const verdict = target ? workmapVerdict(item, index.byId.get(target)) : "none";
+    const found = item.findings ? ["critical", "high"].filter((level) => item.findings[level]) : [];
+    if (verdict === "older" || found.length) {
+      const find = node("span", card, verdict === "older" ? "older"
+        : found.map((level) => `${item.findings[level]} ${level}`).join(", "), "wm-find");
+      find.dataset.find = verdict === "older" ? "older" : "found";
+      find.setAttribute("aria-hidden", "true");
+    }
+    if (target) spoken.push(`verdict on ${target}: ${WM_VERDICT_WORDS[verdict]}`);
+    wmLevelBadge(item, card);
+    node("span", card, spoken.join(", ") + ".", "wm-sr");
+    card.addEventListener("click", () => selectWorkmapNode(item.id, false));
+    return card;
+  }
+  const main = node("span", card, null, "wm-main");
+  const name = node("span", main, null, "wm-name");
+  wmKindGlyph(item, name, verifier);
+  node("span", name, item.title, "wm-t");
+  const meta = node("span", main, null, "wm-meta");
+  meta.setAttribute("aria-hidden", "true");
+  node("span", meta, word, "wm-status");
+  if (item.status === "prepared") {
+    const extra = [];
+    if (item.attempts > 1) extra.push(`attempt ${item.attempts}`);
+    if (item.invalid) extra.push(`${item.invalid}/5 invalid`);
+    if (item.since) wmAgeSpan(meta, item.since, "wm-extra", (age) => [age, ...extra].join(" · "));
+    else if (extra.length) node("span", meta, extra.join(" · "), "wm-extra");
+  } else if (item.invalid) {
+    node("span", meta, `${item.invalid}/5 invalid`, "wm-extra");
+  }
+  wmLevelBadge(item, meta);
+  wmRisk(item, meta);
+  if (item.stale) node("span", meta, "stale", "wm-mark").dataset.mark = "stale";
+  if (item.ready) node("span", meta, "ready", "wm-mark").dataset.mark = "ready";
+  if (item.kind === "goal") {
+    const mini = node("span", meta, null, "wm-mini");
+    wmProgress(wmBarSvg(mini), view);
+    const total = data.nodes.filter((other) => other.kind !== "goal").length;
+    node("span", mini, `${data.nodes.filter((other) => other.kind !== "goal" && other.settled).length} of ${total} settled`);
+  } else if (item.checks) {
+    const tally = node("span", meta, null, "wm-tally");
+    if (item.checks.failed) {
+      const failed = node("span", tally, null, "wm-c");
+      failed.dataset.c = "fail";
+      wmIcon("cross", failed);
+      failed.appendChild(document.createTextNode(String(item.checks.failed)));
+    }
+    const passed = node("span", tally, null, "wm-c");
+    passed.dataset.c = "pass";
+    wmIcon("check", passed);
+    passed.appendChild(document.createTextNode(String(item.checks.passed)));
+  }
+  const said = [];
+  for (const [label, type, list] of [["after", "depends_on", index.targets], ["checks", "verifies", index.targets],
+                                     ["supersedes", "supersedes", index.targets], ["contradicts", "contradicts", index.targets]]) {
+    const names = list(item.id, type).filter((id) => !(type === "verifies" && view.layout.docked[item.id] === id));
+    if (names.length) said.push(`${label} ${names.map((id) => index.byId.get(id).title).join(", ")}`);
+  }
+  if (said.length) node("span", main, said.join(" · "), "wm-after").setAttribute("aria-hidden", "true");
+  node("span", card, spoken.join(", ") + ".", "wm-sr");
+  card.addEventListener("click", () => selectWorkmapNode(item.id, false));
+  return card;
+}
+
+// --- edges ----------------------------------------------------------------------------------------
+
+// The edges to draw, ends in flow order: depends_on from the prerequisite to its dependant, with a
+// filled head when the prerequisite is settled and a hollow one while it still holds the dependant
+// back; verifies from the target to a verifier that is not docked under it; supersedes from the newer
+// node to the one it replaces; contradicts as stored; the goal's derived connectors from live nodes.
+function workmapEdgeList(view) {
+  const index = view.index, layout = view.layout, list = [];
+  for (const edge of view.data.edges) {
+    if (!index.byId.has(edge.from) || !index.byId.has(edge.to) || edge.from === edge.to) continue;
+    const key = `${edge.from}|${edge.to}|${edge.type}`;
+    if (edge.type === "verifies" && layout.docked[edge.from] === edge.to) continue;  // drawn as its tray's comb
+    const flow = edge.type === "depends_on" || edge.type === "verifies";
+    const [start, end] = flow ? [edge.to, edge.from] : [edge.from, edge.to];
+    const marker = edge.type === "depends_on" ? (index.byId.get(edge.to).settled ? "depends_on" : "depends_on-open") : edge.type;
+    list.push({ key, type: edge.type, start, end, marker, via: layout.via[key] || [], path: view.chain.edges.has(key) });
+  }
+  for (const [start, end] of layout.derived) {
+    if (!wmLive(index.byId.get(start))) continue;
+    const key = `${start}|${end}|derived`;
+    list.push({ key, type: "derived", start, end, marker: null, via: layout.via[key] || [], path: view.chain.edges.has(key) });
+  }
+  return list;
+}
+
+function scheduleWorkmapEdges() {
+  if (wm.frame) return;
+  const run = () => {
+    wm.frame = 0;
+    if (!wm.shown || !wm.view) return;
+    if (wm.autoFit) fitWorkmap();
+    drawWorkmapEdges();
+  };
+  wm.frame = window.requestAnimationFrame ? window.requestAnimationFrame(run) : setTimeout(run, 16) || 1;
+}
+
+// Draws every edge from the measured boxes: the stage is the SVG's whole area.
+function drawWorkmapEdges() {
+  const layer = $("wm-edges"), stage = $("wm-stage");
+  layer.replaceChildren();
+  if (!wm.view || wmNarrow() || typeof stage.getBoundingClientRect !== "function"
+      || $("workmap-page").dataset.state !== "ready") return;
+  const base = stage.getBoundingClientRect();
+  const box = (element) => {
+    const own = element.getBoundingClientRect(), left = own.left - base.left, top = own.top - base.top;
+    return { l: left, t: top, r: left + own.width, b: top + own.height, w: own.width, h: own.height,
+             cx: left + own.width / 2, cy: top + own.height / 2 };
+  };
+  const cards = wm.cards;
+  const isPill = (id) => cards.get(id).classList.contains("wm-pill");
+  // Where an edge leaves a node: the whole group, so that it starts under the verifier tray.
+  const outBox = (id) => box(isPill(id) ? cards.get(id) : cards.get(id).parentElement);
+  const inBox = (id) => box(cards.get(id));
+  const n = (value) => Math.round(value * 10) / 10;
+  const draw = (type, d, ends, marker, extra = "") => {
+    const path = svgNode("path", layer, { class: ("wm-edge " + extra).trim(), d });
+    path.dataset.type = type;
+    path.dataset.ends = ends.join(" ");
+    if (marker) path.setAttribute("marker-end", `url(#wm-mk-${marker})`);
+  };
+  // verifies: one comb per tray. Twigs run from each verifier to a trunk; the trunk carries the one
+  // arrowhead into the node they check.
+  for (const group of wm.view.layout.layers.flat().filter((entry) => !entry.lane && entry.verifiers.length)) {
+    const target = cards.get(group.id), pills = group.verifiers.map((id) => cards.get(id));
+    if (!target || pills.some((pill) => !pill)) continue;
+    const tray = box(target.nextElementSibling || target), targetBox = box(target), boxes = pills.map(box);
+    // The trunk stands right of the card's rounded corner, so the arrowhead meets a straight edge.
+    const trunk = tray.l + (boxes[0].l - tray.l) * 0.62;
+    const bend = Math.min(7, boxes[0].l - trunk);
+    boxes.forEach((pill, index) => {
+      const ends = [group.verifiers[index], group.id];
+      if (index < boxes.length - 1) draw("verifies", `M${n(pill.l)} ${n(pill.cy)}H${n(trunk)}`, ends, null);
+      else {
+        draw("verifies", `M${n(pill.l)} ${n(pill.cy)}H${n(trunk + bend)}Q${n(trunk)} ${n(pill.cy)} ${n(trunk)} `
+          + `${n(pill.cy - bend)}V${n(targetBox.b + 1)}`, [...group.verifiers, group.id], "verifies");
+      }
+    });
+  }
+  const drawn = workmapEdgeList(wm.view).filter((edge) => cards.has(edge.start) && cards.has(edge.end)).map((edge) => {
+    const a = outBox(edge.start), b = inBox(edge.end);
+    let sides;
+    if (isPill(edge.start) && isPill(edge.end)) sides = ["right", "right"];
+    else if (isPill(edge.start)) sides = ["right", b.t >= a.b ? "top" : "bottom"];
+    else if (b.t >= a.b - 1) sides = ["bottom", "top"];
+    else if (a.t >= b.b - 1) sides = ["top", "bottom"];
+    else sides = a.cx < b.cx ? ["right", "left"] : ["left", "right"];
+    // An edge that climbs leaves the card itself and arrives under the other node's tray.
+    const from = sides[0] === "top" ? inBox(edge.start) : a;
+    const to = sides[1] === "bottom" ? outBox(edge.end) : b;
+    return { edge, sides, from, to };
+  });
+  // Spread the ends that share one side of one node, ordered by where their other end sits.
+  const ports = new Map();
+  const claim = (id, side, item, other) => {
+    const key = `${id}|${side}`;
+    if (!ports.has(key)) ports.set(key, []);
+    ports.get(key).push({ item, other });
+  };
+  for (const item of drawn) {
+    claim(item.edge.start, item.sides[0], item, item.to.cx);
+    claim(item.edge.end, item.sides[1], item, item.from.cx);
+  }
+  const at = (id, side, item, target) => {
+    const list = ports.get(`${id}|${side}`).sort((p, q) => p.other - q.other);
+    const share = (list.findIndex((entry) => entry.item === item) + 1) / (list.length + 1);
+    if (side === "top" || side === "bottom") return [target.l + target.w * (0.16 + 0.68 * share), side === "top" ? target.t - 1 : target.b + 1];
+    return [side === "right" ? target.r + 1 : target.l - 1, target.t + target.h * share];
+  };
+  // Control points sit straight out from the side an end is on, so a line always meets its node at a
+  // right angle and an arrowhead never lies along a border.
+  const OUT = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
+  const curve = (x1, y1, side1, x2, y2, side2) => {
+    const flat = (side) => side === "left" || side === "right";
+    const span = flat(side1) && flat(side2) ? Math.abs(x2 - x1) : Math.abs(y2 - y1);
+    const reach = flat(side1) && flat(side2) && side1 === side2 ? 18 : Math.max(18, span / 2);
+    return `C${n(x1 + OUT[side1][0] * reach)} ${n(y1 + OUT[side1][1] * reach)} `
+      + `${n(x2 + OUT[side2][0] * reach)} ${n(y2 + OUT[side2][1] * reach)} ${n(x2)} ${n(y2)}`;
+  };
+  for (const item of drawn) {
+    const [side1, side2] = item.sides;
+    const [x1, y1] = at(item.edge.start, side1, item, item.from);
+    const [x2, y2] = at(item.edge.end, side2, item, item.to);
+    let d = `M${n(x1)} ${n(y1)}`, x = x1, y = y1, side = side1;
+    // A long edge runs straight down the lane kept free for it in each layer it crosses.
+    for (const id of (side1 === "bottom" && side2 === "top" && item.edge.via) || []) {
+      const lane = document.getElementById(id);
+      if (!lane) continue;
+      const slot = box(lane);
+      d += curve(x, y, side, slot.cx, slot.t, "top") + `V${n(slot.b)}`;
+      [x, y, side] = [slot.cx, slot.b, "bottom"];
+    }
+    draw(item.edge.type, d + curve(x, y, side, x2, y2, side2), [item.edge.start, item.edge.end], item.edge.marker,
+         item.edge.path ? "is-path" : "");
+  }
+  highlightWorkmap();
+}
+
+// The selected node's edges are heavier; a hovered or focused node dims every other edge.
+function highlightWorkmap() {
+  const layer = $("wm-edges");
+  layer.classList.toggle("has-focus", Boolean(wm.hovered));
+  for (const edge of layer.children || []) {
+    const ends = (edge.dataset.ends || "").split(" ");
+    edge.classList.toggle("is-on", Boolean(wm.hovered) && ends.includes(wm.hovered));
+    edge.classList.toggle("is-sel", Boolean(wm.node) && ends.includes(wm.node));
+  }
+}
+
+for (const type of ["pointerover", "focusin"]) {
+  $("wm-stage").addEventListener(type, (event) => {
+    const card = event.target && event.target.closest ? event.target.closest(".wm-node") : null;
+    wm.hovered = card ? card.dataset.id : null;
+    highlightWorkmap();
+  });
+}
+for (const type of ["pointerleave", "focusout"]) {
+  $("wm-stage").addEventListener(type, () => { wm.hovered = null; highlightWorkmap(); });
+}
+
+// --- zoom, fit and pan: a data attribute picks one of the stylesheet's steps ------------------------
+
+function setWorkmapZoom(value) {
+  wm.zoom = Math.min(WM_ZOOM.max, Math.max(WM_ZOOM.min, Math.round(value / WM_ZOOM.step) * WM_ZOOM.step));
+  $("wm-stage").dataset.zoom = String(wm.zoom);
+  $("wm-zoom").textContent = `${wm.zoom}%`;
+  $("wm-fit").setAttribute("aria-pressed", String(wm.autoFit));
+}
+
+// Fit: the largest step at which the whole map shows, and never under the auto minimum on its own.
+function fitWorkmap() {
+  const canvas = $("wm-canvas"), layers = $("wm-layers");
+  if (wmNarrow() || !canvas.clientWidth || !layers.offsetWidth) return;
+  const scale = wm.zoom / 100;
+  const room = Math.min((canvas.clientWidth - WM_ZOOM.padX) / (layers.offsetWidth / scale),
+                        (canvas.clientHeight - WM_ZOOM.padY) / (layers.offsetHeight / scale));
+  setWorkmapZoom(Math.max(WM_ZOOM.auto, Math.min(WM_ZOOM.max, Math.floor(room * 100 / WM_ZOOM.step) * WM_ZOOM.step)));
+  // Borders and minimum sizes do not scale, so one step may still overflow: give it back.
+  if (wm.zoom > WM_ZOOM.auto && (layers.offsetWidth > canvas.clientWidth - WM_ZOOM.padX + 1
+                                 || layers.offsetHeight > canvas.clientHeight - WM_ZOOM.padY + 1)) setWorkmapZoom(wm.zoom - WM_ZOOM.step);
+}
+
+$("wm-zoom-out").addEventListener("click", () => { wm.autoFit = false; setWorkmapZoom(wm.zoom - WM_ZOOM.step * 2); scheduleWorkmapEdges(); });
+$("wm-zoom-in").addEventListener("click", () => { wm.autoFit = false; setWorkmapZoom(wm.zoom + WM_ZOOM.step * 2); scheduleWorkmapEdges(); });
+$("wm-fit").addEventListener("click", () => { wm.autoFit = true; scheduleWorkmapEdges(); });
+if (typeof ResizeObserver === "function") new ResizeObserver(() => scheduleWorkmapEdges()).observe($("wm-canvas"));
+try { window.matchMedia("(max-width: 760px)").addEventListener("change", () => scheduleWorkmapEdges()); } catch (_) {}
+
+// Pan: the canvas scrolls natively; a drag on its background scrolls it too.
+let wmDrag = null;
+$("wm-canvas").addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || event.pointerType === "touch" || (event.target.closest && event.target.closest("button"))) return;
+  const canvas = $("wm-canvas");
+  wmDrag = { x: event.clientX, y: event.clientY, left: canvas.scrollLeft, top: canvas.scrollTop };
+  if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
+  canvas.classList.add("is-panning");
+});
+$("wm-canvas").addEventListener("pointermove", (event) => {
+  if (!wmDrag) return;
+  $("wm-canvas").scrollLeft = wmDrag.left - (event.clientX - wmDrag.x);
+  $("wm-canvas").scrollTop = wmDrag.top - (event.clientY - wmDrag.y);
+});
+for (const type of ["pointerup", "pointercancel"]) {
+  $("wm-canvas").addEventListener(type, () => { wmDrag = null; $("wm-canvas").classList.remove("is-panning"); });
+}
+
+// --- legend: a strip under the canvas, closed at first: every card says its status in a word ------
+
+function renderWorkmapLegend() {
+  const legend = $("wm-legend");
+  legend.replaceChildren();
+  const group = (title) => {
+    const row = node("div", legend, null, "wm-lg");
+    node("span", row, title, "wm-h");
+    return row;
+  };
+  const item = (row, words) => node("span", row, null, "wm-lg-item");
+  const status = group("Status");
+  for (const value of ["prepared", "validated", "accepted", "verified", "needs_attention", "disputed", "planned",
+                       "refuted", "superseded", "blocked"]) {
+    const entry = item(status);
+    entry.dataset.status = value;
+    wmDisc(value, entry);
+    entry.appendChild(document.createTextNode(WM_STATUS_WORD[value]));
+  }
+  const edges = group("Edges");
+  for (const [type, words, marker] of [["depends_on", "is needed by (filled: settled)", "depends_on"],
+      ["depends_on", "still holds it back", "depends_on-open"], ["verifies", "verifies", "verifies"],
+      ["supersedes", "supersedes", "supersedes"], ["contradicts", "contradicts", "contradicts"],
+      ["derived", "leads to the goal (derived: no stored edge)", null]]) {
+    const entry = item(edges);
+    const svg = svgNode("svg", entry, { class: "wm-lg-edge", viewBox: "0 0 40 12", "aria-hidden": "true", focusable: "false" });
+    const path = svgNode("path", svg, { class: "wm-edge", d: "M1 6H37" });
+    path.dataset.type = type;
+    if (marker) path.setAttribute("marker-end", `url(#wm-mk-${marker})`);
+    entry.appendChild(document.createTextNode(words));
+  }
+  const chain = item(edges);
+  const svg = svgNode("svg", chain, { class: "wm-lg-edge", viewBox: "0 0 40 12", "aria-hidden": "true", focusable: "false" });
+  svgNode("path", svg, { class: "wm-edge is-path", d: "M1 6H37" }).dataset.type = "depends_on";
+  chain.appendChild(document.createTextNode("longest remaining chain (counts stages, not time)"));
+  const level = group("Level");
+  for (const [state, boxes, words] of [["met", [["met", "V2"]], "reached"], ["target", [["target", "V3"]], "needed"],
+                                       ["gap", [["met", "V2"], ["target", "V3"]], "reached V2, needs V3"]]) {
+    const entry = item(level);
+    const box = node("span", entry, null, "wm-lvs");
+    box.dataset.lvs = state;
+    for (const [kind, name] of boxes) node("span", box, name, "wm-lv").dataset.lv = kind;
+    entry.appendChild(document.createTextNode(words));
+  }
+  const risk = group("Risk");
+  for (const value of ["load_bearing", "critical"]) {
+    const entry = item(risk);
+    const mark = node("span", entry, null, "wm-risk");
+    mark.dataset.risk = value;
+    wmIcon(value === "critical" ? "risk2" : "risk1", mark);
+    entry.appendChild(document.createTextNode(WM_RISK_WORDS[value]));
+  }
+  const kinds = group("Kind");
+  node("span", kinds, "stage: no mark", "wm-lg-item");
+  for (const [kind, words] of [["goal", "goal"], ["decision", "decision (the owner's, by convention)"],
+                               ["question", "question (the owner's, by convention)"], ["verifier", "verifier, docked"]]) {
+    const entry = item(kinds);
+    wmIcon(kind, entry, "wm-kind");
+    entry.appendChild(document.createTextNode(words));
+  }
+  const marks = group("Marks");
+  for (const [mark, words] of [["ready", "can start"], ["stale", "an input was set aside or disputed"]]) {
+    const entry = item(marks);
+    node("span", entry, mark, "wm-mark").dataset.mark = mark;
+    entry.appendChild(document.createTextNode(words));
+  }
+  const frontier = item(marks);
+  frontier.appendChild(document.createTextNode("underlined card: the goal waits on it now (derived)"));
+}
+
+function setWorkmapLegend(open) {
+  $("wm-legend").hidden = !open;
+  $("wm-legend-toggle").setAttribute("aria-expanded", String(open));
+  scheduleWorkmapEdges();
+}
+
+renderWorkmapLegend();
+$("wm-legend-toggle").addEventListener("click", () => {
+  setWorkmapLegend($("wm-legend").hidden);
+  if (!$("wm-legend").hidden && wmNarrow()) $("wm-legend").scrollIntoView({ block: "start", behavior: wmCalm() ? "auto" : "smooth" });
+});
+
+// --- copy: the full value, not the shortened one that is shown -------------------------------------
+
+function wmCopy(value, what) {
+  const done = () => { $("wm-live").textContent = `Copied the ${what}`; };
+  try { navigator.clipboard.writeText(value).then(done, () => {}); } catch (_) {}
+}
+
+function wmCopyButton(parent, value, what) {
+  const button = node("button", parent, null, "wm-copy");
+  button.type = "button";
+  button.setAttribute("aria-label", `Copy the full ${what}`);
+  wmIcon("copy", button);
+  button.addEventListener("click", () => wmCopy(value, what));
+  return button;
+}
+
+$("wm-copy-task").addEventListener("click", () => { if (wm.open) wmCopy(wm.open.task, "task id"); });
+$("wm-alert-retry").addEventListener("click", () => { pollWorkmap().catch(workmapFailed); });
+$("wm-error-retry").addEventListener("click", () => { showWorkmapPage(wm.open && { ...wm.open }).catch(workmapFailed); });
+
+// --- selection and the panel ----------------------------------------------------------------------
+
+function setWorkmapPanel(open) {
+  $("wm-body").dataset.panel = open ? "open" : "closed";
+}
+
+function selectWorkmapNode(id, reveal) {
+  if (!wm.view || !wm.view.index.byId.has(id)) return;
+  if (wm.node !== id) { wm.result = null; wm.record = null; }
   wm.node = id;
-  renderWorkmap();
-  await loadWorkmapNode(id);
+  for (const card of wmCards()) card.setAttribute("aria-pressed", String(card.dataset.id === id));
+  setWorkmapPanel(true);
+  renderWorkmapNode();
+  highlightWorkmap();
+  if (reveal) {
+    const card = wmCards().find((item) => item.dataset.id === id);
+    if (card) card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: wmCalm() ? "auto" : "smooth" });
+  }
+  loadWorkmapNode(id).catch(workmapFailed);
 }
+
+function closeWorkmapNode(focus = true) {
+  const id = wm.node;
+  wm.node = null; wm.record = null; wm.result = null;
+  setWorkmapPanel(false);
+  $("wm-d").hidden = true;
+  $("wm-d").replaceChildren();
+  $("wm-detail-empty").hidden = false;
+  for (const card of wmCards()) card.setAttribute("aria-pressed", "false");
+  highlightWorkmap();
+  if (focus && id) {
+    const card = wmCards().find((item) => item.dataset.id === id);
+    if (card) card.focus();
+  }
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && wm.shown && $("wm-body").dataset.panel === "open") closeWorkmapNode(true);
+});
 
 async function loadWorkmapNode(id) {
   if (!wm.open) return;
@@ -5811,83 +7355,303 @@ async function loadWorkmapNode(id) {
   renderWorkmapNode();
 }
 
-function definitions(parent, rows) {
-  const list = node("dl", parent);
-  for (const [label, value, code] of rows) {
+function wmSection(parent, title) {
+  const section = node("div", parent, null, "wm-sec");
+  node("h4", section, title, "wm-h");
+  return section;
+}
+
+function wmFacts(parent, rows) {
+  const list = node("dl", parent, null, "facts");
+  for (const [label, value] of rows) {
     if (value === null || value === undefined || value === "") continue;
     node("dt", list, label);
     const cell = node("dd", list);
-    if (code) node("code", cell, value); else cell.textContent = value;
+    if (typeof value === "function") value(cell); else cell.textContent = value;
   }
   return list;
 }
 
+function wmShort(sha) {
+  return sha ? sha.slice(0, 12) : "";
+}
+
+// The state of a node in a sentence: what it waits for, what runs, what the server can and cannot see.
+function workmapStateSentence(view, item) {
+  const index = view.index, since = item.since ? `${workmapClock(item.since)} (${workmapAge(item.since)})` : "";
+  if (item.kind === "goal") {
+    const open = view.data.nodes.filter((other) => other.kind !== "goal" && wmLive(other) && !other.settled).length;
+    return view.data.closed ? "The map is closed." : `The map is open; ${open} live stage${open === 1 ? "" : "s"} not settled yet.`;
+  }
+  if (WM_SET_ASIDE.includes(item.status) || item.status === "blocked") {
+    return `${WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1)}${since ? " since " + since : ""}: ${item.reason || "no reason recorded"}.`;
+  }
+  if (item.status === "prepared") {
+    return `Running since ${since || "an unknown time"}${item.attempts > 1 ? `, attempt ${item.attempts}` : ""}. The server issued the package; it cannot see whether the worker is alive.`;
+  }
+  const waiting = index.targets(item.id, "depends_on").filter((id) => !index.byId.get(id).settled);
+  if (item.status === "planned" && waiting.length) {
+    return "Waiting for " + waiting.map((id) => `${id} (${WM_STATUS_WORD[index.byId.get(id).status]})`).join(", ") + ".";
+  }
+  if (item.status === "planned" && view.verifier(item.id)) {
+    const empty = index.targets(item.id, "verifies").filter((id) => !index.byId.get(id).result_sha256);
+    if (empty.length) return `Waiting for ${wmIds(empty)} to hold a result to check.`;
+  }
+  if (item.status === "planned") return item.ready ? "Ready: everything it follows is settled." : "Planned.";
+  const who = view.who.get(item.id);
+  if (who === "checking") {
+    const running = index.sources(item.id, "verifies").filter((id) => { const other = index.byId.get(id); return other.status === "prepared" || other.ready; });
+    return `Being checked by ${wmIds(running)}. ${WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1)} at ${item.level}${since ? " since " + since : ""}; its dependants wait for ${item.needs}.`;
+  }
+  return `${WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1)} at ${item.level}${since ? " since " + since : ""}.`;
+}
+
+// Who acts, and the ways out the map allows.
+function workmapNextSentence(view, item) {
+  const who = view.who.get(item.id);
+  if (who === "checking") return "Who acts: nobody yet. A clean review makes it verified; a critical or high finding makes it disputed.";
+  if (who === "you") {
+    return item.kind === "decision" || item.kind === "question" ? "Who acts: you (by convention a decision or a question is the owner's)."
+      : "Who acts: you, or a verifier: accepting a critical node below V3 takes the owner's V4.";
+  }
+  if (who === "orchestrator") {
+    return wmBelow(item) ? `Who acts: the orchestrator: a verifier for ${item.needs}, a new attempt, or acceptance`
+      + (item.risk === "critical" ? " (a critical node only at V3, or with the owner's V4)." : " (which settles it at any level).")
+      : "Who acts: the orchestrator: a new attempt, a verifier, or setting it aside.";
+  }
+  return null;
+}
+
 function renderWorkmapNode() {
-  const panel = $("wm-node"), record = wm.record;
-  panel.replaceChildren();
-  panel.classList.remove("hidden");
-  $("wm-view").classList.add("with-node");
-  const item = record.node;
-  node("h3", panel, item.title);
-  node("div", panel, `${item.id} · ${item.kind} · risk ${item.risk} · needs ${item.needs}`, "meta");
-  const checks = item.checks ? `passed ${item.checks.passed}, failed ${item.checks.failed}, not run ${item.checks.not_run}` : null;
-  const findings = item.findings ? Object.entries(item.findings).map(([level, count]) => `${level} ${count}`).join(", ") || "none" : null;
-  const escalation = item.escalation ? Object.entries(item.escalation).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ") : null;
-  definitions(panel, [
-    ["Status", `${WM_STATUS_LABEL[item.status] || item.status} · ${item.level}` + (item.stale ? " · stale" : "") + (item.ready ? " · ready" : "")],
-    ["Reason", item.reason], ["Summary", item.summary], ["Result status", item.result_status],
-    ["Checks", checks], ["Findings", findings],
-    ["Limitations", item.checks || item.result_status ? String(item.limitations ?? 0) : null],
-    ["Question", item.question], ["Escalation", escalation], ["Hand-back", item.handback],
-    ["Invalid submissions", item.invalid ? `${item.invalid}` + (item.invalid_codes.length ? ` (${item.invalid_codes.join(", ")})` : "") : null],
-    ["Complexity", item.complexity], ["Attempt", item.attempt_id],
-    ["contract_revision", item.contract_revision, true], ["result_sha256", item.result_sha256, true],
-  ]);
-  const inputs = Object.entries(item.inputs || {});
-  if (inputs.length) {
-    node("h4", panel, "Inputs (pinned results)");
-    const list = node("ul", panel);
-    for (const [source, sha] of inputs) node("li", list, `${source} = ${sha.slice(0, 12)}…`);
+  const view = wm.view, id = wm.node;
+  if (!view || !id || !view.index.byId.has(id)) return;
+  const item = view.index.byId.get(id), index = view.index, record = wm.record && wm.record.node.id === id ? wm.record : null;
+  const sheet = $("wm-d");
+  sheet.replaceChildren();
+  sheet.hidden = false;
+  sheet.dataset.status = item.status;
+  $("wm-detail-empty").hidden = true;
+  const verifier = view.verifier(id);
+  const head = node("div", sheet, null, "wm-d-head");
+  const top = node("div", head, null, "wm-d-top");
+  wmKindGlyph(item, top, verifier);
+  node("span", top, verifier ? "Verifier" : WM_KIND_WORDS[item.kind]);
+  const close = node("button", top, null, "wm-close");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close the node panel");
+  wmIcon("cross", close);
+  close.addEventListener("click", () => closeWorkmapNode(true));
+  const title = node("h3", head, item.title, "wm-d-title");
+  title.id = "wm-d-title";
+  const ident = node("div", head, null, "wm-d-id");
+  node("code", ident, item.id);
+  wmCopyButton(ident, item.id, "node id");
+  const state = node("div", head, null, "wm-d-state");
+  const chip = node("span", state, null, "wm-chip");
+  chip.dataset.status = item.status;
+  wmDisc(item.status, chip);
+  chip.appendChild(document.createTextNode(workmapStatusWord(item, view.data)));
+  if (item.kind !== "goal") {
+    const risk = node("span", state, null, "wm-risk-tag");
+    risk.dataset.risk = item.risk;
+    if (item.risk !== "routine") wmIcon(item.risk === "critical" ? "risk2" : "risk1", risk);
+    risk.appendChild(document.createTextNode(`${WM_RISK_WORDS[item.risk]} risk`));
   }
-  node("h4", panel, "Artifacts");
-  if (record.artifacts.length) {
-    const list = node("ul", panel);
-    for (const artifact of record.artifacts) {
-      const entry = node("li", list);
-      node("code", entry, artifact.ref);
-      if (artifact.purpose) entry.appendChild(document.createTextNode(" — " + artifact.purpose));
+  if (item.stale) node("span", state, "stale", "wm-mark").dataset.mark = "stale";
+  if (item.ready) node("span", state, "ready", "wm-mark").dataset.mark = "ready";
+
+  // Summary: the state in a sentence, who acts, the plan beside the result, and why it was set aside.
+  const summary = wmSection(sheet, "Summary");
+  node("p", summary, workmapStateSentence(view, item));
+  const next = workmapNextSentence(view, item);
+  if (next) node("p", summary, next, "wm-quiet");
+  if (view.who.has(id)) {
+    const why = node("div", summary, null, "notice");
+    node("strong", why, "Needs attention: ");
+    why.appendChild(document.createTextNode(workmapReason(item, index) + "."));
+  }
+  const hasResult = Boolean(item.result_sha256 || item.result_status);
+  wmFacts(summary, [["Plan", item.planned_summary || (hasResult ? "" : item.summary)],
+                    ["Result", hasResult ? item.summary : ""]]);
+  if (WM_SET_ASIDE.includes(item.status) || item.status === "blocked") {
+    const reason = node("div", summary, null, "notice");
+    node("strong", reason, WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1) + ": ");
+    reason.appendChild(document.createTextNode(item.reason || "no reason recorded"));
+  }
+  if (item.stale) {
+    const holding = index.targets(id, "depends_on").filter((other) => WM_UNSETTLING.includes(index.byId.get(other).status));
+    const stale = node("div", summary, null, "notice");
+    node("strong", stale, "Stale: ");
+    stale.appendChild(document.createTextNode("it depends on " + holding.map((other) => `${other} (${index.byId.get(other).status})`).join(" and ") + "."));
+  }
+  if (view.chain.band.has(id) && view.chain.length) {
+    node("p", summary, `On the longest remaining chain (${view.chain.length} stages to the goal).`, "wm-quiet");
+  }
+
+  // Verification level: the ladder, and what the level means. A goal has none.
+  if (item.kind !== "goal") {
+    const level = wmSection(sheet, "Verification level");
+    if (["refuted", "superseded"].includes(item.status)) {
+      node("p", level, item.level === "V0" ? "It holds no result." : `Its result had reached ${item.level} (${WM_LEVEL_SENTENCE[item.level]}) when it was set aside.`, "wm-quiet");
+    } else {
+      const reached = WM_LEVELS.indexOf(item.level), need = WM_LEVELS.indexOf(item.needs);
+      const ladder = node("ol", level, null, "wm-meter");
+      ladder.setAttribute("aria-label", `Level ${item.level} reached, ${item.needs} needed`);
+      if (wmBelow(item)) ladder.dataset.alert = "";
+      WM_LEVELS.forEach((name, step) => {
+        const li = node("li", ladder);
+        li.dataset.m = step <= reached ? "on" : step <= need ? "gap" : "off";
+        if (step === need) li.dataset.need = "";
+        node("b", li, name);
+        node("small", li, WM_LEVEL_WORDS[name]);
+      });
+      const why = item.risk === "critical" ? "critical" : item.complexity === "high" ? "prepared with complexity high" : null;
+      const accepted = item.status === "accepted" && item.risk !== "critical";
+      node("p", level, `${item.level}: ${WM_LEVEL_SENTENCE[item.level]}. Needs ${item.needs}${why ? ` (${why})` : ""}.`
+        + (accepted ? " Accepted, which settles a " + WM_RISK_WORDS[item.risk] + " node at any level." : "")
+        + (item.status === "disputed" && reached > 0 ? " Contested: a verifier found a critical or high issue." : ""), "wm-quiet");
     }
+  }
+
+  // Result: what the worker handed back; the stored text only on a click, as text.
+  const result = wmSection(sheet, "Result");
+  if (item.result_status) {
+    const tone = item.result_status === "completed" ? "validated" : "needs_attention";
+    wmFacts(result, [
+      ["Worker status", (cell) => {
+        const status = node("span", cell, null, "wm-chip");
+        status.dataset.status = tone;
+        wmDisc(tone, status);
+        status.appendChild(document.createTextNode(item.result_status.replace("_", " ")));
+      }],
+      ["Hand-back", item.handback === "line" ? "one line: submitted by the worker, not read by the orchestrator"
+        : item.handback === "full" ? "full: passed through the orchestrator" : item.handback],
+      ["Attempt", item.attempt_id ? `${item.attempt_id}` + (item.attempts > 1 ? ` (${item.attempts} prepared)` : "") : null],
+      ["Limitations", item.limitations ? String(item.limitations) : null],
+      ["Escalation", item.escalation ? Object.entries(item.escalation).filter(([, value]) => value)
+        .map(([key, value]) => `${key} ${value}`).join(", ") : null],
+      ["Invalid", item.invalid ? `${item.invalid} of 5` + (item.invalid_codes.length ? `: ${item.invalid_codes.join(", ")}` : "") : null],
+    ]);
+    if (item.question) {
+      const question = node("div", result, null, "notice");
+      node("strong", question, "Question: ");
+      question.appendChild(document.createTextNode(item.question));
+    }
+  } else if (item.status === "prepared") {
+    node("p", result, `No result yet. Attempt ${item.attempts || 1} is prepared; the server cannot tell whether a worker is running.`);
+    wmFacts(result, [["Prepared as", `${item.complexity || "standard"} complexity`],
+                     ["Invalid", item.invalid ? `${item.invalid} of 5` + (item.invalid_codes.length ? `: ${item.invalid_codes.join(", ")}` : "") : null]]);
+  } else if (item.result_sha256) {
+    node("p", result, "Previous result, to be replaced by the next attempt.", "wm-quiet");
   } else {
-    node("div", panel, record.has_result ? "The result names no artifacts." : "No result yet.", "meta");
+    node("p", result, item.kind === "goal" ? "A goal holds no result." : "No result.", "wm-quiet");
   }
-  const relations = Object.entries(record.relations).filter(([, ids]) => ids.length);
-  if (relations.length) {
-    node("h4", panel, "Relations");
-    definitions(panel, relations.map(([kind, ids]) => [kind.replace(/_/g, " "), ids.join(", ")]));
-  }
-  node("h4", panel, "Status history");
-  const steps = node("ol", panel);
-  for (const step of record.history) {
-    node("li", steps, `r${step.rev} ${WM_STATUS_LABEL[step.status] || step.status} ${step.level} (${step.op}${step.by ? " by " + step.by : ""})`
-      + (step.at ? " · " + step.at.replace("T", " ").replace("Z", " UTC") : ""));
-  }
-  const actions = node("div", panel, null, "wm-actions");
-  if (record.has_result) {
-    const show = node("button", actions, wm.result ? "Hide full result" : `Show full result (${record.result_chars} characters)`);
+  if (record && record.has_result) {
+    const box = node("div", result, null, "wm-result");
+    const show = node("button", box, wm.result ? "Hide full result" : `Show full result (${record.result_chars} characters)`);
     show.type = "button";
     show.addEventListener("click", () => {
       if (!wm.result) { showWorkmapResult().catch(workmapFailed); return; }
       wm.result = null;
       renderWorkmapNode();
     });
-  }
-  const close = node("button", actions, "Close");
-  close.type = "button";
-  close.addEventListener("click", () => { closeWorkmapNode(); renderWorkmap(); });
-  if (wm.result) {
+    node("span", box, `In a session: workmap_view(task_id, node="${id}", detail="result")`, "wm-quiet");
     // textContent only: a stored result is text a worker wrote, never markup for this page.
-    const pre = node("pre", panel, wm.result.text + (wm.result.truncated ? "\n…" : ""));
-    pre.id = "wm-result";
+    if (wm.result) node("pre", box, wm.result.text + (wm.result.truncated ? "\n…" : "")).tabIndex = 0;
+  }
+
+  // Checks and findings.
+  if (item.checks) {
+    const checks = wmSection(sheet, "Checks");
+    const { passed, failed, not_run: skipped } = item.checks;
+    wmBar(wmBarSvg(checks), [["wm-bar-pass", passed], ["wm-bar-fail", failed], ["wm-bar-skip", skipped]],
+          `${passed} passed, ${failed} failed, ${skipped} not run`);
+    const counts = node("ul", checks, null, "wm-counts");
+    for (const [kind, icon, count, words] of [["pass", "check", passed, "passed"], [failed ? "fail" : "none", "cross", failed, "failed"],
+                                              ["skip", "dash", skipped, "not run"]]) {
+      const li = node("li", counts);
+      li.dataset.c = kind;
+      wmIcon(icon, li);
+      node("b", li, String(count));
+      li.appendChild(document.createTextNode(" " + words));
+    }
+    if (item.findings) {
+      const row = node("div", checks, null, "wm-d-state");
+      node("span", row, "Findings", "wm-quiet");
+      const found = ["critical", "high", "medium", "low", "info"].filter((level) => item.findings[level]);
+      for (const level of found) node("span", row, `${item.findings[level]} ${level}`, "wm-sev").dataset.sev = level;
+      if (!found.length) node("span", row, "none", "wm-sev").dataset.sev = "none";
+    }
+  }
+
+  // Relations: each names a node and selects it; a verifier's entry carries its verdict.
+  const rows = [["After", index.targets(id, "depends_on")], ["Needed by", index.sources(id, "depends_on")],
+    ["Verifies", index.targets(id, "verifies")], ["Verified by", index.sources(id, "verifies")],
+    ["Supersedes", index.targets(id, "supersedes")], ["Superseded by", index.sources(id, "supersedes")],
+    ["Contradicts", index.targets(id, "contradicts")], ["Contradicted by", index.sources(id, "contradicts")]]
+    .filter(([, ids]) => ids.length);
+  if (rows.length) {
+    const relations = wmSection(sheet, "Relations");
+    const list = node("dl", relations, null, "wm-rels");
+    for (const [label, ids] of rows) {
+      node("dt", list, label);
+      const cell = node("dd", list);
+      for (const other of ids) {
+        const verdict = label === "Verified by" ? workmapVerdict(index.byId.get(other), item)
+          : label === "Verifies" ? workmapVerdict(item, index.byId.get(other)) : null;
+        const jump = wmJump(view, other, cell, verdict && WM_VERDICT_SHORT[verdict]);
+        if (verdict) jump.title += ` — verdict: ${WM_VERDICT_WORDS[verdict]}`;
+      }
+    }
+  }
+
+  // References: the exact stored text a result names, the assignment and the inputs it was given.
+  if (item.contract_revision || item.result_sha256) {
+    const refs = wmSection(sheet, "References");
+    const inputs = Object.entries(item.inputs || {});
+    const copyable = (value, what) => (cell) => {
+      node("code", cell, wmShort(value) + "…").title = value;
+      wmCopyButton(cell, value, what);
+    };
+    wmFacts(refs, [["Result", item.result_sha256 ? copyable(item.result_sha256, "result hash") : null],
+                   ["Contract", item.contract_revision ? copyable(item.contract_revision, "contract revision") : null],
+                   ["Attempt", item.attempt_id]]);
+    if (inputs.length) {
+      wmFacts(refs, inputs.map(([source, sha]) => {
+        const current = index.byId.has(source) && index.byId.get(source).result_sha256 === sha;
+        return ["Input", (cell) => {
+          node("code", cell, `${source} = ${wmShort(sha)}`).title = sha;
+          node("span", cell, current ? "current" : "older result", "wm-quiet");
+        }];
+      }));
+    } else if (item.contract_revision) {
+      node("p", refs, "No pinned inputs: given by the orchestrator, provenance not recorded.", "wm-quiet");
+    }
+  }
+
+  // Artifacts: what the stored result names, as text; nothing links to a local path.
+  if (record && record.artifacts.length) {
+    const arts = wmSection(sheet, "Artifacts");
+    const list = node("ul", arts, null, "wm-arts");
+    for (const artifact of record.artifacts) {
+      const li = node("li", list);
+      wmIcon(artifact.ref.startsWith("artifact://") ? "link" : "file", li);
+      node("code", li, artifact.ref);
+      if (artifact.purpose) node("small", li, artifact.purpose);
+    }
+  }
+
+  // History: each status and level step, with its revision and local time.
+  if (record && record.history.length) {
+    const history = wmSection(sheet, "History");
+    const list = node("ol", history, null, "wm-steps");
+    for (const step of record.history) {
+      const li = node("li", list);
+      node("span", li, `r${step.rev}`);
+      node("span", li, workmapClock(step.at));
+      li.appendChild(document.createTextNode(`${WM_STATUS_WORD[step.status] || step.status} ${step.level}`
+        + (step.by ? ` (${step.by})` : "")));
+    }
   }
 }
 
@@ -5906,6 +7670,10 @@ async function openWorkmapLink(link) {
   hideAutodevPage();
   if (state.tab !== "workmap") await showTab("workmap", link);
   else if (link.task) await openWorkmap(link.workspace, link.task);
+  else {
+    const latest = workmapLatest(wm.list);
+    if (latest) await openWorkmap(latest.workspace, latest.task);
+  }
 }
 window.addEventListener("hashchange", () => {
   const link = workmapLink(location.hash);
