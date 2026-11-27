@@ -38,6 +38,9 @@ INVALID_LIMIT = 5
 NODE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
 TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 MAP_FILE = re.compile(r"[0-9a-f]{16}\.jsonl")
+# The time _iso stamps on every event, and who may write one: the views take no other value.
+STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+AUTHORS = ("parent", "server")
 NODE_KINDS = ("goal", "stage", "decision", "question")
 RISKS = ("routine", "load_bearing", "critical")
 EDGE_TYPES = ("depends_on", "verifies", "supersedes", "contradicts")
@@ -585,6 +588,12 @@ def _commits(events: list):
             run = []
 
 
+def _is_stamp(value: object) -> bool:
+    """A time as ``_iso`` writes it. The fold takes no other: a log's ``at`` is never checked when an
+    event is applied, and a value a JSON answer cannot encode must not reach the views."""
+    return isinstance(value, str) and STAMP.fullmatch(value) is not None
+
+
 def _undo(workmap: WorkMap, event: dict) -> Callable[[], None]:
     """What puts back everything ``_apply_event(workmap, event)`` changes, taken before it runs.
 
@@ -647,7 +656,7 @@ def _apply_commit(workmap: WorkMap, events: list) -> WorkMap | None:
         return None
     if events:
         workmap.revision = events[-1]["rev"]
-        stamps = [event["at"] for event in events if isinstance(event.get("at"), str)]
+        stamps = [event["at"] for event in events if _is_stamp(event.get("at"))]
         if stamps:
             workmap.updated = stamps[-1]
     return workmap
@@ -668,7 +677,7 @@ def _applied(events: list):
             if head.get("op") != "open" or head.get("rev") != 1 or not _is_identifier(head.get("task_id")):
                 continue
             opened = WorkMap(task_id=head["task_id"], revision=head["rev"])
-            opened.updated = head["at"] if isinstance(head.get("at"), str) else ""
+            opened.updated = head["at"] if _is_stamp(head.get("at")) else ""
             trial = _apply_commit(opened, commit[1:])
         elif commit[0]["rev"] != workmap.revision + 1:
             continue
@@ -847,6 +856,16 @@ def _require_open(workmap: WorkMap, node: dict, contract_revision: str) -> None:
                                              "no longer its current attempt")
 
 
+@dataclass
+class History:
+    """A map file as the web view reads it (``WorkmapStore.fold_file``); empty when it holds no map."""
+
+    workmap: WorkMap | None = None
+    steps: dict[str, list[dict]] = field(default_factory=dict)
+    touched: list[str] = field(default_factory=list)
+    verdicts: dict[tuple[str, str], dict] = field(default_factory=dict)
+
+
 class WorkmapStore:
     """The work maps of one workspace."""
 
@@ -927,11 +946,14 @@ class WorkmapStore:
         task_id = _task_id(task_id)
         return self._state(self._read(f"{map_key(task_id)}.jsonl"), task_id)
 
-    def list_maps(self, limit: int = LIST_LIMIT) -> tuple[list[WorkMap], int]:
-        """The ``limit`` most recently written maps, folded, and how many map files there are.
+    def _stat(self, directory, name: str) -> os.stat_result:
+        if isinstance(directory, int):
+            return os.stat(name, dir_fd=directory, follow_symlinks=False)
+        return os.lstat(Path(directory) / name)
 
-        Each log may hold up to the store's size cap and closed maps stay, so the list reads only
-        the newest files instead of folding every log of the workspace for a few lines of view."""
+    def newest(self, limit: int = LIST_LIMIT) -> tuple[list[str], int]:
+        """The names of the ``limit`` most recently written map files, newest first, and how many
+        map files there are."""
         with safe_store.store_directory(self.root, DIRECTORY, create=False, private=False) as directory:
             if directory is None:
                 return [], 0
@@ -939,42 +961,100 @@ class WorkmapStore:
 
             def written(name: str) -> float:
                 try:
-                    if isinstance(directory, int):
-                        return os.stat(name, dir_fd=directory, follow_symlinks=False).st_mtime
-                    return os.lstat(Path(directory) / name).st_mtime
+                    return self._stat(directory, name).st_mtime
                 except OSError:
                     return 0.0
-            newest = sorted(names, key=lambda name: (written(name), name), reverse=True)[:limit]
+            return sorted(names, key=lambda name: (written(name), name), reverse=True)[:limit], len(names)
+
+    def stamp(self, name: str) -> tuple[int, int, int, int] | None:
+        """What tells one state of a map file from another without reading it: device, inode, size
+        and change time, the file itself and not what a link names; None when it does not exist.
+        The writers only append, so every write changes the size."""
+        if not MAP_FILE.fullmatch(name):
+            raise WorkmapError("invalid_request", f"{name!r} is not a work map file")
+        with safe_store.store_directory(self.root, DIRECTORY, create=False, private=False) as directory:
+            if directory is None:
+                return None
+            try:
+                info = self._stat(directory, name)
+            except FileNotFoundError:
+                return None
+            return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+
+    def list_maps(self, limit: int = LIST_LIMIT) -> tuple[list[WorkMap], int]:
+        """The ``limit`` most recently written maps, folded, and how many map files there are.
+
+        Each log may hold up to the store's size cap and closed maps stay, so the list reads only
+        the newest files instead of folding every log of the workspace for a few lines of view."""
+        newest, total = self.newest(limit)
         folded = [(name, fold(self._read(name))) for name in newest]
         # A file holds the map of the task id it is named after; a foreign log is not listed under it.
         return [workmap for name, workmap in folded
-                if workmap is not None and f"{map_key(workmap.task_id)}.jsonl" == name], len(names)
+                if workmap is not None and f"{map_key(workmap.task_id)}.jsonl" == name], total
 
-    def changes(self, task_id: object) -> tuple[WorkMap | None, dict[str, list[dict]]]:
-        """The map and, per node, each committed change of its status or level, oldest first.
+    def fold_file(self, name: str) -> History:
+        """One map file folded for the views: the map, each node's committed changes of status or
+        level, the nodes its last commit touched and the verdicts of each verifier's current attempt.
 
-        Each change is {rev, at, op, by, status, level}: the revision and time of the event that
-        made it, as the fold applied it, so a skipped or torn commit shows no step either. Every
-        ``prepared`` event is a step, even one that leaves a prepared node prepared: it starts a new
-        attempt, so the steps count the attempts and date the current one.
+        A change is {rev, at, op, by, status, level}: the revision and time of the event that made
+        it, as the fold applied it, so a skipped or torn commit shows no step either; ``at`` and
+        ``by`` only in the form the writers give them, else None. A ``prepared`` event is a step even
+        when it leaves a prepared node prepared, since it starts a new attempt, so the steps count the
+        attempts and date the current one; the same package issued again under the contract the
+        node already runs is no new attempt and no step. A verdict counts while its verifier still
+        runs the attempt that gave it: {verdict: clean or found, result_sha256: the result it judged}.
+        A file whose map is another task's is folded all the same; ``history`` refuses it.
         """
-        task_id = _task_id(task_id)
-        steps: dict[str, list[dict]] = {}
-        workmap = None
-        for workmap, commit in _applied(self._read(f"{map_key(task_id)}.jsonl")):
+        if not MAP_FILE.fullmatch(name):
+            raise WorkmapError("invalid_request", f"{name!r} is not a work map file")
+        history = History()
+        running: dict[str, object] = {}  # per node, the contract of its last prepared step
+        verdicts: dict[tuple[str, str], dict] = {}
+        for workmap, commit in _applied(self._read(name)):
+            history.workmap, touched = workmap, []
             for event in commit:
+                for key in ("id", "from", "to"):
+                    value = event.get(key)
+                    if isinstance(value, str) and value in workmap.nodes and value not in touched:
+                        touched.append(value)
+                if event.get("op") == "verdict":  # checked when it applied: its verifier is a node
+                    verifier = workmap.nodes[event["verifier"]]
+                    verdicts[(event["verifier"], event["id"])] = {
+                        "verdict": "found" if event.get("status") == "disputed" else "clean",
+                        "result_sha256": event.get("result_sha256"),
+                        "contract": verifier["refs"].get("contract_revision")}
                 node = workmap.nodes.get(event.get("id")) if isinstance(event.get("id"), str) else None
                 if node is None:
                     continue
-                history = steps.setdefault(node["id"], [])
-                if (history and event.get("op") != "prepared"
-                        and (history[-1]["status"], history[-1]["level"]) == (node["status"], node["level"])):
+                steps = history.steps.setdefault(node["id"], [])
+                if event.get("op") == "prepared":
+                    contract = event.get("contract_revision")
+                    if steps and steps[-1]["status"] == "prepared" and running.get(node["id"]) == contract:
+                        continue
+                    running[node["id"]] = contract
+                elif steps and (steps[-1]["status"], steps[-1]["level"]) == (node["status"], node["level"]):
                     continue
-                history.append({"rev": event["rev"], "at": event.get("at"), "op": event.get("op"),
-                                "by": event.get("by"), "status": node["status"], "level": node["level"]})
-        if workmap is not None and workmap.task_id != task_id:
+                steps.append({"rev": event["rev"], "at": event["at"] if _is_stamp(event.get("at")) else None,
+                              "op": event.get("op"), "by": event.get("by") if event.get("by") in AUTHORS else None,
+                              "status": node["status"], "level": node["level"]})
+            history.touched = touched
+        if history.workmap is not None:
+            nodes = history.workmap.nodes
+            history.verdicts = {pair: verdict for pair, verdict in verdicts.items()
+                                if nodes[pair[0]]["refs"].get("contract_revision") == verdict["contract"]}
+        return history
+
+    def history(self, task_id: object) -> History:
+        """``fold_file`` for the map of ``task_id``."""
+        task_id = _task_id(task_id)
+        history = self.fold_file(f"{map_key(task_id)}.jsonl")
+        if history.workmap is not None and history.workmap.task_id != task_id:
             raise WorkmapError("key_collision", "another task's map holds this file; choose another task_id")
-        return workmap, steps
+        return history
+
+    def stored_result(self, task_id: object, node: dict) -> str | None:
+        """The stored text of the result ``node`` holds, from a map already read."""
+        return self._result(_task_id(task_id), node)
 
     def _result(self, task_id: str, node: dict) -> str | None:
         sha256 = node["refs"].get("result_sha256")

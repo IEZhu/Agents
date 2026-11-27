@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import os
+import time
 
 import httpx
 import pytest
@@ -11,7 +14,8 @@ import pytest_asyncio
 
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
-from src.workmap.store import WorkmapStore
+from src.workmap import web
+from src.workmap.store import WorkmapStore, _iso, map_key
 
 TOKEN = "s" * 48
 UI = {"X-Agents-UI": "1", "Origin": "http://127.0.0.1:8765"}
@@ -22,7 +26,7 @@ RESULT = ("task: release-2026:demo\nstatus: completed\n\n## summary\n<script>ale
           "## evidence\n[^e1]: see artifact://m2/" + "e" * 64 + "/a2 — a log\n")
 
 
-def build_map(root, *, clock=1_800_000_000.0, task=TASK):
+def build_map(root, *, clock=1_764_000_000.0, task=TASK):
     store = WorkmapStore(root, clock=lambda: clock)
     store.apply(task, [
         {"op": "add_node", "id": "goal", "kind": "goal", "title": "Ship the demo"},
@@ -69,6 +73,7 @@ async def daemon(tmp_path):
             await asyncio.sleep(.01)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app),
                                      base_url="http://127.0.0.1:8765") as http:
+            http.roots = {"project": project, "other": other, "empty": empty}
             yield http, ids, project, sha
 
 
@@ -122,7 +127,7 @@ async def test_the_list_shows_each_workspaces_maps_newest_first(daemon):
     first = listed[0]["maps"][0]
     assert first["task_id"] == TASK and first["goal"] == "Ship the demo" and first["closed"] is False
     assert first["counts"] == {"planned": 3, "validated": 1} and first["nodes"] == 4 and first["running"] == []
-    assert first["updated"] == "2027-01-15T08:00:00Z"
+    assert first["updated"] == "2025-11-24T16:00:00Z"
 
 
 @pytest.mark.asyncio
@@ -153,7 +158,7 @@ async def test_a_node_carries_the_time_of_its_status_and_counts_its_attempts(dae
     second preparation of a prepared node is a new attempt, not a repeated step."""
     from src.workmap.store import _iso
     http, ids, project, _ = daemon
-    now = [1_900_000_000.0]
+    now = [1_764_100_000.0]
     store = WorkmapStore(project, clock=lambda: now[0])
     store.record_prepared(TASK, "review", contract_revision="f" * 64, attempt_id="1", complexity="high")
     now[0] += 600
@@ -162,14 +167,14 @@ async def test_a_node_carries_the_time_of_its_status_and_counts_its_attempts(dae
     graph = (await http.get(f"/ui/api/workmap/map?workspace={ids['project']}&task_id={TASK}", headers=UI)).json()
     review = next(node for node in graph["nodes"] if node["id"] == "review")
     assert graph["running"] == ["review"] and review["status"] == "prepared" and review["needs"] == "V3"
-    assert review["attempts"] == 2 and review["since"] == _iso(1_900_000_600.0)
+    assert review["attempts"] == 2 and review["since"] == _iso(1_764_100_600.0)
     build = next(node for node in graph["nodes"] if node["id"] == "build")
-    assert build["attempts"] == 1 and build["since"] == "2027-01-15T08:00:00Z"
+    assert build["attempts"] == 1 and build["since"] == "2025-11-24T16:00:00Z"
     record = (await http.get(f"/ui/api/workmap/node?workspace={ids['project']}&task_id={TASK}&node=review",
                              headers=UI)).json()
     assert [(step["status"], step["op"], step["at"]) for step in record["history"]] == [
-        ("planned", "add_node", "2027-01-15T08:00:00Z"), ("prepared", "prepared", _iso(1_900_000_000.0)),
-        ("prepared", "prepared", _iso(1_900_000_600.0))]
+        ("planned", "add_node", "2025-11-24T16:00:00Z"), ("prepared", "prepared", _iso(1_764_100_000.0)),
+        ("prepared", "prepared", _iso(1_764_100_600.0))]
     assert record["node"]["attempts"] == 2
 
 
@@ -233,3 +238,158 @@ def test_artifacts_come_from_the_section_and_from_references_elsewhere():
     assert artifacts(None) == [] and artifacts("") == []
     text = "## Artifacts\n- `out/a.png` -- a screenshot\n- plain\n## changes\n- not/an/artifact.py — x\n"
     assert artifacts(text) == [{"ref": "out/a.png", "purpose": "a screenshot"}, {"ref": "plain", "purpose": ""}]
+
+
+def test_artifacts_follow_the_result_format_and_cost_linear_time():
+    """An item is a line that starts with '- ' (an indented line continues it), its separator stands
+    outside code spans, a footnote citation is not part of a reference, and a heading is found
+    without a pattern that backtracked quadratically on a long run of spaces."""
+    from src.workmap.web import artifacts
+    m1, m2 = "artifact://m1/" + "d" * 64 + "/a1", "artifact://m2/" + "e" * 64 + "/art_x"
+    text = (f"## artifacts\n- {m1}[^e1] — the report\n  - a sub-bullet of its purpose\n"
+            "- `docs/a — b.md` — a dash inside the code span\n"
+            f"## evidence\n[^e1]: {m2}. — a log, and artifact://not/a/reference\n")
+    assert artifacts(text) == [{"ref": m1, "purpose": "the report - a sub-bullet of its purpose"},
+                               {"ref": "docs/a — b.md", "purpose": "a dash inside the code span"},
+                               {"ref": m2, "purpose": ""}]
+    started = time.perf_counter()
+    assert artifacts("# a" + " " * 150_000 + "b\n## artifacts\n- x — y\n" + "# " * 300_000) == [
+        {"ref": "x", "purpose": "y"}]
+    assert time.perf_counter() - started < 1  # was 4.5 s for 32,000 spaces, quadratic in the run
+
+
+def _append(root, task, event):
+    """Append one committed event to a map's log as a hand-written or planted line would be."""
+    path = root / "data" / "workmap" / f"{map_key(task)}.jsonl"
+    revision = WorkmapStore(root).load(task).revision + 1
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({**event, "rev": revision, "commit": revision, "v": 1}) + "\n")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("at, by", [(float("nan"), "parent"), ("\ud800", "parent"), ({"a": 1}, "parent"),
+                                    ("2025-11-24T16:00:00Z", "\ud800"), ("x" * 100_000, ["parent"])])
+async def test_a_log_whose_times_or_authors_are_not_the_writers_is_still_listed_and_opened(daemon, at, by):
+    http, ids, project, _ = daemon
+    _append(project, TASK, {"op": "update_node", "id": "build", "title": "Built again", "at": at, "by": by})
+    await login(http)
+    ws = ids["project"]
+    listed = await http.get("/ui/api/workmap/maps", headers=UI)
+    assert listed.status_code == 200 and listed.json()["workspaces"][0]["maps"][0]["updated"] == "2025-11-24T16:00:00Z"
+    graph = await http.get(f"/ui/api/workmap/map?workspace={ws}&task_id={TASK}", headers=UI)
+    assert graph.status_code == 200 and graph.json()["revision"] == 11
+    record = (await http.get(f"/ui/api/workmap/node?workspace={ws}&task_id={TASK}&node=build", headers=UI)).json()
+    assert record["node"]["title"] == "Built again"
+    assert all(step["at"] in (None, "2025-11-24T16:00:00Z") and step["by"] in (None, "parent", "server")
+               for step in record["history"])
+
+
+@pytest.mark.asyncio
+async def test_a_time_in_the_future_never_makes_a_map_the_latest(daemon):
+    """A planted log stamped 9999 must not stay the map #workmap and a task-only link open."""
+    http, ids, _, _ = daemon
+    planted = http.roots["empty"]
+    build_map(planted, clock=253_402_300_799.0)  # 9999-12-31T23:59:59Z
+    await login(http)
+    listed = (await http.get("/ui/api/workmap/maps", headers=UI)).json()["workspaces"]
+    assert [repo["workspace"] for repo in listed][:1] == [ids["project"]]
+    assert [repo["maps"][0]["updated"] for repo in listed if repo["workspace"] == ids["empty"]] == [None]
+    graph = (await http.get(f"/ui/api/workmap/map?task_id={TASK}", headers=UI)).json()
+    assert graph["workspace"] == ids["project"] and graph["candidates"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_package_issued_again_is_no_new_attempt(daemon):
+    """The server records every preparation; the same contract again is the same attempt and keeps
+    the time the attempt started."""
+    http, ids, project, _ = daemon
+    now = [1_764_100_000.0]
+    store = WorkmapStore(project, clock=lambda: now[0])
+    store.record_prepared(TASK, "review", contract_revision="f" * 64, attempt_id="1", complexity=None)
+    now[0] += 600
+    store.record_prepared(TASK, "review", contract_revision="f" * 64, attempt_id="1", complexity=None)
+    await login(http)
+    record = (await http.get(f"/ui/api/workmap/node?workspace={ids['project']}&task_id={TASK}&node=review",
+                             headers=UI)).json()
+    assert record["node"]["attempts"] == 1 and record["node"]["since"] == _iso(1_764_100_000.0)
+    assert [step["op"] for step in record["history"]] == ["add_node", "prepared"]
+
+
+@pytest.mark.asyncio
+async def test_the_map_names_the_last_commit_and_the_verdicts_the_store_recorded(daemon):
+    """The page shows recorded verdicts, never ones it derives, and names every node of the last
+    commit: a review's result and its verdict are one commit."""
+    http, ids, project, sha = daemon
+    store = WorkmapStore(project, clock=lambda: 1_764_100_000.0)
+    review = ("task: x\nstatus: completed\n\n## summary\nclean\n")
+    review_sha = hashlib.sha256(review.encode()).hexdigest()
+    store.record_prepared(TASK, "review", contract_revision="9" * 64, attempt_id="1", complexity=None,
+                          inputs={"build": sha})
+    outcome = {"status": "validated", "level": "V2", "summary": "No issue", "checks": {"passed": 1, "failed": 0,
+               "not_run": 0}, "findings": {}, "limitations": 0, "result_status": "completed", "question": None,
+               "escalation": None}
+    store.record_result(TASK, "review", contract_revision="9" * 64, attempt_id="1", text=review, sha256=review_sha,
+                        handback="line", outcome=outcome)
+    await login(http)
+    url = f"/ui/api/workmap/map?workspace={ids['project']}&task_id={TASK}"
+    graph = (await http.get(url, headers=UI)).json()
+    assert graph["last_change"] == ["review", "build"]
+    assert graph["verdicts"] == [{"verifier": "review", "target": "build", "verdict": "clean", "result_sha256": sha}]
+    # A new attempt of the verifier has given no verdict yet: the old one no longer counts.
+    store.apply(TASK, [{"op": "update_node", "id": "review", "status": "planned"}])
+    store.record_prepared(TASK, "review", contract_revision="8" * 64, attempt_id="2", complexity=None,
+                          inputs={"build": sha})
+    graph = (await http.get(url, headers=UI)).json()
+    assert graph["verdicts"] == [] and graph["last_change"] == ["review"]
+
+
+@pytest.mark.asyncio
+async def test_answers_name_no_path_and_never_repeat_an_unchecked_value(daemon):
+    http, ids, _, _ = daemon
+    other = http.roots["other"]
+    await login(http)
+    listed = await http.get("/ui/api/workmap/maps", headers=UI)
+    assert "root" not in listed.text and '"key"' not in listed.text and str(other) not in listed.text
+    junk = "<b>" + "x" * 300
+    for path in (f"/ui/api/workmap/map?task_id={junk}",
+                 f"/ui/api/workmap/node?workspace={ids['project']}&task_id={TASK}&node={junk}",
+                 f"/ui/api/workmap/result?workspace={ids['project']}&task_id={TASK}&node={junk}"):
+        response = await http.get(path, headers=UI)
+        assert response.status_code == 400 and junk not in response.text and "invalid_request" in response.text
+    # A store the reads refuse (its data directory is a link) is named, not its path.
+    (other / "data").rename(other / "elsewhere")
+    os.symlink(other / "elsewhere", other / "data")
+    response = await http.get(f"/ui/api/workmap/map?workspace={ids['other']}&task_id=older-task", headers=UI)
+    assert response.status_code == 500 and "unsafe_store" in response.text and str(other) not in response.text
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_map_is_folded_once_and_a_large_one_not_at_all(daemon, monkeypatch):
+    http, ids, project, _ = daemon
+    folds = []
+    original = WorkmapStore.fold_file
+    monkeypatch.setattr(WorkmapStore, "fold_file", lambda self, name: folds.append(name) or original(self, name))
+    await login(http)
+    url = f"/ui/api/workmap/map?workspace={ids['project']}&task_id={TASK}"
+    for _ in range(3):
+        assert (await http.get(url, headers=UI)).status_code == 200
+    assert len(folds) == 1  # polls of an unchanged map cost a stat each
+    WorkmapStore(project, clock=lambda: 1_764_100_000.0).apply(TASK, [{"op": "update_node", "id": "ask", "title": "Port?"}])
+    assert (await http.get(url, headers=UI)).json()["revision"] == 11 and len(folds) == 2
+    # A log over the page's limit is refused before it is read, and counted in the list.
+    monkeypatch.setattr(web, "WEB_MAX_BYTES", 100)
+    response = await http.get(url, headers=UI)
+    assert response.status_code == 413 and "map_too_large" in response.text and len(folds) == 2
+    project_list = (await http.get("/ui/api/workmap/maps", headers=UI)).json()["workspaces"]
+    assert [(repo["too_large"], repo["maps"]) for repo in project_list if repo["workspace"] == ids["project"]] == [(1, [])]
+
+
+@pytest.mark.asyncio
+async def test_a_map_file_the_store_refuses_is_counted_and_the_others_still_listed(daemon):
+    http, ids, project, _ = daemon
+    os.symlink(project / "data" / "workmap" / f"{map_key(TASK)}.jsonl",
+               project / "data" / "workmap" / ("0" * 16 + ".jsonl"))
+    await login(http)
+    repo = next(repo for repo in (await http.get("/ui/api/workmap/maps", headers=UI)).json()["workspaces"]
+                if repo["workspace"] == ids["project"])
+    assert [item["task_id"] for item in repo["maps"]] == [TASK] and repo["skipped"] == 1 and repo["total"] == 2
