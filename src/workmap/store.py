@@ -109,7 +109,13 @@ def _choice(where: str, value: object, allowed: tuple[str, ...]) -> str:
 
 @dataclass
 class WorkMap:
-    """A map's state, folded from its events; ``nodes`` keeps creation order."""
+    """A map's state, folded from its events; ``nodes`` keeps creation order.
+
+    ``edges`` keeps the order the edges were added in. ``add_edge`` and ``remove_edge`` change it
+    together with an index beside it, so ``has_edge``, ``targets`` and ``sources`` scan no edge list:
+    the fold checks every new depends_on edge for a cycle, which would otherwise walk the whole list
+    once per node it reaches, and a log of a few thousand edges took seconds to fold.
+    """
 
     task_id: str
     revision: int = 0
@@ -122,12 +128,69 @@ class WorkMap:
     # The contracts that have a result: neither a second result nor an invalid count follows one.
     resulted: set[str] = field(default_factory=set)
     updated: str = ""  # when the last applied event was written, as the store stamps it
+    # The index of ``edges``: the set, targets by (source, type) and sources by (target, type), each in
+    # edge order. ``_indexed`` is how many edges it covers; a map built with an edge list rebuilds it.
+    _set: set = field(default_factory=set, init=False, repr=False, compare=False)
+    _out: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+    _in: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+    _indexed: int = field(default=0, init=False, repr=False, compare=False)
+
+    def _index(self) -> None:
+        if self._indexed == len(self.edges) and len(self._set) == len(self.edges):
+            return
+        self._set, self._out, self._in = set(), {}, {}
+        for source, target, kind in self.edges:
+            self._set.add((source, target, kind))
+            self._out.setdefault((source, kind), []).append(target)
+            self._in.setdefault((target, kind), []).append(source)
+        self._indexed = len(self.edges)
+
+    def has_edge(self, edge: tuple[str, str, str]) -> bool:
+        self._index()
+        return edge in self._set
+
+    def add_edge(self, edge: tuple[str, str, str]) -> None:
+        self._index()
+        source, target, kind = edge
+        self.edges.append(edge)
+        self._set.add(edge)
+        self._out.setdefault((source, kind), []).append(target)
+        self._in.setdefault((target, kind), []).append(source)
+        self._indexed += 1
+
+    def remove_edge(self, edge: tuple[str, str, str]) -> None:
+        self._index()
+        source, target, kind = edge
+        self.edges.remove(edge)
+        self._set.discard(edge)
+        self._out[(source, kind)].remove(target)
+        self._in[(target, kind)].remove(source)
+        self._indexed -= 1
+
+    def _pop_edge(self, edge: tuple[str, str, str]) -> None:
+        """Take back the edge ``add_edge`` added last (an undone commit)."""
+        self._index()
+        if not self.edges or self.edges[-1] != edge:
+            self.remove_edge(edge)
+            return
+        source, target, kind = self.edges.pop()
+        self._set.discard(edge)
+        self._out[(source, kind)].pop()
+        self._in[(target, kind)].pop()
+        self._indexed -= 1
+
+    def _set_edges(self, edges: list[tuple[str, str, str]]) -> None:
+        """Put back an edge list exactly as it was, order included (an undone commit); reindexes."""
+        self.edges[:] = edges
+        self._indexed = -1
 
     def targets(self, node_id: str, edge_type: str) -> list[str]:
-        return [target for source, target, kind in self.edges if source == node_id and kind == edge_type]
+        self._index()
+        return list(self._out.get((node_id, edge_type), ()))
 
     def sources(self, node_id: str, edge_type: str) -> list[str]:
-        return [source for source, target, kind in self.edges if target == node_id and kind == edge_type]
+        self._index()
+        return list(self._in.get((node_id, edge_type), ()))
 
 
 class EdgeIndex:
@@ -343,13 +406,13 @@ def _check_event(workmap: WorkMap, event: dict) -> None:
             raise ValueError(f"{op} between unknown nodes")
         edge = (source, target, kind)
         if op == "remove_edge":
-            if edge not in workmap.edges:
+            if not workmap.has_edge(edge):
                 raise ValueError("remove_edge of a missing edge")
         # _parent_event's rules for add_edge: no edge from a node to itself, of any type; no
         # duplicate; and a depends_on edge neither onto a goal nor closing a cycle.
         elif source == target:
             raise ValueError(f"{kind} edge from a node to itself")
-        elif edge in workmap.edges:
+        elif workmap.has_edge(edge):
             raise ValueError("duplicate edge")
         elif kind == "depends_on" and (workmap.nodes[target]["kind"] == "goal" or _reaches(workmap, target, source)):
             raise ValueError("depends_on edge the writer refuses")
@@ -440,9 +503,9 @@ def _apply_event(workmap: WorkMap, event: dict) -> None:
         edge = (event["from"], event["to"], event["type"])
         ends = [workmap.nodes[node_id] for node_id in edge[:2]]
         if op == "add_edge":
-            workmap.edges.append(edge)
+            workmap.add_edge(edge)
         else:
-            workmap.edges.remove(edge)
+            workmap.remove_edge(edge)
         for node in ends:
             node["changed"] = rev
         return
@@ -522,24 +585,72 @@ def _commits(events: list):
             run = []
 
 
+def _undo(workmap: WorkMap, event: dict) -> Callable[[], None]:
+    """What puts back everything ``_apply_event(workmap, event)`` changes, taken before it runs.
+
+    The nodes an event names are copied shallowly (an event replaces ``refs``, never edits it), and
+    only the parts of the map it can touch are kept. An event too damaged to describe needs nothing:
+    ``_apply_event`` raises before it changes anything.
+    """
+    steps: list[Callable[[], None]] = []
+    for key in ("id", "from", "to"):
+        value = event.get(key)
+        node = workmap.nodes.get(value) if isinstance(value, str) else None
+        if node is not None:
+            before = dict(node)
+            steps.append(lambda node=node, before=before: (node.clear(), node.update(before)))
+    op, revision = event.get("op"), event.get("contract_revision")
+    if op == "add_node" and isinstance(event.get("id"), str) and event["id"] not in workmap.nodes:
+        steps.append(lambda node_id=event["id"]: workmap.nodes.pop(node_id, None))
+    elif op == "add_edge":
+        # Only an event that applied is undone, so its edge is the last one added.
+        steps.append(lambda: workmap._pop_edge((event["from"], event["to"], event["type"])))
+    elif op == "remove_edge":
+        edges = list(workmap.edges)  # put back in its place, so the edges keep their order
+        steps.append(lambda: workmap._set_edges(edges))
+    elif op == "close":
+        steps.append(lambda closed=workmap.closed: setattr(workmap, "closed", closed))
+    elif op == "invalid" and isinstance(revision, str):
+        count, codes = workmap.invalid.get(revision), workmap.invalid_codes.get(revision)
+        steps.append(lambda: (_put_back(workmap.invalid, revision, count),
+                              _put_back(workmap.invalid_codes, revision, codes)))
+    elif op == "result" and isinstance(revision, str) and revision not in workmap.resulted:
+        steps.append(lambda: workmap.resulted.discard(revision))
+    return lambda: [step() for step in reversed(steps)]
+
+
+def _put_back(values: dict, key: str, value: object) -> None:
+    if value is None:
+        values.pop(key, None)
+    else:
+        values[key] = value
+
+
 def _apply_commit(workmap: WorkMap, events: list) -> WorkMap | None:
     """The map after every event of one commit, or None when any of them fails to apply.
 
-    A single event raises before it changes anything, so it applies in place; a longer commit
-    is applied to a copy, so that its failing event leaves none of the others behind.
+    The events apply in place. Each raises before it changes anything, and when one fails the
+    events before it are undone, so a failing commit leaves none of its events behind. Undoing
+    instead of applying a commit to a copy keeps a fold linear in the log: a copy of the whole map
+    per commit made a log of two-event commits cost seconds per hundred kilobytes.
     """
-    trial = copy.deepcopy(workmap) if len(events) > 1 else workmap
+    undo: list[Callable[[], None]] = []
     try:
         for event in events:
-            _apply_event(trial, event)
+            restore = _undo(workmap, event) if len(events) > 1 else None
+            _apply_event(workmap, event)
+            if restore is not None:
+                undo.append(restore)
     except (KeyError, TypeError, ValueError):
+        for restore in reversed(undo):
+            restore()
         return None
     if events:
-        trial.revision = events[-1]["rev"]
+        workmap.revision = events[-1]["rev"]
         stamps = [event["at"] for event in events if isinstance(event.get("at"), str)]
         if stamps:
-            trial.updated = stamps[-1]
-    return trial
+            workmap.updated = stamps[-1]
+    return workmap
 
 
 def _applied(events: list):
@@ -697,14 +808,14 @@ def _parent_event(workmap: WorkMap, op: object, where: str) -> dict:
         if kind == "add_edge":
             if source == target:
                 raise WorkmapError("invalid_request", f"{where}: a node cannot point to itself")
-            if edge in workmap.edges:
+            if workmap.has_edge(edge):
                 raise WorkmapError("invalid_request", f"{where}: the edge exists")
             if edge_type == "depends_on" and workmap.nodes[target]["kind"] == "goal":
                 raise WorkmapError("invalid_request", f"{where}: {target} is a goal, which never settles; "
                                                       "nothing can depend_on it")
             if edge_type == "depends_on" and _reaches(workmap, target, source):
                 raise WorkmapError("cycle", f"{where}: {source} depends_on {target} would close a cycle")
-        elif edge not in workmap.edges:
+        elif not workmap.has_edge(edge):
             raise WorkmapError("invalid_request", f"{where}: no such edge")
         return {"op": kind, "by": "parent", "from": source, "to": target, "type": edge_type}
     return {"op": "close", "by": "parent"}

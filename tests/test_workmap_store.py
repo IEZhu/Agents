@@ -5,6 +5,7 @@ import os
 import stat
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -1349,3 +1350,68 @@ def test_a_changed_package_for_the_same_attempt_is_refused(store):
     prepare(store, revision=FIRST, attempt="1")  # the same package again is still accepted
     prepare(store, revision=SECOND, attempt="2")
     assert store.load(TASK).nodes["map-code"]["refs"]["contract_revision"] == SECOND
+
+
+def test_a_failing_commit_is_undone_in_place_and_leaves_the_map_as_it_was():
+    """A commit applies in place, and an event that fails undoes the ones before it: nodes, edges in
+    their order, invalid counts and the closed flag come back exactly, and the edge index agrees."""
+    node = {**NODE_B, "id": "c"}
+    base = OPENED + [{**NODE_B, "rev": 3}, {**node, "rev": 4},
+                     {"op": "add_edge", "from": "b", "to": "a", "type": "depends_on", "rev": 5},
+                     {"op": "add_edge", "from": "c", "to": "a", "type": "depends_on", "rev": 6},
+                     {"op": "prepared", "id": "a", "contract_revision": FIRST, "attempt_id": "1", "complexity": None,
+                      "rev": 7},
+                     {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": ["x"], "status": None, "rev": 8}]
+    before = store_module.fold(base)
+    failing = [{"op": "remove_edge", "from": "b", "to": "a", "type": "depends_on"},
+               {"op": "add_edge", "from": "c", "to": "b", "type": "depends_on"},
+               {"op": "update_node", "id": "b", "title": "B2"},
+               {"op": "invalid", "id": "a", "contract_revision": FIRST, "codes": ["y"], "status": None},
+               {**NODE_B, "id": "d"}, {"op": "close"},
+               {**NODE_B, "id": "e"}]  # nothing follows a close: the commit fails at its last event
+    failing = [{**event, "rev": 9 + index, "commit": 9 + len(failing) - 1} for index, event in enumerate(failing)]
+    after = store_module.fold(base + failing)
+    assert after.revision == 8 and not after.closed
+    assert after.nodes == before.nodes and after.edges == before.edges == [("b", "a", "depends_on"), ("c", "a", "depends_on")]
+    assert after.invalid == before.invalid == {FIRST: 1} and after.invalid_codes == before.invalid_codes
+    assert after.targets("b", "depends_on") == ["a"] and after.sources("a", "depends_on") == ["b", "c"]
+    assert after.has_edge(("b", "a", "depends_on")) and not after.has_edge(("c", "b", "depends_on"))
+    # The same commit without its failing event applies whole.
+    applied = store_module.fold(base + [{**event, "commit": failing[-2]["rev"]} for event in failing[:-1]])
+    assert applied.closed and applied.edges == [("c", "a", "depends_on"), ("c", "b", "depends_on")]
+    assert applied.nodes["b"]["title"] == "B2" and applied.invalid == {FIRST: 2} and "d" in applied.nodes
+
+
+def test_a_map_built_with_an_edge_list_indexes_it():
+    workmap = store_module.WorkMap(task_id=TASK, edges=[("b", "a", "depends_on"), ("v", "a", "verifies")])
+    assert workmap.targets("b", "depends_on") == ["a"] and workmap.sources("a", "verifies") == ["v"]
+    assert workmap.has_edge(("v", "a", "verifies")) and not workmap.has_edge(("a", "b", "depends_on"))
+
+
+def _two_event_commits(count):
+    events, rev = [{"op": "open", "task_id": TASK, "rev": 1}], 1
+    for index in range(count):
+        for part in ("a", "b"):
+            rev += 1
+            events.append({**NODE_B, "id": f"n{index}{part}", "rev": rev, "commit": rev + (part == "a")})
+    return events
+
+
+def _edges_in_one_commit(length, long_from):
+    events = [{"op": "open", "task_id": TASK}] + [{**NODE_B, "id": f"n{i}"} for i in range(length)]
+    events += [{"op": "add_edge", "from": f"n{i}", "to": f"n{i - 1}", "type": "depends_on"} for i in range(1, length)]
+    events += [{"op": "add_edge", "from": f"n{late}", "to": f"n{early}", "type": "depends_on"}
+               for late in range(length - long_from, length) for early in range(0, late - 1)]
+    return [{**event, "rev": number, "commit": len(events)} for number, event in enumerate(events, start=1)]
+
+
+def test_the_fold_copies_no_map_per_commit_and_scans_no_edge_list():
+    """A copy of the whole map per commit made 1.46 MB of two-event commits fold in two minutes, and
+    a cycle check over an unindexed edge list made 3,224 edges in one commit fold in six seconds; the
+    web view folds on every poll. Both are well under a second now; the bound is generous."""
+    started = time.perf_counter()
+    workmap = store_module.fold(_two_event_commits(4000))
+    assert len(workmap.nodes) == 8000 and workmap.revision == 8001
+    workmap = store_module.fold(_edges_in_one_commit(120, 30))
+    assert len(workmap.edges) == 3224
+    assert time.perf_counter() - started < 5
