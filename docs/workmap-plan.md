@@ -62,7 +62,8 @@ Non-goals:
 - Semantic verification by the server. Validation stays structural; verification is a
   verifier worker's job.
 - Coordination across machines (#690) and resource scheduling (#723).
-- A graphical view. A mind-map tab in the daemon's web UI is a later step.
+- Editing a map from a page. The daemon's web UI shows maps read-only on its Work map tab
+  ([Web view and footer link](#web-view-and-footer-link)); only the tools write them.
 - Replacing validated claims. The map is about one task's stages; a fact that outlives
   the task still goes to `claim_record`.
 
@@ -175,7 +176,9 @@ already exists, and any other `expected_revision` refuses a stale write the same
 server-owned status is refused with `status_reserved`, `accepted` on a node that is not
 `validated`, `verified` or `accepted` with `invalid_transition`, a `depends_on` cycle with `cycle`, a
 `depends_on` edge onto a goal with `invalid_request`, and any write to a closed map with
-`map_closed`. The parent sets level `V4` only together with `accepted`.
+`map_closed`. The parent sets level `V4` only together with `accepted`. Under the daemon
+the answer also carries `map_url`, the map's page on the web UI
+([Web view and footer link](#web-view-and-footer-link)).
 
 **`workmap_view(task_id?, node?, since?, detail?, budget?, workspace?)`** renders text,
 never the raw event log.
@@ -205,6 +208,9 @@ never the raw event log.
   all of them.
 - With `node` and `detail="result"`: the stored result itself. This is the explicit escape
   hatch, the one call that brings a stage's work into the parent's context.
+
+An answer about one map (every mode but the list) carries `map_url` under the daemon, as
+`workmap_update`'s does.
 
 **`get_subagent_context`** gains two optional arguments, both requiring `task_id` to name
 the map, and a bound package uses `result_format` text.
@@ -369,6 +375,50 @@ description of `validate_subagent_result` states the exception for bound package
 
 By default the parent does not read results or evidence; `detail="result"` is a decision
 it states.
+
+### Web view and footer link
+
+The daemon's web UI (`/ui`) has a **Work map** tab that shows the maps of every
+registered workspace, read-only, for the person following the work rather than the
+parent's context:
+
+- The list names each workspace's most recently written maps, newest first: task id,
+  goal, open or closed, counts by status, last change.
+- An open map is drawn as a graph. A node stands right of the nodes it `depends_on` or
+  `verifies`, so the goal, which nothing may depend on, heads the first column. Each node
+  names its title, status, level and kind, and its check counts and worker status once it
+  has a result; its border and stripe repeat the status in color (planned, running for
+  `prepared`, validated, needs attention, verified, disputed, accepted, refuted,
+  superseded, blocked). `depends_on` edges run solid from the prerequisite to its
+  dependant, `verifies` dashed, `supersedes` dotted and `contradicts` red. The prepared
+  (running) stage, or else the node that changed last, is ringed. The page polls the open
+  map every five seconds and redraws when its revision changes.
+- A click on a node opens its record: summary, risk and needed level, status and level
+  history (each committed change with its revision, operation and time), worker status,
+  checks, limitations, findings, question, escalation, invalid submissions,
+  `contract_revision`, `attempt_id`, `result_sha256`, pinned inputs, relations, and the
+  artifacts the stored result names (the items of its `## artifacts` section and every
+  `artifact://` reference). The stored result itself is fetched only by **Show full
+  result** and shown as text, never as markup.
+- `/ui#workmap/<workspace id>/<task id>` opens one map directly, and the address bar keeps
+  that link while a map is open; `/ui#workmap/<task id>` finds the most recently written
+  map of that task id among the registered workspaces.
+
+The data comes from `GET /ui/api/workmap/maps`, `/ui/api/workmap/map?workspace=&task_id=`,
+`/ui/api/workmap/node?workspace=&task_id=&node=` and
+`/ui/api/workmap/result?workspace=&task_id=&node=` (`src/daemon/workmap_ui.py` over
+`src/workmap/web.py`), behind the UI session and the page header like the History tab's
+reads. They address a workspace by its registry id, never by a path, and none of them
+writes.
+
+Under the daemon, `workmap_update` and `workmap_view` answer about one map with
+`map_url`, that map's link on the page (the bare UI link the persona footer's version
+already uses, plus the fragment above). The description of `workmap_view` carries the
+footer rule: while a thread works on an open map, each answer's footer ends with
+` · [Work map](<map_url>)`, using the last `map_url` returned for that map, and the link
+is dropped once the map is closed. The persona footer itself is unchanged, since it
+belongs to an activation and a map to a task. A stdio server has no page and returns no
+`map_url`, so its answers carry no link.
 
 ### Rollback
 
