@@ -1,4 +1,4 @@
-"""The Stop hook that logs a headless turn in place of the model, and the protocol text it needs (#734)."""
+"""The Stop hook that logs a turn in place of the model, and the protocol text it needs (#734, #701)."""
 import io
 import json
 import os
@@ -183,7 +183,8 @@ def test_the_persona_action_follows_where_the_activation_happened(switches, proj
     {"status": "ROUTE_REQUIRED", "candidates": []},
     {"status": "ERROR", "persona": PERSONA},
 ])
-def test_a_turn_without_an_applied_persona_writes_nothing(switches, project, tmp_path, response):
+def test_a_turn_without_an_applied_persona_is_logged_unverified(switches, project, tmp_path, response):
+    """#701: like a log_interaction call without a descriptor, the turn is written and marked unverified."""
     transcript = tmp_path / "t.jsonl"
     rows = [{"type": "user", "message": {"role": "user", "content": "question"}},
             {"type": "assistant", "message": {"id": "m1", "content": [
@@ -192,8 +193,10 @@ def test_a_turn_without_an_applied_persona_writes_nothing(switches, project, tmp
                 {"type": "tool_result", "tool_use_id": "t1", "content": json.dumps({"result": json.dumps(response)})}]}},
             {"type": "assistant", "message": {"id": "m2", "content": [{"type": "text", "text": "Answer."}]}}]
     transcript.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-    assert hook.record_turn(stop_event(project, transcript)) == {"status": "skipped", "reason": "no_persona"}
-    assert not (project / "history.md").exists()
+    assert hook.record_turn(stop_event(project, transcript))["status"] == "recorded"
+    [entry] = entries(project)
+    assert (entry.intent, entry.outcome) == ("question", "Answer.")
+    assert entry.action == "Agent: unattributed Persona (unverified): missing=persona; action=unspecified"
 
 
 def test_the_hook_inputs_last_message_wins_without_its_time_line_and_secrets(switches, project):
@@ -396,3 +399,282 @@ def test_a_prompt_without_text_ends_the_previous_turn(switches, project, tmp_pat
             {"type": "assistant", "message": {"id": "m2", "content": [{"type": "text", "text": "Second."}]}}]
     transcript.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     assert hook.read_turn(transcript.read_text(encoding="utf-8").splitlines()) is None
+
+
+# --- Interactive sessions (#701) ------------------------------------------------------------------
+
+
+def rows_file(path, rows):
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    return path
+
+
+def activation_rows(tool_id="t1"):
+    return [{"type": "assistant", "message": {"id": "a" + tool_id, "content": [
+                {"type": "tool_use", "id": tool_id, "name": "mcp__Agents-Core__route_and_load", "input": {}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps({"status": "SUCCESS",
+                                                                                       "persona": PERSONA})}]}}]
+
+
+def log_rows(status, tool_id="l1"):
+    """A log_interaction call and its result, whose history status is ``status``."""
+    return [{"type": "assistant", "message": {"id": "a" + tool_id, "content": [
+                {"type": "tool_use", "id": tool_id, "name": "mcp__Agents-Core__log_interaction", "input": {}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(
+                    {"result": json.dumps({"status": "success", "history": {"status": status}})})}]}}]
+
+
+def answer_row(text, message_id="m9"):
+    return {"type": "assistant", "message": {"id": message_id, "content": [{"type": "text", "text": text}]}}
+
+
+def test_the_interactive_argument_alone_switches_the_hook_on(project, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(config, "TURN_LOG_HOOK", False)
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "interactive")
+    assert hook.record_turn(stop_event(project, prompt_id="prompt-2")) == {"status": "skipped", "reason": "disabled"}
+    assert run_main(monkeypatch, capsys, json.dumps(stop_event(project, prompt_id="prompt-2")).encode()) == (0, "")
+    assert not (project / "history.md").exists()
+    event = stop_event(project, prompt_id="prompt-2", last_assistant_message="The delivered answer.\n\n" + FOOTER)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps(event).encode())))
+    assert hook.main(["--interactive"]) == 0
+    [entry] = entries(project)
+    assert entry.intent == PROMPT and entry.outcome == "The delivered answer. " + FOOTER
+    assert entry.metadata["logged_by"] == "stop_hook" and entry.metadata["client"] == "claude-code"
+    assert entry.metadata["prompt_id"] == "prompt-2"
+
+
+def test_the_logged_answer_is_the_last_assistant_text_of_the_turn(project, tmp_path):
+    """The answer the model delivered last, after a note it added, is the one the journal keeps."""
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        {"type": "user", "promptId": "p1", "turnOrigin": "human", "message": {"role": "user", "content": "вопрос"}},
+        *activation_rows(), answer_row("Answer in English, reworded.", "m1"),
+        answer_row("Ответ на русском.\n\n" + FOOTER, "m2")])
+    assert hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)["status"] == "recorded"
+    [entry] = entries(project)
+    assert entry.outcome == "Ответ на русском. " + FOOTER
+    assert entry.action.startswith("Agent: software_engineer Persona (client-reported)")
+
+
+@pytest.mark.parametrize("status,written", [("recorded", False), ("duplicate", False), ("error", True)])
+def test_a_turn_the_model_logged_is_left_alone(project, tmp_path, status, written):
+    """Where the server kept the model's logging step, the hook adds no second entry (#701)."""
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        {"type": "user", "promptId": "p1", "message": {"role": "user", "content": "question"}},
+        *activation_rows(), *log_rows(status), answer_row("Answer.")])
+    result = hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)
+    assert (result["status"] == "recorded") is written
+    if not written:
+        assert result == {"status": "skipped", "reason": "logged_by_model"}
+
+
+def test_a_log_call_of_an_earlier_turn_does_not_count(project, tmp_path):
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        {"type": "user", "promptId": "p1", "message": {"role": "user", "content": "first"}},
+        *activation_rows(), *log_rows("recorded"), answer_row("First.", "m1"),
+        {"type": "user", "promptId": "p2", "message": {"role": "user", "content": "second"}},
+        answer_row("Second.", "m2")])
+    assert hook.record_turn(stop_event(project, transcript, prompt_id="p2"), interactive=True)["status"] == "recorded"
+    [entry] = entries(project)
+    assert (entry.intent, entry.outcome) == ("second", "Second.")
+    assert entry.action.endswith("action=keep")
+
+
+def test_a_stop_hook_re_entry_writes_no_second_entry(project, tmp_path):
+    """Another Stop hook asked for one more step: the turn ends again with a new last message."""
+    feedback = {"type": "user", "isMeta": True, "promptId": "p1",
+                "message": {"role": "user", "content": "Stop hook feedback:\nMark a chapter."}}
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        {"type": "user", "promptId": "p1", "turnOrigin": "human", "message": {"role": "user", "content": "question"}},
+        *activation_rows(), answer_row("The full answer.", "m1"), feedback, answer_row("Chapter marked.", "m2")])
+    first = stop_event(project, transcript, prompt_id="p1", last_assistant_message="The full answer.")
+    assert hook.record_turn(first, interactive=True)["status"] == "recorded"
+    again = stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                       last_assistant_message="Chapter marked.")
+    assert hook.record_turn(again, interactive=True) == {"status": "skipped", "reason": "already_logged"}
+    nameless = stop_event(project, transcript, stop_hook_active=True, last_assistant_message="Chapter marked.")
+    assert hook.record_turn(nameless, interactive=True) == {"status": "skipped", "reason": "stop_hook_active"}
+    [entry] = entries(project)
+    assert entry.outcome == "The full answer."
+    # The feedback row stays inside the turn: it starts none of its own.
+    assert hook.read_turn(transcript.read_text(encoding="utf-8").splitlines()).prompt == "question"
+
+
+@pytest.mark.parametrize("origin,meta", [("host_synthetic", False), ("task_notification", False),
+                                         ("peer", True), ("scheduled", True)])
+def test_a_turn_the_user_did_not_type_is_logged_once_as_its_own_turn(project, tmp_path, origin, meta):
+    """A notification, a message from another session or a scheduled task opens its own turn."""
+    opener = {"type": "user", "promptId": "p2", "turnOrigin": origin, "message": {
+        "role": "user", "content": f"<{origin}>event</{origin}>"}}
+    if meta:
+        opener["isMeta"] = True
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        {"type": "user", "promptId": "p1", "turnOrigin": "human", "message": {"role": "user", "content": "question"}},
+        *activation_rows(), answer_row("First answer.", "m1"), opener, answer_row("Event handled.", "m2")])
+    first = hook.record_turn(stop_event(project, transcript, prompt_id="p1",
+                                        last_assistant_message="First answer."), interactive=True)
+    second = stop_event(project, transcript, prompt_id="p2", last_assistant_message="Event handled.")
+    assert first["status"] == hook.record_turn(second, interactive=True)["status"] == "recorded"
+    assert hook.record_turn(second, interactive=True) == {"status": "skipped", "reason": "already_logged"}
+    assert [(entry.intent, entry.outcome) for entry in entries(project)] == [
+        ("question", "First answer."), (f"<{origin}>event</{origin}>", "Event handled.")]
+
+
+def test_a_turn_without_a_persona_takes_the_agent_from_the_footer(project, tmp_path):
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        {"type": "user", "promptId": "p1", "message": {"role": "user", "content": "question"}},
+        answer_row("Answer.\n\n" + FOOTER)])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)
+    [entry] = entries(project)
+    assert entry.action.startswith("Agent: software_engineer Persona (unverified): software_engineer; missing=")
+
+
+def test_the_module_runs_as_an_interactive_stop_hook_command(project):
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("AGENTS_TURN_LOG_HOOK", "AGENTS_CLIENT_PROFILE")}
+    env["LANGFUSE_TRACING_ENABLED"] = "false"
+    command = [sys.executable, "-m", "src.memory.turn_log_hook", "--interactive"]
+    result = subprocess.run(command, input=json.dumps(stop_event(project, prompt_id="prompt-2")).encode(),
+                            cwd=ROOT, env=env, capture_output=True, timeout=120)
+    assert (result.returncode, result.stdout) == (0, b""), result.stderr
+    [entry] = entries(project)
+    assert entry.intent == PROMPT and entry.metadata["client"] == "claude-code"
+
+
+# --- Which client's Stop hook logs (#701) ----------------------------------------------------------
+
+
+@pytest.fixture
+def claude_settings(tmp_path, monkeypatch):
+    from src import client_instructions as ci
+    ci._settings_of.cache_clear()
+    path = tmp_path / "claude-home" / "settings.json"
+    path.parent.mkdir()
+    monkeypatch.setattr(ci, "_global_settings", lambda: path)
+    monkeypatch.setattr(config, "TURN_LOG_HOOK", False)
+    monkeypatch.setattr(config, "CLIENT_PROFILE", "interactive")
+    yield path
+    ci._settings_of.cache_clear()
+
+
+def stop_settings(command, **extra):
+    return json.dumps({"hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": command}]}]},
+                       **extra})
+
+
+def client(root, name="claude-code"):
+    from types import SimpleNamespace
+    return SimpleNamespace(root=root, client=name, error=None, cooperation_roots=(root,))
+
+
+INTERACTIVE_COMMAND = "cd /opt/agents && .venv/bin/python -m src.memory.turn_log_hook --interactive"
+
+
+@pytest.mark.parametrize("command,expected", [
+    (INTERACTIVE_COMMAND, True),
+    ("python -m src.memory.turn_log_hook", False),  # the headless registration
+    ("python -m src.memory.turn_log_hook; echo --interactive", False),
+    ("python -m src.other_hook --interactive", False),
+])
+def test_only_an_interactive_registration_in_the_users_settings_counts(claude_settings, project, command, expected):
+    from src import client_instructions as ci
+    claude_settings.write_text(stop_settings(command), encoding="utf-8")
+    assert ci.stop_hook_logs(client(project)) is expected
+    assert ci.stop_hook_logs(client(project, "codex")) is False
+    assert ci.stop_hook_logs(client(project, None)) is False
+
+
+def test_project_settings_count_and_disable_all_hooks_wins(claude_settings, project):
+    from src import client_instructions as ci
+    assert ci.stop_hook_logs(client(project)) is False
+    (project / ".claude").mkdir()
+    local = project / ".claude" / "settings.local.json"
+    local.write_text(stop_settings(INTERACTIVE_COMMAND), encoding="utf-8")
+    assert ci.stop_hook_logs(client(project)) is True
+    (project / ".claude" / "settings.json").write_text(json.dumps({"disableAllHooks": True}), encoding="utf-8")
+    assert ci.stop_hook_logs(client(project)) is False
+    (project / ".claude" / "settings.json").write_text("{not json", encoding="utf-8")
+    assert ci.stop_hook_logs(client(project)) is True
+
+
+def test_the_process_wide_switches_hold_for_every_client(switches, project):
+    from src import client_instructions as ci
+    assert ci.stop_hook_logs(client(project, "codex")) is True
+    assert ci.stop_hook_logs(None) is True
+
+
+def test_one_daemon_tells_only_the_hooked_client_to_skip_log_interaction(claude_settings, project):
+    from src import client_instructions as ci
+    claude_settings.write_text(stop_settings(INTERACTIVE_COMMAND), encoding="utf-8")
+    full = protocol_text.server_instructions()
+    assert "Before delivery call log_interaction" in full
+    hooked = ci.initialization_instructions(full, client(project))
+    assert hooked == protocol_text.server_instructions(True)
+    assert "Do not call log_interaction" in hooked and "Before delivery call log_interaction" not in hooked
+    assert "Add no time line." in hooked
+    for other in ("codex", "cursor", "claude-desktop", None):
+        assert ci.initialization_instructions(full, client(project, other)) == full
+
+
+@pytest.mark.asyncio
+async def test_a_hooked_clients_success_leaves_logging_to_the_hook(claude_settings, project, monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    from src import client_instructions as ci
+    from src.engine import persona
+
+    async def build(agent, query, history, tier=None, selection=None):
+        return SimpleNamespace(
+            agent=agent, bundle_revision="b" * 64, scope=f"Scope of {agent}", persona_block="Role",
+            rules_block="Rules", skills_block="Skills", implants_block="Implants", skills_loaded=[],
+            implants_loaded=[], rules_loaded=["answer-timestamp"], tier="standard")
+    monkeypatch.setattr(persona, "build_persona_bundle", AsyncMock(side_effect=build))
+
+    class Router:
+        async def update_cache(self, *args):
+            return None
+
+    async def activate(context, agent, current=None):
+        token = ci.REQUEST_CLIENT.set(context)
+        try:
+            return json.loads(await persona.load_persona(Router(), agent, "task", [], current))
+        finally:
+            ci.REQUEST_CLIENT.reset(token)
+
+    claude_settings.write_text(stop_settings(INTERACTIVE_COMMAND), encoding="utf-8")
+    first = await activate(client(project), "lawyer")
+    assert first["instruction"] == protocol_text.bundle_instruction(True)
+    assert first["instruction_revision"] == protocol_text.instruction_revision(True) != persona.INSTRUCTION_REVISION
+    assert "Do not call log_interaction" in first["instruction"]
+    assert "Add no time line, since no log_interaction call returns a timestamp." in first["instruction"]
+    switch = await activate(client(project), "dba", first["persona"])
+    assert switch["instruction"] == protocol_text.bundle_pointer(True)
+    codex = await activate(client(project, "codex"), "lawyer")
+    assert codex["instruction"] == persona.APPLY_INSTRUCTION
+    assert codex["instruction_revision"] == persona.INSTRUCTION_REVISION
+
+
+def test_the_hook_texts_state_the_time_line_rule():
+    """#701: no hook variant asks for a timestamp that no call returns."""
+    for text in (protocol_text.server_instructions(True), protocol_text.bundle_instruction(True),
+                 protocol_text.bundle_pointer(True), protocol_text.bundle_section_pointer(True)):
+        assert "no time line" in text.lower()
+        assert "prepend it" not in text and "returns timestamp" not in text
+    assert "add no time line, since no call\nreturns a `timestamp`" in protocol_text.template()
+
+
+def test_a_project_registration_must_hold_in_every_linked_worktree(claude_settings, tmp_path):
+    """A fixed identity serves the repository's linked worktrees, whose settings may differ."""
+    from src import client_instructions as ci
+    main, linked = tmp_path / "main", tmp_path / "linked"
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run([*git, "init", "-q", str(main)], check=True)
+    subprocess.run([*git, "-C", str(main), "commit", "-q", "--allow-empty", "-m", "init"], check=True)
+    subprocess.run([*git, "-C", str(main), "worktree", "add", "-q", "--detach", str(linked)], check=True)
+    for checkout in (main, linked):
+        (checkout / ".claude").mkdir()
+    (main / ".claude" / "settings.local.json").write_text(stop_settings(INTERACTIVE_COMMAND), encoding="utf-8")
+    assert ci.stop_hook_logs(client(main)) is False
+    (linked / ".claude" / "settings.local.json").write_text(stop_settings(INTERACTIVE_COMMAND), encoding="utf-8")
+    assert ci.stop_hook_logs(client(main)) is True
