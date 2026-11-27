@@ -11,6 +11,10 @@
   --danger: #b3261e; --ok: #1f7a3a; --code-bg: #fbfbf9; --chip: #efeee9;
   /* The open item's tab and pane; text on it, muted text included, keeps 4.5:1. */
   --tint: #eaeff7;
+  /* Work map statuses: the node's border and stripe, beside the words that name them. */
+  --wm-planned: #8a8a84; --wm-prepared: #2f5bd3; --wm-validated: #1d7f74; --wm-attention: #b86e00;
+  --wm-verified: #1f7a3a; --wm-disputed: #c2410c; --wm-accepted: #0f5f2c; --wm-refuted: #b3261e;
+  --wm-superseded: #b9b8b1; --wm-blocked: #7a4bb3;
   /* One radius per kind of element, no two alike. A nested element gets a smaller one than its
      container, concentric where the padding allows (inner = outer - padding). */
   --r-block: 22px; --r-list: 18px; --r-dialog: 16px; --r-tab: 14px; --r-joint: 13px; --r-text: 12px;
@@ -28,6 +32,9 @@
     --accent: #7ea0ff; --accent-text: #0e1320; --warn: #f0b560; --warn-bg: #3a2b12;
     --danger: #ff8a80; --ok: #7fd49a; --code-bg: #1a1a18; --chip: #2b2a27;
     --tint: #232a38;
+    --wm-planned: #8f8e87; --wm-prepared: #7ea0ff; --wm-validated: #5cc8b8; --wm-attention: #f0b560;
+    --wm-verified: #7fd49a; --wm-disputed: #ff9a62; --wm-accepted: #a6e3b8; --wm-refuted: #ff8a80;
+    --wm-superseded: #5a5954; --wm-blocked: #c4a0f5;
   }
 }
 * { box-sizing: border-box; }
@@ -309,6 +316,82 @@ details.persona summary { cursor: pointer; }
 .ad-profile legend { padding: 0 0 6px; font-weight: 600; }
 .ad-profile .meta { margin: 8px 0 0; }
 .ad-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* The Work map page takes the place of the list and the item, like the Sync page: the maps on the
+   left, the open map's graph, and the record of the node clicked in it. Colors only repeat what the
+   node's words say: every node also names its status and level. */
+#workmap-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 0 var(--edge) var(--edge); }
+#workmap-page [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+.wm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.wm-head h2 { margin: 0; font-size: 18px; }
+#wm-alert { overflow-wrap: anywhere; }
+#wm-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: var(--edge); }
+#wm-list { min-height: 0; overflow-y: auto; padding: 8px; background: var(--panel); border-radius: var(--r-list); }
+#wm-list h3 { margin: 10px 6px 4px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
+#wm-list h3:first-child { margin-top: 2px; }
+.wm-map { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; color: var(--text);
+  border: 0; background: transparent; border-radius: var(--r-item); padding: 6px 8px; }
+.wm-map:hover { box-shadow: inset 0 0 0 1px var(--line); }
+.wm-map[aria-current="true"] { background: var(--chip); box-shadow: inset 3px 0 0 var(--accent); }
+.wm-map strong { overflow-wrap: anywhere; font-size: 13px; }
+.wm-map .meta { word-break: normal; overflow-wrap: anywhere; }
+.wm-chip { display: inline-block; font-size: 11px; line-height: 14px; padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--muted); }
+.wm-chip.open { color: var(--ok); }
+#wm-view { min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px; }
+#wm-view.with-node { grid-template-columns: minmax(0, 1fr) 22rem; }
+#wm-title { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+#wm-title strong { font-size: 15px; overflow-wrap: anywhere; }
+#wm-canvas { min-height: 0; min-width: 0; overflow: auto; background: var(--panel); border-radius: var(--r-block); }
+#wm-graph { display: block; }
+#wm-graph text { fill: var(--text); font-size: 12px; font-family: inherit; }
+#wm-graph text.wm-title { font-size: 13px; font-weight: 600; }
+#wm-graph text.wm-sub { fill: var(--muted); font-size: 11px; }
+#wm-graph text.wm-badge { fill: var(--accent); font-size: 11px; font-weight: 600; }
+.wm-node { cursor: pointer; }
+.wm-node:focus { outline: none; }
+.wm-box { fill: var(--panel); stroke: var(--wm-color); stroke-width: 1.5; }
+.wm-stripe { fill: var(--wm-color); }
+.wm-node:hover .wm-box, .wm-node:focus-visible .wm-box { stroke-width: 3; }
+.wm-node.wm-selected .wm-box { fill: var(--chip); stroke-width: 3; }
+.wm-ring { fill: none; stroke: none; }
+.wm-node.wm-current .wm-ring { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 3; }
+.wm-node.wm-running .wm-ring { animation: wm-pulse 1.6s ease-in-out infinite; }
+@keyframes wm-pulse { 50% { stroke-opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .wm-node.wm-running .wm-ring { animation: none; } }
+.wm-s-planned { --wm-color: var(--wm-planned); } .wm-s-prepared { --wm-color: var(--wm-prepared); }
+.wm-s-validated { --wm-color: var(--wm-validated); } .wm-s-needs_attention { --wm-color: var(--wm-attention); }
+.wm-s-verified { --wm-color: var(--wm-verified); } .wm-s-disputed { --wm-color: var(--wm-disputed); }
+.wm-s-accepted { --wm-color: var(--wm-accepted); } .wm-s-refuted { --wm-color: var(--wm-refuted); }
+.wm-s-superseded { --wm-color: var(--wm-superseded); } .wm-s-blocked { --wm-color: var(--wm-blocked); }
+.wm-s-superseded text.wm-title { text-decoration: line-through; }
+.wm-edge { fill: none; stroke-width: 1.5; }
+.wm-e-depends_on { stroke: var(--muted); }
+.wm-e-verifies { stroke: var(--accent); stroke-dasharray: 6 4; }
+.wm-e-supersedes { stroke: var(--muted); stroke-dasharray: 2 4; }
+.wm-e-contradicts { stroke: var(--danger); stroke-dasharray: 8 3 2 3; }
+.wm-arrow-depends_on, .wm-arrow-supersedes { fill: var(--muted); }
+.wm-arrow-verifies { fill: var(--accent); }
+.wm-arrow-contradicts { fill: var(--danger); }
+#wm-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 11px; color: var(--muted); }
+#wm-legend .wm-key { display: inline-flex; align-items: center; gap: 4px; }
+#wm-legend .wm-dot { width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--wm-color); }
+#wm-node { min-height: 0; overflow-y: auto; padding: 12px 14px; background: var(--panel); border-radius: var(--r-block); }
+#wm-node h3 { margin: 0 0 4px; font-size: 15px; overflow-wrap: anywhere; }
+#wm-node h4 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); }
+#wm-node dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; margin: 0; font-size: 12px; }
+#wm-node dt { color: var(--muted); }
+#wm-node dd { margin: 0; overflow-wrap: anywhere; }
+#wm-node code { font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#wm-node ul, #wm-node ol { margin: 0; padding-left: 1.2em; font-size: 12px; }
+#wm-node li { overflow-wrap: anywhere; }
+#wm-node .wm-actions { display: flex; gap: 6px; margin-top: 10px; }
+#wm-result { margin: 8px 0 0; max-height: 28rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: var(--r-code); }
+@media (max-width: 1100px) { #wm-view.with-node { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(16rem, 1fr) auto; } }
+@media (max-width: 760px) { #wm-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  #wm-list { max-height: 12rem; } }
 /* The landing page (#188) takes the place of the list and the item, like the Sync page; only it scrolls. */
 #landing { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--edge) var(--edge); }
 #landing > * { width: 100%; max-width: 72rem; margin: 0 auto var(--edge); }
@@ -423,6 +506,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <button data-tab="implants" aria-pressed="false">Implants</button>
     <button data-tab="history" aria-pressed="false">History</button>
     <button data-tab="memory" aria-pressed="false">Memory</button>
+    <button data-tab="workmap" aria-pressed="false">Work map</button>
     <a href="/ui/mcp">MCP</a>
   </div>
   <button id="new">New flow</button>
@@ -490,6 +574,18 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   <div id="autodev-alert" class="notice hidden" role="status"></div>
   <div id="autodev-body"></div>
 </section>
+<section id="workmap-page" class="hidden" aria-labelledby="workmap-title">
+  <div class="wm-head"><h2 id="workmap-title" tabindex="-1">Work maps</h2><span id="wm-meta" class="meta">Read-only: the staged, delegated work of each registered repository, as its parent session recorded it.</span></div>
+  <div id="wm-alert" class="notice hidden" role="status"></div>
+  <div id="wm-layout">
+    <nav id="wm-list" aria-label="Work maps"><div class="meta">Loading…</div></nav>
+    <div id="wm-view">
+      <div id="wm-title"></div>
+      <div id="wm-canvas"><div class="empty">Select a map.</div></div>
+      <aside id="wm-node" class="hidden" aria-label="Node record"></aside>
+    </div>
+  </div>
+</section>
 <section id="landing" class="hidden" aria-labelledby="landing-title">
   <h2 id="landing-title" tabindex="-1">Overview</h2>
   <div id="landing-alert" class="notice hidden" role="status"></div>
@@ -517,7 +613,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
   upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
-  queries: { flows: "", agents: "", rules: "", skills: "", implants: "", history: "", memory: "" },
+  queries: { flows: "", agents: "", rules: "", skills: "", implants: "", history: "", memory: "", workmap: "" },
   loadedTab: null,  // the tab whose list is on screen; null while a tab loads
   signedOut: false };
 // Library sync (#170): the last status, the Sync page, its wizard and the GitHub sign-in in progress.
@@ -3025,6 +3121,7 @@ $("sync-reload").addEventListener("click", () => {
 
 // A page in the place of the list and the item (Sync, the landing page): no tab is active.
 function leaveSections() {
+  if (state.tab === "workmap") hideWorkmapPage();
   $("main").classList.add("hidden");
   $("item-actions").classList.add("hidden");
   $("new").classList.add("hidden");
@@ -3037,7 +3134,8 @@ function leaveSections() {
 // The list and the item again, as they were, unsaved text included; the tab takes the focus when it
 // was on the page that hid.
 function showSections(focusTab) {
-  $("main").classList.remove("hidden");
+  if (state.tab === "workmap") showWorkmapPage(null).catch(workmapFailed);
+  else $("main").classList.remove("hidden");
   for (const button of $("tabs").children) {
     const on = button.dataset.tab === state.tab;
     button.classList.toggle("active", on);
@@ -5372,10 +5470,457 @@ async function switchAutodev(mode) {
   }
 }
 
+// --- Work map: the work maps of the registered repositories, read-only --------------------------
+//
+// The list names each repository's maps, newest first. An open map is drawn as a graph: a node's
+// border and stripe repeat its status, which its text also names with its level; edges are drawn by
+// type, and the running (prepared) stage, or else the one that changed last, is ringed. The page
+// polls the open map while it shows. A node opens its record; its stored result is fetched only on
+// an explicit click and shown as text. #workmap/<workspace>/<task id>, or #workmap/<task id>, opens
+// one map directly; the address bar keeps the open map's link.
+
+const WORKMAP_POLL_MS = 5000;
+const WORKMAP_LIST_EVERY = 6;  // the list refreshes on every sixth poll of the open map
+const WM_STATUS_LABEL = { planned: "planned", prepared: "running", validated: "validated",
+  needs_attention: "needs attention", verified: "verified", disputed: "disputed", accepted: "accepted",
+  refuted: "refuted", superseded: "superseded", blocked: "blocked" };
+const WM_EDGE_LABEL = { depends_on: "depends on", verifies: "verifies", supersedes: "supersedes",
+  contradicts: "contradicts" };
+const WM_NODE = { width: 216, height: 70, gapX: 76, gapY: 28, pad: 26 };
+const SVG_NS = "http://www.w3.org/2000/svg";
+// `gen` drops an answer for a map or node that another one overtook; `listGen` does so for the list.
+const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, node: null, record: null,
+  timer: null, ticks: 0, result: null };
+
+// #workmap, #workmap/<task id> or #workmap/<workspace>/<task id>; null for any other fragment.
+function workmapLink(hash) {
+  const match = /^#workmap(?:\/([^/]*))?(?:\/([^/]*))?$/.exec(hash || "");
+  if (!match) return null;
+  const decode = (part) => { try { return decodeURIComponent(part || ""); } catch (_) { return ""; } };
+  if (match[2] !== undefined) return { workspace: decode(match[1]), task: decode(match[2]) };
+  return { workspace: "", task: decode(match[1]) };
+}
+
+function workmapHash(workspace, task) {
+  return "#workmap/" + (workspace ? encodeURIComponent(workspace) + "/" : "") + encodeURIComponent(task);
+}
+
+// Columns by dependency: a node stands right of what it depends on or verifies, so a goal, which
+// nothing may depend on, heads the first column; within a column a node goes near the rows of what it
+// follows. Pure, so the tests can call it.
+function workmapLayout(nodes, edges) {
+  const { width: W, height: H, gapX, gapY, pad } = WM_NODE;
+  const ids = nodes.map((item) => item.id), known = new Set(ids);
+  const follows = new Map(ids.map((id) => [id, []]));
+  for (const edge of edges) {
+    if (!known.has(edge.from) || !known.has(edge.to) || edge.from === edge.to) continue;
+    if (edge.type === "depends_on" || edge.type === "verifies") follows.get(edge.from).push(edge.to);
+  }
+  const column = new Map(), visiting = new Set();
+  const depth = (id) => {
+    if (column.has(id)) return column.get(id);
+    if (visiting.has(id)) return 0;  // a cycle cannot be written, but a damaged map must still draw
+    visiting.add(id);
+    let value = 0;
+    for (const target of follows.get(id)) value = Math.max(value, depth(target) + 1);
+    visiting.delete(id);
+    column.set(id, value);
+    return value;
+  };
+  ids.forEach(depth);
+  const columns = [];
+  for (const id of ids) (columns[column.get(id)] = columns[column.get(id)] || []).push(id);
+  const row = new Map();
+  columns.forEach((members = [], index) => {
+    const order = new Map(members.map((id, position) => [id, position]));
+    const centre = (id) => {
+      const rows = follows.get(id).filter((target) => row.has(target)).map((target) => row.get(target));
+      return rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : Infinity;
+    };
+    if (index) members.sort((a, b) => (centre(a) - centre(b)) || (order.get(a) - order.get(b)));
+    members.forEach((id, position) => row.set(id, position));
+    columns[index] = members;
+  });
+  const tallest = Math.max(1, ...columns.map((members = []) => members.length));
+  const positions = {};
+  columns.forEach((members = [], index) => {
+    const offset = (tallest - members.length) / 2;
+    members.forEach((id, position) => {
+      positions[id] = { x: pad + index * (W + gapX), y: pad + (offset + position) * (H + gapY), column: index, row: position };
+    });
+  });
+  return { positions, columns: columns.length,
+           width: pad * 2 + Math.max(1, columns.length) * (W + gapX) - gapX,
+           height: pad * 2 + tallest * (H + gapY) - gapY };
+}
+
+// A curve between two boxes: side to side across columns; within one, out of the right sides and
+// around, clear of the boxes between them. `shift` separates two edges between the same pair.
+function workmapEdgePath(from, to, shift = 0) {
+  const { width: W, height: H } = WM_NODE;
+  const midY = (box) => box.y + H / 2 + shift;
+  if (to.x !== from.x) {
+    const forward = to.x > from.x;
+    const sx = forward ? from.x + W : from.x, ex = forward ? to.x : to.x + W;
+    const bend = (ex - sx) / 2;
+    return `M${sx} ${midY(from)} C${sx + bend} ${midY(from)} ${ex - bend} ${midY(to)} ${ex} ${midY(to)}`;
+  }
+  const x = from.x + W, bow = 28 + Math.min(Math.abs(to.y - from.y) / 6, 40) + Math.abs(shift);
+  return `M${x} ${midY(from)} C${x + bow} ${midY(from)} ${x + bow} ${midY(to)} ${x} ${midY(to)}`;
+}
+
+function workmapStatusLine(item) {
+  return `${WM_STATUS_LABEL[item.status] || item.status} · ${item.level} · ${item.kind}`;
+}
+
+function workmapDetailLine(item) {
+  const parts = [];
+  if (item.checks) parts.push(`checks ${item.checks.passed}✓ ${item.checks.failed}✗ ${item.checks.not_run}–`);
+  if (item.result_status) parts.push(item.result_status);
+  if (item.stale) parts.push("stale");
+  else if (item.ready) parts.push("ready");
+  if (item.attention && item.status !== "needs_attention") parts.push("needs the parent");
+  return parts.join(" · ") || `risk ${item.risk}`;
+}
+
+function clip(text, limit) {
+  text = String(text || "");
+  return text.length > limit ? text.slice(0, limit - 1) + "…" : text;
+}
+
+function svgNode(tag, parent, attrs = {}, text) {
+  const element = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, String(value));
+  if (text !== undefined) element.textContent = text;
+  if (parent) parent.appendChild(element);
+  return element;
+}
+
+function workmapAlert(message, tone) {
+  const box = $("wm-alert");
+  box.textContent = message || "";
+  box.className = "notice" + (tone === "error" ? " error" : "") + (message ? "" : " hidden");
+}
+
+function workmapFailed(error) {
+  if (!error.signedOut) workmapAlert(error.message, "error");
+}
+
+async function showWorkmapPage(link) {
+  wm.shown = true;
+  $("workmap-page").classList.remove("hidden");
+  $("workmap-title").focus();
+  await loadWorkmapList();
+  const target = link && link.task ? link : wm.open;
+  if (target && target.task) await openWorkmap(target.workspace, target.task, true).catch(workmapFailed);
+  if (!wm.timer) scheduleWorkmapPoll();
+}
+
+function hideWorkmapPage() {
+  wm.shown = false;
+  clearTimeout(wm.timer);
+  wm.timer = null;
+  $("workmap-page").classList.add("hidden");
+  if (workmapLink(location.hash)) history.replaceState(null, "", location.pathname);
+}
+
+async function loadWorkmapList() {
+  const gen = ++wm.listGen;
+  let data;
+  try {
+    data = await api("/ui/api/workmap/maps");
+  } catch (error) {
+    if (gen === wm.listGen) workmapFailed(error);
+    return;
+  }
+  if (gen !== wm.listGen) return;
+  wm.list = data.workspaces || [];
+  renderWorkmapList();
+}
+
+function renderWorkmapList() {
+  const nav = $("wm-list");
+  nav.replaceChildren();
+  if (!wm.list || !wm.list.length) {
+    node("div", nav, "No work maps yet. A parent session creates one with workmap_update.", "meta");
+    return;
+  }
+  for (const repo of wm.list) {
+    node("h3", nav, repo.name + (repo.unreadable ? " (unreadable)" : ""));
+    for (const item of repo.maps) {
+      const button = node("button", nav, null, "wm-map");
+      button.type = "button";
+      const current = wm.open && wm.open.workspace === repo.workspace && wm.open.task === item.task_id;
+      button.setAttribute("aria-current", String(Boolean(current)));
+      node("strong", button, item.task_id);
+      if (item.goal) node("span", button, item.goal);
+      const line = node("span", button, null, "meta");
+      node("span", line, item.closed ? "closed" : "open", "wm-chip" + (item.closed ? "" : " open"));
+      const counts = Object.entries(item.counts || {}).map(([status, count]) => `${WM_STATUS_LABEL[status] || status} ${count}`);
+      line.appendChild(document.createTextNode(" " + (counts.join(", ") || "empty")));
+      if (item.updated) node("span", button, "changed " + item.updated.replace("T", " ").replace("Z", " UTC"), "meta");
+      button.addEventListener("click", () => openWorkmap(repo.workspace, item.task_id).catch(workmapFailed));
+    }
+    if (repo.total > repo.maps.length) node("div", nav, `${repo.total - repo.maps.length} older maps not listed`, "meta");
+  }
+}
+
+async function openWorkmap(workspace, task, keepNode = false) {
+  const gen = ++wm.gen;
+  const query = new URLSearchParams({ task_id: task });
+  if (workspace) query.set("workspace", workspace);
+  let data;
+  try {
+    data = await api("/ui/api/workmap/map?" + query.toString());
+  } catch (error) {
+    if (gen !== wm.gen) return;
+    wm.open = null; wm.data = null;
+    renderWorkmap();
+    throw error;
+  }
+  if (gen !== wm.gen || !wm.shown) return;
+  workmapAlert("");
+  const same = wm.open && wm.open.workspace === data.workspace && wm.open.task === data.task_id;
+  wm.open = { workspace: data.workspace, task: data.task_id };
+  wm.data = data;
+  if (!(same || keepNode) || (wm.node && !data.nodes.some((item) => item.id === wm.node))) closeWorkmapNode();
+  history.replaceState(null, "", location.pathname + workmapHash(data.workspace, data.task_id));
+  renderWorkmapList();
+  renderWorkmap();
+  if (wm.node) await loadWorkmapNode(wm.node);
+  scheduleWorkmapPoll();
+}
+
+function scheduleWorkmapPoll() {
+  clearTimeout(wm.timer);
+  wm.timer = null;
+  if (!wm.shown) return;
+  wm.timer = setTimeout(() => pollWorkmap().catch(() => {}).finally(scheduleWorkmapPoll), WORKMAP_POLL_MS);
+}
+
+async function pollWorkmap() {
+  wm.ticks += 1;
+  if (!wm.open || wm.ticks % WORKMAP_LIST_EVERY === 0) await loadWorkmapList();
+  if (!wm.open) return;
+  const gen = wm.gen, { workspace, task } = wm.open;
+  const data = await api("/ui/api/workmap/map?" + new URLSearchParams({ workspace, task_id: task }).toString());
+  if (gen !== wm.gen || !wm.shown || !wm.open || wm.open.task !== task) return;
+  if (wm.data && data.revision === wm.data.revision && data.closed === wm.data.closed) return;
+  wm.data = data;
+  renderWorkmap();
+  if (wm.node) await loadWorkmapNode(wm.node);
+}
+
+function renderWorkmapLegend(parent) {
+  const legend = node("div", parent);
+  legend.id = "wm-legend";
+  for (const [status, label] of Object.entries(WM_STATUS_LABEL)) {
+    const key = node("span", legend, null, "wm-key wm-s-" + status);
+    node("span", key, null, "wm-dot");
+    key.appendChild(document.createTextNode(label));
+  }
+  node("span", legend, "Edges: depends on (solid, from the prerequisite), verifies (dashed), supersedes (dotted), contradicts (red). Dashed ring: running now, or the last change.");
+}
+
+function renderWorkmap() {
+  const title = $("wm-title"), canvas = $("wm-canvas");
+  title.replaceChildren();
+  canvas.replaceChildren();
+  const data = wm.data;
+  if (!data) {
+    node("div", canvas, "Select a map.", "empty");
+    return;
+  }
+  node("strong", title, data.task_id);
+  node("span", title, [data.goal || "no goal", data.closed ? "closed" : "open", `revision ${data.revision}`,
+    data.name, data.updated ? "changed " + data.updated.replace("T", " ").replace("Z", " UTC") : ""]
+    .filter(Boolean).join(" · "), "meta");
+  renderWorkmapLegend(title);
+  if (!data.nodes.length) {
+    node("div", canvas, "This map has no nodes yet.", "empty");
+    return;
+  }
+  const layout = workmapLayout(data.nodes, data.edges);
+  const { width: W, height: H } = WM_NODE;
+  const svg = svgNode("svg", canvas, { id: "wm-graph", width: layout.width, height: layout.height,
+    viewBox: `0 0 ${layout.width} ${layout.height}`, role: "group", "aria-label": `Work map ${data.task_id}` });
+  const defs = svgNode("defs", svg);
+  for (const type of Object.keys(WM_EDGE_LABEL)) {
+    const marker = svgNode("marker", defs, { id: "wm-arrow-" + type, viewBox: "0 0 10 10", refX: 9, refY: 5,
+      markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
+    svgNode("path", marker, { d: "M0 0 L10 5 L0 10 z", class: "wm-arrow-" + type });
+  }
+  const pairs = new Map();
+  for (const edge of data.edges) {
+    const a = layout.positions[edge.from], b = layout.positions[edge.to];
+    if (!a || !b) continue;
+    // depends_on runs from the prerequisite to its dependant, the way the work flows; the others
+    // point from the node that verifies, supersedes or contradicts to the one it names.
+    const [from, to] = edge.type === "depends_on" ? [b, a] : [a, b];
+    const pair = [edge.from, edge.to].sort().join(" ");
+    const index = pairs.get(pair) || 0;
+    pairs.set(pair, index + 1);
+    const path = svgNode("path", svg, { d: workmapEdgePath(from, to, index ? (index % 2 ? 7 : -7) * Math.ceil(index / 2) : 0),
+      class: "wm-edge wm-e-" + edge.type, "marker-end": `url(#wm-arrow-${edge.type})` });
+    svgNode("title", path, {}, `${edge.from} ${WM_EDGE_LABEL[edge.type] || edge.type} ${edge.to}`);
+  }
+  for (const item of data.nodes) {
+    const at = layout.positions[item.id];
+    const current = item.id === data.current, running = item.status === "prepared";
+    const group = svgNode("g", svg, { class: "wm-node wm-s-" + item.status + (current ? " wm-current" : "")
+      + (running ? " wm-running" : "") + (item.id === wm.node ? " wm-selected" : ""),
+      transform: `translate(${at.x} ${at.y})`, tabindex: 0, role: "button",
+      "aria-label": `${item.title}: ${workmapStatusLine(item)}${current ? running ? ", running now" : ", last change" : ""}` });
+    svgNode("title", group, {}, `${item.id}: ${item.title}`);
+    svgNode("rect", group, { class: "wm-ring", x: -5, y: -5, width: W + 10, height: H + 10, rx: 12 });
+    svgNode("rect", group, { class: "wm-box", width: W, height: H, rx: 8 });
+    svgNode("rect", group, { class: "wm-stripe", width: 6, height: H, rx: 3 });
+    svgNode("text", group, { class: "wm-title", x: 14, y: 20 }, clip(item.title, 27));
+    svgNode("text", group, { x: 14, y: 39 }, clip(workmapStatusLine(item), 32));
+    svgNode("text", group, { class: "wm-sub", x: 14, y: 57 }, clip(workmapDetailLine(item), 34));
+    if (current) svgNode("text", group, { class: "wm-badge", x: W - 4, y: -9, "text-anchor": "end" }, running ? "running" : "last change");
+    const open = () => openWorkmapNode(item.id).catch(workmapFailed);
+    group.addEventListener("click", open);
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+    });
+  }
+}
+
+function closeWorkmapNode() {
+  wm.node = null; wm.record = null; wm.result = null;
+  $("wm-node").classList.add("hidden");
+  $("wm-node").replaceChildren();
+  $("wm-view").classList.remove("with-node");
+}
+
+async function openWorkmapNode(id) {
+  if (wm.node !== id) wm.result = null;
+  wm.node = id;
+  renderWorkmap();
+  await loadWorkmapNode(id);
+}
+
+async function loadWorkmapNode(id) {
+  if (!wm.open) return;
+  const gen = wm.gen, { workspace, task } = wm.open;
+  const record = await api("/ui/api/workmap/node?" + new URLSearchParams({ workspace, task_id: task, node: id }).toString());
+  if (gen !== wm.gen || wm.node !== id) return;
+  if (wm.result && wm.result.sha256 !== record.node.result_sha256) wm.result = null;  // a new result replaced it
+  wm.record = record;
+  renderWorkmapNode();
+}
+
+function definitions(parent, rows) {
+  const list = node("dl", parent);
+  for (const [label, value, code] of rows) {
+    if (value === null || value === undefined || value === "") continue;
+    node("dt", list, label);
+    const cell = node("dd", list);
+    if (code) node("code", cell, value); else cell.textContent = value;
+  }
+  return list;
+}
+
+function renderWorkmapNode() {
+  const panel = $("wm-node"), record = wm.record;
+  panel.replaceChildren();
+  panel.classList.remove("hidden");
+  $("wm-view").classList.add("with-node");
+  const item = record.node;
+  node("h3", panel, item.title);
+  node("div", panel, `${item.id} · ${item.kind} · risk ${item.risk} · needs ${item.needs}`, "meta");
+  const checks = item.checks ? `passed ${item.checks.passed}, failed ${item.checks.failed}, not run ${item.checks.not_run}` : null;
+  const findings = item.findings ? Object.entries(item.findings).map(([level, count]) => `${level} ${count}`).join(", ") || "none" : null;
+  const escalation = item.escalation ? Object.entries(item.escalation).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ") : null;
+  definitions(panel, [
+    ["Status", `${WM_STATUS_LABEL[item.status] || item.status} · ${item.level}` + (item.stale ? " · stale" : "") + (item.ready ? " · ready" : "")],
+    ["Reason", item.reason], ["Summary", item.summary], ["Result status", item.result_status],
+    ["Checks", checks], ["Findings", findings],
+    ["Limitations", item.checks || item.result_status ? String(item.limitations ?? 0) : null],
+    ["Question", item.question], ["Escalation", escalation], ["Hand-back", item.handback],
+    ["Invalid submissions", item.invalid ? `${item.invalid}` + (item.invalid_codes.length ? ` (${item.invalid_codes.join(", ")})` : "") : null],
+    ["Complexity", item.complexity], ["Attempt", item.attempt_id],
+    ["contract_revision", item.contract_revision, true], ["result_sha256", item.result_sha256, true],
+  ]);
+  const inputs = Object.entries(item.inputs || {});
+  if (inputs.length) {
+    node("h4", panel, "Inputs (pinned results)");
+    const list = node("ul", panel);
+    for (const [source, sha] of inputs) node("li", list, `${source} = ${sha.slice(0, 12)}…`);
+  }
+  node("h4", panel, "Artifacts");
+  if (record.artifacts.length) {
+    const list = node("ul", panel);
+    for (const artifact of record.artifacts) {
+      const entry = node("li", list);
+      node("code", entry, artifact.ref);
+      if (artifact.purpose) entry.appendChild(document.createTextNode(" — " + artifact.purpose));
+    }
+  } else {
+    node("div", panel, record.has_result ? "The result names no artifacts." : "No result yet.", "meta");
+  }
+  const relations = Object.entries(record.relations).filter(([, ids]) => ids.length);
+  if (relations.length) {
+    node("h4", panel, "Relations");
+    definitions(panel, relations.map(([kind, ids]) => [kind.replace(/_/g, " "), ids.join(", ")]));
+  }
+  node("h4", panel, "Status history");
+  const steps = node("ol", panel);
+  for (const step of record.history) {
+    node("li", steps, `r${step.rev} ${WM_STATUS_LABEL[step.status] || step.status} ${step.level} (${step.op}${step.by ? " by " + step.by : ""})`
+      + (step.at ? " · " + step.at.replace("T", " ").replace("Z", " UTC") : ""));
+  }
+  const actions = node("div", panel, null, "wm-actions");
+  if (record.has_result) {
+    const show = node("button", actions, wm.result ? "Hide full result" : `Show full result (${record.result_chars} characters)`);
+    show.type = "button";
+    show.addEventListener("click", () => {
+      if (!wm.result) { showWorkmapResult().catch(workmapFailed); return; }
+      wm.result = null;
+      renderWorkmapNode();
+    });
+  }
+  const close = node("button", actions, "Close");
+  close.type = "button";
+  close.addEventListener("click", () => { closeWorkmapNode(); renderWorkmap(); });
+  if (wm.result) {
+    // textContent only: a stored result is text a worker wrote, never markup for this page.
+    const pre = node("pre", panel, wm.result.text + (wm.result.truncated ? "\n…" : ""));
+    pre.id = "wm-result";
+  }
+}
+
+async function showWorkmapResult() {
+  if (!wm.open || !wm.node) return;
+  const gen = wm.gen, id = wm.node, { workspace, task } = wm.open;
+  const data = await api("/ui/api/workmap/result?" + new URLSearchParams({ workspace, task_id: task, node: id }).toString());
+  if (gen !== wm.gen || wm.node !== id || !wm.record) return;
+  wm.result = { text: data.text, truncated: data.truncated, sha256: wm.record.node.result_sha256 };
+  renderWorkmapNode();
+}
+
+async function openWorkmapLink(link) {
+  hideSyncPage();
+  hideLanding();
+  hideAutodevPage();
+  if (state.tab !== "workmap") await showTab("workmap", link);
+  else if (link.task) await openWorkmap(link.workspace, link.task);
+}
+window.addEventListener("hashchange", () => {
+  const link = workmapLink(location.hash);
+  if (link && !(wm.open && link.task === wm.open.task && (!link.workspace || link.workspace === wm.open.workspace))) {
+    openWorkmapLink(link).catch(workmapFailed);
+  }
+});
+
 // --- tabs --------------------------------------------------------------------------------
 
-async function showTab(tab) {
-  if (tab === state.tab) return;
+async function showTab(tab, link) {
+  if (tab === state.tab) {
+    if (tab === "workmap" && link && link.task) await openWorkmap(link.workspace, link.task);
+    return;
+  }
   if (state.tab === "memory") {
     if (!confirmMemoryDiscard()) return;
     memoryState.edits.clear();  // discarded: leaving the page no longer asks about them
@@ -5385,12 +5930,20 @@ async function showTab(tab) {
     if (!confirmDiscard()) return;
     state.current = null; state.draft = null; setDirty(false);
   }
+  if (state.tab === "workmap") hideWorkmapPage();
   state.tab = tab;
   for (const button of $("tabs").children) {
     button.classList.toggle("active", button.dataset.tab === tab);
     button.setAttribute("aria-pressed", String(button.dataset.tab === tab));
   }
   $("new").classList.toggle("hidden", tab !== "flows");
+  // The Work map tab is a page of its own in place of the list and the item.
+  $("main").classList.toggle("hidden", tab === "workmap");
+  if (tab === "workmap") {
+    $("item-actions").classList.add("hidden");
+    await showWorkmapPage(link);
+    return;
+  }
   $("search").value = state.queries[tab];
   state.loadedTab = null;
   rebuildList((nav) => empty(nav, "Loading…"));
@@ -5444,12 +5997,13 @@ window.addEventListener("beforeunload", (event) => {
   // /ui opens the landing page unless "Don't show on open" is checked; #overview, the version's link
   // opened in a new browser tab, opens it either way, and #autodev opens the Autodev page.
   const overviewLink = location.hash === "#overview", autodevLink = location.hash === "#autodev";
-  const entryLink = historyLink(location.hash);
+  const entryLink = historyLink(location.hash), mapLink = workmapLink(location.hash);
   if (overviewLink || autodevLink) history.replaceState(null, "", location.pathname);
-  if (overviewLink || (!entryLink && !autodevLink && !landingOff())) showLanding(false);
+  if (overviewLink || (!entryLink && !autodevLink && !mapLink && !landingOff())) showLanding(false);
   try {
     await login();
     if (entryLink) await openHistoryLink(entryLink);
+    else if (mapLink) await openWorkmapLink(mapLink);
     else await loadList();
     if (autodevLink) showAutodevPage();
   } catch (error) {

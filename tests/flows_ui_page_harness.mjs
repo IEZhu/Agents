@@ -12,7 +12,9 @@
 // /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires, or, for
 // the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent, or,
 // for the "landing_updates*" scenarios (#381), what the overview's Updates section shows and saves, or,
-// for "memory" and "memory_codex" (#297), what the Memory tab lists, shows and sends.
+// for "memory" and "memory_codex" (#297), what the Memory tab lists, shows and sends, or, for
+// "workmap_layout", what the Work map tab's pure helpers compute, or, for "workmap", what the Work map
+// tab lists, draws, opens and polls from a #workmap link.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -64,8 +66,9 @@ const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
 const isAutodev = scenario.startsWith("autodev");
+const isWorkmap = scenario.startsWith("workmap");
 let signedIn = ["search", "render", "persona_race", "agents", "history", "history_adopt", "memory", "memory_codex"].includes(scenario) || isUi || isSync
-  || isAutodev;
+  || isAutodev || isWorkmap;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
@@ -142,8 +145,58 @@ async function fetchStub(path, init = {}) {
   if (scenario === "persona_race") return personaRace(path, init);
   if (scenario === "history" || scenario === "history_adopt") return respond(...historyData(path, init));
   if (scenario === "memory" || scenario === "memory_codex") return respond(...memoryData(path, init));
+  if (isWorkmap && path.startsWith("/ui/api/workmap")) return respond(...workmapData(path));
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
+}
+
+// workmap: one repository with one map; a poll after `workmapRevision` changes sees the review validated.
+let workmapRevision = 9;
+const WORKMAP_SHA = "a".repeat(64);
+function workmapNodes() {
+  const reviewed = workmapRevision > 9;
+  const base = { summary: "", risk: "load_bearing", reason: null, needs: "V2", complexity: null, ready: false,
+    stale: false, attention: false, result_status: null, checks: null, findings: null, limitations: 0, handback: null,
+    question: null, escalation: null, contract_revision: null, attempt_id: null, result_sha256: null, inputs: {},
+    invalid: 0, invalid_codes: [] };
+  return [
+    { ...base, id: "goal", kind: "goal", title: "Ship the demo", status: "planned", level: "V0", changed: 2 },
+    { ...base, id: "build", kind: "stage", title: "Build the page", status: "validated", level: "V2", changed: 8,
+      result_status: "completed", checks: { passed: 3, failed: 0, not_run: 1 }, limitations: 2,
+      contract_revision: "c".repeat(64), attempt_id: "1", result_sha256: WORKMAP_SHA },
+    { ...base, id: "review", kind: "stage", title: "Review the page", status: reviewed ? "validated" : "prepared",
+      level: reviewed ? "V1" : "V0", changed: workmapRevision, inputs: { build: WORKMAP_SHA } },
+  ];
+}
+function workmapData(path) {
+  const params = new URLSearchParams(path.split("?")[1] || "");
+  if (path === "/ui/api/workmap/maps") {
+    return [200, { workspaces: [{ workspace: "ws-1", name: "agents", root: "/code/agents", total: 3, maps: [
+      { task_id: "task:1", goal: "Ship the demo", closed: false, revision: workmapRevision, updated: "2026-11-27T10:00:00Z",
+        counts: { planned: 1, prepared: 1, validated: 1 }, nodes: 3, edges: 2, running: ["review"] }] }] }];
+  }
+  if (path.startsWith("/ui/api/workmap/map?")) {
+    if (params.get("task_id") !== "task:1") return [404, { status: "error", error: "unknown_map: no work map for task x" }];
+    return [200, { workspace: "ws-1", name: "agents", task_id: "task:1", revision: workmapRevision, closed: false,
+      updated: "2026-11-27T10:00:00Z", goal: "Ship the demo", current: workmapRevision > 9 ? "review" : "review",
+      nodes: workmapNodes(), edges: [{ from: "review", to: "build", type: "depends_on" },
+                                     { from: "review", to: "build", type: "verifies" }] }];
+  }
+  if (path.startsWith("/ui/api/workmap/node?")) {
+    const node = workmapNodes().find((item) => item.id === params.get("node"));
+    return [200, { workspace: "ws-1", task_id: "task:1", revision: workmapRevision, node,
+      history: [{ rev: 3, at: "2026-11-27T09:00:00Z", op: "add_node", by: "parent", status: "planned", level: "V0" },
+                { rev: 8, at: "2026-11-27T10:00:00Z", op: "result", by: "server", status: "validated", level: "V2" }],
+      relations: { depends_on: [], needed_by: ["review"], verifies: [], verified_by: ["review"], supersedes: [],
+                   superseded_by: [], contradicts: [], contradicted_by: [] },
+      artifacts: [{ ref: "artifact://m1/" + "d".repeat(64) + "/a1", purpose: "the report" }],
+      has_result: Boolean(node.result_sha256), result_chars: 31 }];
+  }
+  if (path.startsWith("/ui/api/workmap/result?")) {
+    return [200, { workspace: "ws-1", task_id: "task:1", node: params.get("node"), chars: 31, truncated: false,
+                   text: "<script>alert(1)</script> <b>x</b>" }];
+  }
+  return [404, { error: "not_found" }];
 }
 
 const DOCS = {
@@ -727,6 +780,7 @@ async function fireTimers(delay) {
 }
 const documentStub = {
   getElementById: byId, createElement: (tag) => element("", tag),
+  createElementNS: (namespace, tag) => Object.assign(element("", tag), { namespace }),
   createTextNode: (text) => ({ nodeType: 3, textContent: text }),
   addEventListener(type, handler) { (docHandlers[type] = docHandlers[type] || []).push(handler); },
   visibilityState: "visible",
@@ -744,7 +798,8 @@ const context = vm.createContext({
     getItem: (key) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
     setItem: (key, value) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); storage.set(key, value); },
   },
-  location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev" : "",
+  location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev"
+                : scenario === "workmap" ? "#workmap/ws-1/task%3A1" : "",
               pathname: "/ui" },
   history: { replaceState(...args) { replacedUrls.push(args); } },
   fetch: fetchStub, alert(message) { alerts.push(message); }, confirm: (question) => { confirms.push(question); return confirmAnswer; },
@@ -753,7 +808,8 @@ const context = vm.createContext({
   console, URLSearchParams,
   Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
 });
-for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants", "history", "memory"].entries()) {
+for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants", "history", "memory",
+                            ...(isWorkmap ? ["workmap"] : [])].entries()) {
   const button = element();
   button.dataset.tab = tab;
   if (tab === "flows") button.classes.add("active");  // as the markup has it
@@ -2427,6 +2483,72 @@ if (scenario === "place") {
     context.itemPlace({ narrow, groupWidth, groupEnd: 800, versionEnd: 230, straightStart: 339 });
   await finish({ on_pane: at(461), past_corner: at(462), after_version: at(570),
                                too_wide: at(571), narrow: at(100, true) });
+}
+
+if (scenario === "workmap_layout") {
+  const nodes = [{ id: "goal", kind: "goal" }, { id: "a", kind: "stage" }, { id: "b", kind: "stage" },
+                 { id: "c", kind: "stage" }, { id: "q", kind: "question" }, { id: "review", kind: "stage" }];
+  const edges = [{ from: "b", to: "a", type: "depends_on" }, { from: "c", to: "a", type: "depends_on" },
+                 { from: "c", to: "b", type: "depends_on" }, { from: "review", to: "c", type: "verifies" },
+                 { from: "q", to: "goal", type: "contradicts" }, { from: "x", to: "a", type: "depends_on" }];
+  const layout = context.workmapLayout(nodes, edges);
+  const cycle = context.workmapLayout([{ id: "p", kind: "stage" }, { id: "r", kind: "stage" }],
+                                      [{ from: "p", to: "r", type: "depends_on" }, { from: "r", to: "p", type: "depends_on" }]);
+  await finish({
+    columns: Object.fromEntries(Object.entries(layout.positions).map(([id, at]) => [id, at.column])),
+    size: [layout.width, layout.height], cycle_drawn: Object.keys(cycle.positions).sort(),
+    empty: context.workmapLayout([], []),
+    links: ["#workmap", "#workmap/task%3A1", "#workmap/ws-1/task%3A1", "#workmap/ws/%E0%A4%A", "#history/x", "#workmapx"]
+      .map((hash) => context.workmapLink(hash)),
+    hashes: [context.workmapHash("ws-1", "task:1"), context.workmapHash("", "a/b")],
+    forward: context.workmapEdgePath({ x: 0, y: 0 }, { x: 300, y: 0 }),
+    same_column: context.workmapEdgePath({ x: 0, y: 0 }, { x: 0, y: 100 }),
+  });
+}
+
+if (scenario === "workmap") {
+  const svgOf = () => byId("wm-canvas").children.find((child) => child.tag === "svg");
+  const groups = () => (svgOf() ? svgOf().children.filter((child) => child.tag === "g") : []);
+  const classOf = (id) => {
+    const group = groups().find((child) => child.children.some((c) => c.tag === "title" && c.textContent.startsWith(id + ":")));
+    return group ? group.attrs.class : null;
+  };
+  const texts = (element) => [element.textContent, ...element.children.flatMap((child) => (child.nodeType === 3 ? [child.textContent] : texts(child)))]
+    .filter(Boolean);
+  const mapRequests = () => requests.filter((path) => path.startsWith("/ui/api/workmap"));
+  const out = {};
+  out.opened = {
+    tabs: byId("tabs").children.map((b) => b.attrs["aria-pressed"]), main_hidden: byId("main").classes.has("hidden"),
+    page_hidden: byId("workmap-page").classes.has("hidden"), landing_hidden: byId("landing").classes.has("hidden"),
+    requests: mapRequests(), url: replacedUrls.at(-1)[2],
+    list: texts(byId("wm-list")), title: texts(byId("wm-title")).slice(0, 3),
+    nodes: groups().length, edges: svgOf().children.filter((child) => child.tag === "path").length,
+    goal: classOf("goal"), build: classOf("build"), review: classOf("review"),
+    polls: pendingTimers(5000).length,
+  };
+  const build = groups().find((group) => group.attrs.class.includes("wm-s-validated"));
+  fire(build, "click");
+  await sleep(50);
+  const panel = byId("wm-node");
+  const actions = () => panel.children.find((child) => child.className === "wm-actions");
+  out.node = { hidden: panel.classes.has("hidden"), view: byId("wm-view").classes.has("with-node"),
+               text: texts(panel), selected: classOf("build"), result_requested: mapRequests().some((p) => p.includes("/result?")) };
+  fire(actions().children[0], "click");
+  await sleep(50);
+  const pre = panel.children.find((child) => child.tag === "pre");
+  out.result = { text: pre.textContent, id: pre.id, html_children: pre.children.length,
+                 button: actions().children[0].textContent };
+  workmapRevision = 10;
+  const before = mapRequests().length;
+  await fireTimers(5000);
+  await sleep(50);
+  out.polled = { requests: mapRequests().slice(before), review: classOf("review"),
+                 result_kept: Boolean(panel.children.find((child) => child.tag === "pre")), polls: pendingTimers(5000).length };
+  fire(byId("tabs").children[0], "click");
+  await sleep(50);
+  out.left = { page_hidden: byId("workmap-page").classes.has("hidden"), main_hidden: byId("main").classes.has("hidden"),
+               polls: pendingTimers(5000).length, url: replacedUrls.at(-1)[2] };
+  await finish(out);
 }
 
 const result = { startup_posts: posts.length };

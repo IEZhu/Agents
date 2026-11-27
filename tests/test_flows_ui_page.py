@@ -1834,3 +1834,64 @@ def test_codex_memory_is_plain_text_and_a_new_file_starts_empty():
     method, path, body = codex["created"]
     assert (method, path, body["file"], body["text"], body["sha256"], body["index"]) == (
         "PUT", "/ui/api/memory/file", "facts.txt", "", None, False)
+
+
+# --- the Work map tab ---------------------------------------------------------------------------
+
+
+def test_the_work_map_layout_puts_prerequisites_left_and_the_goal_first():
+    layout = run("workmap_layout")
+    # b follows a, c follows both, the review follows what it verifies; the goal follows nothing.
+    assert layout["columns"] == {"goal": 0, "a": 0, "q": 0, "b": 1, "c": 2, "review": 3}
+    assert layout["cycle_drawn"] == ["p", "r"]  # a damaged map with a cycle still draws every node
+    assert layout["empty"]["positions"] == {}
+    assert layout["links"] == [{"workspace": "", "task": ""}, {"workspace": "", "task": "task:1"},
+                               {"workspace": "ws-1", "task": "task:1"}, {"workspace": "ws", "task": ""}, None, None]
+    assert layout["hashes"] == ["#workmap/ws-1/task%3A1", "#workmap/a%2Fb"]
+    assert layout["forward"].startswith("M216 35 C")
+    assert layout["same_column"].startswith("M216 35 C") and layout["same_column"].endswith(" 216 135")
+
+
+@pytest.fixture(scope="module")
+def workmap_page():
+    return run("workmap")
+
+
+def test_a_work_map_link_opens_the_tab_and_draws_the_map(workmap_page):
+    opened = workmap_page["opened"]
+    assert opened["tabs"][-1] == "true" and opened["main_hidden"] and not opened["page_hidden"]
+    assert opened["landing_hidden"]  # a link opens the map, not the overview
+    assert opened["requests"] == ["/ui/api/workmap/maps", "/ui/api/workmap/map?task_id=task%3A1&workspace=ws-1"]
+    assert opened["url"] == "/ui#workmap/ws-1/task%3A1"  # the address bar keeps the map's link
+    assert opened["list"][:4] == ["agents", "task:1", "Ship the demo", "open"]
+    assert "2 older maps not listed" in opened["list"]
+    assert opened["nodes"] == 3 and opened["edges"] == 2
+    assert opened["goal"] == "wm-node wm-s-planned" and opened["build"] == "wm-node wm-s-validated"
+    assert opened["review"] == "wm-node wm-s-prepared wm-current wm-running"  # the running stage is ringed
+    assert opened["polls"] == 1
+
+
+def test_a_node_opens_its_record_and_the_result_only_on_a_click_as_text(workmap_page):
+    record = workmap_page["node"]
+    assert not record["hidden"] and record["view"] and record["selected"].endswith("wm-selected")
+    for text in ("validated · V2", "passed 3, failed 0, not run 1", "c" * 64, "a" * 64, "the report",
+                 "r8 validated V2 (result by server) · 2026-11-27 10:00:00 UTC", "Show full result (31 characters)"):
+        assert any(text in shown for shown in record["text"]), text
+    assert not record["result_requested"]
+    result = workmap_page["result"]
+    assert result["text"] == "<script>alert(1)</script> <b>x</b>" and result["html_children"] == 0
+    assert result["button"] == "Hide full result"
+
+
+def test_the_open_map_is_polled_and_the_poll_stops_with_the_tab(workmap_page):
+    polled = workmap_page["polled"]
+    assert polled["requests"] == ["/ui/api/workmap/map?workspace=ws-1&task_id=task%3A1",
+                                  "/ui/api/workmap/node?workspace=ws-1&task_id=task%3A1&node=build"]
+    assert polled["review"] == "wm-node wm-s-validated wm-current" and polled["result_kept"] and polled["polls"] == 1
+    assert workmap_page["left"] == {"page_hidden": True, "main_hidden": False, "polls": 0, "url": "/ui"}
+
+
+def test_the_work_map_script_never_writes_markup():
+    _, script, _ = page_parts()
+    section = script[script.index("// --- Work map"):script.index("// --- tabs")]
+    assert "innerHTML" not in section and "insertAdjacentHTML" not in section and "outerHTML" not in section
