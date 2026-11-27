@@ -158,6 +158,10 @@ def test_load_bearing_phrases_reach_every_surface_that_composes_their_variant(se
 # description (#734), and the tools whose description composes it. The always-on surfaces keep a
 # trigger that names the tool (``PINNED``); ``delegation:compact-request`` is on both.
 TOOL_PINNED = {
+    ("delegation", "tool-workmap"): (("workmap_view",), (
+        "While a thread works on an open work map, end the footer of each answer with",
+        "[Work map](<map_url>)", "the map_url that workmap_view or workmap_update last returned",
+        "stop once the map is closed")),
     ("delegation", "tool-prepare"): (("get_subagent_context",), (
         "Decide how much to delegate before preparing anything",
         "Size the fan-out to the parts the work actually has, never to the budget a host or setting makes available",
@@ -247,7 +251,8 @@ async def test_each_tool_serves_its_composed_description_and_every_surface_names
     functions = {"get_subagent_context": server.get_subagent_context,
                  "validate_subagent_result": server.validate_subagent_result,
                  "cooperation_register": server.cooperation_register,
-                 "local_context_create": local_inference_tools.local_context_create}
+                 "local_context_create": local_inference_tools.local_context_create,
+                 "workmap_view": server.workmap_view}
     assert set(functions) == set(protocol_text.TOOL_PARTS)
     served = await _served_descriptions()
     for name, function in functions.items():

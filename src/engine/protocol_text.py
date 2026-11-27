@@ -278,6 +278,7 @@ TOOL_PARTS: dict[str, tuple[tuple[str, str], ...]] = {
                                  ("output-artifacts", "tool")),
     "cooperation_register": (("cooperation", "tool"),),
     "local_context_create": (("local-inference", "tool"),),
+    "workmap_view": (("delegation", "tool-workmap"),),
 }
 
 
