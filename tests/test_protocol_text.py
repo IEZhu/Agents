@@ -74,7 +74,8 @@ OPENING = ("server_instructions", "server_pointer")
 PINNED = {
     ("finish", "turn-end"): (("server_instructions", "server_pointer", "memory_reminder"), (
         "A message that ends the turn is a final answer even when it only reports progress",
-        "log it and include the footer.")),
+        # Logged by whoever logs the turn: the model, or a Stop hook that records it (#701 review).
+        "it carries the footer and is logged like any other.")),
     ("finish", "bundle"): (("bundle_instruction",), (
         "call log_interaction with the complete answer (without any time line)",
         "any message that ends the turn even when it only reports progress",

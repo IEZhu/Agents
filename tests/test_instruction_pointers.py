@@ -135,6 +135,7 @@ BUNDLE_TOPICS = {
     ("apply", "bundle-pointer"): "instruction_revision",
     ("finish", "bundle"): "finish each answer with that footer and log_interaction",
     ("finish", "redaction"): "the redactions before logging",
+    ("finish", "notice-rule"): "turn-log notice",
     ("history-errors", "compact"): "history errors",
     ("progress", "compact"): "progress messages",
     ("delegation", "compact-request"): "the file-receipt delegation exchange",
