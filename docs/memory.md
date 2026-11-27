@@ -109,8 +109,10 @@ caller has replaced secrets and capability values with safe references and left
 out prohibited personal details; callers can provide curated `intent`, `action`,
 and `outcome` fields. This checkout ignores
 `history.md` and `history/`. In a client project, check the ignore rules for
-`history.md`, `history/`, `data/memory/` and the hidden lock files
-(`.history.md.lock`, `.CLAUDE.md.lock`, `.agents-description.lock`) before
+`history.md`, `history/`, `data/memory/`, the hidden lock files
+(`.history.md.lock`, `.CLAUDE.md.lock`, `.agents-description.lock`) and the
+temporary file a write killed before its move can leave beside the journal
+(`.history.md.<16 hex digits>.tmp`, which the next write removes) before
 committing its action log.
 
 ## Turn logging by a Stop hook
@@ -146,17 +148,19 @@ environment of both the server and the hook, and the server then tells every cli
 that the Stop hook logs (the `finish` variants `hook`, `hook-calls`, `server-hook` and
 `bundle-hook` in [finish.md](../src/engine/protocol/finish.md), `bundle-finish-hook` in
 [pointer.md](../src/engine/protocol/pointer.md)); either switch alone changes nothing. When the
-two sources differ, the notice decides its own turn and the latest `SUCCESS` decides over the
-server instructions; a `NO_CHANGE` carries the current decision as well.
+two sources differ, the notice decides its own turn and the latest `SUCCESS` or `NO_CHANGE`
+decides over the server instructions; a `NO_CHANGE` carries the current decision as well.
 
 **What the model still does.** It ends every final answer with the footer. It still calls
 `log_interaction` when a flow or the user asks for one, as `thread-close` does for its record and
-tags and `autodev-retro` for its tag, to log a turn redacted itself, or with `journal=false` to
-keep a turn out of the journal; the hook then leaves that turn to the call, and the timestamp the
-call returns gives the time line as the [answer-timestamp](../rules/rule-answer-timestamp.mdc)
-rule says. Before a closing call after which no text is shown, such as the next-step box of the
-Claude desktop app (`wrap_up`), it gives the final answer as text: the hook logs the last text of
-the turn and never the box. A Stop hook of your own that demands a `log_interaction` call at the
+tags and `autodev-retro` for its tag, and when the prompt or the answer holds personal details or
+a secret the hook's detectors may not recognise: then it logs the turn redacted itself, or passes
+`journal=false` to keep the turn out of the journal, with placeholders, not the turn's text, as
+`query` and `response_content`. The hook then leaves that turn to the call, and the timestamp the
+call returns gives the time line only when the footer lists `answer-timestamp`, as the
+[answer-timestamp](../rules/rule-answer-timestamp.mdc) rule says. Before a closing call after which
+no text is shown, such as the next-step box of the Claude desktop app (`wrap_up`), it gives the
+final answer as text: the hook logs the last text of the turn and never the box. A Stop hook of your own that demands a `log_interaction` call at the
 end of a turn has to be switched off together with this registration: otherwise every turn it
 blocks is logged by the model, so the journal keeps the model's text again, and the hook removes
 its own entry of the turn in favour of that call.
@@ -188,37 +192,107 @@ have recorded it (an `unknown` state such as `history_timeout`, whose write may 
 whose call has no result in the transcript after the hook read it again for two seconds, is the
 model's: the hook removes its own earlier entry of the turn, keeping its receipt so that no later
 Stop writes it again, and writes nothing. A call with `journal=false` does the same and keeps the
-turn out altogether.
+turn out altogether. A turn whose own call the server refused (an error result, or a history
+status other than those) is not logged at all, as it was not before this hook: the hook removes
+its own entry of the turn, writes nothing, since the call may have been redacting what the
+transcript holds, and exits 1 with the call's error code. A `journal=false` call answered with
+a written status (`recorded`, `duplicate`, `queued` or an `unknown` state) came from a server
+older than that parameter, which wrote the turn: the hook removes its own entry and exits 1,
+naming the status; one the server refused kept nothing
+either way, and the hook reports it the same way. A Stop input without a `prompt_id`,
+from a Claude Code version before it, ties its `last_assistant_message` to the transcript's last
+turn only once that turn holds the message, and is a reported failure when the transcript still
+lags after the wait, so it never pairs the answer with the previous prompt and replaces that turn's
+entry. When rotation has moved the entry into an archive, its replacement is written into
+`history.md` first and the archived copy removed after it, so a hook killed in between leaves the
+new entry and an older copy, which readers rank below it and the next write under the key removes.
+With [user sync](user-sync.md#repository-history) set up, an entry the hook replaced or removed is
+recorded as deleted for the next reconcile of a process that shares this repository's history,
+which takes it out of what this machine shared and shares the replacement in the same run; merged
+reads leave it out at once.
 
 **Secrets and private details.** The owner decided on 2026-11-27 that the hook writes by default
-and that secrets are cleaned, not written. Before anything is written, the hook masks what the
-repository's own detectors find: the token formats of the schedule records and of the hook,
-which keep a token's prefix or a key's name (`ghp_***`, `password=<secret>`); then, until a scan
-finds nothing, the outgoing-text scanner of self-development
-([autodev guards](autodev-guards.md): GitHub, Anthropic, OpenRouter and OpenAI keys, AWS key ids,
-private keys and JWTs, also split over lines or encoded, and high-entropy strings), every
-secret-looking value of the hook's own environment as a known secret, raw, split, base64 or hex,
-and the credentials that [shared memory](shared-memory.md) and [user sync](user-sync.md) refuse
-to serve or publish (labelled passwords and tokens, credentials in URLs, Stripe, Google, Hugging
-Face, npm, GitLab and Slack tokens, Bearer values). A variable counts as secret-looking when its
-name holds `TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `AUTH`,
-`COOKIE` or `PRIVATE`, or when its value scans as a secret; a value under eight characters, or one
-naming an existing path, is not one. A text the scanner cannot clean, too large or with too many
-hits, is not written: the field holds a placeholder and the entry's metadata `redaction` names it.
+and that secrets are cleaned, not written. Before anything is written, the hook masks
+([turn_redaction.py](../src/memory/turn_redaction.py)):
 
-Deterministic redaction cannot catch everything. Free-form personal details, such as a name, an
-address, a diagnosis or an account written out in prose, are not detected at all, and neither is a
-short or low-entropy secret without a label that the hook's environment does not hold. A turn that
-holds such details is protected by the model's own call: a `log_interaction` call with the turn
-redacted, which the hook leaves alone, or `journal=false`, which keeps the turn out. The journal is
-a file in the project that may be committed; check its ignore rules as above.
+- token formats, keeping their prefix (`ghp_***`, `sk-proj-<secret>`): GitHub, GitLab, Anthropic,
+  OpenAI, OpenRouter, Slack (`xoxb-`, `xoxp-`, `xapp-` and webhook URLs), Discord bot tokens and
+  webhooks, Google, Stripe, SendGrid, Twilio `SK` keys, Telegram bot tokens, Hugging Face and npm
+  tokens, AWS `AKIA` and `ASIA` key ids, JWTs and Bearer values; private key blocks, PGP ones
+  included, to their END line, and key bodies without their BEGIN line, to their END line or as
+  consecutive lines of base64;
+- the whole value after a label that names a secret, whatever its shape: an identifier with one of
+  the words `pass`, `passwd`, `password`, `passphrase`, `pwd`, `secret`, `token`, `key`, `apikey`,
+  `auth`, `authorization`, `credential(s)`, `creds`, `dsn`, `cookie` or `capability`, or a word
+  ending in one of `password`, `passwd`, `passphrase`, `secret` or `token` (`API_TOKEN`,
+  `JWT_SECRET`, `SECRET_KEY`, `X_API_KEY`, `db_password`, `accessToken`, `refresh_token`,
+  `private_key`, `PGPASSWORD`, `MYSQL_PWD`), and a database or broker word before `URL`, `URI` or
+  `DSN` (`DATABASE_URL`, `REDIS_URL`), before `=`, `:`, `:=`, `=>` or `==`, quoted or not, as a
+  camelCase or JSON key (`"SecretAccessKey"`, `"SessionToken"`) or a Markdown label; after an
+  `Authorization` label, what follows its scheme (`Basic`, `Bearer`, `Digest` ...); and on a command
+  line, `--password VALUE`, `sshpass -p PASSWORD` and `curl -u user:PASSWORD`. `pass` and `pwd`
+  alone, a word inside another (`KEYRING`, `KEYBOARD`, `AUTHOR`), and a name whose last word is a
+  property of a secret (`SSH_KEY_NAME`, `AUTH_MODE`, `TOKEN_TYPE`, `PASSWORD_FILE`) are no labels;
+- random-looking strings without a label: runs of 20 or more letters, digits, `_` and `-`, or of
+  base64 with `+` or `/`, that look random rather than like a name (short, vowel-poor parts and
+  scattered digits, judged piece by piece between separators), every 43-character run that is not
+  a plain snake_case, SCREAMING_CASE or kebab-case name, 32-digit hex keys, 40-character AWS secret
+  keys, and high-entropy strings;
+- then, until a scan finds nothing, what the outgoing-text scanner of self-development finds
+  ([autodev guards](autodev-guards.md): token formats and private key headers, also split over
+  lines or encoded), every value of the hook's own environment whose variable's name names a secret
+  by the same words (or whose value scans as a secret) as a known secret, raw, split, base64 or
+  hex, and the credentials that [shared memory](shared-memory.md) and [user sync](user-sync.md)
+  refuse to serve or publish. An environment value under eight characters, or one naming an
+  existing path, is no known secret.
+
+A text the scanner cannot clean, too large, with too many hits, or not in the time left before the
+hook's deadline, is not written: the field holds a placeholder and the entry's metadata
+`redaction` names it.
+
+Some text is no secret and stays as written: a value after a label that is a placeholder or an
+expression (it starts with `<`, `$`, `%`, `{`, `[`, `(`, `*`, `-` or `=`, or holds an opening
+bracket: `password=<your password>`, `token=${TOKEN}`, `api_key=os.environ["KEY"]`), a literal or a
+type name (`None`, `true`, `str`, `string`), a plain snake_case or SCREAMING_CASE name
+(`api_key=api_key`), and a plain word that more words or the end of an argument follow
+(`token: the unit a model reads`, `Client(password=password)`); Anthropic API ids (`toolu_01…`,
+`msg_01…`, `req_01…`, `session_01…`), GitHub node ids, a Google document's id in its link,
+subresource integrity digests and the payload of a `data:` URI; UUIDs, commit names, SHA-256
+digests and paths. Some text that is no secret is masked: a 32-digit hex id such as a trace id or
+an MD5 digest, a random-looking id such as a Stripe object id, and the value after a label in a
+line that is not a credential (`key: 1`, `Primary key: id`).
+
+Deterministic redaction cannot catch everything, and these shapes still pass:
+
+- free-form personal details, such as a name, an address, a diagnosis or an account written out
+  in prose: they are not detected at all;
+- a secret in prose without a label, a known format or a random look, such as a short or
+  dictionary-word password ("I typed hunter2 into the form") or a passphrase of words;
+- a value after a label that reads as one of the kept forms above: a plain word that more words
+  follow (`password: hunter and ...`, `password: my secret phrase`), a plain snake_case name
+  (`password=super_secret`), a value holding an opening bracket (`password=abc[1]`), and a value on
+  the line after its label (a YAML block);
+- a hex key of 40 or 64 digits without a label, which has the shape of a commit name or a SHA-256
+  digest, and a hex key of another length than 32;
+- a random string without a label that is short or looks like a name: under 20 characters, of one
+  letter case with digits (a base32 secret), or, rarely, a random one of 20 to 32 characters (about
+  4 in 100 at 20 to 24 characters and 1 to 3 in 100 at 32, in 400 samples of each kind);
+- a secret of the hook's environment under eight characters, or in a form the scanner does not
+  decode: split into concatenated pieces, base32, reversed, upper-cased, or only part of it (a
+  15-character prefix of 30, all but the last four characters).
+
+A turn that holds such details is protected by the model's own call: a `log_interaction` call with
+the turn redacted, which the hook leaves alone, or `journal=false`, which keeps the turn out. The
+journal is a file in the project that may be committed; check its ignore rules as above.
 
 **Failures.** The hook makes no model call and uses no network. A Stop event it could not log exits
 1, which Claude Code shows as a non-blocking hook error with the reason, such as
-`turn not logged (journal_busy)`; it never exits 2, which would keep the turn going. It waits ten
-seconds at most for the journal lock, below the 30-second timeout of the registration below. It
-reads the transcript line by line, so memory follows the turn and not the file, up to 1 GiB, and
-a larger transcript is such a failure too. A turn whose prompt row is still missing after two
+`turn not logged (journal_busy)`; it never exits 2, which would keep the turn going. A Stop event
+has 25 seconds in all, for the transcript wait, the redaction and the journal lock (ten seconds at
+most), and the command ends itself with exit 1 at 28 seconds, so the registration's `timeout` of
+30 seconds below is a minimum: with less, Claude Code may cancel the hook and discard its output,
+and the turn is lost without a word. It reads the transcript line by line, so memory follows the
+turn and not the file, up to 1 GiB, and a larger transcript is such a failure too. A turn whose prompt row is still missing after two
 seconds of reading again is a failure as well. A Stop event of a turn whose project does not
 resolve writes to the installation's fallback journal that `log_interaction` uses, with the
 session's directory as unverified metadata, and `read_history` reads it there.
@@ -227,12 +301,11 @@ session's directory as unverified metadata, and `read_history` reads it there.
 `AGENTS_CLIENT_REPO_ROOT` in the entry's `env`, does not pin the hook, which resolves the project
 from its own environment: `AGENTS_CLIENT_REPO_ROOT`, then `CLAUDE_PROJECT_DIR`, then the session's
 `cwd`. Set the same `AGENTS_CLIENT_REPO_ROOT` in the environment Claude Code starts hooks with, or
-the two write to different journals. A Stop input without a `prompt_id`, from a Claude Code
-version before it, takes the transcript's last prompt, which a lagging transcript can make the
-previous one. A turn interrupted with Esc has no Stop event and no entry, as it had no logging
-call before. Entries the hook writes reach [user sync](user-sync.md#repository-history) with the
-next reconcile of a process that runs it, such as the daemon's next append, a server start or a
-resume, not at once.
+the two write to different journals. A turn interrupted with Esc has no Stop event and no entry,
+as it had no logging call before, and neither has a turn that ends in an API error, which fires
+`StopFailure` instead of `Stop`. Entries the hook writes, and the removals it records, reach
+[user sync](user-sync.md#repository-history) with the next reconcile of a process that runs it,
+such as the daemon's next append, a server start or a resume, not at once.
 
 To enable it for a headless installation, register the hook in Claude Code's managed settings
 (`managed-settings.json` in `/Library/Application Support/ClaudeCode` on macOS or
@@ -299,6 +372,9 @@ both events in one settings file: the user's (`~/.claude/settings.json`, or `set
 ```
 
 Keep the two entries together: a `UserPromptSubmit` entry that runs where its `Stop` entry does
-not would tell the model that a hook logs turns nobody logs. No environment switch is needed, and
-the server needs no restart. Remove both entries to return to model-side logging: the next prompt
-carries no notice, and the model logs that turn itself.
+not would tell the model that a hook logs turns nobody logs. No environment switch is needed, but
+every Agents-Core server process the sessions use, each stdio server and the daemon, must run this
+version before `journal=false` is relied on: a server started before the update keeps its earlier
+code until it restarts, ignores that argument and writes the turn, which the hook then reports.
+Remove both entries to return to model-side logging: the next prompt carries no notice, and the
+model logs that turn itself.

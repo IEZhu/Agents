@@ -435,6 +435,10 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    Stop hook logs its turns (the Agents-Core turn-log notice beside its prompts),
    also count the turns that hook logged: the `read_history` entries whose
    metadata holds `logged_by` `stop_hook` and this session's `session_id`.
+   `logging_calls` counts every `log_interaction` call whatever its arguments and
+   result, so a call with `journal=false`, and one the server refused (an `ERROR`
+   result or `history.state` `rejected`), count among the calls but not among the
+   turns logged.
 4. **Where it applied.** Match the thread against every row: the catalogue and the
    rules from item 2. Every finding names its trigger: the turn, command or tool
    call where the tool applied. "It might have helped" without a trigger is not a
