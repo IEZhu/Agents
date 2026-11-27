@@ -140,10 +140,17 @@ one, and would never take a cluster with more slots than `n`. The price is that 
 stage's slots vary with the clusters drawn and can exceed `n`; `--max-total-usd` still
 caps the spend. [Stage 1](records/verifier-accuracy-stage1.md) was cut the old way, and
 its records predate the seed field: a later run continues them only with seed 0, the seed
-they ran with, and only when they hold exactly the leading clusters of its order. One run
-of a set goes at a time: while it holds the set's run lock, a second run, a separate
-`probe`, a `discard` and a build's writes are refused, and a run or a probe first checks
-under the lock that the set it loaded is still the one on disk.
+they ran with, and only when they hold exactly the leading clusters of its order. One
+command that writes a set goes at a time: `run`, `probe`, `discard` and `build` take the
+set's run lock before they read the set and hold it until they end, and each is refused
+while another holds it. A set a run or a probe loaded is therefore the one on disk until
+it finishes, with no check afterwards. Before they create the lock file, `run` and `probe`
+check, writing nothing, that the directory holds a set and lies apart from the installation
+and the checkouts, so a refused command leaves no lock file behind. A control directory on
+a file system without byte-range locks is refused, since the run lock would keep only this
+process's threads apart there, not another process's run, discard or build. `Runner.run` refuses a set that was not loaded
+under a run lock it still holds, so a caller outside the command line takes the lock
+first too, and it counts done slots only from records of its own set.
 
 ## Recording path
 

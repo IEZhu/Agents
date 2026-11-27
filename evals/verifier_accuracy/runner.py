@@ -25,6 +25,7 @@ import shlex
 import threading
 from typing import Callable
 import uuid
+import weakref
 
 from evals.verifier_accuracy import control, transcript, worker
 from src.engine.subagent import prepare_subagent
@@ -149,12 +150,14 @@ def first_half(statements: list[dict], rows: list[dict]) -> list[Slot]:
     return stage(statements, seed, len(schedule(statements, seed)) // 2)
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class LoadedSet:
+    """A set as ``load`` read it; frozen, so the hold it was loaded under stays its hold."""
     control_dir: Path
     manifest: dict
     statements: dict[str, dict]
     labels: dict[str, dict]
+    lock: control.RunLock | None = None  # the run lock it was loaded under; a run needs it still held
 
     @property
     def snapshot(self) -> Path:
@@ -165,19 +168,46 @@ class LoadedSet:
         return self.manifest["set"]
 
 
-def load(control_dir: Path, *, installation_roots: list[Path]) -> LoadedSet:
+# Each set load read under a run lock, mapped to that hold; module-private, so only load fills it.
+_LOADED_UNDER: weakref.WeakKeyDictionary[LoadedSet, control.RunLock] = weakref.WeakKeyDictionary()
+
+
+def _checkouts(manifest: dict) -> list[Path]:
+    """The directories a worker of this set receives, which the control directory must lie apart from."""
+    return [Path(manifest["snapshot"]), Path(manifest["repository"])]
+
+
+def preflight(control_dir: Path, *, installation_roots: list[Path]) -> None:
+    """Refuse a directory that holds no set, or that a worker could reach, before the run lock's
+    file is created in it. It writes nothing and decides nothing: ``load`` checks both again under
+    the lock."""
+    path = control_dir / control.MANIFEST
+    if not path.is_file():
+        raise control.ControlError(f"{control_dir} holds no set; build one first.")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    control.ensure_separate(control_dir, installation_roots=installation_roots, checkouts=_checkouts(manifest))
+
+
+def load(control_dir: Path, *, installation_roots: list[Path], lock: control.RunLock | None = None) -> LoadedSet:
+    """The set in ``control_dir``. A set a run will use is loaded with ``lock``, the hold
+    ``control.exclusive`` yields for this directory, and ``Runner.run`` refuses one loaded without
+    it; commands that only read the set load it without the lock."""
+    if lock is not None:
+        control.ensure_held(lock, control_dir)
     manifest = json.loads((control_dir / control.MANIFEST).read_text(encoding="utf-8"))
     if control.set_version(control_dir) != manifest["version"]:
         raise control.ControlError("The statement file no longer matches the set version; the set was changed.")
-    control.ensure_separate(control_dir, installation_roots=installation_roots,
-                            checkouts=[Path(manifest["snapshot"]), Path(manifest["repository"])])
+    control.ensure_separate(control_dir, installation_roots=installation_roots, checkouts=_checkouts(manifest))
     if control.file_digest(control_dir / control.LABELS) != manifest.get("labels_sha256"):
         raise control.ControlError("The label file no longer matches the one the set was built with.")
     statements = {row["item"]: row for row in control.read_jsonl(control_dir / control.STATEMENTS)}
     labels = {row["item"]: row for row in control.read_jsonl(control_dir / control.LABELS)}
     if set(statements) != set(labels):
         raise control.ControlError("Statements and labels name different items.")
-    return LoadedSet(control_dir, manifest, statements, labels)
+    loaded = LoadedSet(control_dir, manifest, statements, labels, lock)
+    if lock is not None:
+        _LOADED_UNDER[loaded] = lock  # the hold now vouches for this set, and for no copy of it
+    return loaded
 
 
 @dataclass(frozen=True)
@@ -364,20 +394,39 @@ class Runner:
                  + (f" ({written['reason']})" if written.get("reason") else ""))
 
     def run(self) -> dict:
-        """Run what the stage leaves, holding the set's run lock from the first read to the last write,
-        so a second run of the set at once can neither schedule the same slots nor record another seed."""
-        with control.exclusive(self.loaded.control_dir, "a second run"):
-            control.ensure_unchanged(self.loaded.control_dir, self.loaded.manifest["version"])
-            self.spent = recorded_spend(self.loaded)  # a run that finished since __init__ has spent more
+        """Run what the stage leaves.
+
+        The caller holds the set's run lock from before it loaded the set until this returns, as the
+        ``run`` command does: ``with control.exclusive(directory, action) as lock:`` and then
+        ``load(directory, ..., lock=lock)``. A set loaded without the lock, or under one released
+        since, is refused: a discard or a rebuild could have replaced it on disk after the load, and
+        a second run could schedule the same slots or record another seed. The set must be the very
+        object ``load`` read under that hold: a copy carrying a later hold of the same directory is
+        refused, since the set on disk may have changed between the two holds. A second Runner under
+        the same hold is refused while this one is going.
+        """
+        lock = self.loaded.lock
+        control.ensure_held(lock, self.loaded.control_dir)
+        if _LOADED_UNDER.get(self.loaded) is not lock:
+            raise control.ControlError("This set was not loaded under the run lock it carries: load it again "
+                                       "under that lock.")
+        if not lock.running.acquire(blocking=False):
+            raise control.RunInProgress("Another Runner of this set is going under the same run lock; a second "
+                                        "run is refused until it finishes.")
+        try:
+            self.spent = recorded_spend(self.loaded)  # another Runner of this set may have run since __init__
             return self._run()
+        finally:
+            lock.running.release()
 
     def _run(self) -> dict:
-        # A slot is done once an attempt ran; a placeholder for one that never ran is scheduled again,
-        # and stays in the file, so the earlier stop remains on record.
-        recorded = self.recorder.recorded()
+        # A slot is done once an attempt of this set ran; a placeholder for one that never ran is
+        # scheduled again, and stays in the file, so the earlier stop remains on record. Rows of
+        # another set say nothing about this one's slots, as the seed check and the spend take them.
+        own = [row for row in self.recorder.recorded() if row.get("set") == self.loaded.set_id]
         statements = list(self.loaded.statements.values())
-        check_seed([row for row in recorded if row.get("set") == self.loaded.set_id], statements, self.seed)
-        done = {(row["item"], row["arm"], row["slot"]) for row in recorded if not control.is_placeholder(row)}
+        check_seed(own, statements, self.seed)
+        done = {(row["item"], row["arm"], row["slot"]) for row in own if not control.is_placeholder(row)}
         selected = stage(statements, self.seed, self.stage_runs)
         pending = [slot for slot in selected if slot.key not in done]
         random.Random(self.seed).shuffle(pending)  # arms and items interleave within what this run takes

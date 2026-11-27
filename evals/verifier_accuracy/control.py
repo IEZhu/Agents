@@ -14,6 +14,7 @@ completing a biased subset.
 from __future__ import annotations
 
 import contextlib
+from dataclasses import dataclass, field
 import datetime as dt
 import hashlib
 import json
@@ -35,7 +36,7 @@ OWNER_REVIEW = "owner-review.jsonl"
 CANARY = "canary.txt"
 MANIFEST = "set.json"
 SIMULATION = "simulation.json"
-RUN_LOCK = "run.lock"  # held by a run, a separate probe, a discard and a build's writes
+RUN_LOCK = "run.lock"  # held by a whole run, separate probe, discard or build, from before it reads the set
 DISCARDED = "discarded"
 VERSION_CHARS = 16
 
@@ -68,34 +69,71 @@ class RecorderError(RuntimeError):
 
 
 class RunInProgress(ControlError):
-    """Another process holds the set's run lock."""
+    """Another command holds the set's run lock."""
 
 
-class SetChanged(ControlError):
-    """The set on disk is no longer the one a run or a probe loaded."""
+@dataclass(frozen=True, eq=False)
+class RunLock:
+    """This process's hold on a set's run lock, as ``exclusive`` gives it out.
+
+    ``held`` is no stored flag a caller could set: it is true only while ``exclusive`` holds the
+    file lock for this very object, so a hold made by hand, or kept after its ``with`` block,
+    never reads as held. The hold is frozen, so neither its directory nor its guard can be
+    swapped once it is given out. ``running`` keeps runs that share this hold apart: the file
+    lock excludes other processes and other opens of the lock file, not a second Runner in this
+    process loaded under the hold.
+    """
+    control_dir: Path
+    running: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    @property
+    def held(self) -> bool:
+        return self in _HOLDS
 
 
-def ensure_unchanged(control: Path, version: str) -> None:
-    """Refuse a set that was discarded or rebuilt after it was loaded; call it under the run lock,
-    which a discard and a build's writes also take, so the answer holds for as long as the lock."""
-    if not (Path(control) / STATEMENTS).exists() or set_version(control) != version:
-        raise SetChanged("The set was discarded or rebuilt after it was loaded; load it again.")
+_HOLDS: set[RunLock] = set()  # the holds exclusive gave out whose file lock it still holds
+
+
+def ensure_held(lock: RunLock | None, control: Path) -> None:
+    """Refuse unless ``lock`` is a hold ``exclusive`` gave out for ``control`` and still holds."""
+    if lock is None or not lock.held:
+        raise ControlError(f"No run lock is held for {control}: take it with control.exclusive and load the set "
+                           "inside its with block.")
+    if not os.path.samefile(lock.control_dir, control):
+        raise ControlError(f"The run lock belongs to another control directory, {lock.control_dir}, "
+                           f"not {control}.")
 
 
 @contextlib.contextmanager
-def exclusive(control: Path, action: str) -> Iterator[None]:
-    """Hold the set's run lock for ``action``, refusing at once while another process holds it.
+def exclusive(control: Path, action: str) -> Iterator[RunLock]:
+    """Hold the set's run lock for ``action``, refusing at once while another command holds it.
 
-    A run holds it from its first record read to its last write; a separate probe, a discard
-    and a build's writes hold it too, so none of them can change the records or move the set
-    under a run that is going.
+    Every command that writes the set or its records takes it before it first reads the set and
+    keeps it until it ends: a run and a separate probe before they load the set, a build before
+    it looks for one already there, a discard before it reads the set version. A set loaded
+    under the lock is therefore the set on disk until the lock is released, and no second
+    writer changes its records meanwhile. The lock is not reentrant: another open of it in the
+    same process is refused too. A missing control directory is refused rather than created, and
+    so is one on a file system where ``file_lock`` can only fall back to a process-local lock,
+    since that lock would not keep another process's run, discard or build out.
     """
+    if not Path(control).is_dir():
+        raise ControlError(f"There is no control directory at {control}; build a set first.")
     with contextlib.ExitStack() as stack:
         try:
-            stack.enter_context(file_lock(Path(control) / RUN_LOCK, blocking=False))
+            lease = stack.enter_context(file_lock(Path(control) / RUN_LOCK, blocking=False))
         except BlockingIOError:
-            raise RunInProgress(f"A run of this set is in progress; {action} is refused until it finishes.") from None
-        yield
+            raise RunInProgress("Another command (a run, a probe, a discard or a build) holds this set's run "
+                                f"lock; {action} is refused until it finishes.") from None
+        if lease is None:  # file_lock's process-local fallback: no byte-range locks on this file system
+            raise ControlError(f"The file system of {control} offers no byte-range lock, so the run lock would not "
+                               "keep other processes out; keep the control directory on a local file system.")
+        lock = RunLock(Path(control))
+        _HOLDS.add(lock)  # after the file lock is taken, and gone again before it is released
+        try:
+            yield lock
+        finally:
+            _HOLDS.discard(lock)
 
 
 def default_control_dir(installation=None) -> Path:
