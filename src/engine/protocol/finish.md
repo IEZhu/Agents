@@ -6,7 +6,8 @@ answer in the user's language, ending with the exact saved `footer`, including i
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
 On `keep`, reuse that footer; do not infer component lists. When the server
 instructions or a `SUCCESS` say that this client's Stop hook logs each turn, skip
-every `log_interaction` step of this protocol; everything else holds. Otherwise,
+every `log_interaction` step of this protocol and add no time line, since no call
+returns a `timestamp`; everything else holds. Otherwise,
 before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object
@@ -81,4 +82,4 @@ Do not call log_interaction: this client's Stop hook records each turn from its 
 Compose the answer with the saved footer and send it; a message that ends the turn is the final answer and carries the footer even when it only reports progress. Add no time line. Memory and flow tools still take workspace, the absolute working directory.
 
 <!-- variant: bundle-hook -->
-Save the applied persona descriptor and exact footer, and end every final answer with that footer: the first one after initial activation, and any message that ends the turn even when it only reports progress while other work still runs.
+Save the applied persona descriptor and exact footer, and end every final answer with that footer: the first one after initial activation, and any message that ends the turn even when it only reports progress while other work still runs. Add no time line, since no log_interaction call returns a timestamp.

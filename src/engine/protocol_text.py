@@ -22,10 +22,12 @@ instructions for a client whose own instruction file is current send instead of 
 client already holds (#433), and what a ``SUCCESS`` sends when the client's instructions hold
 the current managed section, its first activation included (#734).
 
-When the client's Stop hook logs each turn (``config.turn_log_hook()``: ``AGENTS_TURN_LOG_HOOK=1``
-with the headless profile, #734), the server instructions and the ``SUCCESS`` instruction finish
-with the ``finish`` variants ``hook``, ``server-hook`` and ``bundle-hook`` instead of the
-log_interaction step. The committed files never depend on it.
+When the client's Stop hook logs each turn, the server instructions and the ``SUCCESS`` instruction
+finish with the ``finish`` variants ``hook``, ``server-hook`` and ``bundle-hook`` instead of the
+log_interaction step. Each function that renders one of them takes ``hook``: the caller's decision
+for one client (``client_instructions.stop_hook_logs``, #701), or None for the process-wide one,
+``config.turn_log_hook()`` (``AGENTS_TURN_LOG_HOOK=1`` with the headless profile, #734). The
+committed files never depend on it.
 
 The functions below compose each surface from these variants in a fixed order. The template
 and the memory reminder stay committed files, because installers and shell scripts read them;
@@ -158,7 +160,12 @@ def template() -> str:
     ]) + "\n"
 
 
-def server_instructions() -> str:
+def _hook(hook: bool | None) -> bool:
+    """``hook``, or the process-wide decision when the caller names none."""
+    return config.turn_log_hook() if hook is None else hook
+
+
+def server_instructions(hook: bool | None = None) -> str:
     """The instructions the MCP server sends at initialization.
 
     Claude Code shows their first 4,096 characters, and only 2,048 before v2.1.296 (#421, #508).
@@ -178,9 +185,9 @@ def server_instructions() -> str:
     too. tests/test_log_interaction_contract.py checks both windows.
     """
     return "\n\n".join([
-        _server_opening(),
+        _server_opening(hook),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
-        part("start", "server-load-hook" if config.turn_log_hook() else "server-load"),
+        part("start", "server-load-hook" if _hook(hook) else "server-load"),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
         _sentences_of(("artifacts", "compact"), ("local-inference", "compact")),
@@ -190,12 +197,12 @@ def server_instructions() -> str:
     ])
 
 
-def _server_opening() -> str:
+def _server_opening(hook: bool | None = None) -> str:
     """The per-turn lines that open the server instructions and their pointer.
 
-    Their finish line leaves logging to the client's Stop hook when ``config.turn_log_hook()``.
+    Their finish line leaves logging to the client's Stop hook when ``hook`` (``_hook``).
     """
-    finish = ((("finish", "hook"), ("finish", "server-hook")) if config.turn_log_hook()
+    finish = ((("finish", "hook"), ("finish", "server-hook")) if _hook(hook)
               else (("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
     return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"), _sentences_of(*finish))
 
@@ -206,14 +213,14 @@ def _server_tail() -> str:
     return _paragraph(("tools", "server"), ("flows", "server"), ("compatibility", "server"))
 
 
-def server_pointer() -> str:
+def server_pointer(hook: bool | None = None) -> str:
     """The server instructions for a client whose own instruction file holds the current template (#433).
 
     It keeps the opening lines and the closing rules of ``server_instructions`` and points to the
     file for everything between them, which the template states in full.
     """
     pointer = " ".join(part("pointer", "server").replace("{revision}", template_revision()).split())
-    return "\n\n".join([_server_opening(), pointer, _server_tail()])
+    return "\n\n".join([_server_opening(hook), pointer, _server_tail()])
 
 
 # The variants of the ``SUCCESS`` instruction, in order. ``bundle_pointer`` names each rule they
@@ -230,39 +237,39 @@ BUNDLE_PARTS: tuple[tuple[str, str], ...] = (
 HOOK_FINISH = {("finish", "bundle"): ("finish", "bundle-hook"), ("finish", "redaction"): ("finish", "hook")}
 
 
-def bundle_instruction() -> str:
+def bundle_instruction(hook: bool | None = None) -> str:
     """The ``instruction`` of a conversation's first ``SUCCESS`` and of a restore: one paragraph.
 
     The worker exemption comes first, then the first-work and owning-session rules, which a
     client that never loaded the instruction files learns here, as it learns the definition of
     progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``, and
     one whose client holds the managed section sends ``bundle_section_pointer``. With
-    ``config.turn_log_hook()`` the finish rule is ``HOOK_FINISH``'s.
+    ``hook`` (``_hook``) the finish rule is ``HOOK_FINISH``'s.
     """
-    hook = config.turn_log_hook()
+    hook = _hook(hook)
     return _sentences_of(*(HOOK_FINISH.get(name, name) if hook else name for name in BUNDLE_PARTS))
 
 
-def bundle_pointer() -> str:
+def bundle_pointer(hook: bool | None = None) -> str:
     """The ``instruction`` of a ``SUCCESS`` after the first activation of a conversation (#433)."""
-    return _sentences_of(("pointer", "bundle"), ("pointer", "bundle-rules"), _pointer_finish(),
+    return _sentences_of(("pointer", "bundle"), ("pointer", "bundle-rules"), _pointer_finish(hook),
                          ("pointer", "bundle-reload"), ("pointer", "bundle-restore"))
 
 
-def bundle_section_pointer() -> str:
+def bundle_section_pointer(hook: bool | None = None) -> str:
     """The ``instruction`` of a ``SUCCESS`` other than a restore when the client holds the managed section (#734).
 
     The section states every rule of ``bundle_instruction``, so this pointer names the same rules
     as ``bundle_pointer`` without claiming that an earlier activation sent the full instruction:
     it is true of a conversation's first activation as well as of a later one.
     """
-    return _sentences_of(("pointer", "bundle-section"), ("pointer", "bundle-rules"), _pointer_finish(),
+    return _sentences_of(("pointer", "bundle-section"), ("pointer", "bundle-rules"), _pointer_finish(hook),
                          ("pointer", "bundle-section-reload"), ("pointer", "bundle-restore"))
 
 
-def _pointer_finish() -> tuple[str, str]:
+def _pointer_finish(hook: bool | None = None) -> tuple[str, str]:
     """How both pointers end the answer; with the Stop hook logging each turn, without log_interaction (#734)."""
-    return ("pointer", "bundle-finish-hook") if config.turn_log_hook() else ("pointer", "bundle-finish")
+    return ("pointer", "bundle-finish-hook") if _hook(hook) else ("pointer", "bundle-finish")
 
 
 # The procedures that the descriptions of these tools carry instead of the always-on surfaces
@@ -304,9 +311,9 @@ def _revision(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def instruction_revision() -> str:
+def instruction_revision(hook: bool | None = None) -> str:
     """Names the full ``SUCCESS`` instruction, so a pointer can say which text it stands for."""
-    return _revision(bundle_instruction())
+    return _revision(bundle_instruction(hook))
 
 
 def template_revision() -> str:

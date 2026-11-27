@@ -11,7 +11,7 @@ worker mode, the first-work repository description, work another session owns, t
 and finish each answer with that footer and log_interaction.
 
 <!-- variant: bundle-finish-hook -->
-and finish each answer with that footer. Do not call log_interaction: this client's Stop hook records each turn.
+and finish each answer with that footer and no time line. Do not call log_interaction: this client's Stop hook records each turn.
 
 <!-- variant: bundle-reload -->
 If that instruction is no longer in your context, or its instruction_revision differs from this one or is absent, get it again with force_reload=True:

@@ -9,14 +9,21 @@ persona ``SUCCESS`` sends a pointer instead of the full instruction (``holds_cur
 worktree whose file differs, worktrees that cannot be listed, a project override, a section Codex
 may cut off, a missing, unreadable or different section) keeps the full text.
 
+``stop_hook_logs`` decides, for one client, whether its Claude Code Stop hook logs each turn in
+place of the model (#701): the server instructions and a ``SUCCESS`` then tell the model not to
+call ``log_interaction``. It reads the client's Claude Code settings files, not its instruction
+files, and any doubt keeps the model's logging step.
+
 ``drift_warnings`` names the managed sections the server can resolve that differ from this
 installation's template, with the command that refreshes each, so an outdated file is reported
 instead of going unnoticed. Nothing here writes a file.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -26,7 +33,7 @@ from pathlib import Path
 from typing import Any, Iterable, NamedTuple
 
 from src.client_paths import client_home
-from src.engine import protocol_text
+from src.engine import config, protocol_text
 from src.runtime_paths import installation_root
 
 logger = logging.getLogger(__name__)
@@ -59,6 +66,17 @@ CLIENTS_WITHOUT_FILES = frozenset({"cursor", "claude-desktop"})
 MAX_LINKED_WORKTREES = 50
 # A .git file, a worktree's gitdir or its commondir holds one path; a larger file is not one of them.
 MAX_GIT_POINTER_BYTES = 4096
+
+
+# The client whose Stop hook can log a turn (#701), and the settings files a session of it reads in
+# each checkout it may run in; the user's own settings.json is read as well (``_global_settings``).
+STOP_HOOK_CLIENT = "claude-code"
+PROJECT_SETTINGS = (".claude/settings.json", ".claude/settings.local.json")
+# The hook command and the argument that switches it on for interactive turns (src/memory/turn_log_hook.py).
+TURN_LOG_MODULE = "src.memory.turn_log_hook"
+INTERACTIVE_ARGUMENT = "--interactive"
+# What separates two commands in one hook command line; the module and its argument share a command.
+_SHELL_SEPARATOR = re.compile(r"&&|\|\||[;|&\n]")
 
 
 class SectionState(NamedTuple):
@@ -298,10 +316,93 @@ def holds_current_section(context=None) -> bool:
         return False
 
 
-def initialization_instructions(full: str, context=None) -> str:
-    """``full``, or the server pointer when ``holds_current_section`` holds for ``context``."""
+def _registers_turn_log(command) -> bool:
+    """Whether ``command`` runs the turn-log hook with ``--interactive`` in one of its commands."""
+    if not isinstance(command, str):
+        return False
+    for segment in _SHELL_SEPARATOR.split(command):
+        words = segment.split()
+        if TURN_LOG_MODULE in words and INTERACTIVE_ARGUMENT in words[words.index(TURN_LOG_MODULE) + 1:]:
+            return True
+    return False
+
+
+@lru_cache(maxsize=256)
+def _settings_of(path: str, signature: tuple[int, int]) -> tuple[bool, bool]:
+    """Whether the settings file ``path`` at ``signature`` registers the interactive turn-log Stop
+    hook, and whether it sets ``disableAllHooks``. A file Claude Code cannot use does neither."""
     try:
-        return protocol_text.server_pointer() if holds_current_section(context) else full
+        with open(path, "rb") as stream:
+            data = stream.read(MAX_INSTRUCTION_FILE_BYTES + 1)
+        settings = json.loads(data) if len(data) <= MAX_INSTRUCTION_FILE_BYTES else None
+    except (OSError, ValueError):
+        return False, False
+    if not isinstance(settings, dict):
+        return False, False
+    hooks = settings.get("hooks")
+    groups = hooks.get("Stop") if isinstance(hooks, dict) else None
+    registers = any(isinstance(entry, dict) and entry.get("type", "command") == "command"
+                    and _registers_turn_log(entry.get("command"))
+                    for group in (groups if isinstance(groups, list) else []) if isinstance(group, dict)
+                    for entry in (group.get("hooks") if isinstance(group.get("hooks"), list) else []))
+    return registers, settings.get("disableAllHooks") is True
+
+
+def _settings(path: Path) -> tuple[bool, bool]:
+    if not path.is_file():
+        return False, False
+    signature = _signature(path)
+    return (False, False) if signature is None else _settings_of(str(path), signature)
+
+
+def _global_settings() -> Path:
+    """The user's Claude Code settings, resolved through the server's environment like ``_global_files``."""
+    return client_home("claude") / "settings.json"
+
+
+def stop_hook_logs(context=None) -> bool:
+    """Whether the Stop hook of ``context``'s client logs each turn, so the model must not (#701).
+
+    True for every client of a process with ``config.turn_log_hook()`` (the headless switches,
+    #734). Otherwise only for a Claude Code session (``X-Agents-Client: claude-code``) whose
+    settings register ``python -m src.memory.turn_log_hook --interactive`` as a Stop hook: in the
+    user's settings, or in the project settings of every checkout the session may run in, with no
+    file read setting ``disableAllHooks``. ``context`` defaults to the HTTP request's client; over
+    stdio there is none and only the process-wide switches count. Any doubt answers False: the model
+    then logs, and the hook leaves a turn the model logged alone (``turn_log_hook.read_turn``).
+    """
+    if config.turn_log_hook():
+        return True
+    context = REQUEST_CLIENT.get() if context is None else context
+    if getattr(context, "client", None) != STOP_HOOK_CLIENT:
+        return False
+    root = _root(context)
+    try:
+        checkouts = list(dict.fromkeys([root, *_grants(context)])) if root is not None else []
+        sessions = _session_checkouts(checkouts) if checkouts else []
+        listed = sessions is not None
+        user = _settings(_global_settings())
+        projects = [[_settings(checkout / name) for name in PROJECT_SETTINGS]
+                    for checkout in (sessions if listed else checkouts)]
+        if user[1] or any(disables for files in projects for _, disables in files):
+            return False
+        # A project registration must hold in every checkout the session may run in, so it counts
+        # only when the linked worktrees could be listed; the user's own registration holds in all.
+        return user[0] or listed and bool(projects) and all(any(registers for registers, _ in files)
+                                                           for files in projects)
+    except Exception:  # never fail an initialize or an activation over this check
+        logger.warning("Could not read the Claude Code settings of %s", root, exc_info=True)
+        return False
+
+
+def initialization_instructions(full: str, context=None) -> str:
+    """``full``, the server pointer when ``holds_current_section`` holds for ``context``, and either
+    one leaving logging to the client's Stop hook when ``stop_hook_logs`` holds for it (#701)."""
+    try:
+        hook = stop_hook_logs(context)
+        if holds_current_section(context):
+            return protocol_text.server_pointer(hook)
+        return protocol_text.server_instructions(hook) if hook and not config.turn_log_hook() else full
     except Exception:  # never fail an initialize over a pointer
         logger.warning("Could not render the server pointer", exc_info=True)
         return full

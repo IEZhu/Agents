@@ -203,7 +203,8 @@ answer in the user's language, ending with the exact saved `footer`, including i
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
 On `keep`, reuse that footer; do not infer component lists. When the server
 instructions or a `SUCCESS` say that this client's Stop hook logs each turn, skip
-every `log_interaction` step of this protocol; everything else holds. Otherwise,
+every `log_interaction` step of this protocol and add no time line, since no call
+returns a `timestamp`; everything else holds. Otherwise,
 before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object
