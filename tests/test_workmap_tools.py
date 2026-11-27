@@ -119,17 +119,9 @@ async def test_a_stored_result_that_fits_is_returned_whole(served):
     assert shown["status"] == "ok" and shown["result"] == text
 
 
-@pytest.mark.asyncio
-async def test_no_map_url_without_the_daemons_page(served):
-    """A stdio server has no web page to link, so its answers carry no map_url."""
-    applied = json.loads(await server.workmap_update(task_id=TASK, ops=[{"op": "add_node", "id": "x", "title": "X"}]))
-    viewed = json.loads(await server.workmap_view(task_id=TASK))
-    assert "map_url" not in applied and "map_url" not in viewed
-
-
 @pytest.fixture
 def under_daemon(served, monkeypatch):
-    """The server as the daemon runs it: a UI link, and a session registered as one workspace id."""
+    """The server as the daemon runs it: a session registered as one workspace id."""
     import dataclasses
     real = server.resolve_client_context
     workspace_id = "0b0c7f39-7d2a-4c41-9d0e-3a7f2f0e5b11"
@@ -137,30 +129,19 @@ def under_daemon(served, monkeypatch):
     async def registered(ctx=None, workspace=None, **kwargs):
         return dataclasses.replace(await real(ctx, workspace, **kwargs), workspace_id=workspace_id)
     monkeypatch.setattr(server, "resolve_client_context", registered)
-    monkeypatch.setattr(server, "ui_link", lambda: "http://127.0.0.1:8765/ui")
     return workspace_id
 
 
 @pytest.mark.asyncio
-async def test_answers_about_one_map_carry_its_page_under_the_daemon(under_daemon):
-    url = f"http://127.0.0.1:8765/ui#workmap/{under_daemon}/{TASK}"
-    applied = json.loads(await server.workmap_update(task_id=TASK, ops=[{"op": "add_node", "id": "x", "title": "X"}]))
-    assert applied["map_url"] == url
-    assert json.loads(await server.workmap_view(task_id=TASK))["map_url"] == url
-    assert json.loads(await server.workmap_view(task_id=TASK, node="x"))["map_url"] == url
-    # The list is about no one map, and an error links nothing.
-    assert "map_url" not in json.loads(await server.workmap_view())
-    assert "map_url" not in json.loads(await server.workmap_view(task_id="other-task"))
-    refused = json.loads(await server.workmap_update(task_id=TASK, ops=[{"op": "add_node", "id": "x", "title": "X"}]))
-    assert refused["status"] == "error" and "map_url" not in refused
-
-
-def test_a_map_url_escapes_the_task_id_and_falls_back_to_the_task_alone():
-    from src.workmap.web import map_url
-    assert map_url("http://127.0.0.1:8765/ui", "ws", "release:2026.12") == \
-        "http://127.0.0.1:8765/ui#workmap/ws/release%3A2026.12"
-    assert map_url("http://127.0.0.1:8765/ui", None, "t-1") == "http://127.0.0.1:8765/ui#workmap/t-1"
-    assert map_url(None, "ws", "t-1") is None
+async def test_answers_carry_no_link_to_the_page(under_daemon):
+    """The footer's link to a map is built from the footer's own Agents-Core link, so no answer
+    spends characters on a URL: not the write, not a read of the map or of one node."""
+    applied = await server.workmap_update(task_id=TASK, ops=[{"op": "add_node", "id": "x", "title": "X"}])
+    answers = [applied, await server.workmap_view(task_id=TASK), await server.workmap_view(task_id=TASK, node="x"),
+               await server.workmap_view()]
+    for answer in answers:
+        assert json.loads(answer)["status"] in ("applied", "ok")
+        assert "map_url" not in answer and "#workmap" not in answer and "/ui" not in answer
 
 
 @pytest.mark.asyncio
@@ -168,5 +149,6 @@ async def test_the_view_tells_the_parent_to_link_the_map_in_its_footer():
     tools = {tool.name: tool for tool in await server.mcp.list_tools()}
     description = " ".join(tools["workmap_view"].description.split())
     assert description.startswith("Read work maps without their stage results")
-    assert "end the footer of each answer with ` · [Work map](<map_url>)`" in description
-    assert "map_url" in tools["workmap_update"].description
+    assert ("end each answer's footer with ` · [Work map](<url>#workmap)`, <url> being the footer's "
+            "Agents-Core link; add nothing if it has none.") in description
+    assert "map_url" not in description and "map_url" not in tools["workmap_update"].description

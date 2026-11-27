@@ -27,4 +27,4 @@ Require valid: true before accepting, integrating, citing as verified or marking
 On valid: false, return the diagnostics for correction and validate the revised output again, with or without truncated in the response: a later stage may report its own problems once these are fixed, and the limits below say what one response holds. A new execution attempt needs a new package with a new attempt_id and its matching receipt. When a corrected output is still invalid, or a valid result is failed, partial or has a failed check, and validation returns escalation, prepare a new attempt with a new attempt_id and the escalation's complexity.
 
 <!-- variant: tool-workmap -->
-While a thread works on an open work map, end the footer of each answer with ` · [Work map](<map_url>)`, the map_url that workmap_view or workmap_update last returned for that map. Add nothing when they return no map_url, and stop once the map is closed.
+While a thread works on an open work map, end each answer's footer with ` · [Work map](<url>#workmap)`, <url> being the footer's Agents-Core link; add nothing if it has none.

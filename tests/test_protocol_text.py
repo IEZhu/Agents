@@ -159,9 +159,8 @@ def test_load_bearing_phrases_reach_every_surface_that_composes_their_variant(se
 # trigger that names the tool (``PINNED``); ``delegation:compact-request`` is on both.
 TOOL_PINNED = {
     ("delegation", "tool-workmap"): (("workmap_view",), (
-        "While a thread works on an open work map, end the footer of each answer with",
-        "[Work map](<map_url>)", "the map_url that workmap_view or workmap_update last returned",
-        "stop once the map is closed")),
+        "While a thread works on an open work map, end each answer's footer with",
+        "[Work map](<url>#workmap)", "<url> being the footer's Agents-Core link", "add nothing if it has none")),
     ("delegation", "tool-prepare"): (("get_subagent_context",), (
         "Decide how much to delegate before preparing anything",
         "Size the fan-out to the parts the work actually has, never to the budget a host or setting makes available",

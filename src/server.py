@@ -74,7 +74,6 @@ from src.claims.store import (ClaimError, ClaimStore, claim_key, history_view as
                                view as claim_view)
 from src.workmap import binding as workmap_binding
 from src.workmap import view as workmap_text
-from src.workmap import web as workmap_web
 from src.workmap.store import WorkmapError, WorkmapStore
 from src.result_size import INLINE_LIMIT, RESULT_SIZE_CEILING, shown_size
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
@@ -87,7 +86,7 @@ from src.rule_sources import RuleSourceError
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import (
     load_persona, route_persona, parse_persona, error_response,
-    parse_persona_for_logging, persona_history_line, ui_link,
+    parse_persona_for_logging, persona_history_line,
 )
 from src.schemas import tool_args as ta
 from src.local_inference import tools as local_inference_tools
@@ -2760,12 +2759,8 @@ async def claim_lookup(
         return json.dumps(payload, ensure_ascii=False)
 
 async def _workmap_call(tool: str, ctx: Context | None, workspace: Optional[str], *, writing: bool,
-                        work, task_id: Optional[str] = None) -> str:
-    """Run ``work(store)`` in the registered workspace's work-map store and answer as JSON.
-
-    An answer about one map (``task_id``) carries ``map_url``, the map's page on the daemon's web
-    UI, when this server runs under the daemon and the session's workspace is registered.
-    """
+                        work) -> str:
+    """Run ``work(store)`` in the registered workspace's work-map store and answer as JSON."""
     try:
         client = await resolve_client_context(ctx, workspace)
         root = client.require_root()
@@ -2773,10 +2768,6 @@ async def _workmap_call(tool: str, ctx: Context | None, workspace: Optional[str]
             # A map of another repository must not land in this one's store (#576).
             client.require_workspace_match()
         result = await asyncio.get_running_loop().run_in_executor(None, work, WorkmapStore(root))
-        if isinstance(task_id, str) and result.get("status") in ("ok", "applied"):
-            url = workmap_web.map_url(ui_link(), client.workspace_id, task_id)
-            if url:
-                result["map_url"] = url
         result.update(_workspace_report(client, root))
         debug_log(tool, "res", {key: result[key] for key in ("status", "mode", "revision") if key in result})
         return to_json(result)
@@ -2821,14 +2812,12 @@ async def workmap_update(
     The map is append-only in data/workmap/ of this workspace. A workspace argument outside
     the registered root is refused with workspace_mismatch, and nothing is written.
 
-    Returns JSON: {status: applied, task_id, revision, changed, map_url?, workspace}. map_url is
-    the map's page on the daemon's web UI, present when the server runs under the daemon.
-    Errors: {status: error, code (invalid_request, unknown_node, status_reserved,
-    invalid_transition, cycle, revision_conflict, map_closed, key_collision, store_full,
-    unsafe_store, workspace), error}.
+    Returns JSON: {status: applied, task_id, revision, changed, workspace}. Errors: {status:
+    error, code (invalid_request, unknown_node, status_reserved, invalid_transition, cycle,
+    revision_conflict, map_closed, key_collision, store_full, unsafe_store, workspace), error}.
     """
     debug_log("workmap_update", "req", {"ops": len(ops) if isinstance(ops, list) else None})
-    return await _workmap_call("workmap_update", ctx, workspace, writing=True, task_id=task_id,
+    return await _workmap_call("workmap_update", ctx, workspace, writing=True,
                                work=lambda store: store.apply(task_id, ops, expected_revision))
 
 
@@ -2901,15 +2890,14 @@ async def workmap_view(
     is not followed, and workspace_note says so.
 
     Returns JSON: {status: ok, mode (list, map, node or result), revision?, view or result,
-    map_url?, workspace}; map_url, with task_id under the daemon, is the map's web page.
-    Errors: {status: error, code (invalid_request, unknown_map, unknown_node,
+    workspace}. Errors: {status: error, code (invalid_request, unknown_map, unknown_node,
     no_result, result_too_large, unsafe_store, workspace), error}. result_too_large is a stored
     result whose escaped text would exceed the 500,000 characters a result may take; it carries
     result_sha256 and result_chars instead of the text.
     """
     debug_log("workmap_view", "req", {"task": task_id is not None, "node": node is not None,
                                       "since": since, "detail": detail})
-    return await _workmap_call("workmap_view", ctx, workspace, writing=False, task_id=task_id,
+    return await _workmap_call("workmap_view", ctx, workspace, writing=False,
                                work=lambda store: _workmap_read(store, task_id, node, since, detail, budget))
 
 
