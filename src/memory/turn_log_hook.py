@@ -26,46 +26,54 @@ persona attribution line as action, and the last text the turn delivered, withou
 outcome. The persona is the descriptor of the last ``SUCCESS`` or ``NO_CHANGE`` of
 ``route_and_load``, ``get_agent_context`` or ``refresh_persona_context``, or the
 ``persona_activation`` of ``run_flow``, in the transcript; it is held against the footer the answer
-ends with, so another agent there gives ``mismatch`` and no footer ``unverified``. A ``SUCCESS`` in
-the turn decides its persona action, whatever ``NO_CHANGE`` follows it.
+ends with, so another agent there gives ``mismatch`` and no footer ``unverified``. Only a canonical
+agent name counts as the footer's: any other text in that place is no footer and never reaches the
+entry. A ``SUCCESS`` in the turn decides its persona action, whatever ``NO_CHANGE`` follows it.
 
 One entry per turn, the one delivered last: the entry is written under an idempotency key made of
 the session and prompt ids, so a later Stop of the same turn (another Stop hook continued it)
 replaces it under the journal lock, wherever rotation has put it, unless the later text is only a
-short note beside it. A turn whose ``log_interaction`` call recorded it, may have recorded it
-(``history_timeout``) or has no result in the transcript yet, and a turn the model kept out of the
-journal (``journal=false``), belongs to that call: the hook removes its own earlier entry of the
-turn and writes nothing.
+short note beside it. A Stop input without a prompt id ties its answer to the transcript's last
+turn only once that turn holds that answer, so a lagging transcript never pairs it with the
+previous prompt and replaces that turn's entry (#701 review). A turn whose ``log_interaction``
+call recorded it, may have recorded it (``history_timeout``) or has no result in the transcript
+yet, and a turn the model kept out of the journal (``journal=false``), belongs to that call: the
+hook removes its own earlier entry of the turn and writes nothing. A turn whose own call the server
+refused is not logged at all, as it was not before this hook, and neither is one whose
+``journal=false`` call a server older than that parameter recorded; both are reported. What the
+hook removes is recorded for the user library sync (``src.user_sync.history.record_deletion``), so
+the next reconcile of a process that shares this repository's history takes it out of what this
+machine shared.
 
-Secrets are cleaned before anything is written, with the detectors the repository already has: the
-schedule records' and this module's formats, which keep a token's prefix or a key's name; then,
-until a scan finds nothing, the outgoing-text scanner of self-development (``src.schedules.scan``:
-token formats, high-entropy strings, and each secret-looking value of the hook's environment as a
-known secret, also encoded or split), and the credentials that shared memory and user sync refuse
-to serve or publish. A text the scanner cannot clean is withheld and the entry marked. Free-form
-personal details are not detected: the model's own redacted ``log_interaction`` call, or
-``journal=false``, protects a turn that holds them.
+Secrets are cleaned before anything is written (``src.memory.turn_redaction.redact``): token
+formats, values after a label naming a secret, private key bodies, command-line passwords,
+random-looking strings, and what the repository's scanners find, the hook's own environment values
+under a secret's name among them. A text that cannot be cleaned in time is withheld and the entry
+marked. Free-form personal details are not detected: the model's own redacted ``log_interaction``
+call, or ``journal=false``, protects a turn that holds them.
 
 A turn whose project does not resolve goes to the fallback journal that ``log_interaction`` uses
-(#292). The journal lock is waited for ``LOCK_TIMEOUT_SECONDS`` at most. A Stop event the hook
-could not log exits 1, which Claude Code shows as a non-blocking hook error with the reason; the
-hook prints nothing to stdout but the notice.
+(#292). A Stop event has ``DEADLINE_SECONDS`` in all, below the registration's timeout: the
+transcript wait, the redaction and the journal lock come out of it. A Stop event the hook could not
+log exits 1, which Claude Code shows as a non-blocking hook error with the reason; the hook prints
+nothing to stdout but the notice.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime
-import functools
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import sys
+import threading
 import time
 import uuid
 
 from src.engine import config
+from src.memory.turn_redaction import environment_secrets, redact
 
 # The hook input carries the last assistant message; a larger input is not a hook event.
 MAX_INPUT_BYTES = 8 * 1024 * 1024
@@ -73,13 +81,19 @@ MAX_INPUT_BYTES = 8 * 1024 * 1024
 # may take (a 58 MB transcript read in 0.2 s, #701 review). A larger one is a failure, not a skip.
 MAX_TRANSCRIPT_BYTES = 1024 * 1024 * 1024
 # The transcript is written asynchronously and may lag the hook (Claude Code's hooks reference): a
-# missing prompt row, or a log_interaction call whose result is not written yet, is read again for
-# this long before the hook decides.
+# missing prompt row, a log_interaction call whose result is not written yet, or a turn that does
+# not hold the Stop's answer yet, is read again for this long before the hook decides.
 TRANSCRIPT_WAIT_SECONDS = 2.0
 TRANSCRIPT_POLL_SECONDS = 0.2
-# Below the hook's own timeout (30 s in the documented registration), so a busy journal fails
-# visibly instead of the client killing the hook while it waits.
+# The journal lock is waited for this long at most, and never past the deadline below.
 LOCK_TIMEOUT_SECONDS = 10.0
+# One deadline for a hook event, below the 30-second timeout of the documented registration: a Stop
+# that cannot finish in it reports the turn as not logged, rather than being cancelled by the client
+# with its output discarded (#701 review). ``WATCHDOG_SECONDS`` ends a command still running then.
+DEADLINE_SECONDS = 25.0
+WATCHDOG_SECONDS = 28.0
+# What the journal write needs after the redaction: a turn with less time left is not written.
+WRITE_RESERVE_SECONDS = 1.0
 NOTICE_EVENT, STOP_EVENT = "UserPromptSubmit", "Stop"
 PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
 # run_flow returns a flow persona's activation nested under persona_activation (#734 review).
@@ -90,9 +104,13 @@ LOG_TOOL = "log_interaction"
 LOGGED_STATUSES = ("recorded", "duplicate", "queued")
 # The history status of a call with journal=false, which keeps its turn out of the journal.
 WITHHELD_STATUS = "withheld"
+# What pydantic reads as false for a boolean argument such as journal.
+FALSE_WORDS = ("0", "off", "f", "false", "n", "no")
 # The agent of an entry whose turn has no applied persona and whose answer names none in a footer.
 UNATTRIBUTED = "unattributed"
 FOOTER_AGENT = re.compile(r"\*\*Agent\*\*: *([A-Za-z0-9_.-]+)")
+# An agent's canonical name: the folder of its system prompt under agents/.
+AGENT_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 INTERACTIVE_ARGUMENT = "--interactive"
 PERSONA_STATUSES = ("SUCCESS", "NO_CHANGE")
 # A prompt typed by the user; rows that Claude Code writes itself carry another origin or none.
@@ -104,39 +122,7 @@ HOST_ROW = re.compile(r"Stop hook (?:feedback|blocking error)|\[Request interrup
 TIME_LINE = re.compile(r"\A\s*\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}[ \t]*\r?\n")
 # The outcome of a turn that delivered no text, so the turn is still in the journal.
 NO_ANSWER = "[no text answer]"
-# What a masked secret becomes. No detector reads it as a value, since it starts with "<": user
-# sync and shared memory take <...> for a placeholder, so masking ends when nothing else is found.
-MASK = "<secret>"
 WITHHELD = "[withheld by the turn-log hook: the text could not be cleaned of secrets]"
-# Masking one secret can leave another detector's match, such as a label before the masked value;
-# the scan runs again on the masked text this many times at most.
-REDACTION_ROUNDS = 4
-SECRET_KEYS = "capability|parent_capability|api[_-]?key|secret|token|password|passwd"
-# Formats the schedule records' mask() does not know, masked here on top of it (#734 review).
-EXTRA_SECRET_PATTERNS = (
-    re.compile(r"\b(sk-(?:proj-|svcacct-)?)[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\b(xox[abposr]-)[A-Za-z0-9-]{10,}"),
-    re.compile(r"\b(AIza)[0-9A-Za-z_-]{30,}"),
-    re.compile(r"\b(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
-    re.compile(r"(?i)\b(aws_secret_access_key\s*[=:]\s*[\"']?)[A-Za-z0-9/+=]{30,}"),
-    # The whole value under a secret-bearing key, quoted or not, however short (#734 review). A
-    # quoted value runs to its own closing quote, across lines: the other quote character and
-    # escaped quotes are part of it, and an unclosed one masks the rest of the text.
-    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*\")(?:[^\"\\]|\\[\s\S])+" % SECRET_KEYS),
-    re.compile(r"(?i)([\"']?\b(?:%s)[\"']?\s*[=:]\s*')(?:[^'\\]|\\[\s\S])+" % SECRET_KEYS),
-    re.compile(r"(?i)(\b(?:%s)\s*[=:]\s*)(?![\"'])[^\s,;}&\"']+" % SECRET_KEYS),
-)
-# A 43-character URL-safe token (secrets.token_urlsafe(32), the form of a cooperation capability)
-# in prose, without a key (#734 review). Any mix of its characters is a valid encoding, so every
-# such run is masked; an identifier of exactly this length is masked too, a loss the journal
-# accepts. Git object names (40) and SHA-256 digests (64) have other lengths and stay.
-RANDOM_TOKEN = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])")
-# Environment variable names that hold a credential: the schedule sandbox's FORBIDDEN_NAME, plus
-# spellings it has no need for, since a sandbox never passes them.
-SECRET_ENVIRONMENT_NAME = re.compile(r"PASSWD|PASSPHRASE|CREDENTIAL|AUTH|COOKIE|PRIVATE", re.IGNORECASE)
-# How far a match that only detects a credential (user sync's password patterns stop after the
-# first character of the value) is widened to mask the whole value.
-VALUE_TAIL = re.compile(r"[^\s\"'`<>,;)\]}]*")
 # A later Stop's text shorter than this share of the entry's answer, footers aside, is a note
 # beside it, not a new answer (25 of 240 real re-deliveries, #701 review), and leaves the entry.
 SHORT_NOTE_RATIO = 0.25
@@ -144,6 +130,17 @@ SHORT_NOTE_RATIO = 0.25
 
 class TurnNotLogged(Exception):
     """A Stop event the hook should have logged and could not; ``main`` exits 1 with this reason."""
+
+
+class JournalFalseIgnored(TurnNotLogged):
+    """A ``journal=false`` call came back from a server that wrote the turn anyway (#701 review)."""
+
+    def __init__(self, status: str):
+        self.status = status
+        super().__init__(
+            f"the turn's log_interaction call with journal=false came back history.status {status!r}, not "
+            "'withheld': a server older than journal=false wrote the turn; restart every Agents-Core server "
+            "process before relying on journal=false")
 
 
 @dataclass(frozen=True)
@@ -158,6 +155,9 @@ class Turn:
     withheld: bool = False  # a log_interaction call of this turn kept it out of the journal
     pending_log: bool = False  # a log_interaction call of this turn has no result in the transcript
     opener_id: str | None = None  # the promptId, else the uuid, of the row that opened the turn
+    refused: str | None = None  # what the server answered to a log_interaction call it refused
+    unwithheld: tuple[str, str] | None = None  # (outcome, answer) of a journal=false call not withheld
+    text: str = ""  # every text the turn's assistant rows hold, whitespace removed
 
 
 def _content_text(content) -> str | None:
@@ -277,12 +277,37 @@ def _logged(response) -> bool:
     return history.get("status") in LOGGED_STATUSES or history.get("state") == "unknown"
 
 
+def _journal_false(arguments: dict) -> bool:
+    """Whether a log_interaction call asked to keep its turn out of the journal, as the server reads it."""
+    value = arguments.get("journal")
+    if isinstance(value, str):
+        return value.strip().lower() in FALSE_WORDS
+    return value is False or (type(value) is int and value == 0)
+
+
+def _refusal(block: dict, response) -> str:
+    """What a refused log_interaction call answered, for the hook's report: an error code, never text
+    of the turn."""
+    if block.get("is_error"):
+        return "a tool error"
+    history = _history(response)
+    for value in (history.get("error"), history.get("status"),
+                  response.get("status") if isinstance(response, dict) else None):
+        if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", value):
+            return value
+    return "an unreadable result"
+
+
 def _row_id(record: dict) -> str | None:
     for name in ("promptId", "uuid"):
         value = record.get(name)
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _no_space(text: str) -> str:
+    return re.sub(r"\s+", "", text)
 
 
 def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
@@ -292,7 +317,8 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     ``promptId`` and ends before a later prompt; without it, the last prompt row starts it. A
     ``prompt_id`` that no row carries gives None: the hook's own prompt may not be written yet,
     and an earlier prompt must not take its answer (#734 review). Sidechain rows are skipped.
-    ``logged``, ``withheld`` and ``pending_log`` tell what the turn's ``log_interaction`` calls did.
+    ``logged``, ``withheld``, ``pending_log``, ``refused`` and ``unwithheld`` tell what the turn's
+    ``log_interaction`` calls did.
     """
     from src.engine.subagent_exchange import final_message
 
@@ -301,9 +327,9 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     matched = False
     last = None  # the descriptor of the last applied persona result, whichever turn it is in
     success = None  # (tool, arguments) of the last SUCCESS in the current turn
-    logged = withheld = False
-    pending: set[str] = set()
+    calls: dict[str, list] = {}  # tool_use id -> [journal=false, outcome, what the server answered]
     answer_lines: list[str] = []
+    texts: list[str] = []
     for row, line in enumerate(lines):
         if '"user"' not in line and '"assistant"' not in line:
             continue
@@ -320,21 +346,24 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                 break  # the hook's own turn ended before this prompt
             if not matched:
                 prompt, start, matched, opener = text or _placeholder(record), row, own, _row_id(record)
-                answer_lines, logged, withheld, pending, success = [], False, False, set(), None
+                answer_lines, texts, calls, success = [], [], {}, None
             continue
         message = record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
         if record.get("type") == "assistant":
             answer_lines.append(line)
             for block in content if isinstance(content, list) else []:
-                if isinstance(block, dict) and block.get("type") == "tool_use" and isinstance(block.get("id"), str):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    texts.append(_no_space(block["text"]))
+                if block.get("type") == "tool_use" and isinstance(block.get("id"), str):
                     tool = _persona_tool(block.get("name"))
                     if tool is not None:
                         arguments = block.get("input") if isinstance(block.get("input"), dict) else {}
                         tools[block["id"]] = (tool, arguments)
                         if tool == LOG_TOOL and start is not None:
-                            pending.add(block["id"])
-                            withheld |= arguments.get("journal") is False
+                            calls[block["id"]] = [_journal_false(arguments), None, None]
         elif record.get("type") == "user":
             for block in content if isinstance(content, list) else []:
                 if not (isinstance(block, dict) and block.get("type") == "tool_result"
@@ -343,9 +372,15 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                 tool, arguments = tools[block["tool_use_id"]]
                 response = _tool_payload(block)
                 if tool == LOG_TOOL:
-                    pending.discard(block["tool_use_id"])
-                    logged |= _logged(response)
-                    withheld |= _history(response).get("status") == WITHHELD_STATUS
+                    call = calls.get(block["tool_use_id"])
+                    if call is not None:
+                        history = _history(response)
+                        if response is not None and history.get("status") == WITHHELD_STATUS:
+                            call[1:] = ["withheld", WITHHELD_STATUS]
+                        elif response is not None and _logged(response):
+                            call[1:] = ["logged", str(history.get("status") or history.get("state"))]
+                        else:
+                            call[1:] = ["refused", _refusal(block, response)]
                     continue
                 if response is not None and tool == FLOW_TOOL:
                     activation = response.get("persona_activation")
@@ -360,7 +395,16 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
     descriptor = action = None
     if last is not None:
         descriptor, action = last, _action(success)
-    return Turn(prompt, final_message(answer_lines), descriptor, action, logged, withheld, bool(pending), opener)
+    outcomes = list(calls.values())
+    # A journal=false call that a server answered with anything but "withheld" did not keep the turn out.
+    unwithheld = next(((outcome, answer) for false, outcome, answer in outcomes
+                       if false and outcome not in (None, "withheld")), None)
+    withheld = any(outcome == "withheld" or (false and outcome is None) for false, outcome, _ in outcomes)
+    logged = any(outcome == "logged" and not false for false, outcome, _ in outcomes)
+    pending = any(outcome is None for _, outcome, _ in outcomes)
+    refused = next((answer for false, outcome, answer in outcomes if outcome == "refused" and not false), None)
+    return Turn(prompt, final_message(answer_lines), descriptor, action, logged, withheld, pending, opener,
+                refused, unwithheld, "".join(texts))
 
 
 def _transcript_lines(path):
@@ -380,14 +424,22 @@ def _transcript_lines(path):
                 yield raw.decode("utf-8", errors="replace")
 
 
-def settled_turn(path, prompt_id: str | None) -> Turn | None:
+def _holds(turn: Turn | None, answer: str | None) -> bool:
+    """Whether ``turn`` holds the Stop's ``answer`` among its texts (always, without an answer)."""
+    return answer is None or (turn is not None and _no_space(answer) in turn.text)
+
+
+def settled_turn(path, prompt_id: str | None, answer: str | None = None, deadline: float | None = None) -> Turn | None:
     """``read_turn`` of the transcript at ``path``, read again for ``TRANSCRIPT_WAIT_SECONDS`` at
-    most while the turn's prompt row or the result of its ``log_interaction`` call is missing:
-    the transcript may lag the hook (#701 review)."""
-    deadline = time.monotonic() + TRANSCRIPT_WAIT_SECONDS
+    most, and never past ``deadline``, while the turn's prompt row or the result of its
+    ``log_interaction`` call is missing, or while the turn does not hold ``answer``: the transcript
+    may lag the hook (#701 review)."""
+    wait_until = time.monotonic() + TRANSCRIPT_WAIT_SECONDS
+    if deadline is not None:
+        wait_until = min(wait_until, deadline - WRITE_RESERVE_SECONDS)
     while True:
         turn = read_turn(_transcript_lines(path), prompt_id)
-        if turn is not None and not turn.pending_log or time.monotonic() >= deadline:
+        if turn is not None and not turn.pending_log and _holds(turn, answer) or time.monotonic() >= wait_until:
             return turn
         time.sleep(TRANSCRIPT_POLL_SECONDS)
 
@@ -461,17 +513,29 @@ def _footer_agent(answer: str) -> str | None:
     return found[-1] if found else None
 
 
+def _canonical(name: str | None, descriptor_agent: str | None) -> str | None:
+    """``name`` when it is an agent's canonical name: the turn's descriptor's, or the folder of an
+    installed agent's system prompt. Any other text in the footer's place, which may be a secret
+    there, never reaches the entry (#701 review)."""
+    if name is None or name == descriptor_agent:
+        return name
+    if AGENT_NAME.fullmatch(name) and os.path.isfile(os.path.join(config.AGENTS_DIR, name, "system_prompt.mdc")):
+        return name
+    return None
+
+
 def _attribution(turn: Turn, answer: str) -> tuple[str, str]:
     """The entry's agent and persona line (#701 review). The delivered footer names the agent, and
     the turn's descriptor is reported against it: ``mismatch`` when the footer names another
-    agent, ``unverified`` when the answer has no footer. Without a descriptor the footer's agent is
-    unverified; without either the turn is ``unattributed``, like a log_interaction call without a
-    descriptor."""
+    agent, ``unverified`` when the answer has no footer or names no canonical agent there. Without
+    a descriptor the footer's agent is unverified; without either the turn is ``unattributed``,
+    like a log_interaction call without a descriptor."""
     from src.engine.persona import LoggedPersona, parse_persona_for_logging, persona_history_line
 
-    footer = _footer_agent(answer)
     agent = turn.persona.get("agent") if turn.persona is not None else None
-    if isinstance(agent, str) and agent.strip():
+    agent = agent if isinstance(agent, str) and agent.strip() else None
+    footer = _canonical(_footer_agent(answer), agent)
+    if agent is not None:
         logged = parse_persona_for_logging(turn.persona, footer or agent)
         if footer is None:
             logged.missing.append("footer")
@@ -481,101 +545,6 @@ def _attribution(turn: Turn, answer: str) -> tuple[str, str]:
     if footer:
         return footer, persona_history_line(parse_persona_for_logging({"agent": footer}, footer), None)
     return UNATTRIBUTED, persona_history_line(LoggedPersona(status="unverified", missing=["persona"]), None)
-
-
-@functools.cache
-def _sync_patterns() -> tuple:
-    """User sync's credential patterns, which match bytes, compiled for text."""
-    from src.user_sync.scope import SECRET_PATTERNS
-    return tuple((name, re.compile(pattern.pattern.decode("ascii"))) for name, pattern in SECRET_PATTERNS)
-
-
-def environment_secrets(environ=None) -> list:
-    """The secret-looking values of the hook's environment, as the scanner's known secrets.
-
-    A value counts when its variable's name names a secret (the schedule sandbox's
-    ``FORBIDDEN_NAME`` or ``SECRET_ENVIRONMENT_NAME``) or when the value itself scans as one, as the
-    schedule sandbox checks a session's environment. A value under ``KNOWN_MIN_LENGTH`` characters,
-    or one naming an existing absolute path, is no secret to look for.
-    """
-    from src.schedules import records, scan
-    from src.schedules.sandbox import FORBIDDEN_NAME
-
-    probe, known = scan.Scanner(), []
-    for name, value in (os.environ if environ is None else environ).items():
-        if not isinstance(value, str) or len(value) < scan.KNOWN_MIN_LENGTH or "\x00" in value:
-            continue
-        if not (FORBIDDEN_NAME.search(name) or SECRET_ENVIRONMENT_NAME.search(name)
-                or probe.scan(value) or any(pattern.search(value) for pattern in records.SECRET_PATTERNS)):
-            continue
-        if os.path.isabs(value) and os.path.exists(value):
-            continue
-        try:
-            known.append(scan.KnownSecret(f"environment:{name}", value))
-        except (TypeError, ValueError):  # a value inside its own label, or too short to fingerprint
-            continue
-    return known
-
-
-def _secret_spans(text: str, scanner) -> list[tuple[int, int]] | None:
-    """Where the detectors find a secret in ``text``; None when the scanner could not scan it
-    whole (too large, too many hits)."""
-    from src.memory.shared import MEMORY_SECRETS
-    from src.schedules import scan
-
-    spans = []
-    for hit in scanner.scan(text):
-        if hit.kind == scan.HitKind.LIMIT:
-            return None
-        spans.append((hit.start, hit.end))
-    for _, pattern in MEMORY_SECRETS:
-        spans.extend(match.span() for match in pattern.finditer(text))
-    for name, pattern in _sync_patterns():
-        for match in pattern.finditer(text):
-            end = VALUE_TAIL.match(text, match.end()).end() if name == "password" else match.end()
-            spans.append((match.start(), end))
-    return spans
-
-
-def _mask_spans(text: str, spans) -> str:
-    merged: list[list[int]] = []
-    for start, end in sorted(spans):
-        if merged and start <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], end)
-        else:
-            merged.append([start, end])
-    pieces, kept = [], 0
-    for start, end in merged:
-        pieces += [text[kept:start], MASK]
-        kept = end
-    return "".join(pieces) + text[kept:]
-
-
-def redact(text: str, known=()) -> tuple[str, bool]:
-    """``(text, clean)``: ``text`` with the secrets the repository's detectors find masked, and
-    whether a last scan of the result found nothing more (#701, owner's decision 2026-11-27).
-
-    The formats of the schedule records (``records.mask``) and this module keep a token's prefix
-    or a key's name; every other find becomes ``MASK``, round after round, until the scan comes
-    back empty or ``REDACTION_ROUNDS`` pass. ``known`` are the scanner's known secrets
-    (``environment_secrets``).
-    """
-    from src.schedules import scan
-    from src.schedules.records import mask
-
-    text = mask(text)
-    for pattern in EXTRA_SECRET_PATTERNS:
-        text = pattern.sub(lambda match: match[1] + MASK, text)
-    text = RANDOM_TOKEN.sub(MASK, text)
-    scanner = scan.Scanner(known)
-    for _ in range(REDACTION_ROUNDS):
-        spans = _secret_spans(text, scanner)
-        if spans is None:
-            return text, False
-        if not spans:
-            return text, True
-        text = _mask_spans(text, spans)
-    return text, _secret_spans(text, scanner) == []
 
 
 def _body(text: str) -> str:
@@ -607,14 +576,36 @@ def turn_key(payload: dict, prompt: str | None) -> str | None:
     return f"stop-hook/{session}/{prompt}"
 
 
-def record_turn(payload, interactive: bool = False) -> dict:
+class _RemovalsForSync:
+    """The history sync integration of the hook process: it shares nothing itself and only records
+    the entries the hook removed (a superseded or withdrawn entry), so the next reconcile of a
+    process that shares this repository's history takes them out of what this machine shared, and
+    merged reads leave them out at once (#701 review)."""
+
+    def appended(self, history_path: str, entry_id: str | None = None) -> None:
+        return None
+
+    def machines(self, history_path: str):
+        return None
+
+    def deleted(self, history_path: str, entry_id: str, timestamp: str) -> None:
+        from src.user_sync import history as history_sync
+        history_sync.record_deletion(history_path, entry_id, timestamp)
+
+
+def _remaining(deadline: float | None) -> float | None:
+    return None if deadline is None else deadline - time.monotonic()
+
+
+def record_turn(payload, interactive: bool = False, deadline: float | None = None) -> dict:
     """Write the turn a Stop event ends to the journal; return what happened.
 
     ``interactive`` is the hook's ``--interactive`` argument; without it only the headless
-    switches (``config.turn_log_hook()``) let the hook write. Raises ``TurnNotLogged``, or the
-    journal's error, for a turn it should have logged and could not.
+    switches (``config.turn_log_hook()``) let the hook write. ``deadline`` is the ``time.monotonic``
+    value the whole event has to end by. Raises ``TurnNotLogged``, or the journal's error, for a
+    turn it should have logged and could not.
     """
-    from src.memory.history import HistoryWriter
+    from src.memory import history as journal
 
     if not (interactive or config.turn_log_hook()):
         return {"status": "skipped", "reason": "disabled"}
@@ -622,28 +613,62 @@ def record_turn(payload, interactive: bool = False) -> dict:
         return {"status": "skipped", "reason": "not_a_stop_event"}
     root, unresolved = _journal(payload)
     prompt_id = _identifier(payload.get("prompt_id"))
-    turn = settled_turn(payload.get("transcript_path"), prompt_id)
+    given = payload.get("last_assistant_message")
+    given = given if isinstance(given, str) and given.strip() else None
+    # Without a prompt id only the Stop's answer ties it to the transcript's last turn, which a
+    # lagging transcript can still hold the previous one of: never replace an entry on a guess.
+    expected = given if prompt_id is None else None
+    turn = settled_turn(payload.get("transcript_path"), prompt_id, expected, deadline)
     if turn is None:
         raise TurnNotLogged("the turn's prompt is not in the transcript")
+    if not _holds(turn, expected):
+        raise TurnNotLogged("the transcript's last turn does not hold the Stop's answer yet")
     key = turn_key(payload, prompt_id or turn.opener_id)
-    writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
-    if turn.withheld or turn.logged or turn.pending_log:
+    writer = journal.HistoryWriter(str(root / "history.md"), str(root / "history"))
+    previous = journal.set_sync(_RemovalsForSync())
+    try:
+        return _write_turn(payload, turn, key, given, writer, unresolved, prompt_id, deadline)
+    finally:
+        journal.set_sync(previous)
+
+
+def _lock_timeout(deadline: float | None) -> float:
+    remaining = _remaining(deadline)
+    if remaining is None:
+        return LOCK_TIMEOUT_SECONDS
+    if remaining <= WRITE_RESERVE_SECONDS / 2:
+        raise TurnNotLogged("the hook ran out of time before the journal write")
+    return min(LOCK_TIMEOUT_SECONDS, remaining - WRITE_RESERVE_SECONDS / 2)
+
+
+def _write_turn(payload, turn: Turn, key, given, writer, unresolved, prompt_id, deadline) -> dict:
+    if turn.unwithheld is not None or turn.withheld or turn.logged or turn.pending_log or turn.refused is not None:
         # The model's own call decides this turn: the hook's earlier entry of it goes (#701 review).
-        withdrawn = writer.withdraw(key, lock_timeout=LOCK_TIMEOUT_SECONDS) if key else {"status": "absent"}
-        return {"status": "skipped", "reason": "not_journaled" if turn.withheld else "logged_by_model",
-                "withdrawn": withdrawn["status"] == "withdrawn"}
+        withdrawn = writer.withdraw(key, lock_timeout=_lock_timeout(deadline)) if key else {"status": "absent"}
+        if turn.unwithheld is not None:
+            outcome, answer = turn.unwithheld
+            if outcome == "logged":
+                raise JournalFalseIgnored(answer)
+            raise TurnNotLogged(f"its log_interaction call with journal=false was refused ({answer}), not withheld")
+        if turn.withheld or turn.logged or turn.pending_log:
+            return {"status": "skipped", "reason": "not_journaled" if turn.withheld else "logged_by_model",
+                    "withdrawn": withdrawn["status"] == "withdrawn"}
+        # A refused call left no entry before this hook, and the hook must not write the text the
+        # call may have been redacting (#701 review).
+        raise TurnNotLogged(f"its own log_interaction call was refused ({turn.refused})")
     if key is None and payload.get("stop_hook_active") is True:
         # Without an id the entry of this turn cannot be found to replace: the first Stop logged it.
         return {"status": "skipped", "reason": "stop_hook_active"}
-    given = payload.get("last_assistant_message")
-    answer = given if isinstance(given, str) and given.strip() else turn.answer
+    answer = given if given is not None else turn.answer
     answer = TIME_LINE.sub("", answer or "", count=1).strip() or NO_ANSWER
     agent, line = _attribution(turn, answer)
     action = f"Agent: {agent}"
     attributed = action + ("\n" + line if line else "")
     known = environment_secrets()
-    intent, intent_clean = redact(turn.prompt, known)
-    outcome, outcome_clean = redact(answer, known)
+    # Each field may use the time left before the journal write needs its share.
+    redaction_deadline = None if deadline is None else deadline - WRITE_RESERVE_SECONDS
+    intent, intent_clean = redact(turn.prompt, known, redaction_deadline)
+    outcome, outcome_clean = redact(answer, known, redaction_deadline)
     metadata = {"answer_timestamp": datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"),
                 "logged_by": "stop_hook", "client": "claude-code"}
     for name, value in (("session_id", _identifier(payload.get("session_id"))), ("prompt_id", prompt_id)):
@@ -659,14 +684,14 @@ def record_turn(payload, interactive: bool = False) -> dict:
         dedupe_action = json.dumps([action, unresolved.claimed], ensure_ascii=False)
     if key is None:
         return writer.append_entry(intent, attributed, outcome, None, None, metadata,
-                                   dedupe_action=dedupe_action, lock_timeout=LOCK_TIMEOUT_SECONDS)
+                                   dedupe_action=dedupe_action, lock_timeout=_lock_timeout(deadline))
     # The text decides a replay, not the time in the metadata: the same answer again writes nothing.
     fingerprint = hashlib.sha256(json.dumps([intent, attributed, outcome], ensure_ascii=False)
                                  .encode("utf-8", "surrogatepass")).hexdigest()
     return writer.append_entry(intent, attributed, outcome, None, None, metadata, dedupe_action=dedupe_action,
                                idempotency_key=key, payload_fingerprint=fingerprint,
                                supersede=lambda earlier: not short_note(outcome, earlier.outcome),
-                               lock_timeout=LOCK_TIMEOUT_SECONDS)
+                               lock_timeout=_lock_timeout(deadline))
 
 
 def _reason(error: BaseException) -> str:
@@ -681,14 +706,45 @@ def _reason(error: BaseException) -> str:
     return type(error).__name__
 
 
-def main(argv=None) -> int:
+def _report(error: BaseException) -> str:
+    if isinstance(error, JournalFalseIgnored):
+        return str(error)
+    return f"turn not logged ({_reason(error)})"
+
+
+def _watchdog(seconds: float) -> threading.Timer:
+    """End the command with exit 1 and a reason once ``seconds`` pass, before the client's own
+    timeout cancels it and discards its output (#701 review). Every journal change is one atomic
+    replacement or crash-safe in its order, so an exit at any moment leaves the journal readable."""
+    def expire():
+        sys.stderr.write("agents-core turn log: turn not logged (the hook ran out of time)\n")
+        sys.stderr.flush()
+        os._exit(1)
+    timer = threading.Timer(seconds, expire)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def main(argv=None, *, watchdog: bool = False) -> int:
     """Handle the hook event on stdin; ``--interactive`` switches the hook on for this session.
 
     ``UserPromptSubmit`` prints the turn-log notice as ``additionalContext`` and always exits 0, so
     a prompt never fails over this hook. ``Stop`` logs the turn; when it could not, it prints the
     reason to stderr and exits 1, which Claude Code shows as a non-blocking hook error, never 2,
     which would keep the turn going. Other events, unreadable input and other arguments exit 0.
+    ``watchdog`` (the command line) also ends a run still going after ``WATCHDOG_SECONDS``.
     """
+    started = time.monotonic()
+    timer = _watchdog(WATCHDOG_SECONDS) if watchdog else None
+    try:
+        return _main(argv, started + DEADLINE_SECONDS)
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+
+def _main(argv, deadline: float) -> int:
     interactive = INTERACTIVE_ARGUMENT in (sys.argv[1:] if argv is None else argv)
     try:
         raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
@@ -708,12 +764,12 @@ def main(argv=None) -> int:
     if event != STOP_EVENT:
         return 0
     try:
-        record_turn(payload, interactive)
+        record_turn(payload, interactive, deadline)
     except Exception as error:  # noqa: BLE001 - reported to the client, never raised into it
-        print(f"agents-core turn log: turn not logged ({_reason(error)})", file=sys.stderr)
+        print(f"agents-core turn log: {_report(error)}", file=sys.stderr)
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(watchdog=True))
