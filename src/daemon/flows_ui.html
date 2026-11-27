@@ -399,25 +399,33 @@ details.persona summary { cursor: pointer; }
 .wm-body[data-panel="closed"] { grid-template-columns: minmax(0, 1fr); }
 .wm-body[data-panel="closed"] > .wm-detail { display: none; }
 
-/* 4. SUMMARY — one card: what the map is, how far it is, what runs now, what needs someone. */
-.wm-summary { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; padding: var(--s5) var(--s6);
+/* 4. SUMMARY — one card: what the map is, how far it is, what runs now, what needs someone.
+      Three rows that never wrap, so the card keeps one height while the map changes under it:
+      a live update repaints the summary and never rescales the graph. Labels and counts are set
+      in --f-title and chips in --f-body, so the 1800 px step enlarges them with the graph. */
+.wm-summary { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; padding: var(--s4) var(--s6);
   background: var(--panel); border-radius: var(--r-card); outline: 1px solid transparent; outline-offset: -1px; }
-.wm-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s5); min-width: 0; }
+.wm-summary-head { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--s2) var(--s5); min-width: 0; }
 .wm-title { flex: 0 1 auto; min-width: 0; margin: 0; font-size: var(--f-page); line-height: var(--lh-tight);
-  overflow-wrap: anywhere; }
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Open or closed: the word says it; a closed map also gets a filled chip. */
 .wm-flag { flex: none; padding: 0 var(--s4); font-size: var(--f-meta); line-height: 1.6; border-radius: var(--r-pill);
   color: var(--muted); box-shadow: inset 0 0 0 1px var(--wm-rule); }
 .wm-flag[data-flag="closed"] { color: var(--text); background: var(--chip); box-shadow: none; font-weight: 600; }
-.wm-ids { color: var(--muted); font-size: var(--f-meta); overflow-wrap: anywhere; }
-.wm-grow { flex: 1; }
+/* The ids take the room the title and the select leave, and give it up first. */
+.wm-ids { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: var(--f-meta); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
 .wm-pick { display: inline-flex; align-items: center; gap: var(--s3); min-width: 0; color: var(--muted); font-size: var(--f-meta); }
-/* The select and its copy button wrap together. */
-.wm-pick-row { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; max-width: 100%; }
+/* The select and its copy button stay together; a note before them says why this map was opened. */
+.wm-pick-row { flex: 0 1 auto; display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; }
 .wm-pick select { max-width: 22em; padding: var(--s2) var(--s4); color: var(--text); }
-.wm-summary-stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) var(--s5); min-width: 0; }
+.wm-pick-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--f-meta);
+  font-weight: 600; color: var(--st-attn); }
+/* Rung until the viewer picks a map: the page chose one of several the link could mean. */
+#wm-map[data-ring] { outline: 2px solid var(--st-attn); outline-offset: 2px; }
+.wm-summary-stats { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--s3) var(--s5); min-width: 0; }
 /* The stacked bar: one segment per category, in a fixed order, drawn with attributes only. */
-.wm-progress { flex: none; width: calc(11 * var(--f-body)); height: var(--s4); border-radius: var(--r-pill);
+.wm-progress { flex: none; width: calc(8 * var(--f-body)); height: var(--s4); border-radius: var(--r-pill);
   overflow: hidden; }
 .wm-bar-run { fill: var(--st-run); } .wm-bar-done { fill: var(--st-done); } .wm-bar-verified { fill: var(--st-verified); }
 .wm-bar-attn { fill: var(--st-attn); } .wm-bar-idle { fill: var(--wm-line); } .wm-bar-aside { fill: url(#wm-hatch); }
@@ -425,35 +433,62 @@ details.persona summary { cursor: pointer; }
 .wm-hatch-bg { fill: var(--wm-surface); } .wm-hatch-line { stroke: var(--st-aside); stroke-width: 1.4; }
 /* Ready: planned work that can start, striped in the running colour, so it reads apart from both. */
 .wm-bar-ready { fill: url(#wm-ready); } .wm-ready-line { stroke: var(--st-run); stroke-width: 1.6; }
-.wm-progress-text { color: var(--muted); font-size: var(--f-meta); white-space: nowrap; }
-/* Category tiles: a count each, and a toggle that dims every other category in the graph. */
-.wm-tiles { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.wm-tile { --disc: calc(1.15 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s2);
-  min-height: max(24px, calc(26px * var(--k))); padding: 0 var(--s4) 0 var(--s2); font-size: var(--f-meta);
+.wm-progress-text { flex: none; color: var(--muted); font-size: var(--f-title); white-space: nowrap; }
+.wm-progress-text b { color: var(--text); font-variant-numeric: tabular-nums; }
+/* The critical path: a sample of the bar that underlines the cards the goal waits on, so this item is
+   the key to that mark. */
+.wm-path { flex: none; display: inline-flex; align-items: center; gap: var(--s3); font-size: var(--f-body);
+  white-space: nowrap; color: var(--muted); }
+.wm-path b { color: var(--text); font-variant-numeric: tabular-nums; }
+.wm-path-bar { flex: none; width: calc(1.6 * var(--f-body)); height: var(--s2); border-radius: var(--r-pill);
+  background: var(--text); }
+/* Under 1400 px the stats row keeps its tiles by shortening the rest: a shorter bar, "6 left". */
+@media (max-width: 1399px) {
+  .wm-summary-stats .wm-progress { width: calc(6 * var(--f-body)); }
+  .wm-path-words { display: none; }
+}
+/* Category tiles: a count each, and a toggle that dims every other category in the graph. They keep
+   one row: past the room left they are clipped, never wrapped onto a second. */
+.wm-tiles { flex: 0 1 auto; display: flex; flex-wrap: nowrap; gap: var(--s2); min-width: 0; overflow: hidden; }
+.wm-tile { --disc: calc(1.15 * var(--f-body)); flex: none; display: inline-flex; align-items: center; gap: var(--s2);
+  min-height: max(24px, calc(26px * var(--k))); padding: 0 var(--s4) 0 var(--s2); font-size: var(--f-body);
   white-space: nowrap; color: var(--text); background: var(--chip); border: 0; border-radius: var(--r-pill); }
 .wm-tile b { font-variant-numeric: tabular-nums; }
 .wm-tile:hover { box-shadow: inset 0 0 0 1px var(--wm-rule); }
 .wm-tile[aria-pressed="true"] { background: var(--sb); color: var(--s); font-weight: 600;
   box-shadow: inset 0 0 0 1.5px var(--s); }
-.wm-lists { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s7); min-width: 0; font-size: var(--f-meta); }
-.wm-list { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); min-width: 0; }
-.wm-list-label { display: inline-flex; align-items: center; gap: var(--s3); font-weight: 600; white-space: nowrap; }
+.wm-tile[data-cat="you"] { color: var(--st-attn); font-weight: 600; }
+/* The slots: four of fixed widths on one row (Needs attention the widest, Next the narrowest), always
+   drawn, each ending in "and N more" when its chips do not fit. Waiting for you comes first. */
+.wm-lists { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .6fr);
+  gap: var(--s3) var(--s6); min-width: 0; }
+.wm-list { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--s3); min-width: 0; overflow: hidden;
+  min-height: max(24px, calc(26px * var(--k))); }
+.wm-list-label { flex: none; display: inline-flex; align-items: center; gap: var(--s3); font-size: var(--f-title);
+  font-weight: 600; white-space: nowrap; }
+.wm-list[data-list="you"] .wm-list-label { color: var(--st-attn); }
 .wm-list[data-list="run"] .wm-list-label { color: var(--st-run); }
 .wm-list[data-list="attn"] .wm-list-label { color: var(--st-attn); }
-/* Who acts on what needs attention: you, the orchestrator, or nobody while its verifiers run. */
-.wm-who { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.wm-list > .wm-jump { flex: none; }
+.wm-list > .wm-jump[data-squeeze] { flex: 0 1 auto; min-width: 0; }
+.wm-list[data-span] { grid-column: 1 / -1; }
+.wm-list-more, .wm-list-none { flex: none; font-size: var(--f-body); color: var(--muted); white-space: nowrap; }
 /* The dot beside "Running now" breathes with the running cards. */
 .wm-pulse { position: relative; width: var(--s4); height: var(--s4); border-radius: 50%; background: var(--st-run); }
 .wm-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--st-run);
   animation: wm-ping var(--wm-pulse) ease-out infinite; }
-/* A node named in running text: a link-like button that selects it. */
-.wm-jump { --disc: calc(1.15 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s2);
-  min-height: max(24px, calc(24px * var(--k))); padding: 0 var(--s4) 0 var(--s2); font-size: var(--f-meta);
+/* A node named in running text: a link-like button that selects it, and outlines its card while the
+   pointer or the focus rests on it. */
+.wm-jump { --disc: calc(1.15 * var(--f-body)); display: inline-flex; align-items: center; gap: var(--s2);
+  min-height: max(24px, calc(24px * var(--k))); padding: 0 var(--s4) 0 var(--s2); font-size: var(--f-body);
   color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pill);
   max-width: 100%; }
 .wm-jump:hover { border-color: var(--wm-rule); }
 .wm-jump > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wm-note { color: var(--muted); }
+.wm-list .wm-note { display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis;
+  vertical-align: bottom; font-size: var(--f-meta); }
+.wm-rels .wm-jump, .wm-d .wm-jump { --disc: calc(1.15 * var(--f-meta)); font-size: var(--f-meta); }
 
 /* 5. CANVAS — a scroll container, so wheel, trackpad and touch pan natively; drag pans too. */
 .wm-canvas-wrap { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
@@ -464,11 +499,10 @@ details.persona summary { cursor: pointer; }
   background: radial-gradient(circle, var(--line) 1px, transparent 1.3px) 0 0 / 20px 20px local; }
 .wm-canvas.is-panning { cursor: grabbing; -webkit-user-select: none; user-select: none; }
 .wm-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* margin: auto centres the stage while it fits and never hides its start when it does not. */
-.wm-stage { --k: var(--wm-k, 1); position: relative; isolation: isolate; margin: auto; padding: 16px;
+/* margin: auto centres the stage while it fits and never hides its start when it does not. The
+   canvas keeps no room for tools: they sit in the summary's stats row. */
+.wm-stage { --k: var(--wm-k, 1); position: relative; isolation: isolate; margin: auto; padding: 12px 16px;
   font-size: var(--f-node); }
-/* The floating tools take the canvas's top right corner: the first layer starts below them. */
-.wm-canvas > .wm-stage { padding-top: 52px; }
 /* Zoom steps: the script sets data-zoom, this table turns it into the graph's --k. */
 .wm-stage[data-zoom="50"] { --wm-k: 0.5; } .wm-stage[data-zoom="55"] { --wm-k: 0.55; } .wm-stage[data-zoom="60"] { --wm-k: 0.6; }
 .wm-stage[data-zoom="65"] { --wm-k: 0.65; } .wm-stage[data-zoom="70"] { --wm-k: 0.7; } .wm-stage[data-zoom="75"] { --wm-k: 0.75; }
@@ -478,21 +512,31 @@ details.persona summary { cursor: pointer; }
 .wm-stage[data-zoom="125"] { --wm-k: 1.25; } .wm-stage[data-zoom="130"] { --wm-k: 1.3; } .wm-stage[data-zoom="135"] { --wm-k: 1.35; }
 .wm-stage[data-zoom="140"] { --wm-k: 1.4; } .wm-stage[data-zoom="145"] { --wm-k: 1.45; } .wm-stage[data-zoom="150"] { --wm-k: 1.5; }
 .wm-stage[data-zoom="155"] { --wm-k: 1.55; } .wm-stage[data-zoom="160"] { --wm-k: 1.6; }
-.wm-tools { position: absolute; top: var(--s4); right: var(--s4); z-index: 5; display: flex; align-items: center;
-  gap: var(--s2); padding: var(--s2); background: var(--panel); border-radius: var(--r-float);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, .14), inset 0 0 0 1px var(--line); }
+/* The view's tools close the stats row: zoom, Fit, Present and the legend. */
+.wm-tools { flex: none; margin-left: auto; display: flex; align-items: center; gap: 0; padding: 0;
+  background: var(--chip); border-radius: var(--r-float); }
 .wm-tools button { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
   min-width: max(28px, calc(28px * var(--k))); min-height: max(28px, calc(28px * var(--k)));
-  padding: 0 var(--s3); font-size: var(--f-meta); border-color: transparent; background: none;
-  border-radius: calc(var(--r-float) - var(--s2)); }
-.wm-tools button:hover { background: var(--chip); }
-.wm-tools button[aria-pressed="true"], .wm-tools button[aria-expanded="true"] { background: var(--chip); font-weight: 600; }
-.wm-tools output { min-width: 3.2em; text-align: center; font-size: var(--f-meta); font-variant-numeric: tabular-nums;
+  padding: 0 var(--s3); font-size: var(--f-body); border-color: transparent; background: none;
+  border-radius: var(--r-float); }
+.wm-tools button:hover { background: var(--panel); }
+.wm-tools button[aria-pressed="true"], .wm-tools button[aria-expanded="true"] { background: var(--panel); font-weight: 600; }
+.wm-tools output { min-width: 3.2em; text-align: center; font-size: var(--f-body); font-variant-numeric: tabular-nums;
   color: var(--muted); }
 .wm-tools .wm-sep { align-self: stretch; width: 1px; margin: var(--s2) 0; background: var(--line); }
-/* The legend is a strip under the canvas: it never covers a node. */
-.wm-legend { flex: none; display: flex; flex-wrap: wrap; gap: var(--s3) var(--s7); padding: var(--s4) var(--s6);
-  background: var(--panel); border-top: 1px solid var(--line); font-size: var(--f-meta); }
+/* The legend opens over the foot of the canvas and the refresh alert over its top: neither takes
+   height from the canvas, so opening one never rescales the graph. */
+.wm-legend { position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; max-height: 62%; overflow-y: auto;
+  display: flex; flex-wrap: wrap; gap: var(--s3) var(--s7); padding: var(--s4) var(--s6);
+  background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -2px 12px rgba(0, 0, 0, .16);
+  font-size: var(--f-meta); }
+.wm-canvas-wrap > .wm-alert { position: absolute; z-index: 7; top: var(--s4); left: var(--s6); right: var(--s6);
+  margin: 0; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); }
+/* "N more below": the graph runs past the canvas's foot or side. A click scrolls the next card into view. */
+.wm-more { position: absolute; z-index: 5; bottom: var(--s4); right: var(--s6);
+  display: inline-flex; align-items: center; gap: var(--s2); min-height: max(28px, calc(28px * var(--k)));
+  padding: 0 var(--s5); font-size: var(--f-body); font-weight: 600; color: var(--text); background: var(--panel);
+  border: 1px solid var(--wm-rule); border-radius: var(--r-pill); box-shadow: 0 1px 6px rgba(0, 0, 0, .18); }
 .wm-lg { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s5); min-width: 0; }
 .wm-lg > .wm-h { font-size: var(--f-micro); }
 .wm-lg-item { --disc: calc(1.3 * var(--f-meta)); display: inline-flex; align-items: center; gap: var(--s2);
@@ -503,7 +547,7 @@ details.persona summary { cursor: pointer; }
 /* 6. GRAPH — layers are flex rows, top to bottom in dependency order; CSS places every card.
       A group is a node with the verifiers that check it docked in a tray under it. A lane is
       an empty slot a long edge passes through. */
-.wm-layers { position: relative; display: flex; flex-direction: column; align-items: center; gap: calc(var(--s8) + var(--s2));
+.wm-layers { position: relative; display: flex; flex-direction: column; align-items: center; gap: calc(var(--s7) + var(--s2));
   width: max-content; margin: 0; padding: 0; list-style: none; }
 .wm-layer { display: flex; align-items: flex-start; justify-content: center; gap: calc(var(--s6) + var(--s2)); }
 .wm-layer-cap { display: none; }
@@ -524,21 +568,29 @@ details.persona summary { cursor: pointer; }
   stroke-width: 1.5; }
 .wm-t { min-width: 0; font-size: var(--f-title); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.wm-meta { display: flex; align-items: center; gap: var(--s3); min-width: 0; font-size: var(--f-meta);
-  line-height: 1.5; white-space: nowrap; }
+/* The state row wraps rather than run past the card: "needs attention" with a level and the check
+   counts is wider than a card at 90 %. */
+.wm-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s3); min-width: 0;
+  font-size: var(--f-meta); line-height: 1.5; white-space: nowrap; }
 /* The status word is a chip in the family tint; the disc beside the name repeats it as a shape. */
 .wm-status { padding: 0 var(--s3); border-radius: var(--r-pill); font-weight: 600; color: var(--s);
   background: var(--sb); }
+/* Waiting for you: the owner acts on this node. A filled badge in the attention colour beside the
+   status word, and a solid attention border on the card (below, after the status forms). */
+.wm-you { flex: none; padding: 0 var(--s3); border-radius: var(--r-pill); font-weight: 700; color: var(--wm-on);
+  background: var(--st-attn); }
 .wm-extra { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-/* The level badge: square-cornered and monospaced, so it never reads as a status chip.
-   A solid box is a level reached, a dashed box a level still needed — the grammar of the cards,
-   where dashed is "not yet". One solid box: at its level. One dashed box: nothing reached yet.
-   Both, in the attention colour: reached the first, needs the second. */
+/* The level badge: square-cornered and monospaced, so it never reads as a status chip. A level
+   reached is a filled box ("V2"); a level still needed an outlined one with an arrow ("→V3"); with
+   nothing reached yet one outlined box says both ("V0→V3"). Reached and needed differ by fill and by
+   words, and below what its dependants need the needed box takes the attention colour. */
 .wm-lvs { flex: none; display: inline-flex; gap: var(--s1); }
 .wm-lv { padding: 0 var(--s2); font-family: var(--font-mono); font-size: .92em; font-weight: 600; line-height: 1.45;
   color: var(--text); border: 1px solid var(--wm-rule); border-radius: calc(var(--r-badge) * var(--k)); }
-.wm-lv[data-lv="target"] { color: var(--muted); border-style: dashed; }
-.wm-lvs[data-lvs="gap"] .wm-lv { color: var(--st-attn); background: var(--st-attn-bg); border-color: var(--st-attn); }
+.wm-lv[data-lv="met"] { color: var(--panel); background: var(--text); border-color: var(--text); }
+.wm-lv[data-lv="target"] { border-style: dashed; }
+.wm-lvs[data-lvs="gap"] .wm-lv[data-lv="target"] { color: var(--st-attn); border-color: var(--st-attn); border-style: solid;
+  background: var(--st-attn-bg); }
 /* Risk: no mark for routine, one chevron for load-bearing, two in the risk colour for critical. */
 .wm-risk { flex: none; display: inline-flex; color: var(--muted); }
 .wm-risk[data-risk="critical"] { color: var(--risk); }
@@ -560,7 +612,7 @@ details.persona summary { cursor: pointer; }
 .wm-mini .wm-progress { width: calc(96px * var(--k)); height: var(--s3); }
 /* Shown only where the edges are not drawn (the narrow layout): the same relation in words. */
 .wm-after { display: none; }
-/* The frontier of the longest remaining chain, what the goal waits on now: a bar under the card. */
+/* The frontier of the critical path, what the goal waits on now: a bar under the card. */
 .wm-node[data-path="frontier"]::before { content: ""; position: absolute; left: var(--s5); right: var(--s5);
   bottom: calc(-1 * var(--s1)); height: var(--s2); border-radius: var(--r-pill); background: var(--text); }
 
@@ -573,15 +625,17 @@ details.persona summary { cursor: pointer; }
 .wm-verifiers { display: flex; flex-direction: column; gap: var(--s2); margin: calc(-1 * var(--r-node) * var(--k)) 0 0;
   padding: calc(var(--r-node) * var(--k) + var(--s3)) var(--s3) var(--s3) calc(var(--s7) + var(--s4)); list-style: none;
   background: var(--wm-tray); border-radius: 0 0 calc(var(--r-node) * var(--k)) calc(var(--r-node) * var(--k)); }
+/* A pill names its verifier by id, which tells siblings apart and is the summary's own word, and
+   shows the verdict on the target's current result: its disc and its word. */
 .wm-pill { --disc: calc(16px * var(--k)); min-height: max(24px, calc(24px * var(--k))); gap: var(--s3);
   padding: 0 var(--s4) 0 var(--s2); border-radius: var(--r-pill); }
 .wm-pill .wm-kind { width: var(--f-meta); height: var(--f-meta); margin: 0; }
-.wm-pill .wm-t { flex: 1; display: block; font-size: var(--f-meta); font-weight: 500; white-space: nowrap;
+.wm-pill .wm-t { flex: 1; display: block; font-size: var(--f-meta); font-weight: 600; white-space: nowrap;
   text-overflow: ellipsis; }
-.wm-pill .wm-find { flex: none; font-size: var(--f-micro); font-weight: 600; color: var(--st-attn); }
-/* A verdict that says nothing about the target's current result: the verifier checked an older one. */
-.wm-pill .wm-find[data-find="older"] { color: var(--muted); }
-.wm-pill .wm-lvs { font-size: var(--f-micro); }
+.wm-pill .wm-find { flex: none; font-size: var(--f-meta); font-weight: 600; color: var(--muted); }
+.wm-pill .wm-find[data-find="clean"] { color: var(--st-verified); }
+.wm-pill .wm-find[data-find="found"] { color: var(--st-attn); }
+.wm-pill .wm-find[data-find="withdrawn"] { color: var(--st-aside); }
 
 /* 7. STATUS MAPPING — the one table that binds the store's status values to the six families.
       Move a status to another family here and nowhere else. --s is the family colour, --sb its
@@ -631,6 +685,25 @@ details.persona summary { cursor: pointer; }
   var(--wm-line) 6px 7px); }
 /* 7b. Blocked is stuck, not set aside: it keeps a solid border so it never reads as a ghost. */
 .wm-node[data-status="blocked"] { border-style: solid; border-color: var(--st-aside); }
+/* 7c. Needs attention and disputed carry the same second pixel as running: their tint alone works
+   by hue, which a washed-out projector may lose. */
+.wm-node[data-status="needs_attention"], .wm-node[data-status="disputed"] { box-shadow: 0 0 0 1px var(--st-attn); }
+/* 7d. Waiting for you: a solid attention border whatever the status form, after the forms above, so
+   the owner's own decision is never drawn as the quietest card on the map. */
+.wm-node[data-who="you"] { border-style: solid; border-color: var(--st-attn); box-shadow: 0 0 0 1px var(--st-attn); }
+/* 7e. A docked verifier's disc is its verdict on the target's current result, not its own status:
+   an empty ring while pending, a check when clean, the attention triangle for a critical or high
+   finding, a struck ring when it judged an older result, a dash when no verdict was recorded. A
+   running verifier keeps its turning ring, which says pending as well. */
+.wm-disc[data-verdict] { --v: var(--muted); animation: none; clip-path: none; border-radius: 50%;
+  border: max(1.5px, calc(1.5px * var(--k))) solid var(--v); background: none; color: var(--v); }
+.wm-disc[data-verdict] .wm-i { width: 64%; height: 64%; margin: 0; }
+.wm-disc[data-verdict="pending"] { --v: var(--st-idle); border-style: dashed; }
+.wm-disc[data-verdict="clean"] { --v: var(--st-verified); background: var(--v); color: var(--wm-on); }
+.wm-disc[data-verdict="found"] { --v: var(--st-attn); background: var(--v); color: var(--wm-on); border: 0;
+  border-radius: 0; clip-path: polygon(50% 2%, 100% 94%, 0 94%); }
+.wm-disc[data-verdict="found"] .wm-i { width: 52%; height: 52%; margin-top: 26%; }
+.wm-disc[data-verdict="withdrawn"] { --v: var(--st-aside); border-style: dotted; }
 
 /* 8. EDGES — one SVG under the cards. Line style and arrowhead differ by type, so the four
       read apart without colour. depends_on is drawn in the direction work flows: tail at the
@@ -650,7 +723,7 @@ details.persona summary { cursor: pointer; }
 .wm-mk-depends-open { fill: var(--wm-surface); stroke: var(--wm-rule); stroke-width: 1.3; stroke-linejoin: round; }
 /* The goal stores no edge: a thin dotted connector from the plan's last stages, marked derived. */
 .wm-edge[data-type="derived"] { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 2 4; }
-/* The longest remaining chain: its edges at double weight. */
+/* The critical path: its edges at double weight. */
 .wm-edge.is-path { stroke-width: 3; }
 
 /* 9. DETAIL PANEL — the open item's pane, in the tint the existing page gives an open item;
@@ -722,16 +795,29 @@ details.persona summary { cursor: pointer; }
 .wm-arts .wm-i { margin-top: .15em; color: var(--muted); stroke-width: 1.5; }
 .wm-arts code { overflow-wrap: anywhere; }
 .wm-arts small { grid-column: 2; font-size: inherit; color: var(--muted); }
-/* The full result: fetched only on a click, shown as text in a box of its own. */
+/* Plan and result summaries: three lines, and "more" opens the rest in place. */
+.wm-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.wm-clamp[data-open] { display: block; }
+.wm-more-text { align-self: flex-start; min-height: max(24px, calc(24px * var(--k))); padding: 0 var(--s3);
+  font-size: var(--f-meta); }
+/* The full result: fetched only on a click and shown as text in a dialog a room can read, with its
+   own scroll, which a live update leaves where it is. */
 .wm-result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
 .wm-result button { min-height: max(24px, calc(24px * var(--k))); font-size: var(--f-meta); }
-.wm-result pre { flex-basis: 100%; margin: var(--s3) 0 0; padding: var(--s4); max-height: 16em; overflow: auto; white-space: pre-wrap;
-  overflow-wrap: anywhere; font: var(--f-micro)/1.5 var(--font-mono); background: var(--code-bg);
-  border: 1px solid var(--line); border-radius: var(--r-code); }
+/* A modal dialog sits in the viewport: its percentages are the viewport's. */
+#wm-result-dialog { width: min(1100px, 92vw); height: 86%; max-height: 86%; padding: 0; overflow: hidden; }
+#wm-result-dialog[open] { display: flex; flex-direction: column; }
+.wm-dialog-head { flex: none; display: flex; align-items: center; gap: var(--s4); padding: var(--s4) var(--s4) var(--s4) var(--s6);
+  border-bottom: 1px solid var(--line); }
+.wm-dialog-head h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--f-title); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.wm-dialog-note { flex: none; color: var(--muted); font-size: var(--f-meta); }
+#wm-result-text { flex: 1; min-height: 0; margin: 0; padding: var(--s5) var(--s6); overflow: auto; white-space: pre-wrap;
+  overflow-wrap: anywhere; font: var(--f-body)/1.5 var(--font-mono); background: var(--code-bg); }
 /* History: each status and level step with its revision and local time. */
 .wm-steps { display: flex; flex-direction: column; gap: var(--s1); margin: 0; padding: 0; list-style: none;
   font-size: var(--f-meta); }
-.wm-steps li { display: grid; grid-template-columns: 4em 3.4em minmax(0, 1fr); gap: var(--s3); }
+.wm-steps li { display: grid; grid-template-columns: 4em max-content minmax(0, 1fr); gap: var(--s3); }
 .wm-steps span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .wm-empty { padding: var(--s6); color: var(--muted); font-size: var(--f-meta); }
 
@@ -740,12 +826,15 @@ details.persona summary { cursor: pointer; }
 .wm-node[data-status="prepared"]:hover { border-color: var(--st-run); }
 .wm-node[data-status="needs_attention"]:hover, .wm-node[data-status="disputed"]:hover { border-color: var(--st-attn); }
 .wm-node:focus-visible, .wm-tile:focus-visible, .wm-jump:focus-visible, .wm-tools button:focus-visible,
-.wm-close:focus-visible, .wm-copy:focus-visible, .wm-result button:focus-visible, .seg button:focus-visible {
+.wm-close:focus-visible, .wm-copy:focus-visible, .wm-result button:focus-visible, .seg button:focus-visible,
+.wm-more:focus-visible, .wm-more-text:focus-visible, #wm-result-text:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Selected: the tint of the open item's pane and an ink outline; the panel beside it shares the tint. */
 .wm-node[aria-pressed="true"] { background-color: var(--tint); background-image: none; border-style: solid;
   border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
 .wm-node[aria-pressed="true"]:hover { border-color: var(--text); }
+/* The card a chip of the summary or the panel names, while the pointer or the focus rests on the chip. */
+.wm-node[data-hover] { outline: 2px solid var(--accent); outline-offset: 3px; }
 /* The selected node's edges are drawn heavier. While a node is hovered or holds the keyboard
    focus, its edges stay full and all others step back, so one node's relations can be traced. */
 .wm-edge.is-sel, .wm-edge.is-on { stroke-width: 2.4; }
@@ -757,6 +846,7 @@ details.persona summary { cursor: pointer; }
 .wm-stage[data-filter="ready"] .wm-node:not([data-cat="ready"]),
 .wm-stage[data-filter="waiting"] .wm-node:not([data-cat="waiting"]),
 .wm-stage[data-filter="action"] .wm-node:not([data-cat="action"]),
+.wm-stage[data-filter="you"] .wm-node:not([data-cat="you"]),
 .wm-stage[data-filter="blocked"] .wm-node:not([data-cat="blocked"]),
 .wm-stage[data-filter="aside"] .wm-node:not([data-cat="aside"]) { opacity: .3; }
 .wm-stage[data-filter] .wm-edge { opacity: .2; }
@@ -771,6 +861,9 @@ details.persona summary { cursor: pointer; }
   70%, 100% { box-shadow: 0 0 0 var(--s4) var(--st-run); opacity: 0; } }
 @keyframes wm-ping { 0% { transform: scale(1); opacity: .55; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
 @keyframes wm-shimmer { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
+/* On a closed map nothing runs: a node left prepared keeps its ring and stops turning. */
+#workmap-page[data-closed] .wm-node[data-status="prepared"] > .wm-disc,
+#workmap-page[data-closed] .wm-node[data-status="prepared"]::after { animation: none; }
 /* Without motion the running state keeps its ring, its outline and a still halo. */
 @media (prefers-reduced-motion: reduce) {
   .wm-node[data-status="prepared"] > .wm-disc, .wm-pulse::after, .wm-skel, .wm-node[data-changed] { animation: none; }
@@ -797,13 +890,22 @@ details.persona summary { cursor: pointer; }
 #workmap-page[data-state="loading"] .wm-skeleton { display: flex; }
 #workmap-page[data-state="empty"] .wm-state[data-for="empty"],
 #workmap-page[data-state="error"] .wm-state[data-for="error"] { display: block; }
-#workmap-page:not([data-state="ready"]) :is(.wm-stage, .wm-tools, .wm-legend, .wm-summary-stats, .wm-lists, .wm-detail),
+#workmap-page:not([data-state="ready"]) :is(.wm-stage, .wm-tools, .wm-legend, .wm-summary-stats, .wm-lists, .wm-detail, .wm-more),
 #workmap-page:not([data-state="ready"]) [data-when="ready"], #workmap-page[data-state="ready"] [data-when="unready"],
 #workmap-page:is([data-state="empty"], [data-state="error"]) [data-when="has-maps"] { display: none; }
 #workmap-page:not([data-state="ready"]) .wm-body { grid-template-columns: minmax(0, 1fr); }
 #workmap-page:not([data-state="ready"]) .wm-canvas { cursor: default; }
 .wm-alert { font-size: var(--f-meta); }
 .wm-alert > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* A map too large to draw: the summary and the slots still say how it stands. */
+#workmap-page[data-state="ready"][data-graph="omitted"] :is(.wm-stage, .wm-more) { display: none; }
+#workmap-page[data-graph="omitted"] .wm-state[data-for="omitted"] { display: block; }
+/* Present: the projector's view. The page header, the slots, the ids and the map select go; the
+   title, the bar, the tiles and the tools stay, and the graph takes the room (about 120 % instead
+   of 115 % at 1920 x 1080). The Present button, or Escape, brings the rest back. */
+:root[data-wm-present] body > header { display: none; }
+#workmap-page[data-present] { padding-top: var(--edge); }
+#workmap-page[data-present] :is(.wm-lists, .wm-ids, .wm-pick-row) { display: none !important; }
 
 /* 11. RESPONSIVE
        1100 px and up: canvas and panel side by side (1280 laptop, 1920 projector).
@@ -817,11 +919,15 @@ details.persona summary { cursor: pointer; }
 }
 @media (max-width: 760px) {
   #workmap-page { display: flex; flex-direction: column; overflow-y: auto; padding-top: 8px; }
+  /* The page scrolls here, so the summary may wrap: one column of slots, each chip on its own. */
+  .wm-summary-head, .wm-summary-stats, .wm-tiles, .wm-list { flex-wrap: wrap; overflow: visible; }
+  .wm-title { white-space: normal; overflow-wrap: anywhere; }
+  .wm-lists { grid-template-columns: minmax(0, 1fr); }
   .wm-body { display: block; position: static; }
   .wm-canvas-wrap { overflow: visible; background: none; }
   .wm-canvas { display: block; overflow: visible; cursor: default; background: none; scrollbar-gutter: auto; }
-  .wm-tools > :not([data-keep]) { display: none; }
-  .wm-tools { position: static; align-self: flex-end; margin: 0 0 var(--s4); box-shadow: inset 0 0 0 1px var(--line); }
+  .wm-tools > :not([data-keep]), .wm-more { display: none; }
+  .wm-legend, .wm-canvas-wrap > .wm-alert { position: static; box-shadow: none; }
   .wm-stage { --k: 1.077; margin: 0; padding: 0; }
   .wm-edges, .wm-lane { display: none; }
   .wm-layers { width: auto; align-items: stretch; gap: var(--s5); }
@@ -927,6 +1033,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <symbol id="wm-i-plus" viewBox="0 0 16 16"><path d="M3.5 8h9M8 3.5v9"/></symbol>
     <symbol id="wm-i-fit" viewBox="0 0 16 16"><path d="M2.8 6V2.8H6M10 2.8h3.2V6M13.2 10v3.2H10M6 13.2H2.8V10"/></symbol>
     <symbol id="wm-i-key" viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M2.8 8h10.4M2.8 11.5h6.4"/></symbol>
+    <symbol id="wm-i-screen" viewBox="0 0 16 16"><rect x="2.2" y="3" width="11.6" height="7.6" rx="1.2"/><path d="M8 10.6v2.6M5.4 13.4h5.2"/></symbol>
     <symbol id="wm-i-copy" viewBox="0 0 16 16"><rect x="5.6" y="5.6" width="7.6" height="7.6" rx="1.6"/><path d="M10.4 5.6V4.2a1.4 1.4 0 0 0-1.4-1.4H4.2a1.4 1.4 0 0 0-1.4 1.4V9a1.4 1.4 0 0 0 1.4 1.4h1.4"/></symbol>
     <symbol id="wm-i-file" viewBox="0 0 16 16"><path d="M4 2.2h5.2l2.8 2.8v8.8H4z"/><path d="M9.2 2.2V5H12"/></symbol>
     <symbol id="wm-i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.9.9"/><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.9-.9"/></symbol>
@@ -1081,28 +1188,29 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       <h2 class="wm-title" id="wm-title" tabindex="-1"><span id="wm-goal" data-when="ready"></span><span data-when="unready">Work map</span></h2>
       <span class="wm-flag" id="wm-flag" data-when="ready" data-flag="open">open</span>
       <span class="wm-ids" id="wm-ids" data-when="ready"></span>
-      <span class="wm-grow"></span>
-      <span class="wm-pick-row" data-when="has-maps"><label class="wm-pick">Map <select id="wm-map" aria-label="Work map"></select></label><button type="button" class="wm-copy" id="wm-copy-task" aria-label="Copy the task id"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-copy"/></svg></button></span>
+      <span class="wm-pick-row" data-when="has-maps"><span class="wm-pick-note" id="wm-pick-note" role="status" hidden></span><label class="wm-pick">Map <select id="wm-map" aria-label="Work map"></select></label><button type="button" class="wm-copy" id="wm-copy-task" aria-label="Copy the task id"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-copy"/></svg></button></span>
     </div>
-    <!-- A refresh that failed keeps the last map on screen and says so here. -->
-    <div class="notice bar wm-alert" id="wm-alert" role="status" hidden><span id="wm-alert-text"></span><button type="button" id="wm-alert-retry">Try again</button></div>
     <div class="wm-summary-stats">
       <svg class="wm-progress" id="wm-progress" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="Progress"></svg>
       <span class="wm-progress-text" id="wm-progress-text"></span>
+      <span class="wm-path" id="wm-path" hidden></span>
       <div class="wm-tiles" id="wm-tiles" role="group" aria-label="Dim all but one category"></div>
-    </div>
-    <div class="wm-lists" id="wm-lists"></div>
-  </div>
-  <div class="wm-body" id="wm-body" data-panel="closed">
-    <div class="wm-canvas-wrap">
       <div class="wm-tools" role="group" aria-label="Canvas view">
         <button type="button" id="wm-zoom-out" aria-label="Zoom out"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-dash"/></svg></button>
         <output id="wm-zoom" aria-live="off" aria-label="Zoom">100%</output>
         <button type="button" id="wm-zoom-in" aria-label="Zoom in"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-plus"/></svg></button>
         <button type="button" id="wm-fit" aria-pressed="true" title="Show the whole map"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-fit"/></svg>Fit</button>
+        <button type="button" id="wm-present" aria-pressed="false" title="Present: hide the page header, the slots, the ids and the map select"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-screen"/></svg>Present</button>
         <span class="wm-sep" aria-hidden="true"></span>
         <button type="button" id="wm-legend-toggle" data-keep aria-expanded="false" aria-controls="wm-legend"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-key"/></svg>Legend</button>
       </div>
+    </div>
+    <div class="wm-lists" id="wm-lists"></div>
+  </div>
+  <div class="wm-body" id="wm-body" data-panel="closed">
+    <div class="wm-canvas-wrap">
+      <!-- A refresh that failed keeps the last map on screen and says so here, over the canvas's top. -->
+      <div class="notice bar wm-alert" id="wm-alert" role="status" hidden><span id="wm-alert-text"></span><button type="button" id="wm-alert-retry">Try again</button></div>
       <div class="wm-canvas" id="wm-canvas" tabindex="0" role="group" aria-label="Work map graph">
         <div class="wm-stage" id="wm-stage" data-zoom="100">
           <!-- Edges: the script draws one path per edge here; markers live in the sprite. -->
@@ -1117,7 +1225,9 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
         </div>
         <div class="wm-state" data-for="empty"><strong>No work maps yet</strong>A map appears here when a session splits a task into stages with workmap_update, in any registered repository.</div>
         <div class="wm-state" data-for="error" role="alert"><strong>The work map could not be read</strong>Nothing was loaded, so there is no earlier map to show.<div class="notice error" id="wm-error-text"></div><button type="button" id="wm-error-retry">Try again</button></div>
+        <div class="wm-state" data-for="omitted"><strong>The graph is left out</strong><span id="wm-omitted-text"></span></div>
       </div>
+      <button type="button" class="wm-more" id="wm-more" hidden></button>
       <div class="wm-legend" id="wm-legend" role="group" aria-label="Legend" hidden></div>
     </div>
     <aside class="wm-detail" id="wm-detail" aria-label="Node details">
@@ -1126,6 +1236,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     </aside>
   </div>
   <p class="wm-sr" id="wm-live" role="status" aria-live="polite"></p>
+  <!-- The full result of the selected node, as text: a room can read it here. -->
+  <dialog id="wm-result-dialog" aria-labelledby="wm-result-title">
+    <div class="wm-dialog-head"><h3 id="wm-result-title"></h3><span class="wm-dialog-note" id="wm-result-note"></span><button type="button" class="wm-close" id="wm-result-close" aria-label="Close the result"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-cross"/></svg></button></div>
+    <pre id="wm-result-text" tabindex="0"></pre>
+  </dialog>
 </section>
 <section id="landing" class="hidden" aria-labelledby="landing-title">
   <h2 id="landing-title" tabindex="-1">Overview</h2>
@@ -1222,6 +1337,8 @@ function showSignIn() {
   autodev.shown = false;
   $("autodev-page").classList.add("hidden");
   $("autodev-chip").classList.add("hidden");
+  // The Work map too: its map and a stored result shown in it are for a session to see.
+  stopWorkmap();
   $("signin").classList.remove("hidden");
 }
 
@@ -6014,13 +6131,16 @@ async function switchAutodev(mode) {
 // --- Work map: the work maps of the registered repositories, read-only --------------------------
 //
 // One map at a time, chosen in the summary's select: what it is and how far it is (the goal, open or
-// closed, revision and last change, a stacked bar and a chip per category), what runs now and what
-// needs attention; then the graph, top to bottom in dependency order with the goal last, and the panel
-// of the node selected in it. Everything is drawn here, in the browser, from the daemon's read-only
-// routes: no model is asked anything. The visual design decides the look (tokens, card anatomy,
-// layout direction, motion), the information design what each mark encodes and what each state means;
-// docs/workmap-plan.md ("Web view and footer link") lists where the two differed and what was chosen.
+// closed, revision and last change, a stacked bar, the critical path and a tile per category), then one
+// row of slots: what waits for you, what needs attention, what runs now and what can start next; then
+// the graph, top to bottom in dependency order with the goal last, and the panel of the node selected
+// in it. Everything is drawn here, in the browser, from the daemon's read-only routes: no model is
+// asked anything. The visual design decides the look (tokens, card anatomy, layout direction, motion),
+// the information design what each mark encodes and what each state means; docs/workmap-plan.md
+// ("Web view and footer link") lists where the two differed and what was chosen.
 // The page polls the open map; a stored result is fetched only on an explicit click and shown as text.
+// The summary keeps one height and the graph is refit only on first load, a change of nodes or edges,
+// a window resize, Fit or Present, so a live update repaints cards in place and never rescales them.
 // #workmap opens the most recently changed open map, #workmap/<task id> or
 // #workmap/<workspace>/<task id> one map; the address bar keeps the open map's link.
 
@@ -6030,6 +6150,7 @@ const WM_SETTLED = ["validated", "verified", "accepted"];
 const WM_SET_ASIDE = ["refuted", "superseded"];
 const WM_UNSETTLING = ["refuted", "superseded", "disputed"];
 const WM_LEVELS = ["V0", "V1", "V2", "V3", "V4"];
+const WM_INVALID_LIMIT = 5;  // invalid submissions that send a contract's node to needs_attention (store.py)
 // The words follow the text view's: the store's status names, but a prepared node is "running" (the
 // server issued its package; it cannot see the worker).
 const WM_STATUS_WORD = { planned: "planned", prepared: "running", validated: "validated",
@@ -6037,30 +6158,37 @@ const WM_STATUS_WORD = { planned: "planned", prepared: "running", validated: "va
   refuted: "refuted", superseded: "superseded", blocked: "blocked" };
 const WM_STATUS_ICON = { planned: null, prepared: "dot", validated: "check", accepted: "check", verified: "check",
   needs_attention: "bang", disputed: "neq", refuted: "cross", superseded: "replaced", blocked: "slash" };
-// The summary's categories, exclusive and in this order of precedence: [category, words, the status
-// whose disc its chip borrows]. Set aside is counted beside the bar, not in it.
-const WM_CATEGORIES = [["done", "done", "accepted"], ["running", "running", "prepared"], ["ready", "ready", "planned"],
-  ["waiting", "waiting", "planned"], ["action", "need action", "needs_attention"], ["blocked", "blocked", "blocked"],
-  ["aside", "set aside", "refuted"]];
-// What a level means: a short word on the ladder, the full sentence beside it.
-const WM_LEVEL_WORDS = { V0: "no result", V1: "completed", V2: "self-checked", V3: "reviewed", V4: "owner" };
+// The summary's categories, exclusive, in the order their tiles show: [category, words, the status whose
+// disc its tile borrows]. A tile and its slot say the same words and count the same nodes.
+const WM_CATEGORIES = [["you", "waiting for you", "needs_attention"], ["action", "needs attention", "needs_attention"],
+  ["running", "running", "prepared"], ["ready", "ready", "planned"], ["waiting", "waiting", "planned"],
+  ["done", "done", "accepted"], ["blocked", "blocked", "blocked"], ["aside", "set aside", "refuted"]];
+// What a level means: a short word on the ladder, the full sentence beside it (V0: workmapLevelSentence).
+const WM_LEVEL_WORDS = { V0: "nothing yet", V1: "completed", V2: "self-checked", V3: "reviewed", V4: "owner" };
 const WM_LEVEL_SENTENCE = { V0: "no result yet", V1: "completed, with no check passed",
   V2: "the worker's own checks passed (self-reported; the server reruns nothing)",
   V3: "an independent review found no critical or high issue", V4: "accepted by the owner" };
 const WM_RISK_WORDS = { routine: "routine", load_bearing: "load-bearing", critical: "critical" };
 const WM_KIND_WORDS = { goal: "Goal", stage: "Stage", decision: "Decision", question: "Question" };
+// A verifier's verdict on its target's current result, as the store recorded it (workmapVerdict).
 const WM_VERDICT_WORDS = { pending: "pending", clean: "no critical or high", found: "critical or high found",
-  older: "checked an older result", none: "no verdict", withdrawn: "withdrawn" };
-const WM_VERDICT_SHORT = { ...WM_VERDICT_WORDS, clean: "clean", found: "critical or high", older: "older result" };
-// padX, padY: the stage's padding across and down (the top keeps room for the floating tools).
-const WM_ZOOM = { min: 50, max: 160, step: 5, auto: 75, padX: 32, padY: 68 };
+  older: "judged an older result", none: "no verdict recorded", withdrawn: "withdrawn" };
+const WM_VERDICT_SHORT = { pending: "pending", clean: "clean", found: "finding", older: "older", none: "no verdict",
+  withdrawn: "withdrawn" };
+const WM_VERDICT_ICON = { pending: null, clean: "check", found: "bang", older: "slash", none: "dash", withdrawn: "cross" };
+// padX, padY: the stage's padding across and down. auto is the floor of an automatic fit; Fit may go
+// down to min.
+const WM_ZOOM = { min: 50, max: 160, step: 5, auto: 75, padX: 32, padY: 24 };
 const WM_THEME_KEY = "agents-core.theme";
-const WM_LIST_MAX = 5;  // ids a summary line names before "and N more"
+const WM_LIST_MAX = 5;  // ids a slot or a sentence names before "and N more"
+// A map larger than this is not drawn: the layout's lanes and sweeps grow with layers times long edges.
+const WM_DRAW_MAX = { nodes: 400, lanes: 2000 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 // `gen` drops an answer for a map or node that another one overtook; `listGen` does so for the list.
 const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, view: null, node: null,
-  record: null, timer: null, ticks: 0, result: null, zoom: 100, autoFit: true, filter: null, hovered: null,
-  frame: 0, structure: "", ages: [], changed: new Map(), cards: new Map() };
+  record: null, timer: null, ticks: 0, result: null, zoom: 100, autoFit: true, fitFloor: WM_ZOOM.auto, refit: true,
+  filter: null, hovered: null, frame: 0, structure: "", ages: [], changed: new Map(), cards: new Map(), slots: [],
+  present: false, pick: null, expanded: new Set() };
 
 // #workmap, #workmap/<task id> or #workmap/<workspace>/<task id>; null for any other fragment.
 function workmapLink(hash) {
@@ -6076,7 +6204,9 @@ function workmapHash(workspace, task) {
 }
 
 // The map #workmap opens: the open map changed last in any registered workspace, else the map changed
-// last. A thread working on a map changes it, so its own map is the one this finds.
+// last. A thread working on a map changes it, so its own map is the one this finds while it is the only
+// one being written; with more open maps the page says so beside the select (setWorkmapPick). The
+// daemon sends no time later than now, so a planted log cannot stay the latest.
 function workmapLatest(list) {
   let best = null;
   for (const repo of list || []) {
@@ -6108,42 +6238,66 @@ function workmapIndex(data) {
 
 const wmLive = (item) => !WM_SET_ASIDE.includes(item.status);
 const wmBelow = (item) => WM_SETTLED.includes(item.status) && !item.settled;
+const wmPlural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-// A node's category: set aside, blocked, needs action (view.needs_attention), done (settled), running
-// (prepared), ready or waiting; first match. A goal has none of its own.
-function workmapCategory(item) {
+// A node's category: set aside, blocked, waiting for you (who acts is you), needs attention
+// (view.needs_attention), done (settled), running (prepared), ready or waiting; first match. A goal has
+// none of its own.
+function workmapCategory(item, who) {
   if (item.kind === "goal") return "goal";
   if (WM_SET_ASIDE.includes(item.status)) return "aside";
   if (item.status === "blocked") return "blocked";
+  if (who === "you") return "you";
   if (item.attention) return "action";
   if (item.settled) return "done";
   if (item.status === "prepared") return "running";
   return item.ready ? "ready" : "waiting";
 }
 
-// The verdict of verifier `verifier` on `target`, from the verifier's own node and the result it was
-// given (its pin): pending while it has no review result, older when it checked a result the target no
-// longer holds, then whether its findings hold a critical or high one.
-function workmapVerdict(verifier, target) {
+// The verdict of `verifier` on `target`'s current result. The store records a verdict only on a target
+// that still holds the result the verifier was given; `recorded` holds those of each verifier's current
+// attempt (the map's `verdicts`). Pending while the verifier has no result, older when what it judged,
+// or was given, is not the result the target holds now, none when the store recorded nothing.
+function workmapVerdict(verifier, target, recorded) {
   if (WM_SET_ASIDE.includes(verifier.status)) return "withdrawn";
   if (verifier.status === "planned" || verifier.status === "prepared") return "pending";
-  if (!verifier.findings || verifier.status === "needs_attention") return "none";
+  const verdict = recorded && recorded.get(verifier.id + "\n" + target.id);
+  if (verdict) return verdict.result_sha256 === target.result_sha256 ? verdict.verdict : "older";
   const pin = (verifier.inputs || {})[target.id];
-  if (pin && target.result_sha256 && pin !== target.result_sha256) return "older";
-  return verifier.findings.critical || verifier.findings.high ? "found" : "clean";
+  if (pin && pin !== target.result_sha256) return "older";
+  return "none";
+}
+
+// The verifiers checking a node's result now: prepared, and given the very result the node holds.
+function workmapCheckers(item, index) {
+  if (!item.result_sha256) return [];
+  return index.sources(item.id, "verifies").filter((id) => {
+    const other = index.byId.get(id);
+    return other.status === "prepared" && (other.inputs || {})[item.id] === item.result_sha256;
+  });
+}
+
+// The verifiers that can start on it: planned and ready, which is the orchestrator's next step.
+function workmapReadyVerifiers(item, index) {
+  return index.sources(item.id, "verifies").filter((id) => {
+    const other = index.byId.get(id);
+    return other.status === "planned" && other.ready;
+  });
 }
 
 // Who acts on a node, derived (the map records no actor): "you" for a decision or question that is
-// ready, or a critical node below V3 with no live verifier; "checking" for a node below its need whose
-// verifier runs or is ready, so nobody acts until it returns; "orchestrator" for any other node that
-// needs action. Null when nothing is asked.
-function workmapWho(item, index) {
+// ready, or a critical node below V3 with no live verifier; "checking" for a node below its need or
+// disputed while a verifier checks the result it holds, so nobody acts until it returns; "orchestrator"
+// for any other node that needs action (a verifier ready to start is its step). Nobody on a closed map:
+// the store takes no package, result or change there.
+function workmapWho(item, index, closed = false) {
+  if (closed) return null;
   if ((item.kind === "decision" || item.kind === "question") && item.ready) return "you";
   if (!item.attention) return null;
-  if (wmBelow(item)) {
+  if (wmBelow(item) || item.status === "disputed") {
+    if (workmapCheckers(item, index).length) return "checking";
     const verifiers = index.sources(item.id, "verifies").map((id) => index.byId.get(id));
-    if (verifiers.some((other) => other.status === "prepared" || other.ready)) return "checking";
-    if (item.risk === "critical" && !verifiers.some(wmLive)) return "you";
+    if (wmBelow(item) && item.risk === "critical" && !verifiers.some(wmLive)) return "you";
   }
   return "orchestrator";
 }
@@ -6152,15 +6306,20 @@ function wmIds(ids, max = WM_LIST_MAX) {
   return ids.slice(0, max).join(", ") + (ids.length > max ? ` and ${ids.length - max} more` : "");
 }
 
+// "2/5 invalid", or a count past the limit without it: submissions after the limit still count.
+function wmInvalid(count) {
+  return count > WM_INVALID_LIMIT ? `${count} invalid` : `${count}/${WM_INVALID_LIMIT} invalid`;
+}
+
 // Why a node needs someone, in a phrase built from its stored fields; `brief` leaves out the advice
-// on what to do, for the summary's lists (the panel says it in full).
-function workmapReason(item, index, brief = false) {
-  const parts = [];
+// on what to do, for the summary's slots (the panel says it in full).
+function workmapReason(item, view, brief = false) {
+  const index = view.index, parts = [];
   if ((item.kind === "decision" || item.kind === "question") && item.ready) {
     parts.push(item.kind === "decision" ? "decision ready to take" : "question ready to answer");
   }
   if (item.status === "disputed") {
-    const by = index.sources(item.id, "verifies").filter((id) => workmapVerdict(index.byId.get(id), item) === "found");
+    const by = index.sources(item.id, "verifies").filter((id) => workmapVerdict(index.byId.get(id), item, view.verdicts) === "found");
     parts.push(by.length ? "disputed by " + wmIds(by) : "disputed");
   }
   if (item.result_status === "partial") parts.push("partial result");
@@ -6170,12 +6329,17 @@ function workmapReason(item, index, brief = false) {
     const total = item.checks.passed + item.checks.failed + item.checks.not_run;
     parts.push(`${item.checks.failed} of ${total} checks failed`);
   }
-  if (item.invalid) parts.push(`${item.invalid}/5 invalid submissions` + (item.invalid_codes.length ? ` (${item.invalid_codes.join(", ")})` : ""));
-  if (wmBelow(item)) {
-    const verifiers = index.sources(item.id, "verifies");
-    const running = verifiers.filter((id) => { const other = index.byId.get(id); return other.status === "prepared" || other.ready; });
-    parts.push(`${item.level} of ${item.needs} needed` + (running.length ? ", checked by " + wmIds(running)
-      : brief ? "" : item.risk === "critical" ? ": add a verifier, or your V4" : ": add a verifier, or accept"));
+  if (item.invalid) parts.push(wmInvalid(item.invalid) + " submissions" + (item.invalid_codes.length ? ` (${item.invalid_codes.join(", ")})` : ""));
+  if (wmBelow(item) || item.status === "disputed") {
+    const checking = workmapCheckers(item, index), ready = workmapReadyVerifiers(item, index);
+    const older = index.sources(item.id, "verifies").filter((id) => index.byId.get(id).status === "prepared" && !checking.includes(id));
+    let text = wmBelow(item) ? `${item.level} of ${item.needs} needed` : "";
+    const join = (words) => { text += (text ? (checking.length ? ", " : ": ") : "") + words; };
+    if (checking.length) join("checked by " + wmIds(checking));
+    else if (ready.length) join("start its verifier " + wmIds(ready));
+    else if (older.length) join(wmIds(older) + (older.length === 1 ? " checks" : " check") + " an older result");
+    else if (!brief && wmBelow(item)) join(item.risk === "critical" ? "add a verifier, or your V4" : "add a verifier, or accept");
+    if (text) parts.push(text);
   }
   if (item.escalation && item.escalation.complexity) parts.push("escalate: complexity " + item.escalation.complexity);
   if (item.stale) {
@@ -6192,6 +6356,8 @@ function workmapReason(item, index, brief = false) {
 // when everything else it follows sits higher; an edge that crosses layers runs through an empty lane
 // in each; within a layer, four rounds of barycentre sweeps keep the order with the fewest crossings.
 // With one goal and no edge into it, the nodes nothing follows lead to it by a derived connector.
+// A lane's id has an underscore, which no node id may (store.NODE_ID), so no node passes for a lane.
+// A map of more than WM_DRAW_MAX nodes or lanes is not laid out: `omitted` says how large it is.
 function workmapLayers(nodes, edges) {
   const ids = nodes.map((item) => item.id), known = new Set(ids);
   const tie = new Map(ids.map((id, index) => [id, index]));
@@ -6212,14 +6378,16 @@ function workmapLayers(nodes, edges) {
   const rounds = (members, predOf) => {
     const layer = new Map(), inside = new Set(members);
     const waiting = new Map(members.map((id) => [id, predOf(id).filter((other) => inside.has(other)).length]));
+    const after = new Map(members.map((id) => [id, []]));
+    for (const id of members) for (const other of predOf(id)) if (inside.has(other)) after.get(other).push(id);
     let round = members.filter((id) => !waiting.get(id)), depth = 0;
     while (layer.size < members.length) {
       if (!round.length) round = members.filter((id) => !layer.has(id));
       for (const id of round) layer.set(id, depth);
       const next = new Set();
       for (const id of round) {
-        for (const other of members) {
-          if (layer.has(other) || !predOf(other).includes(id)) continue;
+        for (const other of after.get(id)) {
+          if (layer.has(other)) continue;
           waiting.set(other, waiting.get(other) - 1);
           if (waiting.get(other) <= 0) next.add(other);
         }
@@ -6264,18 +6432,24 @@ function workmapLayers(nodes, edges) {
     else if (edge.type === "verifies" && docked.get(edge.from) !== edge.to) flows.push([key, groupOf(edge.to), groupOf(edge.from)]);
   }
   for (const [from, to] of derived) flows.push([`${from}|${to}|derived`, groupOf(from), to]);
+  let needed = 0;
+  for (const [, from, to] of flows) needed += Math.max(0, layerOf.get(to) - layerOf.get(from) - 1);
+  if (nodes.length > WM_DRAW_MAX.nodes || needed > WM_DRAW_MAX.lanes) {
+    return { layers: [], layer: {}, docked: {}, via: {}, derived, crossings: 0,
+             omitted: { nodes: nodes.length, lanes: needed } };
+  }
   const layers = [];
   const put = (entry, k) => { (layers[k] = layers[k] || []).push(entry); };
   for (const id of [...hosts, ...goals]) put(id, layerOf.get(id));
   for (let k = 0; k < layers.length; k++) layers[k] = layers[k] || [];
-  const via = {}, segments = [], order = new Map(tie);
-  let lanes = 0;
+  const via = {}, segments = [], order = new Map(tie), lanes = new Set();
   for (const [key, from, to] of flows) {
     const a = layerOf.get(from), b = layerOf.get(to);
     if (from === to || b <= a) continue;  // a back edge: drawn, but it places nothing
     const points = [from];
     for (let k = a + 1; k < b; k++) {
-      const lane = `wm-lane-${lanes++}`;
+      const lane = `wm_lane_${lanes.size}`;
+      lanes.add(lane);
       put(lane, k);
       order.set(lane, tie.get(from) + 0.5);
       layerOf.set(lane, k);
@@ -6319,17 +6493,20 @@ function workmapLayers(nodes, edges) {
   }
   const verifiersOf = (id) => work.filter((other) => docked.get(other) === id);
   return {
-    layers: best.map((entries) => entries.map((id) => (id.startsWith("wm-lane-") ? { id, lane: true }
+    layers: best.map((entries) => entries.map((id) => (lanes.has(id) ? { id, lane: true }
       : { id, lane: false, verifiers: verifiersOf(id) }))),
-    layer: Object.fromEntries([...layerOf].filter(([id]) => !id.startsWith("wm-lane-"))),
+    layer: Object.fromEntries([...layerOf].filter(([id]) => !lanes.has(id))),
     docked: Object.fromEntries(docked), via, derived, crossings: fewest,
   };
 }
 
-// The longest remaining chain, a critical path without durations (the map holds none): along
+// The critical path, the longest remaining chain without durations (the map holds none): along
 // depends_on and verifies to the goal, an unsettled live stage counts 1 and a settled one 0. Its band
-// is every unsettled node and edge on a heaviest path, its frontier what the goal waits on now.
-function workmapChain(data, index, layout) {
+// is every unsettled node and edge on a heaviest path, its frontier what the goal waits on now: a
+// band node that runs, can start, is blocked or needs someone; for a band node being checked the
+// verifiers that check it, for one whose verifier can start that verifier; and a band node that waits
+// on an input set aside or disputed (stale).
+function workmapChain(data, index, layout, view) {
   const nodes = data.nodes.filter((item) => item.kind !== "goal" && wmLive(item));
   const live = new Set(nodes.map((item) => item.id));
   const goals = data.nodes.filter((item) => item.kind === "goal").map((item) => item.id);
@@ -6388,28 +6565,33 @@ function workmapChain(data, index, layout) {
       }
     }
   }
-  const frontier = [...band].filter((id) => {
-    const item = index.byId.get(id), category = workmapCategory(item);
-    return category === "running" || category === "ready" || category === "blocked"
-      || (category === "action" && workmapWho(item, index) !== "checking");
-  });
+  const frontier = [];
+  const take = (id) => { if (!frontier.includes(id)) frontier.push(id); };
+  for (const id of band) {
+    const item = index.byId.get(id), category = view.categories.get(id);
+    if (view.who.get(id) === "checking") { workmapCheckers(item, index).forEach(take); continue; }
+    const ready = wmBelow(item) || item.status === "disputed" ? workmapReadyVerifiers(item, index) : [];
+    if (ready.length) ready.forEach(take);
+    else if (["running", "ready", "blocked", "you", "action"].includes(category) || item.stale) take(id);
+  }
   return { length: band.size ? length : 0, band, edges, frontier };
 }
 
 // Everything the page shows that it derives, computed once per answer of the map route.
 function workmapView(data, layout) {
   const index = workmapIndex(data);
-  const view = { data, index, layout, categories: new Map(), who: new Map(), counts: {} };
+  const view = { data, index, layout, categories: new Map(), who: new Map(), counts: {},
+    verdicts: new Map((data.verdicts || []).map((verdict) => [verdict.verifier + "\n" + verdict.target, verdict])) };
   for (const [category] of WM_CATEGORIES) view.counts[category] = 0;
   for (const item of data.nodes) {
-    const category = workmapCategory(item);
+    const who = workmapWho(item, index, Boolean(data.closed));
+    if (who) view.who.set(item.id, who);
+    const category = workmapCategory(item, who);
     view.categories.set(item.id, category);
     if (category !== "goal") view.counts[category] += 1;
-    const who = workmapWho(item, index);
-    if (who) view.who.set(item.id, who);
   }
-  view.chain = workmapChain(data, index, layout);
   view.verifier = (id) => index.targets(id, "verifies").length > 0;
+  view.chain = workmapChain(data, index, layout, view);
   return view;
 }
 
@@ -6430,19 +6612,45 @@ function workmapClock(iso) {
   return `${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
-// The status word a card shows: "running" for prepared, "open" or "closed" for a goal that stands.
+// A history row's time: HH:MM today, with the month and day on any other day.
+function workmapWhen(iso, now = Date.now()) {
+  const at = new Date(iso || "");
+  if (Number.isNaN(at.getTime())) return "";
+  const pad = (value) => String(value).padStart(2, "0"), today = new Date(now);
+  const day = at.getFullYear() === today.getFullYear() && at.getMonth() === today.getMonth() && at.getDate() === today.getDate();
+  return (day ? "" : `${at.getFullYear() === today.getFullYear() ? "" : at.getFullYear() + "-"}${pad(at.getMonth() + 1)}-${pad(at.getDate())} `)
+    + workmapClock(iso);
+}
+
+// The status word a card shows: "running" for prepared, "open" or "closed" for a goal that stands. On
+// a closed map nothing runs: a prepared node is left "prepared".
 function workmapStatusWord(item, data) {
   if (item.kind === "goal" && !["refuted", "superseded", "blocked"].includes(item.status)) return data && data.closed ? "closed" : "open";
+  if (item.status === "prepared" && data && data.closed) return "prepared";
   return WM_STATUS_WORD[item.status] || item.status;
 }
 
-// The level badge: [state, [[kind, level], ...]], or null where a level says nothing (a goal, a node
-// set aside or blocked). met: one solid box. target: one dashed box. gap: reached and needed.
+// The level badge: [state, [[kind, text], ...]], or null where a level says nothing (a goal, a node set
+// aside or blocked). met: one filled box, the level reached. target: nothing reached yet, one outlined
+// box "V0→V3". gap: reached below the need, a filled box and an outlined "→V3".
 function workmapLevelBadge(item) {
   if (item.kind === "goal" || ["refuted", "superseded", "blocked"].includes(item.status)) return null;
-  if (["planned", "prepared", "needs_attention"].includes(item.status)) return ["target", [["target", item.needs]]];
-  if (item.settled || WM_LEVELS.indexOf(item.level) >= WM_LEVELS.indexOf(item.needs)) return ["met", [["met", item.level]]];
-  return ["gap", [["met", item.level], ["target", item.needs]]];
+  const reached = WM_LEVELS.indexOf(item.level), need = WM_LEVELS.indexOf(item.needs);
+  if (item.settled || reached >= need) return ["met", [["met", item.level]]];
+  if (reached <= 0) return ["target", [["target", `V0→${item.needs}`]]];
+  return ["gap", [["met", item.level], ["target", `→${item.needs}`]]];
+}
+
+// What the level means; for V0, whether the node holds a result and why it reached no level.
+function workmapLevelSentence(item) {
+  if (item.level !== "V0") return WM_LEVEL_SENTENCE[item.level] || item.level;
+  if (!item.result_sha256 && !item.result_status) return WM_LEVEL_SENTENCE.V0;
+  const failed = item.checks ? item.checks.failed : 0;
+  const why = item.result_status === "failed" ? "the worker reported a failure"
+    : item.result_status === "partial" ? "the result is partial"
+    : item.result_status === "input_required" ? "the worker asks a question"
+    : failed ? `${wmPlural(failed, "check")} failed` : "";
+  return "nothing established yet" + (why ? ` (${why})` : "");
 }
 
 // --- small builders -------------------------------------------------------------------------------
@@ -6473,6 +6681,14 @@ function wmDisc(status, parent) {
   return disc;
 }
 
+// A docked verifier's disc: its verdict on the target's current result (the 7e rules).
+function wmVerdictDisc(verdict, parent) {
+  const disc = node("span", parent, null, "wm-disc");
+  disc.dataset.verdict = verdict;
+  if (WM_VERDICT_ICON[verdict]) wmIcon(WM_VERDICT_ICON[verdict], disc);
+  return disc;
+}
+
 function wmKindGlyph(item, parent, verifier) {
   if (verifier) return wmIcon("verifier", parent, "wm-kind");
   if (item.kind !== "stage") return wmIcon(item.kind, parent, "wm-kind");
@@ -6499,8 +6715,8 @@ function wmBarSvg(parent, className = "wm-progress") {
   return svgNode("svg", parent, { class: className, viewBox: "0 0 100 8", preserveAspectRatio: "none", role: "img" });
 }
 
-// The summary's bar: done (reviewed or owner-accepted first), running, ready, waiting, need action,
-// blocked, in this order.
+// The summary's bar: done (reviewed or owner-accepted first), running, ready, waiting, waiting for you
+// and needs attention, blocked, in this order.
 function wmProgress(svg, view) {
   const done = view.data.nodes.filter((item) => view.categories.get(item.id) === "done");
   const trusted = done.filter((item) => WM_LEVELS.indexOf(item.level) >= 3).length;
@@ -6508,7 +6724,7 @@ function wmProgress(svg, view) {
   const label = WM_CATEGORIES.filter(([category]) => category !== "aside")
     .map(([category, words]) => `${counts[category]} ${words}`).join(", ");
   return wmBar(svg, [["wm-bar-verified", trusted], ["wm-bar-done", done.length - trusted], ["wm-bar-run", counts.running],
-    ["wm-bar-ready", counts.ready], ["wm-bar-idle", counts.waiting], ["wm-bar-attn", counts.action],
+    ["wm-bar-ready", counts.ready], ["wm-bar-idle", counts.waiting], ["wm-bar-attn", counts.you + counts.action],
     ["wm-bar-aside", counts.blocked]], label);
 }
 
@@ -6518,7 +6734,7 @@ function wmLevelBadge(item, parent) {
   const box = node("span", parent, null, "wm-lvs");
   box.dataset.lvs = badge[0];
   box.setAttribute("aria-hidden", "true");
-  for (const [kind, level] of badge[1]) node("span", box, level, "wm-lv").dataset.lv = kind;
+  for (const [kind, text] of badge[1]) node("span", box, text, "wm-lv").dataset.lv = kind;
   return box;
 }
 
@@ -6530,24 +6746,39 @@ function wmRisk(item, parent) {
   return mark;
 }
 
-// A node named in a list or a relation: a button that selects it. It names the id, the word the chat
-// and workmap_view use; the title is its tooltip.
+// A node named in a slot or a relation: a button that selects it, and outlines its card while the
+// pointer or the focus rests on it. It names the id, the word the chat and workmap_view use; the title
+// is its tooltip.
 function wmJump(view, id, parent, note, since) {
   const item = view.index.byId.get(id);
   const button = node("button", parent, null, "wm-jump");
   button.type = "button";
   button.dataset.status = item.status;
   button.dataset.go = id;
-  button.title = `${item.title} (${WM_STATUS_WORD[item.status] || item.status})`;
+  button.title = `${item.title} (${WM_STATUS_WORD[item.status] || item.status})` + (note ? `: ${note}` : "");
   wmDisc(item.status, button);
   const label = node("span", button, id);
   if (note) {
     label.appendChild(document.createTextNode(" "));
     node("span", label, note, "wm-note");
   }
-  if (since) wmAgeSpan(label, since, "wm-note", (age) => " " + age);
+  if (since) {
+    label.appendChild(document.createTextNode(" "));
+    wmAgeSpan(label, since, "wm-note");
+  }
   button.addEventListener("click", () => selectWorkmapNode(id, true));
+  for (const type of ["pointerenter", "focus"]) button.addEventListener(type, () => setWorkmapHover(id));
+  for (const type of ["pointerleave", "blur"]) button.addEventListener(type, () => setWorkmapHover(null));
   return button;
+}
+
+// The card a chip names gets an accent outline, and the edges of every other node step back.
+function setWorkmapHover(id) {
+  wm.hovered = id;
+  for (const card of wmCards()) {
+    if (id && card.dataset.id === id) card.dataset.hover = ""; else delete card.dataset.hover;
+  }
+  highlightWorkmap();
 }
 
 // The elapsed time of a running node, kept current between polls (see refreshWorkmapAges).
@@ -6614,10 +6845,18 @@ async function showWorkmapPage(link) {
   $("workmap-page").classList.remove("hidden");
   $("wm-title").focus();
   if (!wm.data) setWorkmapState("loading");
-  await loadWorkmapList();
-  const target = link && link.task ? link : (link ? workmapLatest(wm.list) : wm.open || workmapLatest(wm.list));
-  if (target && target.task) await openWorkmap(target.workspace, target.task, Boolean(wm.open && !link)).catch(workmapFailed);
-  else if (wm.list && !wm.list.length) setWorkmapState("empty");
+  if (link && link.task) {
+    // A link that names its map opens it at once; the list loads beside it.
+    const listed = loadWorkmapList();
+    await openWorkmap(link.workspace, link.task, false, link.workspace ? null : "task").catch(workmapFailed);
+    await listed;
+  } else {
+    await loadWorkmapList();
+    const target = link ? workmapLatest(wm.list) : wm.open || workmapLatest(wm.list);
+    const chosen = Boolean(link) || !wm.open;
+    if (target && target.task) await openWorkmap(target.workspace, target.task, Boolean(wm.open && !link), chosen ? "latest" : null).catch(workmapFailed);
+    else if (wm.list && !wm.list.length) setWorkmapState("empty");
+  }
   if (!wm.timer) scheduleWorkmapPoll();
 }
 
@@ -6625,8 +6864,26 @@ function hideWorkmapPage() {
   wm.shown = false;
   clearTimeout(wm.timer);
   wm.timer = null;
+  closeWorkmapResult();
+  setWorkmapPresent(false);
   $("workmap-page").classList.add("hidden");
   if (workmapLink(location.hash)) history.replaceState(null, "", location.pathname);
+}
+
+// Signed out: the map, its panel and a shown result go, and the polls stop, as on the Sync page.
+function stopWorkmap() {
+  wm.gen += 1;
+  wm.listGen += 1;  // answers still on their way are dropped
+  hideWorkmapPage();
+  closeWorkmapNode(false);
+  wm.data = wm.view = wm.record = wm.result = wm.open = wm.list = null;
+  wm.structure = "";
+  wm.cards = new Map();
+  $("wm-layers").replaceChildren();
+  $("wm-edges").replaceChildren();
+  $("wm-lists").replaceChildren();
+  $("wm-goal").textContent = "";
+  setWorkmapState("loading");
 }
 
 async function loadWorkmapList() {
@@ -6643,29 +6900,65 @@ async function loadWorkmapList() {
   renderWorkmapPicker();
 }
 
-// The select names every listed map, grouped by repository, newest first.
+// The select names every listed map, grouped by repository, newest first; the open map always has an
+// option, even when it is older than the maps a repository lists.
 function renderWorkmapPicker() {
   const select = $("wm-map");
   select.replaceChildren();
+  let found = false;
   for (const repo of wm.list || []) {
     const group = node("optgroup", select);
-    group.label = repo.name + (repo.unreadable ? " (unreadable)" : "")
-      + (repo.total > repo.maps.length ? ` (${repo.total - repo.maps.length} older not listed)` : "");
+    const notes = [], older = (repo.total || 0) - repo.maps.length - (repo.too_large || 0) - (repo.skipped || 0);
+    if (repo.unreadable) notes.push("unreadable");
+    if (older > 0) notes.push(`${older} older not listed`);
+    if (repo.too_large) notes.push(`${repo.too_large} too large to draw`);
+    if (repo.skipped) notes.push(`${repo.skipped} unreadable`);
+    group.label = repo.name + notes.map((note) => ` (${note})`).join("");
     for (const item of repo.maps) {
       const option = node("option", group, item.task_id + (item.closed ? " (closed)" : ""));
       option.value = JSON.stringify([repo.workspace, item.task_id]);
       option.selected = Boolean(wm.open && wm.open.workspace === repo.workspace && wm.open.task === item.task_id);
+      found = found || option.selected;
     }
+  }
+  if (wm.open && !found) {
+    const option = node("option", select, wm.open.task + (wm.data && wm.data.closed ? " (closed)" : ""));
+    option.value = JSON.stringify([wm.open.workspace, wm.open.task]);
+    option.selected = true;
   }
 }
 
 $("wm-map").addEventListener("change", () => {
   let choice;
   try { choice = JSON.parse($("wm-map").value); } catch (_) { return; }
+  wm.pick = null;  // the viewer picked: the page's own choice needs no note any more
+  renderWorkmapPick();
   openWorkmap(choice[0], choice[1]).catch(workmapFailed);
 });
 
-async function openWorkmap(workspace, task, keepNode = false) {
+// Why this map is open when the page chose it: a bare #workmap with more than one open map, or a link
+// that names only a task held by several repositories. One line beside the select, and a ring on it,
+// until the viewer picks.
+function setWorkmapPick(why, data) {
+  let text = null;
+  if (why === "latest") {
+    const open = (wm.list || []).reduce((sum, repo) => sum + repo.maps.filter((item) => !item.closed).length, 0);
+    if (open > 1) text = `Opened the map changed last, 1 of ${open} open`;
+  } else if (why === "task" && data.candidates > 1) {
+    text = `Opened the one written last of ${data.candidates} maps of this task`;
+  }
+  wm.pick = text;
+  renderWorkmapPick();
+}
+
+function renderWorkmapPick() {
+  const note = $("wm-pick-note"), select = $("wm-map");
+  note.textContent = wm.pick || "";
+  note.hidden = !wm.pick;
+  if (wm.pick) select.dataset.ring = ""; else delete select.dataset.ring;
+}
+
+async function openWorkmap(workspace, task, keepNode = false, why = null) {
   const gen = ++wm.gen;
   const query = new URLSearchParams({ task_id: task });
   if (workspace) query.set("workspace", workspace);
@@ -6681,11 +6974,16 @@ async function openWorkmap(workspace, task, keepNode = false) {
   workmapAlert("");
   const same = wm.open && wm.open.workspace === data.workspace && wm.open.task === data.task_id;
   wm.open = { workspace: data.workspace, task: data.task_id };
-  if (!same) { wm.data = null; wm.filter = null; wm.autoFit = true; }
+  if (!same) {
+    wm.data = null; wm.filter = null; wm.autoFit = true; wm.fitFloor = WM_ZOOM.auto;
+    wm.expanded.clear();
+    closeWorkmapResult();
+  }
+  if (why || !same) setWorkmapPick(why, data);
   if (!(same || keepNode) || (wm.node && !data.nodes.some((item) => item.id === wm.node))) closeWorkmapNode(false);
   history.replaceState(null, "", location.pathname + workmapHash(data.workspace, data.task_id));
-  renderWorkmapPicker();
   applyWorkmap(data);
+  renderWorkmapPicker();
   if (wm.node) await loadWorkmapNode(wm.node);
   scheduleWorkmapPoll();
 }
@@ -6693,7 +6991,7 @@ async function openWorkmap(workspace, task, keepNode = false) {
 function scheduleWorkmapPoll() {
   clearTimeout(wm.timer);
   wm.timer = null;
-  if (!wm.shown) return;
+  if (!wm.shown || state.signedOut) return;
   wm.timer = setTimeout(() => pollWorkmap().catch(workmapFailed).finally(scheduleWorkmapPoll), WORKMAP_POLL_MS);
 }
 
@@ -6702,7 +7000,7 @@ async function pollWorkmap() {
   if (!wm.open || wm.ticks % WORKMAP_LIST_EVERY === 0) await loadWorkmapList();
   if (!wm.open) {
     const latest = workmapLatest(wm.list);
-    if (latest) await openWorkmap(latest.workspace, latest.task);
+    if (latest) await openWorkmap(latest.workspace, latest.task, false, "latest");
     return;
   }
   const gen = wm.gen, { workspace, task } = wm.open;
@@ -6729,18 +7027,22 @@ function applyWorkmap(data) {
   const relaid = !wm.view || structure !== wm.structure;
   const layout = relaid ? workmapLayers(data.nodes, data.edges) : wm.view.layout;
   if (before && before.task_id === data.task_id) {
+    // A changed status or level, and a node that was not there, get the ring.
     const was = new Map(before.nodes.map((item) => [item.id, item.status + item.level]));
     for (const item of data.nodes) {
-      if (was.has(item.id) && was.get(item.id) !== item.status + item.level) wm.changed.set(item.id, Date.now());
+      if (was.get(item.id) !== item.status + item.level) wm.changed.set(item.id, Date.now());
     }
   }
   wm.data = data;
   wm.structure = structure;
   wm.view = workmapView(data, layout);
   setWorkmapState(data.nodes.length ? "ready" : "empty");
+  const page = $("workmap-page");
+  page.dataset.graph = layout.omitted ? "omitted" : "drawn";
+  if (data.closed) page.dataset.closed = ""; else delete page.dataset.closed;
   renderWorkmap();
-  if (relaid) wm.autoFit = wm.autoFit || !before;
-  scheduleWorkmapEdges();
+  // Refit on a new map and on a change of nodes or edges only: a status change repaints in place.
+  scheduleWorkmapEdges(relaid || !before);
   if (wm.changed.size) setTimeout(clearWorkmapChanged, 3000);
 }
 
@@ -6772,35 +7074,52 @@ function renderWorkmap() {
     if (card) card.focus();
   }
   if (wm.node) renderWorkmapNode();
+  fitWorkmapSlots();
 }
 
 // --- summary --------------------------------------------------------------------------------------
 
 function renderWorkmapSummary(view) {
-  const data = view.data, index = view.index;
-  const goal = data.nodes.find((item) => item.kind === "goal");
-  $("wm-goal").textContent = goal ? goal.title : data.task_id;
+  const data = view.data;
+  // The goal the list and the text views name: the first goal created.
+  const goal = data.goal || (data.nodes.find((item) => item.kind === "goal") || {}).title;
+  $("wm-goal").textContent = goal || data.task_id;
+  $("wm-title").title = goal || data.task_id;
   const flag = $("wm-flag");
   flag.textContent = data.closed ? "closed" : "open";
   flag.dataset.flag = data.closed ? "closed" : "open";
-  const changed = data.nodes.filter((item) => item.changed === data.revision).map((item) => item.id);
+  // The nodes of the last commit: a review's result and its verdict are one commit.
+  const changed = data.last_change || data.nodes.filter((item) => item.changed === data.revision).map((item) => item.id);
   const ids = $("wm-ids");
   ids.replaceChildren();
-  ids.title = [data.task_id, data.name].filter(Boolean).join(" in ");
-  ids.appendChild(document.createTextNode(`revision ${data.revision}`));
+  const where = [data.task_id, data.name].filter(Boolean).join(" in ");
+  ids.appendChild(document.createTextNode(`${where} · revision ${data.revision}`));
   if (data.updated) {
     ids.appendChild(document.createTextNode(` · last change ${workmapClock(data.updated)} (`));
     wmAgeSpan(ids, data.updated, "", (age) => age + " ago");
     ids.appendChild(document.createTextNode(")" + (changed.length ? ": " + wmIds(changed) : "")));
   }
   ids.appendChild(document.createTextNode(` · updates every ${WORKMAP_POLL_MS / 1000} s`));
+  ids.title = where;
   const total = data.nodes.filter((item) => item.kind !== "goal").length;
   const settled = data.nodes.filter((item) => item.kind !== "goal" && item.settled).length;
   wmProgress($("wm-progress"), view);
   const text = $("wm-progress-text");
   text.replaceChildren();
   node("b", text, String(settled));
-  text.appendChild(document.createTextNode(` of ${total} settled` + (view.counts.aside ? ` · ${view.counts.aside} set aside` : "")));
+  text.appendChild(document.createTextNode(` of ${total} settled`));
+  const path = $("wm-path");
+  path.replaceChildren();
+  path.hidden = !view.chain.length;
+  if (view.chain.length) {
+    node("span", path, null, "wm-path-bar").setAttribute("aria-hidden", "true");
+    node("span", path, "Critical path: ", "wm-path-words");
+    node("b", path, String(view.chain.length));
+    node("span", path, ` stage${view.chain.length === 1 ? "" : "s"}`, "wm-path-words");
+    path.appendChild(document.createTextNode(" left"));
+    path.title = (view.chain.frontier.length ? `The goal waits on ${wmIds(view.chain.frontier)} now: their cards are underlined. ` : "")
+      + "The longest chain of stages still to settle; it counts stages, not time.";
+  }
   const tiles = $("wm-tiles");
   tiles.replaceChildren();
   for (const [category, words, face] of WM_CATEGORIES) {
@@ -6809,7 +7128,7 @@ function renderWorkmapSummary(view) {
     tile.type = "button";
     tile.dataset.cat = category;
     tile.dataset.status = face;
-    tile.title = `Dim all but the nodes that are ${words}`;
+    tile.title = `Show the nodes ${words === "needs attention" ? "that need attention" : words === "waiting for you" ? "waiting for you" : words} and dim the others`;
     tile.setAttribute("aria-pressed", String(wm.filter === category));
     wmDisc(face, tile);
     node("b", tile, String(view.counts[category]));
@@ -6821,45 +7140,71 @@ function renderWorkmapSummary(view) {
     });
   }
   applyWorkmapFilter();
+  renderWorkmapSlots(view);
+}
+
+// The slots: Waiting for you, Needs attention, Running now and Next, always drawn, one line each, so the
+// summary keeps its height whatever the map holds. A slot names its nodes by id and ends in "and N
+// more" when they do not fit (fitWorkmapSlots). A closed map has one slot: what was left unfinished.
+function renderWorkmapSlots(view) {
+  const data = view.data, index = view.index;
   const lists = $("wm-lists");
   lists.replaceChildren();
-  const list = (kind, label) => {
+  wm.slots = [];
+  const slot = (kind, label, ids, note, empty) => {
     const row = node("div", lists, null, "wm-list");
     row.dataset.list = kind;
     const head = node("span", row, null, "wm-list-label");
-    if (kind === "run") node("span", head, null, "wm-pulse").setAttribute("aria-hidden", "true");
-    head.appendChild(document.createTextNode(label));
+    if (kind === "run" && ids.length) node("span", head, null, "wm-pulse").setAttribute("aria-hidden", "true");
+    head.appendChild(document.createTextNode(`${label} (${ids.length})`));
+    const chips = ids.slice(0, WM_LIST_MAX).map((id) => {
+      const [words, since, why] = note(id);
+      const chip = wmJump(view, id, row, words, since);
+      if (why) chip.title += `: ${why}`;
+      return chip;
+    });
+    if (!ids.length) node("span", row, empty, "wm-list-none");
+    const more = node("span", row, "", "wm-list-more");
+    more.hidden = true;
+    wm.slots.push({ row, chips, more, extra: Math.max(0, ids.length - WM_LIST_MAX) });
     return row;
   };
+  const brief = (id) => [workmapReason(index.byId.get(id), view, true)];
+  if (data.closed) {
+    const open = data.nodes.filter((item) => item.kind !== "goal" && wmLive(item) && !item.settled).map((item) => item.id);
+    slot("left", "Closed; left unfinished", open, (id) => [workmapStatusWord(index.byId.get(id), data)], "nothing").dataset.span = "all";
+    return;
+  }
+  const by = (who) => data.nodes.filter((item) => view.who.get(item.id) === who).map((item) => item.id);
+  slot("you", "Waiting for you", by("you"), brief, "nothing");
+  // Needs attention names ids only, so a row holds several; each chip's tooltip and the panel say why.
+  slot("attn", "Needs attention", [...by("orchestrator"), ...by("checking")], (id) => [null, null, brief(id)[0]], "nothing");
   const running = data.nodes.filter((item) => item.status === "prepared")
     .sort((a, b) => String(a.since || "").localeCompare(String(b.since || "")));
-  if (running.length) {
-    const row = list("run", `Running now (${running.length})`);
-    for (const item of running) wmJump(view, item.id, row, null, item.since);
-  }
-  const asked = data.nodes.filter((item) => view.who.has(item.id));
-  if (asked.length) {
-    const row = list("attn", `Needs attention (${asked.length})`);
-    for (const [who, words] of [["you", "you"], ["orchestrator", "orchestrator"], ["checking", "being checked"]]) {
-      const members = asked.filter((item) => view.who.get(item.id) === who);
-      if (!members.length) continue;
-      node("span", row, words + ":", "wm-who");
-      for (const item of members) wmJump(view, item.id, row, workmapReason(item, index, true));
+  slot("run", "Running now", running.map((item) => item.id), (id) => [null, index.byId.get(id).since], "nothing runs");
+  slot("next", "Next", data.nodes.filter((item) => view.categories.get(item.id) === "ready").map((item) => item.id),
+       () => [null, null], "nothing ready");
+}
+
+// Each slot keeps one line: chips that do not fit are hidden from the end and "and N more" counts
+// them; a single chip that still does not fit is shortened instead.
+function fitWorkmapSlots() {
+  for (const slot of wm.slots) {
+    let hidden = 0;
+    const count = () => {
+      const more = hidden + slot.extra;
+      slot.more.textContent = more ? `and ${more} more` : "";
+      slot.more.hidden = !more;
+    };
+    for (const chip of slot.chips) { chip.hidden = false; delete chip.dataset.squeeze; }
+    count();
+    const over = () => typeof slot.row.scrollWidth === "number" && slot.row.scrollWidth > slot.row.clientWidth + 1;
+    while (over() && hidden < slot.chips.length - 1) {
+      hidden += 1;
+      slot.chips[slot.chips.length - hidden].hidden = true;
+      count();
     }
-  }
-  const ready = data.nodes.filter((item) => item.ready && !view.who.has(item.id));
-  if (ready.length) {
-    const row = list("next", `Next (${ready.length})`);
-    for (const item of ready.slice(0, WM_LIST_MAX)) wmJump(view, item.id, row);
-    if (ready.length > WM_LIST_MAX) node("span", row, `and ${ready.length - WM_LIST_MAX} more`, "wm-note");
-  }
-  if (view.chain.length) {
-    const row = list("path", `Longest remaining chain: ${view.chain.length} stage${view.chain.length === 1 ? "" : "s"}`);
-    if (view.chain.frontier.length) {
-      node("span", row, "now waiting on", "wm-note");
-      for (const id of view.chain.frontier.slice(0, WM_LIST_MAX)) wmJump(view, id, row);
-      if (view.chain.frontier.length > WM_LIST_MAX) node("span", row, `and ${view.chain.frontier.length - WM_LIST_MAX} more`, "wm-note");
-    }
+    if (over() && slot.chips.length) slot.chips[0].dataset.squeeze = "";
   }
 }
 
@@ -6875,6 +7220,10 @@ function renderWorkmapGraph(view) {
   layers.replaceChildren();
   $("wm-edges").replaceChildren();
   wm.cards = new Map();
+  const omitted = view.layout.omitted;
+  $("wm-omitted-text").textContent = omitted ? `This map has ${omitted.nodes} nodes and would need ${omitted.lanes} lanes for its `
+    + `long edges; the page draws up to ${WM_DRAW_MAX.nodes} nodes and ${WM_DRAW_MAX.lanes} lanes. The summary still says how it `
+    + "stands, and workmap_view reads it in a session." : "";
   const count = view.layout.layers.length;
   const steps = count - (view.data.nodes.some((item) => item.kind === "goal") ? 1 : 0);
   $("wm-canvas").setAttribute("aria-label", `Work map graph: ${view.data.nodes.length} nodes in ${steps} step${steps === 1 ? "" : "s"}, in dependency order`);
@@ -6910,44 +7259,52 @@ function renderWorkmapGraph(view) {
 function workmapCard(view, item, pill) {
   const data = view.data, index = view.index;
   const category = view.categories.get(item.id), word = workmapStatusWord(item, data);
-  const verifier = view.verifier(item.id);
+  const verifier = view.verifier(item.id), who = view.who.get(item.id);
   const card = node("button", null, null, "wm-node" + (pill ? " wm-pill" : ""));
   card.type = "button";
   wm.cards.set(item.id, card);
   Object.assign(card.dataset, { id: item.id, kind: item.kind, status: item.status, risk: item.risk, cat: category });
+  if (who === "you") card.dataset.who = "you";
   if (view.chain.frontier.includes(item.id)) card.dataset.path = "frontier";
   if (wm.changed.has(item.id)) card.dataset.changed = "";
+  if (wm.hovered === item.id) card.dataset.hover = "";
   card.setAttribute("aria-pressed", String(wm.node === item.id));
   card.title = `${item.id} — ${item.title} (${word})`;
-  wmDisc(item.status, card);
+  const running = item.status === "prepared" && !data.closed;
   const spoken = [verifier ? "verifier" : WM_KIND_WORDS[item.kind].toLowerCase(), word];
-  if (item.status === "prepared" && item.since) spoken.push("for " + workmapAge(item.since));
+  if (who === "you") spoken.push("waiting for you");
+  if (running && item.since) spoken.push("for " + workmapAge(item.since));
   if (item.attempts > 1 && item.status === "prepared") spoken.push(`attempt ${item.attempts}`);
   const badge = workmapLevelBadge(item);
-  if (badge) spoken.push(badge[0] === "target" ? `needs level ${item.needs}` : badge[0] === "met" ? `level ${item.level}`
-    : `level ${item.level}, needs ${item.needs}`);
+  if (badge) spoken.push(badge[0] === "target" ? `nothing reached yet, needs level ${item.needs}` : badge[0] === "met"
+    ? `level ${item.level} reached` : `level ${item.level} reached, needs ${item.needs}`);
   if (item.risk !== "routine" && item.kind !== "goal") spoken.push(`${WM_RISK_WORDS[item.risk]} risk`);
   if (item.stale) spoken.push("stale");
-  if (item.ready) spoken.push("ready");
+  if (item.ready && !data.closed) spoken.push("ready");
   if (item.checks) spoken.push(`checks: ${item.checks.passed} passed, ${item.checks.failed} failed, ${item.checks.not_run} not run`);
-  if (view.who.has(item.id)) spoken.push(`needs attention: ${workmapReason(item, index)}`);
+  if (who && who !== "you") spoken.push(`needs attention: ${workmapReason(item, view)}`);
+  if (who === "you") spoken.push(workmapReason(item, view));
+  const select = (event) => selectWorkmapNode(item.id, false, Boolean(event && event.detail === 0));
   if (pill) {
-    node("span", card, item.title, "wm-t");
+    // Its verdict on the target's current result: the disc and the word say it, not its own status.
     const target = index.targets(item.id, "verifies")[0];
-    const verdict = target ? workmapVerdict(item, index.byId.get(target)) : "none";
-    const found = item.findings ? ["critical", "high"].filter((level) => item.findings[level]) : [];
-    if (verdict === "older" || found.length) {
-      const find = node("span", card, verdict === "older" ? "older"
-        : found.map((level) => `${item.findings[level]} ${level}`).join(", "), "wm-find");
-      find.dataset.find = verdict === "older" ? "older" : "found";
-      find.setAttribute("aria-hidden", "true");
-    }
-    if (target) spoken.push(`verdict on ${target}: ${WM_VERDICT_WORDS[verdict]}`);
-    wmLevelBadge(item, card);
+    const verdict = target ? workmapVerdict(item, index.byId.get(target), view.verdicts) : "none";
+    card.dataset.verdict = verdict;
+    if (running) wmDisc(item.status, card);  // its turning ring says pending as well
+    else wmVerdictDisc(verdict, card);
+    node("span", card, item.id, "wm-t");
+    const found = verdict === "found" && item.findings
+      ? ["critical", "high"].filter((level) => item.findings[level]).map((level) => `${item.findings[level]} ${level}`).join(", ") : "";
+    const said = node("span", card, found || WM_VERDICT_SHORT[verdict], "wm-find");
+    said.dataset.find = verdict;
+    said.setAttribute("aria-hidden", "true");
+    if (target) spoken.push(`verdict on ${target}'s current result: ${WM_VERDICT_WORDS[verdict]}`);
+    spoken.splice(1, 0, item.title);
     node("span", card, spoken.join(", ") + ".", "wm-sr");
-    card.addEventListener("click", () => selectWorkmapNode(item.id, false));
+    card.addEventListener("click", select);
     return card;
   }
+  wmDisc(item.status, card);
   const main = node("span", card, null, "wm-main");
   const name = node("span", main, null, "wm-name");
   wmKindGlyph(item, name, verifier);
@@ -6955,19 +7312,21 @@ function workmapCard(view, item, pill) {
   const meta = node("span", main, null, "wm-meta");
   meta.setAttribute("aria-hidden", "true");
   node("span", meta, word, "wm-status");
+  if (who === "you") node("span", meta, "you", "wm-you");
   if (item.status === "prepared") {
     const extra = [];
     if (item.attempts > 1) extra.push(`attempt ${item.attempts}`);
-    if (item.invalid) extra.push(`${item.invalid}/5 invalid`);
-    if (item.since) wmAgeSpan(meta, item.since, "wm-extra", (age) => [age, ...extra].join(" · "));
+    if (item.invalid) extra.push(wmInvalid(item.invalid));
+    if (running && item.since) wmAgeSpan(meta, item.since, "wm-extra", (age) => [age, ...extra].join(" · "));
     else if (extra.length) node("span", meta, extra.join(" · "), "wm-extra");
   } else if (item.invalid) {
-    node("span", meta, `${item.invalid}/5 invalid`, "wm-extra");
+    node("span", meta, wmInvalid(item.invalid), "wm-extra");
   }
   wmLevelBadge(item, meta);
   wmRisk(item, meta);
   if (item.stale) node("span", meta, "stale", "wm-mark").dataset.mark = "stale";
-  if (item.ready) node("span", meta, "ready", "wm-mark").dataset.mark = "ready";
+  // "you" already says it can be taken now; the ready mark would only push the row onto a second line.
+  if (item.ready && !data.closed && who !== "you") node("span", meta, "ready", "wm-mark").dataset.mark = "ready";
   if (item.kind === "goal") {
     const mini = node("span", meta, null, "wm-mini");
     wmProgress(wmBarSvg(mini), view);
@@ -6994,7 +7353,7 @@ function workmapCard(view, item, pill) {
   }
   if (said.length) node("span", main, said.join(" · "), "wm-after").setAttribute("aria-hidden", "true");
   node("span", card, spoken.join(", ") + ".", "wm-sr");
-  card.addEventListener("click", () => selectWorkmapNode(item.id, false));
+  card.addEventListener("click", select);
   return card;
 }
 
@@ -7023,12 +7382,15 @@ function workmapEdgeList(view) {
   return list;
 }
 
-function scheduleWorkmapEdges() {
+// One frame later: fit when asked to (`refit`) and only then, then draw the edges from the boxes.
+function scheduleWorkmapEdges(refit = false) {
+  if (refit) wm.refit = true;
   if (wm.frame) return;
   const run = () => {
     wm.frame = 0;
     if (!wm.shown || !wm.view) return;
-    if (wm.autoFit) fitWorkmap();
+    if (wm.refit && wm.autoFit) fitWorkmap();
+    wm.refit = false;
     drawWorkmapEdges();
   };
   wm.frame = window.requestAnimationFrame ? window.requestAnimationFrame(run) : setTimeout(run, 16) || 1;
@@ -7133,6 +7495,7 @@ function drawWorkmapEdges() {
          item.edge.path ? "is-path" : "");
   }
   highlightWorkmap();
+  updateWorkmapMore();
 }
 
 // The selected node's edges are heavier; a hovered or focused node dims every other edge.
@@ -7157,7 +7520,7 @@ for (const type of ["pointerleave", "focusout"]) {
   $("wm-stage").addEventListener(type, () => { wm.hovered = null; highlightWorkmap(); });
 }
 
-// --- zoom, fit and pan: a data attribute picks one of the stylesheet's steps ------------------------
+// --- zoom, fit, present and pan: a data attribute picks one of the stylesheet's steps ---------------
 
 function setWorkmapZoom(value) {
   wm.zoom = Math.min(WM_ZOOM.max, Math.max(WM_ZOOM.min, Math.round(value / WM_ZOOM.step) * WM_ZOOM.step));
@@ -7166,24 +7529,95 @@ function setWorkmapZoom(value) {
   $("wm-fit").setAttribute("aria-pressed", String(wm.autoFit));
 }
 
-// Fit: the largest step at which the whole map shows, and never under the auto minimum on its own.
+function workmapFits() {
+  const canvas = $("wm-canvas"), layers = $("wm-layers");
+  return !(layers.offsetWidth > canvas.clientWidth - WM_ZOOM.padX + 1 || layers.offsetHeight > canvas.clientHeight - WM_ZOOM.padY + 1);
+}
+
+// Fit: the largest step at which the whole map shows. An automatic fit stops at WM_ZOOM.auto; the Fit
+// button may go down to WM_ZOOM.min, and "N more below" says what a fit at the floor still leaves out.
 function fitWorkmap() {
   const canvas = $("wm-canvas"), layers = $("wm-layers");
   if (wmNarrow() || !canvas.clientWidth || !layers.offsetWidth) return;
   const scale = wm.zoom / 100;
   const room = Math.min((canvas.clientWidth - WM_ZOOM.padX) / (layers.offsetWidth / scale),
                         (canvas.clientHeight - WM_ZOOM.padY) / (layers.offsetHeight / scale));
-  setWorkmapZoom(Math.max(WM_ZOOM.auto, Math.min(WM_ZOOM.max, Math.floor(room * 100 / WM_ZOOM.step) * WM_ZOOM.step)));
-  // Borders and minimum sizes do not scale, so one step may still overflow: give it back.
-  if (wm.zoom > WM_ZOOM.auto && (layers.offsetWidth > canvas.clientWidth - WM_ZOOM.padX + 1
-                                 || layers.offsetHeight > canvas.clientHeight - WM_ZOOM.padY + 1)) setWorkmapZoom(wm.zoom - WM_ZOOM.step);
+  setWorkmapZoom(Math.max(wm.fitFloor, Math.min(WM_ZOOM.max, Math.floor(room * 100 / WM_ZOOM.step) * WM_ZOOM.step)));
+  // Borders and minimum sizes do not scale with the zoom, so the estimate can be a step off either way:
+  // step down while the graph overflows, else up while the next step still fits.
+  for (let tries = 0; tries < 12 && wm.zoom > wm.fitFloor && !workmapFits(); tries++) setWorkmapZoom(wm.zoom - WM_ZOOM.step);
+  for (let tries = 0; tries < 4 && wm.zoom < WM_ZOOM.max && workmapFits(); tries++) {
+    setWorkmapZoom(wm.zoom + WM_ZOOM.step);
+    if (!workmapFits()) { setWorkmapZoom(wm.zoom - WM_ZOOM.step); break; }
+  }
 }
 
-$("wm-zoom-out").addEventListener("click", () => { wm.autoFit = false; setWorkmapZoom(wm.zoom - WM_ZOOM.step * 2); scheduleWorkmapEdges(); });
-$("wm-zoom-in").addEventListener("click", () => { wm.autoFit = false; setWorkmapZoom(wm.zoom + WM_ZOOM.step * 2); scheduleWorkmapEdges(); });
-$("wm-fit").addEventListener("click", () => { wm.autoFit = true; scheduleWorkmapEdges(); });
-if (typeof ResizeObserver === "function") new ResizeObserver(() => scheduleWorkmapEdges()).observe($("wm-canvas"));
-try { window.matchMedia("(max-width: 760px)").addEventListener("change", () => scheduleWorkmapEdges()); } catch (_) {}
+// Zoom keeps the middle of the canvas where it was, so the part under discussion stays in view.
+function zoomWorkmap(steps) {
+  const canvas = $("wm-canvas"), before = wm.zoom;
+  const middle = [canvas.scrollLeft + canvas.clientWidth / 2, canvas.scrollTop + canvas.clientHeight / 2];
+  wm.autoFit = false;
+  setWorkmapZoom(wm.zoom + steps * WM_ZOOM.step);
+  const ratio = wm.zoom / before;
+  if (Number.isFinite(ratio) && canvas.clientWidth) {
+    canvas.scrollLeft = middle[0] * ratio - canvas.clientWidth / 2;
+    canvas.scrollTop = middle[1] * ratio - canvas.clientHeight / 2;
+  }
+  scheduleWorkmapEdges();
+}
+
+$("wm-zoom-out").addEventListener("click", () => zoomWorkmap(-2));
+$("wm-zoom-in").addEventListener("click", () => zoomWorkmap(2));
+$("wm-fit").addEventListener("click", () => { wm.autoFit = true; wm.fitFloor = WM_ZOOM.min; scheduleWorkmapEdges(true); });
+// The canvas resizes with the window, the panel and Present; the summary keeps its height. A resize
+// rescales the graph only when the window changed or the map stopped fitting with the panel closed:
+// opening the panel keeps the zoom, so the card just selected stays under the pointer.
+if (typeof ResizeObserver === "function") {
+  new ResizeObserver(() => {
+    if (wm.shown && wm.view && wm.autoFit && $("wm-body").dataset.panel !== "open" && !workmapFits()) wm.refit = true;
+    scheduleWorkmapEdges();
+  }).observe($("wm-canvas"));
+}
+window.addEventListener("resize", () => { if (wm.shown) { fitWorkmapSlots(); scheduleWorkmapEdges(true); } });
+try { window.matchMedia("(max-width: 760px)").addEventListener("change", () => scheduleWorkmapEdges(true)); } catch (_) {}
+
+// Present: the projector's view hides the page header, the slots, the ids and the map select, and
+// refits the graph into the room they leave.
+function setWorkmapPresent(on) {
+  if (on === wm.present) return;
+  wm.present = on;
+  const page = $("workmap-page"), root = document.documentElement;
+  if (on) page.dataset.present = ""; else delete page.dataset.present;
+  if (root) { if (on) root.setAttribute("data-wm-present", ""); else root.removeAttribute("data-wm-present"); }
+  $("wm-present").setAttribute("aria-pressed", String(on));
+  if (!on) fitWorkmapSlots();
+  scheduleWorkmapEdges(true);
+}
+$("wm-present").addEventListener("click", () => setWorkmapPresent(!wm.present));
+
+// "N more below": what the canvas cannot show at the zoom the fit stopped at, or after a zoom in.
+function updateWorkmapMore() {
+  const canvas = $("wm-canvas"), more = $("wm-more");
+  if (wmNarrow() || typeof canvas.getBoundingClientRect !== "function" || $("workmap-page").dataset.state !== "ready") {
+    more.hidden = true;
+    return;
+  }
+  const frame = canvas.getBoundingClientRect(), bottom = frame.top + canvas.clientHeight, right = frame.left + canvas.clientWidth;
+  let below = 0, beside = 0;
+  for (const card of wm.cards.values()) {
+    const box = card.getBoundingClientRect();
+    if (box.bottom > bottom + 1) below += 1;
+    else if (box.right > right + 1) beside += 1;
+  }
+  more.hidden = !(below || beside);
+  more.textContent = below ? `${below} more below` + (beside ? `, ${beside} to the right` : "") : `${beside} more to the right`;
+}
+$("wm-canvas").addEventListener("scroll", () => updateWorkmapMore(), { passive: true });
+$("wm-more").addEventListener("click", () => {
+  const canvas = $("wm-canvas"), bottom = canvas.getBoundingClientRect().top + canvas.clientHeight;
+  const next = wmCards().find((card) => card.getBoundingClientRect().bottom > bottom + 1) || wmCards().at(-1);
+  if (next) next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: wmCalm() ? "auto" : "smooth" });
+});
 
 // Pan: the canvas scrolls natively; a drag on its background scrolls it too.
 let wmDrag = null;
@@ -7203,7 +7637,7 @@ for (const type of ["pointerup", "pointercancel"]) {
   $("wm-canvas").addEventListener(type, () => { wmDrag = null; $("wm-canvas").classList.remove("is-panning"); });
 }
 
-// --- legend: a strip under the canvas, closed at first: every card says its status in a word ------
+// --- legend: opens over the foot of the canvas, closed at first: every card says its status in a word -
 
 function renderWorkmapLegend() {
   const legend = $("wm-legend");
@@ -7213,7 +7647,7 @@ function renderWorkmapLegend() {
     node("span", row, title, "wm-h");
     return row;
   };
-  const item = (row, words) => node("span", row, null, "wm-lg-item");
+  const item = (row) => node("span", row, null, "wm-lg-item");
   const status = group("Status");
   for (const value of ["prepared", "validated", "accepted", "verified", "needs_attention", "disputed", "planned",
                        "refuted", "superseded", "blocked"]) {
@@ -7222,6 +7656,9 @@ function renderWorkmapLegend() {
     wmDisc(value, entry);
     entry.appendChild(document.createTextNode(WM_STATUS_WORD[value]));
   }
+  const you = item(status);
+  node("span", you, "you", "wm-you");
+  you.appendChild(document.createTextNode("waiting for you: the owner acts"));
   const edges = group("Edges");
   for (const [type, words, marker] of [["depends_on", "is needed by (filled: settled)", "depends_on"],
       ["depends_on", "still holds it back", "depends_on-open"], ["verifies", "verifies", "verifies"],
@@ -7237,15 +7674,28 @@ function renderWorkmapLegend() {
   const chain = item(edges);
   const svg = svgNode("svg", chain, { class: "wm-lg-edge", viewBox: "0 0 40 12", "aria-hidden": "true", focusable: "false" });
   svgNode("path", svg, { class: "wm-edge is-path", d: "M1 6H37" }).dataset.type = "depends_on";
-  chain.appendChild(document.createTextNode("longest remaining chain (counts stages, not time)"));
+  chain.appendChild(document.createTextNode("critical path (counts stages, not time)"));
+  // Level: a filled box is a level reached, an outlined one with an arrow a level still needed.
   const level = group("Level");
-  for (const [state, boxes, words] of [["met", [["met", "V2"]], "reached"], ["target", [["target", "V3"]], "needed"],
-                                       ["gap", [["met", "V2"], ["target", "V3"]], "reached V2, needs V3"]]) {
+  for (const [state, boxes, words] of [["met", [["met", "V2"]], "reached"], ["target", [["target", "V0→V3"]], "nothing reached, V3 needed"],
+                                       ["gap", [["met", "V2"], ["target", "→V3"]], "reached V2, V3 needed"]]) {
     const entry = item(level);
     const box = node("span", entry, null, "wm-lvs");
     box.dataset.lvs = state;
     for (const [kind, name] of boxes) node("span", box, name, "wm-lv").dataset.lv = kind;
     entry.appendChild(document.createTextNode(words));
+  }
+  for (const name of ["V1", "V2", "V3", "V4"]) {
+    const entry = item(level);
+    node("b", entry, name);
+    entry.appendChild(document.createTextNode(" " + WM_LEVEL_WORDS[name]));
+  }
+  // A docked verifier's disc and word: its verdict on the current result of the node above it.
+  const verdicts = group("Verdict");
+  for (const verdict of ["pending", "clean", "found", "older", "none"]) {
+    const entry = item(verdicts);
+    wmVerdictDisc(verdict, entry);
+    entry.appendChild(document.createTextNode(verdict === "found" ? "a critical or high finding" : WM_VERDICT_WORDS[verdict]));
   }
   const risk = group("Risk");
   for (const value of ["load_bearing", "critical"]) {
@@ -7270,13 +7720,13 @@ function renderWorkmapLegend() {
     entry.appendChild(document.createTextNode(words));
   }
   const frontier = item(marks);
+  node("span", frontier, null, "wm-path-bar").setAttribute("aria-hidden", "true");
   frontier.appendChild(document.createTextNode("underlined card: the goal waits on it now (derived)"));
 }
 
 function setWorkmapLegend(open) {
   $("wm-legend").hidden = !open;
   $("wm-legend-toggle").setAttribute("aria-expanded", String(open));
-  scheduleWorkmapEdges();
 }
 
 renderWorkmapLegend();
@@ -7311,30 +7761,55 @@ function setWorkmapPanel(open) {
   $("wm-body").dataset.panel = open ? "open" : "closed";
 }
 
-function selectWorkmapNode(id, reveal) {
+// Opening the panel narrows the canvas and keeps the zoom, so the selected card moves only as far as
+// the canvas's own centring does: scroll it back to where it was, then into view if it still is not
+// (to the top in the narrow layout, where the sheet rises from the bottom).
+function keepWorkmapCard(id, before, reveal) {
+  const card = wm.cards.get(id), canvas = $("wm-canvas");
+  if (!card) return;
+  if (typeof card.getBoundingClientRect !== "function") {
+    if (reveal) card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+    return;
+  }
+  if (before && !wmNarrow()) {
+    const after = card.getBoundingClientRect();
+    canvas.scrollLeft += after.left - before.left;
+    canvas.scrollTop += after.top - before.top;
+  }
+  const box = card.getBoundingClientRect(), frame = canvas.getBoundingClientRect();
+  const out = box.left < frame.left || box.top < frame.top || box.right > frame.left + canvas.clientWidth
+    || box.bottom > frame.top + canvas.clientHeight;
+  if (reveal || out || wmNarrow()) card.scrollIntoView({ block: wmNarrow() ? "start" : "nearest", inline: "nearest", behavior: "auto" });
+}
+
+function selectWorkmapNode(id, reveal, keyboard = false) {
   if (!wm.view || !wm.view.index.byId.has(id)) return;
-  if (wm.node !== id) { wm.result = null; wm.record = null; }
+  if (wm.node !== id) { wm.result = null; wm.record = null; closeWorkmapResult(); }
+  const card = wm.cards.get(id);
+  const before = card && typeof card.getBoundingClientRect === "function" ? card.getBoundingClientRect() : null;
   wm.node = id;
-  for (const card of wmCards()) card.setAttribute("aria-pressed", String(card.dataset.id === id));
+  for (const other of wmCards()) other.setAttribute("aria-pressed", String(other.dataset.id === id));
   setWorkmapPanel(true);
   renderWorkmapNode();
   highlightWorkmap();
-  if (reveal) {
-    const card = wmCards().find((item) => item.dataset.id === id);
-    if (card) card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: wmCalm() ? "auto" : "smooth" });
-  }
+  keepWorkmapCard(id, before, reveal);
+  // From the keyboard the panel's heading takes the focus: its first control is no longer 19 Tabs away.
+  if (keyboard && $("wm-d-title")) $("wm-d-title").focus();
   loadWorkmapNode(id).catch(workmapFailed);
 }
 
 function closeWorkmapNode(focus = true) {
-  const id = wm.node;
+  const id = wm.node, open = $("wm-body").dataset.panel === "open";
   wm.node = null; wm.record = null; wm.result = null;
+  closeWorkmapResult();
   setWorkmapPanel(false);
   $("wm-d").hidden = true;
   $("wm-d").replaceChildren();
   $("wm-detail-empty").hidden = false;
   for (const card of wmCards()) card.setAttribute("aria-pressed", "false");
   highlightWorkmap();
+  // The canvas is wide again: a fit grows the graph back if a refit while the panel was open shrank it.
+  if (open) scheduleWorkmapEdges(true);
   if (focus && id) {
     const card = wmCards().find((item) => item.dataset.id === id);
     if (card) card.focus();
@@ -7342,7 +7817,9 @@ function closeWorkmapNode(focus = true) {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && wm.shown && $("wm-body").dataset.panel === "open") closeWorkmapNode(true);
+  if (event.key !== "Escape" || !wm.shown || $("wm-result-dialog").open) return;
+  if ($("wm-body").dataset.panel === "open") closeWorkmapNode(true);
+  else if (wm.present) setWorkmapPresent(false);
 });
 
 async function loadWorkmapNode(id) {
@@ -7350,9 +7827,14 @@ async function loadWorkmapNode(id) {
   const gen = wm.gen, { workspace, task } = wm.open;
   const record = await api("/ui/api/workmap/node?" + new URLSearchParams({ workspace, task_id: task, node: id }).toString());
   if (gen !== wm.gen || wm.node !== id) return;
-  if (wm.result && wm.result.sha256 !== record.node.result_sha256) wm.result = null;  // a new result replaced it
+  if (wm.result && wm.result.sha256 !== record.node.result_sha256) {  // a new result replaced the one shown
+    wm.result = null;
+    $("wm-result-note").textContent = "A newer result replaced this one: close this and open the new one.";
+  }
   wm.record = record;
   renderWorkmapNode();
+  // The record is newer than the map on screen: fetch the map now instead of at the next poll.
+  if (wm.data && record.revision > wm.data.revision) pollWorkmap().catch(workmapFailed);
 }
 
 function wmSection(parent, title) {
@@ -7372,21 +7854,41 @@ function wmFacts(parent, rows) {
   return list;
 }
 
+// A summary shown in three lines; "more" opens the rest in place and stays open across updates.
+function wmClamped(key, text) {
+  return (cell) => {
+    const span = node("span", cell, text, "wm-clamp");
+    if (wm.expanded.has(key)) span.dataset.open = "";
+    if (String(text).length <= 150) return;
+    const more = node("button", cell, wm.expanded.has(key) ? "less" : "more", "wm-more-text");
+    more.type = "button";
+    more.setAttribute("aria-expanded", String(wm.expanded.has(key)));
+    more.addEventListener("click", () => {
+      if (wm.expanded.has(key)) wm.expanded.delete(key); else wm.expanded.add(key);
+      renderWorkmapNode();
+    });
+  };
+}
+
 function wmShort(sha) {
   return sha ? sha.slice(0, 12) : "";
 }
+
+const wmCapital = (text) => text[0].toUpperCase() + text.slice(1);
 
 // The state of a node in a sentence: what it waits for, what runs, what the server can and cannot see.
 function workmapStateSentence(view, item) {
   const index = view.index, since = item.since ? `${workmapClock(item.since)} (${workmapAge(item.since)})` : "";
   if (item.kind === "goal") {
     const open = view.data.nodes.filter((other) => other.kind !== "goal" && wmLive(other) && !other.settled).length;
-    return view.data.closed ? "The map is closed." : `The map is open; ${open} live stage${open === 1 ? "" : "s"} not settled yet.`;
+    return view.data.closed ? `The map is closed; ${wmPlural(open, "live stage")} ${open === 1 ? "was" : "were"} left unsettled.`
+      : `The map is open; ${wmPlural(open, "live stage")} not settled yet.`;
   }
   if (WM_SET_ASIDE.includes(item.status) || item.status === "blocked") {
-    return `${WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1)}${since ? " since " + since : ""}: ${item.reason || "no reason recorded"}.`;
+    return `${wmCapital(WM_STATUS_WORD[item.status])}${since ? " since " + since : ""}: ${item.reason || "no reason recorded"}.`;
   }
   if (item.status === "prepared") {
+    if (view.data.closed) return `Prepared${since ? " at " + since : ""} and left when the map was closed: the map takes no result now.`;
     return `Running since ${since || "an unknown time"}${item.attempts > 1 ? `, attempt ${item.attempts}` : ""}. The server issued the package; it cannot see whether the worker is alive.`;
   }
   const waiting = index.targets(item.id, "depends_on").filter((id) => !index.byId.get(id).settled);
@@ -7397,17 +7899,17 @@ function workmapStateSentence(view, item) {
     const empty = index.targets(item.id, "verifies").filter((id) => !index.byId.get(id).result_sha256);
     if (empty.length) return `Waiting for ${wmIds(empty)} to hold a result to check.`;
   }
-  if (item.status === "planned") return item.ready ? "Ready: everything it follows is settled." : "Planned.";
-  const who = view.who.get(item.id);
-  if (who === "checking") {
-    const running = index.sources(item.id, "verifies").filter((id) => { const other = index.byId.get(id); return other.status === "prepared" || other.ready; });
-    return `Being checked by ${wmIds(running)}. ${WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1)} at ${item.level}${since ? " since " + since : ""}; its dependants wait for ${item.needs}.`;
+  if (item.status === "planned") return item.ready && !view.data.closed ? "Ready: everything it follows is settled." : "Planned.";
+  if (view.who.get(item.id) === "checking") {
+    return `Being checked by ${wmIds(workmapCheckers(item, index))}. ${wmCapital(WM_STATUS_WORD[item.status])} at ${item.level}`
+      + `${since ? " since " + since : ""}; its dependants wait for ${item.needs}.`;
   }
-  return `${WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1)} at ${item.level}${since ? " since " + since : ""}.`;
+  return `${wmCapital(WM_STATUS_WORD[item.status])} at ${item.level}${since ? " since " + since : ""}.`;
 }
 
-// Who acts, and the ways out the map allows.
+// Who acts, and the ways out the map allows. A closed map asks nobody.
 function workmapNextSentence(view, item) {
+  if (view.data.closed) return item.kind === "goal" ? null : "Who acts: nobody. The map is closed: it takes no package, result or change.";
   const who = view.who.get(item.id);
   if (who === "checking") return "Who acts: nobody yet. A clean review makes it verified; a critical or high finding makes it disputed.";
   if (who === "you") {
@@ -7415,6 +7917,8 @@ function workmapNextSentence(view, item) {
       : "Who acts: you, or a verifier: accepting a critical node below V3 takes the owner's V4.";
   }
   if (who === "orchestrator") {
+    const ready = wmBelow(item) || item.status === "disputed" ? workmapReadyVerifiers(item, view.index) : [];
+    if (ready.length) return `Who acts: the orchestrator: start the verifier ${wmIds(ready)}, which is ready.`;
     return wmBelow(item) ? `Who acts: the orchestrator: a verifier for ${item.needs}, a new attempt, or acceptance`
       + (item.risk === "critical" ? " (a critical node only at V3, or with the owner's V4)." : " (which settles it at any level).")
       : "Who acts: the orchestrator: a new attempt, a verifier, or setting it aside.";
@@ -7422,6 +7926,8 @@ function workmapNextSentence(view, item) {
   return null;
 }
 
+// The panel: the verification ladder first, the best account of how far a result can be trusted, then
+// the summary, the result, checks, relations, references, artifacts and history.
 function renderWorkmapNode() {
   const view = wm.view, id = wm.node;
   if (!view || !id || !view.index.byId.has(id)) return;
@@ -7443,6 +7949,7 @@ function renderWorkmapNode() {
   close.addEventListener("click", () => closeWorkmapNode(true));
   const title = node("h3", head, item.title, "wm-d-title");
   title.id = "wm-d-title";
+  title.tabIndex = -1;
   const ident = node("div", head, null, "wm-d-id");
   node("code", ident, item.id);
   wmCopyButton(ident, item.id, "node id");
@@ -7451,6 +7958,7 @@ function renderWorkmapNode() {
   chip.dataset.status = item.status;
   wmDisc(item.status, chip);
   chip.appendChild(document.createTextNode(workmapStatusWord(item, view.data)));
+  if (view.who.get(id) === "you") node("span", state, "waiting for you", "wm-you");
   if (item.kind !== "goal") {
     const risk = node("span", state, null, "wm-risk-tag");
     risk.dataset.risk = item.risk;
@@ -7458,7 +7966,34 @@ function renderWorkmapNode() {
     risk.appendChild(document.createTextNode(`${WM_RISK_WORDS[item.risk]} risk`));
   }
   if (item.stale) node("span", state, "stale", "wm-mark").dataset.mark = "stale";
-  if (item.ready) node("span", state, "ready", "wm-mark").dataset.mark = "ready";
+  if (item.ready && !view.data.closed) node("span", state, "ready", "wm-mark").dataset.mark = "ready";
+
+  // Verification level: the ladder, and what the level means. A goal has none.
+  if (item.kind !== "goal") {
+    const level = wmSection(sheet, "Verification level");
+    if (["refuted", "superseded"].includes(item.status)) {
+      const held = item.result_sha256 || item.result_status;
+      node("p", level, item.level !== "V0" ? `Its result had reached ${item.level} (${WM_LEVEL_SENTENCE[item.level]}) when it was set aside.`
+        : held ? "Its result had reached no level when it was set aside." : "It holds no result.", "wm-quiet");
+    } else {
+      const reached = WM_LEVELS.indexOf(item.level), need = WM_LEVELS.indexOf(item.needs);
+      const ladder = node("ol", level, null, "wm-meter");
+      ladder.setAttribute("aria-label", `Level ${item.level} reached, ${item.needs} needed`);
+      if (wmBelow(item)) ladder.dataset.alert = "";
+      WM_LEVELS.forEach((name, step) => {
+        const li = node("li", ladder);
+        li.dataset.m = step <= reached && step > 0 ? "on" : step <= need && step > 0 ? "gap" : "off";
+        if (step === need) li.dataset.need = "";
+        node("b", li, name);
+        node("small", li, WM_LEVEL_WORDS[name]);
+      });
+      const why = item.risk === "critical" ? "critical" : item.complexity === "high" ? "prepared with complexity high" : null;
+      const accepted = item.status === "accepted" && item.risk !== "critical";
+      node("p", level, `${item.level}: ${workmapLevelSentence(item)}. Needs ${item.needs}${why ? ` (${why})` : ""}.`
+        + (accepted ? " Accepted, which settles a " + WM_RISK_WORDS[item.risk] + " node at any level." : "")
+        + (item.status === "disputed" && reached > 0 ? " Contested: a verifier found a critical or high issue." : ""), "wm-quiet");
+    }
+  }
 
   // Summary: the state in a sentence, who acts, the plan beside the result, and why it was set aside.
   const summary = wmSection(sheet, "Summary");
@@ -7467,15 +8002,18 @@ function renderWorkmapNode() {
   if (next) node("p", summary, next, "wm-quiet");
   if (view.who.has(id)) {
     const why = node("div", summary, null, "notice");
-    node("strong", why, "Needs attention: ");
-    why.appendChild(document.createTextNode(workmapReason(item, index) + "."));
+    node("strong", why, view.who.get(id) === "you" ? "Waiting for you: " : "Needs attention: ");
+    why.appendChild(document.createTextNode(workmapReason(item, view) + "."));
   }
-  const hasResult = Boolean(item.result_sha256 || item.result_status);
-  wmFacts(summary, [["Plan", item.planned_summary || (hasResult ? "" : item.summary)],
-                    ["Result", hasResult ? item.summary : ""]]);
+  // The plan and the result summary when they differ; one Summary row when they are the same text,
+  // as after the parent rewrote the summary of a node that holds a result.
+  const hasResult = Boolean(item.result_sha256 || item.result_status), plan = item.planned_summary, said = item.summary;
+  const rows = !hasResult ? [["Plan", plan || said]] : !plan ? [["Result", said]]
+    : plan === said ? [["Summary", said]] : [["Plan", plan], ["Result", said]];
+  wmFacts(summary, rows.map(([label, text]) => [label, text ? wmClamped(`${id}:${label}`, text) : ""]));
   if (WM_SET_ASIDE.includes(item.status) || item.status === "blocked") {
     const reason = node("div", summary, null, "notice");
-    node("strong", reason, WM_STATUS_WORD[item.status][0].toUpperCase() + WM_STATUS_WORD[item.status].slice(1) + ": ");
+    node("strong", reason, wmCapital(WM_STATUS_WORD[item.status]) + ": ");
     reason.appendChild(document.createTextNode(item.reason || "no reason recorded"));
   }
   if (item.stale) {
@@ -7485,36 +8023,12 @@ function renderWorkmapNode() {
     stale.appendChild(document.createTextNode("it depends on " + holding.map((other) => `${other} (${index.byId.get(other).status})`).join(" and ") + "."));
   }
   if (view.chain.band.has(id) && view.chain.length) {
-    node("p", summary, `On the longest remaining chain (${view.chain.length} stages to the goal).`, "wm-quiet");
+    node("p", summary, `On the critical path: ${wmPlural(view.chain.length, "stage")} to the goal.`, "wm-quiet");
   }
 
-  // Verification level: the ladder, and what the level means. A goal has none.
-  if (item.kind !== "goal") {
-    const level = wmSection(sheet, "Verification level");
-    if (["refuted", "superseded"].includes(item.status)) {
-      node("p", level, item.level === "V0" ? "It holds no result." : `Its result had reached ${item.level} (${WM_LEVEL_SENTENCE[item.level]}) when it was set aside.`, "wm-quiet");
-    } else {
-      const reached = WM_LEVELS.indexOf(item.level), need = WM_LEVELS.indexOf(item.needs);
-      const ladder = node("ol", level, null, "wm-meter");
-      ladder.setAttribute("aria-label", `Level ${item.level} reached, ${item.needs} needed`);
-      if (wmBelow(item)) ladder.dataset.alert = "";
-      WM_LEVELS.forEach((name, step) => {
-        const li = node("li", ladder);
-        li.dataset.m = step <= reached ? "on" : step <= need ? "gap" : "off";
-        if (step === need) li.dataset.need = "";
-        node("b", li, name);
-        node("small", li, WM_LEVEL_WORDS[name]);
-      });
-      const why = item.risk === "critical" ? "critical" : item.complexity === "high" ? "prepared with complexity high" : null;
-      const accepted = item.status === "accepted" && item.risk !== "critical";
-      node("p", level, `${item.level}: ${WM_LEVEL_SENTENCE[item.level]}. Needs ${item.needs}${why ? ` (${why})` : ""}.`
-        + (accepted ? " Accepted, which settles a " + WM_RISK_WORDS[item.risk] + " node at any level." : "")
-        + (item.status === "disputed" && reached > 0 ? " Contested: a verifier found a critical or high issue." : ""), "wm-quiet");
-    }
-  }
-
-  // Result: what the worker handed back; the stored text only on a click, as text.
+  // Result: what the worker handed back; the stored text only on a click, as text, in a dialog.
   const result = wmSection(sheet, "Result");
+  const invalid = item.invalid ? wmInvalid(item.invalid).replace(" invalid", "") + (item.invalid_codes.length ? `: ${item.invalid_codes.join(", ")}` : "") : null;
   if (item.result_status) {
     const tone = item.result_status === "completed" ? "validated" : "needs_attention";
     wmFacts(result, [
@@ -7530,7 +8044,7 @@ function renderWorkmapNode() {
       ["Limitations", item.limitations ? String(item.limitations) : null],
       ["Escalation", item.escalation ? Object.entries(item.escalation).filter(([, value]) => value)
         .map(([key, value]) => `${key} ${value}`).join(", ") : null],
-      ["Invalid", item.invalid ? `${item.invalid} of 5` + (item.invalid_codes.length ? `: ${item.invalid_codes.join(", ")}` : "") : null],
+      ["Invalid", invalid],
     ]);
     if (item.question) {
       const question = node("div", result, null, "notice");
@@ -7539,8 +8053,7 @@ function renderWorkmapNode() {
     }
   } else if (item.status === "prepared") {
     node("p", result, `No result yet. Attempt ${item.attempts || 1} is prepared; the server cannot tell whether a worker is running.`);
-    wmFacts(result, [["Prepared as", `${item.complexity || "standard"} complexity`],
-                     ["Invalid", item.invalid ? `${item.invalid} of 5` + (item.invalid_codes.length ? `: ${item.invalid_codes.join(", ")}` : "") : null]]);
+    wmFacts(result, [["Prepared as", `${item.complexity || "standard"} complexity`], ["Invalid", invalid]]);
   } else if (item.result_sha256) {
     node("p", result, "Previous result, to be replaced by the next attempt.", "wm-quiet");
   } else {
@@ -7548,16 +8061,13 @@ function renderWorkmapNode() {
   }
   if (record && record.has_result) {
     const box = node("div", result, null, "wm-result");
-    const show = node("button", box, wm.result ? "Hide full result" : `Show full result (${record.result_chars} characters)`);
+    const show = node("button", box, `Show full result (${record.result_chars} characters)`);
     show.type = "button";
     show.addEventListener("click", () => {
-      if (!wm.result) { showWorkmapResult().catch(workmapFailed); return; }
-      wm.result = null;
-      renderWorkmapNode();
+      if (wm.result && wm.result.sha256 === item.result_sha256) openWorkmapResult();
+      else showWorkmapResult().catch(workmapFailed);
     });
     node("span", box, `In a session: workmap_view(task_id, node="${id}", detail="result")`, "wm-quiet");
-    // textContent only: a stored result is text a worker wrote, never markup for this page.
-    if (wm.result) node("pre", box, wm.result.text + (wm.result.truncated ? "\n…" : "")).tabIndex = 0;
   }
 
   // Checks and findings.
@@ -7584,21 +8094,21 @@ function renderWorkmapNode() {
     }
   }
 
-  // Relations: each names a node and selects it; a verifier's entry carries its verdict.
-  const rows = [["After", index.targets(id, "depends_on")], ["Needed by", index.sources(id, "depends_on")],
+  // Relations: each names a node and selects it; a verifier's entry carries its recorded verdict.
+  const rows2 = [["After", index.targets(id, "depends_on")], ["Needed by", index.sources(id, "depends_on")],
     ["Verifies", index.targets(id, "verifies")], ["Verified by", index.sources(id, "verifies")],
     ["Supersedes", index.targets(id, "supersedes")], ["Superseded by", index.sources(id, "supersedes")],
     ["Contradicts", index.targets(id, "contradicts")], ["Contradicted by", index.sources(id, "contradicts")]]
     .filter(([, ids]) => ids.length);
-  if (rows.length) {
+  if (rows2.length) {
     const relations = wmSection(sheet, "Relations");
     const list = node("dl", relations, null, "wm-rels");
-    for (const [label, ids] of rows) {
+    for (const [label, ids] of rows2) {
       node("dt", list, label);
       const cell = node("dd", list);
       for (const other of ids) {
-        const verdict = label === "Verified by" ? workmapVerdict(index.byId.get(other), item)
-          : label === "Verifies" ? workmapVerdict(item, index.byId.get(other)) : null;
+        const verdict = label === "Verified by" ? workmapVerdict(index.byId.get(other), item, view.verdicts)
+          : label === "Verifies" ? workmapVerdict(item, index.byId.get(other), view.verdicts) : null;
         const jump = wmJump(view, other, cell, verdict && WM_VERDICT_SHORT[verdict]);
         if (verdict) jump.title += ` — verdict: ${WM_VERDICT_WORDS[verdict]}`;
       }
@@ -7641,38 +8151,57 @@ function renderWorkmapNode() {
     }
   }
 
-  // History: each status and level step, with its revision and local time.
+  // History: each status and level step, with its revision and its time, dated when not today's.
   if (record && record.history.length) {
     const history = wmSection(sheet, "History");
     const list = node("ol", history, null, "wm-steps");
     for (const step of record.history) {
       const li = node("li", list);
       node("span", li, `r${step.rev}`);
-      node("span", li, workmapClock(step.at));
+      node("span", li, workmapWhen(step.at));
       li.appendChild(document.createTextNode(`${WM_STATUS_WORD[step.status] || step.status} ${step.level}`
         + (step.by ? ` (${step.by})` : "")));
     }
   }
 }
 
+// The full result opens in a dialog of its own; a live update leaves its text and its scroll alone.
 async function showWorkmapResult() {
   if (!wm.open || !wm.node) return;
   const gen = wm.gen, id = wm.node, { workspace, task } = wm.open;
   const data = await api("/ui/api/workmap/result?" + new URLSearchParams({ workspace, task_id: task, node: id }).toString());
   if (gen !== wm.gen || wm.node !== id || !wm.record) return;
-  wm.result = { text: data.text, truncated: data.truncated, sha256: wm.record.node.result_sha256 };
-  renderWorkmapNode();
+  wm.result = { text: data.text, truncated: data.truncated, chars: data.chars, sha256: wm.record.node.result_sha256 };
+  $("wm-result-text").textContent = data.text + (data.truncated ? "\n…" : "");  // text only: never markup
+  $("wm-result-text").scrollTop = 0;
+  openWorkmapResult();
 }
+
+function openWorkmapResult() {
+  const item = wm.view && wm.view.index.byId.get(wm.node);
+  if (!wm.result || !item) return;
+  $("wm-result-title").textContent = `${item.id}: ${item.title}`;
+  $("wm-result-note").textContent = `${wm.result.chars} characters` + (wm.result.truncated ? ", the first 2,000,000 shown" : "");
+  const dialog = $("wm-result-dialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeWorkmapResult() {
+  const dialog = $("wm-result-dialog");
+  if (dialog.open) dialog.close();
+}
+$("wm-result-close").addEventListener("click", closeWorkmapResult);
 
 async function openWorkmapLink(link) {
   hideSyncPage();
   hideLanding();
   hideAutodevPage();
   if (state.tab !== "workmap") await showTab("workmap", link);
-  else if (link.task) await openWorkmap(link.workspace, link.task);
+  else if (link.task) await openWorkmap(link.workspace, link.task, false, link.workspace ? null : "task");
   else {
+    await loadWorkmapList();  // a list loaded earlier may no longer name the map changed last
     const latest = workmapLatest(wm.list);
-    if (latest) await openWorkmap(latest.workspace, latest.task);
+    if (latest) await openWorkmap(latest.workspace, latest.task, false, "latest");
   }
 }
 window.addEventListener("hashchange", () => {
@@ -7686,7 +8215,7 @@ window.addEventListener("hashchange", () => {
 
 async function showTab(tab, link) {
   if (tab === state.tab) {
-    if (tab === "workmap" && link && link.task) await openWorkmap(link.workspace, link.task);
+    if (tab === "workmap" && link && link.task) await openWorkmap(link.workspace, link.task, false, link.workspace ? null : "task");
     return;
   }
   if (state.tab === "memory") {

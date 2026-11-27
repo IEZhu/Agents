@@ -1865,50 +1865,84 @@ def test_codex_memory_is_plain_text_and_a_new_file_starts_empty():
 
 @pytest.fixture(scope="module")
 def workmap_layout():
-    return run("workmap_layout")
+    return run_sync("workmap_layout")  # times in UTC
 
 
 def test_the_work_map_lays_out_top_down_with_the_goal_last(workmap_layout):
     # Layers by dependency: a node sits below everything it follows; the goal is alone in the last layer.
     assert workmap_layout["layers"] == [["build", "old", "triage"], ["audit", "decide", "fix", "port"], ["docs"], ["goal"]]
     # A long edge passes an empty lane in each layer it crosses, so it never runs through a card.
-    assert workmap_layout["via"]["docs|build|depends_on"] == 1 and workmap_layout["lanes"] == [0, 2, 4, 0]
+    assert workmap_layout["via"]["docs|build|depends_on"] == 1 and workmap_layout["lanes"] == [0, 3, 5, 0]
     # The goal stores no edge: every node nothing follows leads to it by a derived connector.
-    assert workmap_layout["derived"] == [["check-fix", "goal"], ["audit", "goal"], ["docs", "goal"], ["old", "goal"],
-                                         ["port", "goal"]]
+    assert workmap_layout["derived"] == [["check-fix", "goal"], ["triage-check", "goal"], ["audit", "goal"], ["docs", "goal"],
+                                         ["old", "goal"], ["port", "goal"]]
     assert workmap_layout["cycle"] == [["p", "r"]]  # a damaged map with a cycle still draws every node
     assert workmap_layout["empty"] == {"layers": [], "layer": {}, "docked": {}, "via": {}, "derived": [], "crossings": 0}
 
 
+def test_a_lane_is_never_a_node_and_a_map_too_large_is_not_laid_out(workmap_layout):
+    # A lane's id has an underscore, which no node id may have: a node named like a lane is drawn as a node.
+    assert workmap_layout["lane_ids"] == ["wm_lane_"]
+    assert workmap_layout["lookalike"] == {"layers": [["a", "wm-lane-0"], ["b"], ["c"]], "lanes": ["wm_lane_0"]}
+    assert workmap_layout["omitted"] == {"nodes": 401, "lanes": 0}
+
+
 def test_a_verifier_docks_under_the_node_it_checks_unless_it_follows_a_node_beside_it(workmap_layout):
-    assert workmap_layout["docked"] == {"check-fix": "fix"} and workmap_layout["trays"] == {"fix": ["check-fix"]}
+    assert workmap_layout["docked"] == {"check-fix": "fix", "triage-check": "triage"}
+    assert workmap_layout["trays"] == {"fix": ["check-fix"], "triage": ["triage-check"]}
     # v verifies a but also depends on b, in a's layer: docked, it would sit level with what it follows.
     assert workmap_layout["own"] == {"layers": [["a", "b"], ["v"]], "docked": {}}
 
 
-def test_the_view_derives_categories_who_acts_verdicts_and_the_longest_chain(workmap_layout):
+def test_the_view_derives_categories_who_acts_and_the_critical_path(workmap_layout):
     layout = workmap_layout
-    assert layout["counts"] == {"done": 1, "running": 2, "ready": 1, "waiting": 1, "action": 2, "blocked": 1, "aside": 1}
-    assert layout["categories"]["port"] == "blocked" and layout["categories"]["old"] == "aside"  # stuck is not set aside
-    # The map records no actor: a ready decision is the owner's, a node below its need is being checked
-    # while its verifier runs, everything else that needs action is the orchestrator's.
+    # The ready decision is the owner's: it waits for you, apart from what needs the orchestrator.
+    assert layout["counts"] == {"you": 1, "action": 2, "running": 2, "ready": 0, "waiting": 1, "done": 2, "blocked": 1,
+                                "aside": 1}
+    assert layout["categories"]["decide"] == "you" and layout["categories"]["port"] == "blocked"
+    assert layout["categories"]["old"] == "aside"  # stuck is not set aside
     assert layout["who"] == {"decide": "you", "fix": "checking", "audit": "orchestrator"}
     assert layout["reasons"] == {"decide": "decision ready to take", "fix": "V2 of V3 needed, checked by check-fix",
                                  "audit": "partial result, 1 of 3 checks failed"}
-    assert layout["verdicts"] == ["pending", "found", "clean", "older", "none", "none", "withdrawn"]
-    # Two stages remain on the heaviest path; the goal waits on the ready decision and the running stages.
+    # Two stages remain on the heaviest path; the goal waits on the decision, the running stage and,
+    # for the node being checked, the verifier that checks it.
     chain = layout["chain"]
     assert chain["length"] == 2 and chain["band"] == ["decide", "fix", "check-fix", "build", "docs"]
     assert chain["frontier"] == ["decide", "check-fix", "build"]
     assert "docs|goal|derived" in chain["edges"] and "port|triage|depends_on" not in chain["edges"]
 
 
+def test_a_verdict_is_the_one_the_store_recorded_on_the_result_the_target_holds(workmap_layout):
+    # pending: prepared or planned. clean and found: recorded on the target's current result. older: the
+    # verdict, or the pin, is about another result. none: nothing recorded, whatever the findings say.
+    assert workmap_layout["verdicts"] == ["pending", "pending", "clean", "found", "older", "older", "none", "none", "withdrawn"]
+
+
+def test_who_acts_counts_only_a_verifier_given_the_result_the_node_holds(workmap_layout):
+    scenes = workmap_layout["scenes"]
+    assert scenes["checking"] == ["checking", "V2 of V3 needed, checked by w"]
+    # A verifier running on an older result checks nothing the node holds; one that is only ready is the
+    # orchestrator's next step, and the reason names it.
+    assert scenes["older_pin"] == ["orchestrator", "V2 of V3 needed: w checks an older result"]
+    assert scenes["ready"] == ["orchestrator", "V2 of V3 needed: start its verifier w"]
+    assert scenes["disputed"] == ["checking", "disputed, checked by w"]
+    assert scenes["closed"] == 0  # a closed map asks nobody: the store takes nothing more on it
+
+
 def test_status_words_level_badges_and_links(workmap_layout):
     layout = workmap_layout
     assert layout["words"] == ["open", "running", "needs attention", "superseded"] and layout["closed_goal"] == "closed"
-    assert layout["badges"] == [["met", [["met", "V2"]]], ["gap", [["met", "V2"], ["target", "V3"]]],
-                                ["target", [["target", "V2"]]], None, None]  # set aside and the goal: no level
+    assert layout["closed_prepared"] == "prepared"  # nothing runs on a closed map
+    # A level reached is a filled box, one still needed an outlined "→V3"; with nothing reached one box says both.
+    assert layout["badges"] == [["met", [["met", "V2"]]], ["gap", [["met", "V2"], ["target", "→V3"]]],
+                                ["target", [["target", "V0→V2"]]], ["target", [["target", "V0→V2"]]], None, None]
+    assert layout["level_sentences"] == [
+        "nothing established yet (the result is partial)", "nothing established yet (the worker reported a failure)",
+        "nothing established yet (the worker asks a question)", "nothing established yet (1 check failed)",
+        "no result yet", "the worker's own checks passed (self-reported; the server reruns nothing)"]
+    assert layout["invalid"] == ["2/5 invalid", "5/5 invalid", "7 invalid"]  # past the limit, no limit
     assert layout["ages"] == ["0m", "13m", "2h 5m", "3d"]
+    assert layout["when"] == ["09:05", "11-18 20:40", "2025-11-18 20:40"]  # a history row dated unless today's
     assert layout["links"] == [{"workspace": "", "task": ""}, {"workspace": "", "task": "task:1"},
                                {"workspace": "ws-1", "task": "task:1"}, {"workspace": "ws", "task": ""}, None, None]
     assert layout["hashes"] == ["#workmap/ws-1/task%3A1", "#workmap/a%2Fb"]
@@ -1920,84 +1954,130 @@ def workmap_page():
     return run_sync("workmap")  # times in UTC
 
 
-def test_a_bare_work_map_link_opens_the_open_map_changed_last(workmap_page):
+def test_a_bare_work_map_link_opens_the_open_map_changed_last_and_says_so(workmap_page):
     opened = workmap_page["opened"]
     assert opened["tabs"][-1] == "true" and opened["main_hidden"] and not opened["page_hidden"]
     assert opened["landing_hidden"] and opened["state"] == "ready"
     assert opened["requests"] == ["/ui/api/workmap/maps", "/ui/api/workmap/map?task_id=task%3A1&workspace=ws-1"]
     assert opened["url"] == "/ui#workmap/ws-1/task%3A1"  # the address bar keeps the map's own link
-    assert opened["picker"] == [["agents (1 older not listed)", [["task:old (closed)", False], ["task:1", True]]]]
+    assert opened["picker"] == [["agents (1 older not listed)", [["task:old (closed)", False], ["task:1", True]]],
+                                ["other", [["task:2", False]]]]
+    # Two maps are open: the line beside the select says which one the link chose, and the select is rung.
+    assert opened["pick"] == ["Opened the map changed last, 1 of 2 open", False, True]
     assert opened["polls"] == 1
 
 
-def test_the_summary_says_how_far_the_map_is_what_runs_and_who_must_act(workmap_page):
+def test_the_summary_keeps_one_row_of_slots_with_waiting_for_you_first(workmap_page):
     opened = workmap_page["opened"]
     assert (opened["goal"], opened["flag"]) == ("Ship the demo", "open")
-    assert opened["ids"].startswith("revision 9 · last change 10:00 (") and opened["ids"].endswith("): docs, old · updates every 5 s")
-    assert opened["progress"] == "1 of 9 settled · 1 set aside"
-    assert opened["bar"] == "1 done, 2 running, 1 ready, 1 waiting, 2 need action, 1 blocked"
-    assert opened["tiles"] == [["done", "1 done"], ["running", "2 running"], ["ready", "1 ready"], ["waiting", "1 waiting"],
-                               ["action", "2 need action"], ["blocked", "1 blocked"], ["aside", "1 set aside"]]
-    lists = dict(opened["lists"])
-    assert re.fullmatch(r"Running now \(2\) build {2}13m check-fix {2}10m", lists["run"])  # oldest first, with times
-    assert lists["attn"] == ("Needs attention (3) you: decide   decision ready to take orchestrator: audit   partial result, "
-                             "1 of 3 checks failed being checked: fix   V2 of V3 needed, checked by check-fix")
-    assert lists["path"] == "Longest remaining chain: 2 stages now waiting on decide check-fix build"
+    assert re.fullmatch(r"task:1 in agents · revision 9 · last change 10:00 \(.+ ago\): docs, old · updates every 5 s",
+                        opened["ids"])
+    assert opened["progress"] == "2 of 10 settled" and opened["path"] == "Critical path: 2 stages left"
+    assert opened["path_title"].startswith("The goal waits on decide, check-fix, build now: their cards are underlined.")
+    assert opened["bar"] == "1 waiting for you, 2 needs attention, 2 running, 0 ready, 1 waiting, 2 done, 1 blocked"
+    # A tile and its slot use one term and count the same nodes.
+    assert opened["tiles"] == [["you", "1 waiting for you"], ["action", "2 needs attention"], ["running", "2 running"],
+                               ["waiting", "1 waiting"], ["done", "2 done"], ["blocked", "1 blocked"], ["aside", "1 set aside"]]
+    slots = {slot["list"]: slot for slot in opened["slots"]}
+    assert [slot["list"] for slot in opened["slots"]] == ["you", "attn", "run", "next"]  # always all four
+    assert slots["you"]["label"] == "Waiting for you (1)" and slots["you"]["chips"] == ["decide   decision ready to take"]
+    # Needs attention names ids only, so a row holds several; each chip's tooltip says why.
+    assert slots["attn"]["label"] == "Needs attention (2)" and slots["attn"]["chips"] == ["audit", "fix"]
+    assert slots["attn"]["titles"] == ["Audit the release (needs attention): partial result, 1 of 3 checks failed",
+                                       "Fix the bug (validated): V2 of V3 needed, checked by check-fix"]
+    assert slots["run"]["label"] == "Running now (2)"
+    assert [re.sub(r"\d+m", "<m>", chip) for chip in slots["run"]["chips"]] == ["build   <m>", "check-fix   <m>"]  # oldest first
+    assert slots["next"]["label"] == "Next (0)" and slots["next"]["none"] == ["nothing ready"]  # an empty slot still shows
+    assert all(slot["more"] == [["", True]] for slot in opened["slots"])  # nothing left out: no "and N more"
 
 
-def test_cards_show_status_words_levels_risk_and_counts_and_verifiers_dock(workmap_page):
-    opened = workmap_page["opened"]
-    assert opened["captions"] == ["Step 1 of 3", "Step 2 of 3", "Step 3 of 3", "Goal"]
-    assert opened["layer_ids"] == [["build", "old", "triage"], ["audit", "decide", "fix", "port"], ["docs"], ["goal"]]
-    cards = opened["cards"]
-    assert cards["build"]["text"][:4] == ["Build the page", "running", "13m · attempt 2 · 1/5 invalid", "V2"]
-    assert cards["build"]["path"] == "frontier" and cards["build"]["cat"] == "running"
-    assert cards["fix"]["text"][:5] == ["Fix the bug", "validated", "V2", "V3", "5"]  # reached V2, needs V3; 5 passed
-    assert cards["audit"]["text"][:5] == ["Audit the release", "needs attention", "V2", "1", "2"]  # failed first
-    assert cards["check-fix"]["pill"] and cards["check-fix"]["text"][:2] == ["Review the fix", "V3"]
-    assert cards["check-fix"]["text"][-1].endswith("verdict on fix: pending.")
-    assert cards["goal"]["text"] == ["Ship the demo", "open", "1 of 9 settled", "goal, open."]  # no level: a goal never settles
+def test_cards_show_who_acts_level_forms_and_docked_verdicts(workmap_page):
+    cards = workmap_page["opened"]["cards"]
+    assert workmap_page["opened"]["captions"] == ["Step 1 of 3", "Step 2 of 3", "Step 3 of 3", "Goal"]
+    assert workmap_page["opened"]["layer_ids"] == [["build", "old", "triage"], ["audit", "decide", "fix", "port"], ["docs"], ["goal"]]
+    # The owner's decision has its own encoding: data-who, a "you" badge beside the status word.
+    assert cards["decide"]["who"] == "you" and cards["decide"]["text"][:3] == ["Pick the fixes", "planned", "you"]
+    assert cards["decide"]["cat"] == "you" and cards["decide"]["path"] == "frontier"
+    assert cards["build"]["text"][:4] == ["Build the page", "running", "13m · attempt 2 · 1/5 invalid", "V0→V2"]
+    assert cards["build"]["levels"] == [["target", "V0→V2"]] and cards["triage"]["levels"] == [["met", "V2"]]
+    assert cards["fix"]["levels"] == [["met", "V2"], ["target", "→V3"]] and cards["fix"]["cat"] == "action"
+    assert cards["audit"]["text"][:5] == ["Audit the release", "needs attention", "V0→V2", "1", "2"]  # failed first
+    # A docked verifier names its id and shows its verdict on the target's current result: a recorded
+    # clean verdict as a check, a running verifier with its turning ring and the word pending.
+    assert cards["triage-check"]["pill"] and cards["triage-check"]["text"][:2] == ["triage-check", "clean"]
+    assert cards["triage-check"]["discs"] == ["clean"] and cards["triage-check"]["verdict"] == "clean"
+    assert cards["check-fix"]["text"][:2] == ["check-fix", "pending"] and cards["check-fix"]["discs"] == ["status"]
+    assert cards["check-fix"]["text"][-1].endswith("verdict on fix's current result: pending.")
+    assert cards["goal"]["text"] == ["Ship the demo", "open", "2 of 10 settled", "goal, open."]  # a goal never settles
     assert cards["old"]["text"][:2] == ["Old approach", "superseded"] and cards["old"]["cat"] == "aside"
     assert cards["docs"]["text"][3] == "after Fix the bug, Build the page, Pick the fixes · supersedes Old approach"
-    assert {card["status"] for card in cards.values()} >= {"prepared", "validated", "accepted", "planned", "needs_attention",
-                                                         "superseded", "blocked"}
 
 
-def test_a_node_opens_its_panel_and_its_result_only_on_a_click_as_text(workmap_page):
+def test_a_chip_outlines_its_card_while_the_pointer_rests_on_it(workmap_page):
+    assert workmap_page["hover"] == [True, False]
+
+
+def test_the_panel_puts_the_ladder_first_and_the_full_result_in_a_dialog(workmap_page):
     record = workmap_page["node"]
     assert record["panel"] == "open" and record["hidden"] is False and record["pressed"] == "true"
+    assert record["sections"][:3] == ["Verification level", "Summary", "Result"]
+    assert record["fits"] == 0  # selecting a node keeps the zoom: the card stays where it was
     text = record["text"]
     for shown in ("Fix the bug", "critical risk", "Who acts: nobody yet. A clean review makes it verified; a critical or "
                   "high finding makes it disputed.", "V2 of V3 needed, checked by check-fix.", "Fix bug 1", "Fixed it",
                   "Needs V3 (critical)", "one line: submitted by the worker, not read by the orchestrator",
                   "Show full result (31 characters)", "pending", "ffffffffffff…", "the report", "validated V2 (server)",
+                  "On the critical path: 2 stages to the goal.", "11-18 09:00",
                   "No pinned inputs: given by the orchestrator, provenance not recorded."):
         assert any(shown in item for item in text), shown
     assert any(re.fullmatch(r"Being checked by check-fix\. Validated at V2 since \d\d:\d\d \(20m\); its dependants wait for V3\.",
                             item) for item in text)
     assert not record["result_requested"]  # the stored text is fetched only on the click
     result = workmap_page["result"]
+    assert result["open"] and result["title"] == "fix: Fix the bug" and result["note"] == "31 characters"
     assert result["text"] == "<script>alert(1)</script> <b>x</b>" and result["html_children"] == 0
     assert result["requested"] == "/ui/api/workmap/result?workspace=ws-1&task_id=task%3A1&node=fix"
 
 
 def test_a_tile_dims_the_other_categories_and_the_theme_switch_is_remembered(workmap_page):
-    assert workmap_page["filter"] == ["running", "true", None]
+    assert workmap_page["filter"] == ["you", "true", None]
     assert workmap_page["theme"] == ["dark", "dark", "true", None]  # Auto removes the override again
 
 
-def test_the_open_map_is_polled_and_a_changed_status_is_marked_briefly(workmap_page):
+def test_present_hides_the_header_and_refits_and_fit_may_go_below_the_automatic_floor(workmap_page):
+    present = workmap_page["present"]
+    assert present == {"page": True, "root": True, "pressed": "true", "fits": [75], "off": [False, False]}
+    assert workmap_page["fit"] == [50]
+
+
+def test_a_status_change_repaints_in_place_without_a_refit(workmap_page):
     polled = workmap_page["polled"]
     assert polled["requests"] == ["/ui/api/workmap/map?workspace=ws-1&task_id=task%3A1",
                                   "/ui/api/workmap/node?workspace=ws-1&task_id=task%3A1&node=fix"]
+    assert polled["fits"] == []  # no refit: the graph keeps its scale while a status changes
     assert polled["build"]["status"] == "validated" and polled["build"]["changed"] and polled["build"]["cat"] == "done"
     assert polled["changed_cleared"] == 1  # the ring comes off after three seconds
-    assert polled["result_kept"] and polled["polls"] == 1
+    # The open result keeps its text and the place it was read at.
+    assert polled["dialog"] == [True, "<script>alert(1)</script> <b>x</b>", 900] and polled["polls"] == 1
+    assert polled["ids"].endswith("): build · updates every 5 s")  # the last commit's nodes
+
+
+def test_a_new_node_refits_and_is_ringed_and_so_does_a_window_resize(workmap_page):
+    assert workmap_page["grown"]["fits"] == [50] and workmap_page["grown"]["extra"]["changed"]
+    assert workmap_page["resized"] == [50]
 
 
 def test_escape_closes_the_panel_and_leaving_the_tab_stops_the_polls(workmap_page):
-    assert workmap_page["escaped"] == {"panel": "closed", "hidden": True, "pressed": "false"}
+    assert workmap_page["escaped"] == {"panel": "closed", "hidden": True, "pressed": "false", "dialog": False}
     assert workmap_page["left"] == {"page_hidden": True, "main_hidden": False, "polls": 0, "url": "/ui"}
+
+
+def test_signing_out_takes_the_map_off_the_page_and_stops_its_polls():
+    result = run_sync("workmap_signout")
+    assert result["before"] == {"hidden": False, "cards": 11, "polls": 1}
+    after = result["after"]
+    assert after["hidden"] and after["cards"] == 0 and after["polls"] == 0 and after["signin"]
+    assert after["requests_later"] == after["requests"]  # nothing more is asked once signed out
 
 
 def test_the_work_map_script_never_writes_markup_or_style():
