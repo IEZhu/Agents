@@ -1012,9 +1012,13 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
     unreviewed = _unreviewed(machine, record)
     tombstones = _tombstones(machine.state_dir, repo.key)
     dropped = set(tombstones)
+    # An id whose shared copy this run takes out is free again: a later entry under it, such as the
+    # corrected answer that replaced a deleted one under its key (#701), is shared in the same run.
+    # The write checks each month's part again after the removal, so nothing is shared twice.
+    freed = {entry_id for entry_id, _ in tombstones if entry_id in known}
     items, skipped = [], Counter()
     for entry, body in entries:
-        if entry.id in known or (entry.id, entry.timestamp) in dropped:
+        if (entry.id in known and entry.id not in freed) or (entry.id, entry.timestamp) in dropped:
             continue
         if entry.id in unreviewed:
             skipped["unreviewed"] += 1   # waits for the owner's review: history export lists it
@@ -1215,6 +1219,37 @@ def machine_history(root, *, state_dir=None, library=None) -> journal.MachineHis
                                   deleted=frozenset(_tombstones(machine.state_dir, repo.key)))
 
 
+def record_deletion(history_path: str, entry_id: str, timestamp: str, *, state_dir=None, library=None) -> bool:
+    """Keep a journal's deleted entry, by its id and time, until a run takes it out of this
+    machine's segments; True when the repository's history takes part in sync here.
+
+    It only writes the sync state, so a process that shares nothing itself, such as the Stop hook
+    that logs a turn (``src.memory.turn_log_hook``), records what it removed for the next
+    reconcile of a process that does, and merged reads leave the entry out at once (#701 review).
+    A state that cannot be written is recorded as ``deletion_unrecorded`` and raises.
+    """
+    root = Path(history_path).parent
+    machine = _machine(state_dir, library)
+    if machine is None:
+        return False
+    workspace = _workspace(root, machine)
+    if not _shared(workspace):
+        return False
+
+    def change(state):
+        pending = state.setdefault("deleted", {}).setdefault(workspace.key, [])
+        if [entry_id, timestamp] not in pending:
+            pending.append([entry_id, timestamp])
+        del pending[:-DELETED_KEEP]
+    try:
+        _change_state(machine.state_dir, change)
+    except OSError as error:
+        # The entry stays in what this machine shared: say so where status shows sync's errors.
+        _record_error(machine, "deletion_unrecorded", f"{type(error).__name__}: {error}", workspace.key)
+        raise
+    return True
+
+
 class Integration:
     """What ``install`` hands to ``src.memory.history.set_sync``."""
 
@@ -1226,26 +1261,8 @@ class Integration:
 
     def deleted(self, history_path: str, entry_id: str, timestamp: str) -> None:
         """Keep a journal's deleted entry until a run takes it out of this machine's segments."""
-        root = Path(history_path).parent
-        machine = _machine(self.state_dir, self.library)
-        if machine is None:
-            return
-        workspace = _workspace(root, machine)
-        if not _shared(workspace):
-            return
-
-        def change(state):
-            pending = state.setdefault("deleted", {}).setdefault(workspace.key, [])
-            if [entry_id, timestamp] not in pending:
-                pending.append([entry_id, timestamp])
-            del pending[:-DELETED_KEEP]
-        try:
-            _change_state(machine.state_dir, change)
-        except OSError as error:
-            # The entry stays in what this machine shared: say so where status shows sync's errors.
-            _record_error(machine, "deletion_unrecorded", f"{type(error).__name__}: {error}", workspace.key)
-            raise
-        _EXPORTER.mark(self.state_dir, self.library, root)
+        if record_deletion(history_path, entry_id, timestamp, state_dir=self.state_dir, library=self.library):
+            _EXPORTER.mark(self.state_dir, self.library, Path(history_path).parent)
 
     def machines(self, history_path: str) -> journal.MachineHistory | None:
         root = Path(history_path).parent
