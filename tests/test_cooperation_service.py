@@ -1301,3 +1301,129 @@ def test_a_recovered_holder_does_not_block_the_session_that_took_its_allowance(h
     assert h.acquire(other_dead, file, agreement_id="files")["status"] == "ok"
     assert h.recover(other_dead)["status"] == "ok"
     assert h.acquire(neighbour, file)["error"] == "claim_conflict"
+
+
+# Two sessions that act only at their turn boundaries, as every Claude Code
+# session does, are never both live inside one 120-second window: each comes
+# back past the heartbeat deadline and recovers into a new generation before it
+# can act. On 2026-11-26 agreement docs-status-vs-workmap-readme-1 expired after
+# one acknowledgement, and its second revision was refused with stale_generation.
+TURN_GAP = 600.0  # ten minutes between one session's turns
+
+
+def _bindings(agreement):
+    return {binding["participant_id"]: binding["generation"] for binding in agreement["task_bindings"]}
+
+
+def test_turn_based_sessions_commit_an_agreement_minutes_apart_across_a_recover(h):
+    peer = h.register("peer")
+    h.now += TURN_GAP
+    proposer = h.register("proposer")
+    # The proposer proposes and consents in one batch while its peer is quiet.
+    proposed = h.apply(proposer, h.proposal([proposer, peer]))
+    assert proposed["status"] == "ok", proposed
+    proposed = proposed["agreement"]
+    assert h.ack(proposer, proposed)["acknowledged"] == [proposer["participant_id"]]
+    # The peer's next turn comes minutes later: it recovers first, then consents.
+    h.now += TURN_GAP
+    assert h.recover(peer)["status"] == "ok"
+    assert peer["generation"] == 2
+    committed = h.ack(peer, proposed)
+    assert committed["status"] == "ok", committed
+    assert sorted(committed["acknowledged"]) == sorted([proposer["participant_id"], peer["participant_id"]])
+    agreement = committed["agreement"]
+    # The proposer has gone quiet meanwhile, so the agreement is born suspended,
+    # as a live commit would become two minutes later, and it records the
+    # generation each party consented from.
+    assert (agreement["state"], agreement["reason"]) == ("suspended", "heartbeat_overdue")
+    assert _bindings(agreement) == {proposer["participant_id"]: 1, peer["participant_id"]: 2}
+    # Its assignment holds against everyone else and admits its owner, who
+    # recovers at its own next turn and acquires without naming the agreement.
+    other = h.register("other")
+    assert h.acquire(other)["error"] == "claim_conflict"
+    h.now += TURN_GAP
+    assert h.recover(proposer)["status"] == "ok"
+    assert h.acquire(proposer)["status"] == "ok"
+
+
+def test_a_peers_quiet_spell_does_not_void_consent_inside_the_window(h):
+    # The same half without the window: a coordinator restart makes both
+    # parties suspect before the default deadline. The earlier consent still
+    # counts, and the peer that recovered first consents from its new generation.
+    proposer, peer = h.register("proposer"), h.register("peer")
+    proposed = h.apply(proposer, h.proposal([proposer, peer]))["agreement"]
+    assert h.ack(proposer, proposed)["status"] == "ok"
+    h.service.close()
+    h.service.start()
+    assert h.recover(peer)["status"] == "ok"
+    committed = h.ack(peer, proposed)
+    assert committed["status"] == "ok", committed
+    assert (committed["agreement"]["state"], committed["agreement"]["reason"]) == ("suspended", "coordinator_restart")
+
+
+def test_a_recovery_after_consenting_leaves_that_consent_behind(h):
+    proposer, peer = h.register("proposer"), h.register("peer")
+    proposed = h.apply(proposer, h.proposal([proposer, peer]))["agreement"]
+    assert h.ack(proposer, proposed)["status"] == "ok"
+    h.now += TURN_GAP
+    # The proposer comes back first and recovers; its new generation has not
+    # consented to anything, so the peer cannot commit on the old consent.
+    assert h.recover(proposer)["status"] == "ok"
+    assert h.recover(peer)["status"] == "ok"
+    before = h.read()["agreements"]
+    refused = h.ack(peer, proposed)
+    assert (refused.get("error"), refused.get("participant_id")) == ("stale_generation", proposer["participant_id"]), refused
+    assert h.read()["agreements"] == before
+    # Consenting again from the new generation is what lets the peer commit.
+    assert h.ack(proposer, proposed)["status"] == "ok"
+    committed = h.ack(peer, proposed)
+    assert committed["agreement"]["state"] == "committed", committed
+    assert _bindings(committed["agreement"]) == {proposer["participant_id"]: 2, peer["participant_id"]: 2}
+
+
+def test_an_allowance_assigned_to_a_peer_that_recovered_before_consenting_still_excludes(h):
+    # The commit binds the consenting generation, which the assignment checks
+    # read: the proposal's older reading would free the allowance at once.
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    proposer, owner = h.register("proposer", scope=[allowance]), h.register("owner", scope=[allowance])
+    proposed = h.apply(proposer, h.proposal([proposer, owner], resources=[
+        {**allowance, "owner": owner["participant_id"]}]))["agreement"]
+    assert h.ack(proposer, proposed)["status"] == "ok"
+    assert h.recover(owner)["status"] == "ok"
+    committed = h.ack(owner, proposed)
+    assert committed["agreement"]["state"] == "committed", committed
+    taker = h.register("taker", scope=[allowance])
+    assert h.acquire(taker, allowance)["error"] == "claim_conflict"
+    assert h.acquire(owner, allowance, agreement_id="agreement")["status"] == "ok"
+
+
+def test_a_party_that_recovers_after_the_commit_cannot_execute_on_its_old_consent(h):
+    writer, reviewer = h.register("writer"), h.register("reviewer")
+    proposed = h.apply(writer, h.proposal([writer, reviewer]))["agreement"]
+    assert h.ack(writer, proposed)["status"] == "ok"
+    assert h.ack(reviewer, proposed)["agreement"]["state"] == "committed"
+    # A recovery from a live state leaves the agreement committed, but the new
+    # generation never consented to it, so it cannot work under it.
+    assert h.recover(writer)["status"] == "ok"
+    refused = h.acquire(writer, agreement_id="agreement")
+    assert (refused.get("error"), refused.get("participant_id")) == ("stale_generation", writer["participant_id"]), refused
+
+
+def test_two_recovered_consenters_can_each_renew_their_consent(h):
+    # Renewing consent never waits on another party's recovery; only the final
+    # acknowledgement needs every earlier consent current.
+    first, second, last = h.register("first"), h.register("second"), h.register("last")
+    proposed = h.apply(first, h.proposal([first, second, last]))["agreement"]
+    assert h.ack(first, proposed)["status"] == "ok"
+    assert h.ack(second, proposed)["status"] == "ok"
+    h.now += TURN_GAP
+    for party in (first, second, last):
+        assert h.recover(party)["status"] == "ok"
+    refused = h.ack(last, proposed)
+    assert refused.get("error") == "stale_generation", refused
+    assert refused.get("participant_id") in (first["participant_id"], second["participant_id"]), refused
+    assert h.ack(first, proposed)["acknowledged"] == sorted([first["participant_id"], second["participant_id"]])
+    assert h.ack(second, proposed)["status"] == "ok"
+    committed = h.ack(last, proposed)
+    assert committed["agreement"]["state"] == "committed", committed
+    assert set(_bindings(committed["agreement"]).values()) == {2}

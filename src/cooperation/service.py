@@ -230,8 +230,11 @@ class CooperationService:
         if any(not self._within(resource, participant["scope"]) for resource in resources):
             raise CooperationError("scope_denied", "A new assignment requires a new prepared attempt")
 
+    def _is_live(self, participant):
+        return participant["status"] == "active" and participant["service_epoch"] == self.epoch
+
     def _live(self, participant):
-        if participant["status"] != "active" or participant["service_epoch"] != self.epoch:
+        if not self._is_live(participant):
             raise CooperationError("stale_generation", "Explicit execution/checkpoint reconciliation required",
                                    generation=participant["generation"], service_epoch=self.epoch)
 
@@ -640,7 +643,49 @@ class CooperationService:
         return {"base_priority": rank, "priority_verified": bool(verified), "ready": ready[:100],
                 "ready_count": len(ready), "ready_truncated": len(ready) > 100}
 
-    def _validate_terms(self, db, subject, action):
+    def _check_bindings(self, db, subject, action, bindings, stage):
+        """Check each task binding against the participant it names.
+
+        A binding pins a task attempt: task, attempt, contract and parent never
+        change for a participant, so a difference is ``scope_denied``. Its
+        generation is the proposer's reading until that participant consents,
+        and from then on the generation that consented, because consent belongs
+        to the execution that gave it.
+
+        - ``propose``: every reading is current.
+        - ``acknowledge``: anyone may have recovered since the proposal or
+          since consenting. A session that acts only at its turn boundaries
+          recovers at the start of every turn; the subject consents from its
+          current generation, and renewing consent never waits on another
+          party's recovery, or two recovered consenters would block each other.
+        - ``commit``: every party is on the generation that consented, since a
+          recovery leaves earlier consent behind. Only the final
+          acknowledgement reaches it: a renewal by a party that has already
+          consented never completes the set.
+        - ``execute``: the same, and every party is live.
+
+        Only execution needs the other participants live. Consent is each
+        participant's own act, so a peer's quiet spell does not void it, and
+        two sessions that are never live at the same moment can still agree.
+        """
+        repo = subject["repository_id"]
+        for identifier, binding in bindings.items():
+            participant = self._participant(db, repo, identifier)
+            if stage == "execute" or participant["status"] == "cancelled":
+                self._live(participant)
+            for key in ("task_id", "attempt_id", "contract_revision", "parent_id"):
+                if binding.get(key) != participant.get(key):
+                    raise CooperationError("scope_denied", "Proposal task binding changed")
+            current = participant["generation"]
+            if stage == "acknowledge":
+                stale = binding["generation"] > current
+            else:
+                stale = binding["generation"] != current
+            if stale:
+                raise CooperationError("stale_generation", "A recovery left this participant's binding or consent behind",
+                                       participant_id=identifier, generation=current)
+
+    def _validate_terms(self, db, subject, action, *, stage):
         repo = subject["repository_id"]
         required = action["required_participants"]
         if subject["participant_id"] not in required or len(set(required)) != len(required):
@@ -648,12 +693,7 @@ class CooperationService:
         bindings = {binding["participant_id"]: binding for binding in action["task_bindings"]}
         if set(bindings) != set(required) or len(bindings) != len(action["task_bindings"]):
             raise CooperationError("scope_denied", "Bind every required task exactly once")
-        for identifier, binding in bindings.items():
-            participant = self._participant(db, repo, identifier)
-            self._live(participant)
-            for key in ("task_id", "attempt_id", "generation", "contract_revision", "parent_id"):
-                if binding.get(key) != participant.get(key):
-                    raise CooperationError("stale_generation" if key == "generation" else "scope_denied", "Proposal task binding changed")
+        self._check_bindings(db, subject, action, bindings, stage)
         terms = dict(action["terms"])
         if terms["integrator"] not in required:
             raise CooperationError("scope_denied", "Integrator must be a required participant")
@@ -689,7 +729,7 @@ class CooperationService:
 
     def _propose(self, db, subject, actor, action, now, revision):
         repo = subject["repository_id"]
-        terms = self._validate_terms(db, subject, action)
+        terms = self._validate_terms(db, subject, action, stage="propose")
         previous = db.execute("SELECT body FROM agreements WHERE repository_id=? AND id=?", (repo, action["agreement_id"])).fetchone()
         counters = []
         if previous:
@@ -736,12 +776,18 @@ class CooperationService:
             if agreement["pattern"] != "handoff" or len(checkpoints) != 1:
                 raise CooperationError("scope_denied", "Accept an existing unique release-ready checkpoint after inspection")
             acknowledgement.update(checkpoint_owner=checkpoints[0][0], checkpoint_digest=digest(checkpoints[0][1]))
-        # Revalidate generations and original attempts on every acknowledgement.
-        self._validate_terms(db, subject, agreement)
+        # Revalidate generations and original attempts on every acknowledgement,
+        # then bind the generation that consents.
+        self._validate_terms(db, subject, agreement, stage="acknowledge")
+        for binding in agreement["task_bindings"]:
+            if binding["participant_id"] == subject["participant_id"]:
+                binding["generation"] = subject["generation"]
         db.execute("INSERT INTO acknowledgements VALUES (?,?,?,?,?) ON CONFLICT DO UPDATE SET body=excluded.body", (repo, agreement["agreement_id"], agreement["proposal_revision"], subject["participant_id"], canonical(acknowledgement)))
         acknowledged = {row[0] for row in db.execute("SELECT participant_id FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=?", (repo, agreement["agreement_id"], agreement["proposal_revision"]))}
         if acknowledged == set(agreement["required_participants"]):
-            holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
+            self._check_bindings(db, subject, agreement,
+                                 {binding["participant_id"]: binding for binding in agreement["task_bindings"]}, "commit")
+            holders ={held["participant_id"]: held for held in bodies(db, "participants", repo)}
             for resource in agreement["terms"]["resources"]:
                 owner = self._participant(db, repo, resource["owner"])
                 if agreement["pattern"] == "handoff":
@@ -769,7 +815,15 @@ class CooperationService:
                                  and not _stale_assignment(holders.get(prior["owner"]), prior, other, now)]
                     if competing:
                         raise CooperationError("claim_conflict", "Competing committed agreement")
-            agreement["state"] = "committed"
+            # A party that has gone quiet since consenting leaves the agreement
+            # suspended at once, exactly as _suspect would on its next
+            # reconciliation. Its consent stands until that party recovers.
+            quiet = [holders[identifier] for identifier in agreement["required_participants"]
+                     if not self._is_live(holders[identifier])]
+            if quiet:
+                agreement.update(state="suspended", reason=quiet[0].get("reason"))
+            else:
+                agreement["state"] = "committed"
             db.execute("DELETE FROM dependencies WHERE repository_id=? AND agreement_id=?", (repo, agreement["agreement_id"]))
             for dep in agreement["terms"]["dependencies"]:
                 db.execute("INSERT OR IGNORE INTO dependencies VALUES (?,?,?,?)", (digest([repo, agreement["agreement_id"], dep]), repo, agreement["agreement_id"], canonical(dep)))
@@ -811,7 +865,7 @@ class CooperationService:
             owned = [r for r in agreement["terms"]["resources"] if r["owner"] == subject["participant_id"]]
             if any(not self._within(resource, owned) for resource in resources):
                 raise CooperationError("scope_denied")
-            self._validate_terms(db, subject, agreement)
+            self._validate_terms(db, subject, agreement, stage="execute")
         holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
         for other in bodies(db, "agreements", repo):
             if other["state"] in ("committed", "active", "checkpointed", "suspended"):
@@ -975,8 +1029,8 @@ class CooperationService:
         if agreement["pattern"] != "handoff" or agreement["state"] not in ("committed", "active", "checkpointed"):
             raise CooperationError("scope_denied")
         # Recovery advances generations without rewriting old consent. Apply
-        # the same current task-binding checks used by acknowledgement/acquire.
-        self._validate_terms(db, subject, agreement)
+        # the same current task-binding checks used by acquire.
+        self._validate_terms(db, subject, agreement, stage="execute")
         acknowledgement = db.execute("SELECT body FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=? AND participant_id=?", (repo, agreement["agreement_id"], agreement["proposal_revision"], new["participant_id"])).fetchone()
         accepted = json.loads(acknowledgement[0]) if acknowledgement else {}
         if (accepted.get("accepted_checkpoint") != action["checkpoint_id"] or
@@ -1056,7 +1110,7 @@ class CooperationService:
         subject.update(generation=subject["generation"] + 1, service_epoch=self.epoch, status="active",
                        reason=None, running=False, ready_since=None, eligible_wait_seconds=0, intent=[], checkpoint=None)
         return {"released": [c["claim_id"] for c in claims], "reconciled": True,
-                "guidance": "Prior agreements retain old generations; create a fresh agreement before conflicting work"}
+                "guidance": "Recovery leaves earlier consent behind: acknowledge a still-proposed agreement again; a committed one needs a fresh agreement before conflicting work"}
 
     def collect_terminal(self):
         """Owner-configured retention; active receipts/events never expire.

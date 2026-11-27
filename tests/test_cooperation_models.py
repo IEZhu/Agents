@@ -456,3 +456,15 @@ def test_real_service_outputs_match_closed_projection_schemas(tmp_path):
         assert "capability" not in json.dumps(snapshot)
     finally:
         service.close()
+
+
+def test_the_acknowledgement_window_covers_a_turn_gap_and_stays_bounded():
+    # A peer that acts only at its turn boundaries answers minutes or hours
+    # later; the window still ends, so an unanswered proposal expires.
+    action = proposal()
+    assert parse_apply(request(action)).action.terms.acknowledgement_timeout_seconds == 3600
+    action["terms"]["acknowledgement_timeout_seconds"] = 86400
+    assert parse_apply(request(action)).action.terms.acknowledgement_timeout_seconds == 86400
+    action["terms"]["acknowledgement_timeout_seconds"] = 86401
+    with pytest.raises(ValidationError):
+        parse_apply(request(action))
