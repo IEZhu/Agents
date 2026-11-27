@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import Counter
 import contextlib
+import dataclasses
 import json
 import math
 import os
@@ -1211,22 +1212,45 @@ def test_a_runner_refuses_a_set_not_loaded_under_a_run_lock_it_still_holds(tmp_p
     def verdicts(revision, path):
         return worker.Validated("verdict", "confirmed", None)
 
-    forged = runner.load(control_dir, installation_roots=[])
-    forged.lock = control.RunLock(control_dir)  # a hold made by hand, which exclusive never gave out
+    # A copy of an unlocked load that carries a hold made by hand, which exclusive never gave out.
+    forged = dataclasses.replace(runner.load(control_dir, installation_roots=[]), lock=control.RunLock(control_dir))
     for loaded in (runner.load(control_dir, installation_roots=[]), released, forged):  # no lock, let go, forged
         work = runner.Runner(loaded, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
         with pytest.raises(control.ControlError, match="No run lock is held"):
             work.run()
     other = control.open_private(tmp_path / "other" / control.DIRECTORY_NAME)
     with control.exclusive(other, "another set") as foreign:
-        swapped = runner.load(control_dir, installation_roots=[])
-        swapped.lock = foreign  # held, but for another directory, set after the load
+        # Held, but for another directory, put in after the load.
+        swapped = dataclasses.replace(runner.load(control_dir, installation_roots=[]), lock=foreign)
         work = runner.Runner(swapped, launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
         with pytest.raises(control.ControlError, match="belongs to another control directory"):
             work.run()
     assert not launcher.calls and not (control_dir / control.ATTEMPTS).exists()  # no probe, no worker, no record
     work = runner.Runner(_locked(control_dir), launcher, prepare=_prepared, validate=verdicts, log=lambda line: None)
     assert work.run()["run"] == len(runner.schedule(list(work.loaded.statements.values()), 0))
+
+
+def test_a_set_runs_only_under_the_hold_it_was_loaded_under(tmp_path, repo, monkeypatch):
+    import threading
+    monkeypatch.setattr(runner.Runner, "_probe_model", lambda self: "sonnet")
+    control_dir, manifest = _build(tmp_path, repo, items=4)
+    with control.exclusive(control_dir, "a test run") as first:
+        loaded = runner.load(control_dir, installation_roots=[], lock=first)
+    later = _locked(control_dir)  # a new hold of the same directory, after the first was released
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        loaded.lock = later.lock
+    for name, value in (("control_dir", tmp_path), ("running", threading.Lock()), ("loaded", set())):
+        with pytest.raises(dataclasses.FrozenInstanceError):  # the hold cannot be retargeted or disarmed
+            setattr(later.lock, name, value)
+    moved = dataclasses.replace(loaded, lock=later.lock)  # the earlier read of the set under the later hold
+    launcher = FakeLauncher(tmp_path / "home", loaded.snapshot)
+    work = runner.Runner(moved, launcher, prepare=_prepared, log=lambda line: None,
+                         validate=lambda revision, path: worker.Validated("verdict", "confirmed", None))
+    with pytest.raises(control.ControlError, match="not loaded under the run lock it carries"):
+        work.run()
+    assert not launcher.calls and not (control_dir / control.ATTEMPTS).exists()
+    work = runner.Runner(later, launcher, prepare=_prepared, log=lambda line: None, validate=work.validate)
+    assert work.run()["run"] == len(runner.schedule(list(later.statements.values()), 0))  # its own read runs
 
 
 def test_two_runners_under_one_hold_of_the_lock_do_not_run_at_once(tmp_path, repo, monkeypatch):

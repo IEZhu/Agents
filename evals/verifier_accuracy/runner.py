@@ -149,8 +149,9 @@ def first_half(statements: list[dict], rows: list[dict]) -> list[Slot]:
     return stage(statements, seed, len(schedule(statements, seed)) // 2)
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class LoadedSet:
+    """A set as ``load`` read it; frozen, so the hold it was loaded under stays its hold."""
     control_dir: Path
     manifest: dict
     statements: dict[str, dict]
@@ -198,7 +199,10 @@ def load(control_dir: Path, *, installation_roots: list[Path], lock: control.Run
     labels = {row["item"]: row for row in control.read_jsonl(control_dir / control.LABELS)}
     if set(statements) != set(labels):
         raise control.ControlError("Statements and labels name different items.")
-    return LoadedSet(control_dir, manifest, statements, labels, lock)
+    loaded = LoadedSet(control_dir, manifest, statements, labels, lock)
+    if lock is not None:
+        lock.loaded.add(loaded)  # the hold now vouches for this set, and for no copy of it
+    return loaded
 
 
 @dataclass(frozen=True)
@@ -391,12 +395,16 @@ class Runner:
         ``run`` command does: ``with control.exclusive(directory, action) as lock:`` and then
         ``load(directory, ..., lock=lock)``. A set loaded without the lock, or under one released
         since, is refused: a discard or a rebuild could have replaced it on disk after the load, and
-        a second run could schedule the same slots or record another seed. The hold is checked
-        against the set's own directory again here, since ``LoadedSet.lock`` can be replaced after
-        the load. A second Runner under the same hold is refused while this one is going.
+        a second run could schedule the same slots or record another seed. The set must be the very
+        object ``load`` read under that hold: a copy carrying a later hold of the same directory is
+        refused, since the set on disk may have changed between the two holds. A second Runner under
+        the same hold is refused while this one is going.
         """
         lock = self.loaded.lock
         control.ensure_held(lock, self.loaded.control_dir)
+        if self.loaded not in lock.loaded:
+            raise control.ControlError("This set was not loaded under the run lock it carries: load it again "
+                                       "under that lock.")
         if not lock.running.acquire(blocking=False):
             raise control.RunInProgress("Another Runner of this set is going under the same run lock; a second "
                                         "run is refused until it finishes.")
