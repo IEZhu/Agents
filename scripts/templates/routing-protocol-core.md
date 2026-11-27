@@ -199,10 +199,11 @@ asked through a host tool whose answer returns within the turn is not.
 Except for the explicit unavailable-MCP fallback below, compose the complete final
 answer in the user's language, ending with the exact saved `footer`, including its
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
-On `keep`, reuse that footer; do not infer component lists. When the server
-instructions or a `SUCCESS` say that this client's Stop hook logs each turn, skip
-every `log_interaction` step of this protocol and add no time line, since no call
-returns a `timestamp`; everything else holds. Otherwise,
+On `keep`, reuse that footer; do not infer component lists. When this turn's
+prompt carries the Agents-Core turn-log notice of the session's own Stop hook, or
+the server instructions or the latest `SUCCESS`, which decides over them, say that
+this client's Stop hook logs each turn, follow that notice or instruction in place
+of the `log_interaction` steps of this protocol; everything else holds. Otherwise,
 before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line, redacted as below), the applied `persona` object

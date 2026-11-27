@@ -48,8 +48,8 @@ switch.
 Progress messages, the text shown before the turn's final answer, carry no footer or time line and are not logged. Each is one to three lines: what is done, what runs now, what the user will be asked next, if anything. Report only changes since the previous one, without pasted tool output, worker packages or file contents. A question that ends the turn to wait for the reply is a final answer; one asked through a host tool whose answer returns within the turn is not.
 
 Except for the unavailable-MCP fallback below, compose the answer plus saved
-footer. Unless the server instructions or a SUCCESS report that a Stop hook
-logs the turn, call before delivering it
+footer. Unless this turn's Agents-Core turn-log notice, or the server instructions
+or the latest SUCCESS, report that a Stop hook logs the turn, call before delivering it
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
 request verbatim as `query` (except for the redactions below), the complete composed answer plus
@@ -63,7 +63,7 @@ not waive initial activation. Incomplete attribution is still logged as `unverif
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
-A message that ends the turn is a final answer even when it only reports progress while a background worker, timer or another session is still running: log it and include the footer.
+A message that ends the turn is a final answer even when it only reports progress while a background worker, timer or another session is still running: it carries the footer and is logged like any other.
 Before logging, replace secrets and capability values in every field with safe references and omit prohibited personal details.
 
 When a log_interaction or read_history result carries history_last_error, or returns workspace_required, workspace_unsafe or workspace_invalid, mention it once in the answer and do not retry logging in a loop.

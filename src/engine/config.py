@@ -607,8 +607,9 @@ def headless_profile() -> bool:
 # write its whole answer a second time and adds a final call that re-reads the context. Only
 # together with the headless profile does the server tell every client to leave logging to that
 # hook, and only then does the hook write; either switch alone changes nothing. An interactive
-# Claude Code session needs neither: its hook registration carries `--interactive`, and the server
-# decides for that client alone (client_instructions.stop_hook_logs, #701).
+# Claude Code session needs neither: its hook registration carries `--interactive`, and the hook
+# itself tells the model, turn by turn, that it records the turn (#701); the server never decides
+# that from settings files it can read.
 TURN_LOG_HOOK = os.getenv("AGENTS_TURN_LOG_HOOK", "").strip().lower() in ("1", "true")
 
 

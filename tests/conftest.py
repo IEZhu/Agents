@@ -332,18 +332,6 @@ def no_real_instruction_files(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_real_claude_settings(monkeypatch, tmp_path_factory):
-    """The Stop-hook check (#701) never reads the user's real ``~/.claude/settings.json``.
-
-    A Claude Code context's instructions would otherwise depend on whether this machine
-    registered the turn-log hook. A test of the check points ``_global_settings`` at its own file.
-    """
-    from src import client_instructions
-    missing = tmp_path_factory.getbasetemp() / "no-claude-settings" / "settings.json"
-    monkeypatch.setattr(client_instructions, "_global_settings", lambda: missing)
-
-
-@pytest.fixture(autouse=True)
 def no_background_card_build(monkeypatch):
     """A cold route never starts the background embedding of the agent catalog cards (#734).
 

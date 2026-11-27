@@ -165,8 +165,8 @@ Reply in the language of the request:
 - the comparison with the previous retrospective's proposals: which were applied
   and whether their metric moved.
 
-Then call `log_interaction` with the tag `autodev-retro`, so the next
-retrospective finds this one in step 1.
+Then call `log_interaction` with the tag `autodev-retro`, also in a session whose
+Stop hook logs its turns, so the next retrospective finds this one in step 1.
 
 When the request asks for an issue, open one in the repository, in English, with
 the labels `enhancement` and `area:autodev`: the window,

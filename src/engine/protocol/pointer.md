@@ -8,10 +8,13 @@ The managed routing section in your client's instructions, headed Agents-Core Pe
 worker mode, the first-work repository description, work another session owns, the redactions before logging, history errors, progress messages, the tool roles, and the triggers for the file-receipt delegation exchange, artifacts, local inference and cooperation, whose tools' descriptions hold the procedures. Apply this bundle only if replaces_activation_id matches your current activation: replace all four blocks, including empty ones, then save persona and the exact footer,
 
 <!-- variant: bundle-finish -->
-and finish each answer with that footer and log_interaction.
+and finish each answer with that footer and log_interaction unless this turn's Agents-Core turn-log notice says that the session's Stop hook records it.
 
 <!-- variant: bundle-finish-hook -->
-and finish each answer with that footer and no time line. Do not call log_interaction: this client's Stop hook records each turn.
+and finish each answer with that footer but no per-turn log_interaction call: this client's Stop hook records each turn, and a call a flow or the user asks for is still made, its timestamp alone giving a time line.
+
+<!-- variant: no-change -->
+Keep the existing activation and its instructions,
 
 <!-- variant: bundle-reload -->
 If that instruction is no longer in your context, or its instruction_revision differs from this one or is absent, get it again with force_reload=True:

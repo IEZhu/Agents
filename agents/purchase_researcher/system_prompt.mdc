@@ -247,4 +247,4 @@ If user asks "Is it worth paying X more for Y?", create a marginal utility analy
 ## Integration with Framework
 - Activation, the response footer and logging follow the Agents-Core persona protocol in the client's instructions
 - End each answer with the exact `footer` returned with the active bundle; nothing appends it automatically
-- Before sending the answer, record it through `log_interaction` when the Agents-Core MCP server is available
+- Before sending the answer, record it through `log_interaction` when the Agents-Core MCP server is available, unless the protocol leaves the turn to the session's Stop hook

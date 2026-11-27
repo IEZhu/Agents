@@ -236,10 +236,12 @@ def error_response(error: Exception | str, request_id: str | None = None, *,
 
 
 def unchanged(persona: PersonaDescriptor, request_id: str) -> str:
+    # The instruction carries the current logging decision too, so a session whose server switched
+    # it since the last SUCCESS learns it from a NO_CHANGE as well (#701 review).
     return PersonaResponse(
         status="NO_CHANGE", request_id=request_id, persona=persona,
         replaces_activation_id=persona.activation_id, footer=persona_footer(persona),
-        instruction="Keep the existing activation and its instructions.",
+        instruction=protocol_text.no_change_instruction(),
     ).to_json()
 
 
@@ -634,13 +636,12 @@ async def _instruction(current: PersonaDescriptor | None, force_reload: bool) ->
     session may run in holds the current section in the file the client loads (the check behind
     the Codex initialization pointer); then even a first activation gets the section pointer. Else
     a later SUCCESS points to the full text its conversation's first activation sent. Every text
-    leaves logging to the client's Stop hook when ``client_instructions.stop_hook_logs`` holds for
-    the client (#701).
+    leaves logging to the client's Stop hook while the process-wide switches say so
+    (``config.turn_log_hook()``, #734); an interactive session's own hook announces it turn by
+    turn instead (#701), which the model-logging texts defer to.
     """
     client = client_instructions.REQUEST_CLIENT.get()  # None over stdio, which never verifies a section
-    hook = (await asyncio.to_thread(client_instructions.stop_hook_logs, client) if client is not None
-            else config.turn_log_hook())
-    texts = _instructions(hook)
+    texts = _instructions(config.turn_log_hook())
     if force_reload:
         return texts.full, texts.revision
     if config.headless_profile() or (

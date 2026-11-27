@@ -431,7 +431,10 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    `scheduled` list write-classified and scheduling calls with time, tool and
    actor but no status; take the other calls and the statuses from a short
    script over the transcript and do not reprint it. Count final answers apart
-   from progress messages, and note each context compaction.
+   from progress messages, and note each context compaction. In a session whose
+   Stop hook logs its turns (the Agents-Core turn-log notice beside its prompts),
+   also count the turns that hook logged: the `read_history` entries whose
+   metadata holds `logged_by` `stop_hook` and this session's `session_id`.
 4. **Where it applied.** Match the thread against every row: the catalogue and the
    rules from item 2. Every finding names its trigger: the turn, command or tool
    call where the tool applied. "It might have helped" without a trigger is not a
@@ -600,7 +603,7 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 | `persona-restore` | `get_agent_context(force_reload=true)` | a context compaction whose compact hook returned no restored bundle, or not all of its parts; answers that lost the footer or the rules | no reload after the compaction, and later answers break the bundle or a `log_interaction` is stored `unverified`; a compaction the hook restored in full needs no reload, and its next answer logs `keep` |
 | `persona-enrichment` | `refresh_persona_context`, `load_implants` | the task needed a skill or reasoning pattern the bundle lacked | the method was improvised while a matching skill or implant existed |
 | `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
-| `log` | `log_interaction` | every final answer eligible for safe, authorized logging | eligible final answers outnumber calls after excluding the privacy skips that step 9 allows; a `history_last_error` or workspace error went unmentioned |
+| `log` | `log_interaction`, and the Stop hook in a session that registers it | every final answer eligible for safe, authorized logging | eligible final answers outnumber the turns logged by a call or by the Stop hook (step 3) after excluding the privacy skips that step 9 allows, a call with `journal=false` among them; a `history_last_error`, workspace error or turn-log hook error went unmentioned |
 | `history` | `read_history` | the user refers to earlier work | earlier work reconstructed from memory or asked for again |
 | `shared-memory` | `read_shared_memory` | the user asks what another AI client (Claude Code, Codex) remembers, or a fact one of them keeps in its own memory matters to the task | that memory guessed, or asked of the user, without first calling the tool with an applicable scope; `scope=all` used for a question about one project |
 | `claims` | `claim_lookup`, `claim_record` | a load-bearing or critical fact that an earlier session may already have checked; a check of such a fact reached V1 or above | a fact re-checked, or reused without a check, before `claim_lookup`; a V1-or-above verdict on a durable load-bearing fact left unrecorded; a V0 statement recorded, or a `contested` claim reused |
@@ -742,7 +745,9 @@ alone do not require `finishing`. `closed` requires explicit closure or confirme
 The status grants no additional authority; follow **Inputs and authority** for each action.
 
 Then, only when a safe payload and authorized destination are established, make
-this turn's single `log_interaction` call under the client protocol. For a
+this turn's single `log_interaction` call under the client protocol, also in a
+session whose Stop hook logs its turns: the flow asks for this call, and the hook
+leaves the turn to it. For a
 policy-authorized privacy skip, report the gap and leave this closing-log step
 incomplete; do not classify that skip as a missed or misused call. Do not make
 a second call:
