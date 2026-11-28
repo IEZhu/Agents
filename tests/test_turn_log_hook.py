@@ -646,9 +646,13 @@ def test_an_environment_path_or_short_value_is_no_secret(monkeypatch, tmp_path):
 
 
 def test_a_high_entropy_string_is_masked():
+    """v701-4 redaction finding 6: a word common in prose before a token shaped like a value names it,
+    so the rest of the line goes with it, as after any label (it kept "expires tonight" before)."""
     run = fake(40, string.ascii_letters + string.digits, 21)
     masked, clean = hook.redact(f"the session key {run} expires tonight")
-    assert clean and run not in masked and masked.endswith("expires tonight")
+    assert clean and run not in masked and masked == "the session key" + redaction.MASK
+    masked, clean = hook.redact(f"the build cache holds {run} and expires tonight")
+    assert clean and run not in masked and masked.endswith("and expires tonight")
 
 
 def test_the_turn_written_from_a_stop_holds_no_secret_of_the_hooks_environment(switches, project, monkeypatch):

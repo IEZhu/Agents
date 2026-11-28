@@ -548,7 +548,10 @@ def test_a_begin_line_without_its_end_takes_the_key_lines_after_it_only():
     ("- name: DB_PASSWORD\n  value: VALUE\n- name: HOST\n  value: db", "- name: DB_PASSWORD\n  <secret>\n- name: HOST\n  value: db"),
     ("username,password\nadmin,VALUE\nops,OTHER\n\nkept", "username,password\n<secret>\n<secret>\n\nkept"),
     ("| user | password |\n|---|---|\n| admin | VALUE |\n\nkept", "| user | password |\n<secret>\n<secret>\n\nkept"),
-    ("Password\nVALUE\nkept", "Password\n<secret>\nkept"),
+    # v701-4 redaction finding 1: one line was not enough for a value of two lines (a login, then
+    # its password); a bare label takes the lines up to the next blank line that read as a value.
+    ("Password\nVALUE\nkept", "Password\n<secret>\n<secret>"),
+    ("Password\nVALUE\n\nkept", "Password\n<secret>\n\nkept"),
     ('name="password"\r\n\r\nVALUE\r\n--boundary', 'name="password"\r\n\r\n<secret>\r\n--boundary'),
     # A quoted value that closes on a later line goes to its closing quote.
     ('password="abc\ndef456" after\nkept', "password<secret>\nkept"),
@@ -839,3 +842,143 @@ def test_the_final_verifications_slow_shapes_are_scanned_in_linear_time(make):
     masked, clean = redaction.redact(text)
     assert time.monotonic() - started < 6, len(text)
     assert clean
+
+
+# --- The verification of attempt 4 (#701 review, v701-4 redaction) ------------------------------------
+# Its shapes, by finding; "{v}" is where a synthetic secret goes, made at run time. Each class is
+# also held by shapes the verification did not list, so the rule is tested for the class.
+
+BELOW_A_LABEL = [
+    # Finding 1: a value below a label line in a form the summary did not spell out.
+    "The password for the server:\n{v}", "Here are the credentials:\nadmin\n{v}", "Try logging in with the password\n{v}",
+    "Пароль от сервера:\n{v}", "Логин и пароль:\nadmin\n{v}", "### Admin password\n\n`{v}`",
+    "Passwords:\n- admin: Q7w2e9R4t1Yx\n- root: {v}", '{{\n  "key": "db_pass",\n  "value": "{v}",\n  "enabled": true\n}}',
+    '{{\n  "Name": "/prod/db/password",\n  "Type": "SecureString",\n  "Value": "{v}"\n}}',
+    "<property>\n  <name>javax.jdo.option.ConnectionPassword</name>\n  <value>{v}</value>\n</property>",
+    "mysql -u root \\\n  -p{v} \\\n  shop", "chpasswd <<EOF\ndeploy:{v}\nEOF", "My password:\n{v}", "Credentials:\nadmin\n{v}",
+    "## Password\n{v}", 'expect "Password:"\nsend "{v}\\r"', "**Password:**\n{v}", "Here is the new root password\n{v}",
+    "<entry>\n  <key>db.password</key>\n  <value>{v}</value>\n</entry>", "- value: {v}\n  name: DB_PASSWORD",
+    "passwd deploy <<'EOF'\n{v}\n{v}\nEOF", "curl -u \\\n  ops:{v} \\\n  https://api.example.com/",
+    "export API_TOKEN=\\\n{v}", "Secret:\n\n    {v}",
+    # Finding 2: a fenced block under a label keeps its fences and loses its content.
+    "Password:\n```\n{v}\n```", "Here is the root password:\n\n```\n{v}\n```", "Here is the token:\n\n```text\n{v}\n```",
+    "Пароль:\n```\n{v}\n```",
+    # Finding 3: a table whose header names a secret, in any delimited form.
+    "| User | Password | Notes |\n|---|---|---|\n| app | {v} | prod |", "| **User** | **Password** |\n|---|---|\n| app | {v} |",
+    "| Сервис | Пароль | Комментарий |\n|---|---|---|\n| db | {v} | прод |",
+    "| Env | API key | Owner |\n|---|---|---|\n| prod | {v} | ops |", "User | Password\n--- | ---\napp | {v}",
+    "user,password,role\nalice,{v},admin", '"user","password"\n"alice","Q7w2e9R4t1Yx"\n"bob","{v}"',
+    "user, password, role\nalice, {v}, admin", "user\tpassword\trole\nalice\t{v}\tadmin",
+    "login;password;comment\nadmin;{v};temporary", "| server | login | password | owner |\n|:--|:--|:--|:--|\n| db1 | app | {v} | ops |",
+]
+NAMES_AND_OPTIONS = [
+    # Finding 4: names in no word list, joined names by their ending, config keywords.
+    'command: ["redis-server", "--requirepass", "{v}"]', "wifi:\n  ssid: office\n  psk: {v}", "requirepass {v}",
+    "masterauth {v}", 'network={{\n    ssid="office"\n    psk="{v}"\n}}', "rootpw {v}", "bindpw {v}",
+    "ldap_default_authtok = {v}", "rootpw --plaintext {v}", ': PSK "{v}"', "dbpass={v}", "WIFI_PSK={v}", "DBPWD={v}",
+    "mysql -u root -e \"CREATE USER 'app'@'%' IDENTIFIED BY '{v}';\"", "docker run -d redis:7 redis-server --requirepass {v}",
+    "expect -c 'spawn ssh deploy@host; expect \"assword:\"; send \"{v}\\r\"; interact'",
+    "keytool -importkeystore -srckeystore app.p12 -srcstorepass {v} -destkeystore app.jks",
+    'const wifi = {{ ssid: "office", psk: "{v}" }};', "$dbpass = '{v}';", 'curl_setopt($ch, CURLOPT_USERPWD, "admin:{v}");',
+    "CREATE USER 'app'@'%' IDENTIFIED BY '{v}';", "The new passwords are {v} and Q7w2e9R4t1Yx.", "пасс: {v}",
+    "креды: admin / {v}", "пороль: {v}", "olcRootPW: {v}", "adminPw: {v}", "masterkey = {v}", "tailscale up --authkey {v}",
+    "privkey: {v}", "pswd: {v}", "JSESSIONID={v}", "PIN: {v}", "smtppass {v}", "ADMINPASS={v}",
+    # Finding 5: a client's password option after a user option, and a user option's value.
+    "podman login -u ci -p {v} quay.io", "oc login -u admin -p {v} https://api.cluster.example.com:6443",
+    "cqlsh db.internal -u cassandra -p {v}",
+    "az login --service-principal -u 6f1c2a3b-0000-4000-a000-000000000001 -p {v} --tenant example.onmicrosoft.com",
+    "xfreerdp /u:admin /p:{v} /v:10.0.0.9", "ssh-keygen -t ed25519 -N '{v}' -f ~/.ssh/id_deploy",
+    "mssql-cli -S db1 -U sa -P {v}", "ipmitool -I lanplus -H bmc1 -U admin -P {v} chassis status",
+    "mosquitto_pub -h mq -u dev -P {v} -t t -m hi", "psexec \\\\host -u admin -p {v} cmd", "twine upload -u ci -p {v} dist/*",
+    "lftp -u deploy,{v} ftp.example.com", "etcdctl --user root:{v} get /", "unrar x -p{v} backup.rar",
+    "influx -host db -username admin -password {v}", "mongodump --username backup --password {v} --out /backups",
+]
+PROSE_WORDS = [
+    # Finding 6: a word common in prose before a value.
+    "the pw is {v}", "ssh into 10.0.0.5 as deploy, pass is {v}", "Can you check why login fails? user ops, pwd {v}",
+    "My passcode is {d6}", "the PIN is {d4}", "The key is {v}", "My seed phrase is {words}", "ключ от апи: {v}",
+    "ключ шифрования {h64}", "AUTH {v}", "| Service | Login | Pass |\n|---|---|---|\n| db | admin | {v} |",
+    "| Setting | Value |\n|---|---|\n| host | db1 |\n| pass | {v} |", "<tr><td>pass</td><td>{v}</td></tr>", "* pass — {v}",
+    'cy.get("#pwd").type("{v}");', 'if subtle.ConstantTimeCompare([]byte(pw), []byte("{v}")) == 1 {{',
+    "define('NONCE_SALT', '{v}');", "The recovery phrase is {words}", "salt: {v}",
+    # Finding 7: a call after a dotted name ending in a word of the rule.
+    'req.SetBasicAuth("ops", "{v}")', "r.auth('{v}')", 'basic = requests.auth.HTTPBasicAuth("ops", "{v}")',
+    'mac = hashlib.pbkdf2_hmac("sha256", b"{v}", salt, 100_000)',
+    'const mac = crypto.createHmac("sha256", "{v}").update(body).digest("hex");',
+    'err := smtp.SendMail(addr, smtp.PlainAuth("", "bot@example.com", "{v}", host), from, to, msg)',
+    'mac := hmac.New(sha256.New, []byte("{v}"))', 'digest = hmac.new(b"{v}", msg, hashlib.sha256)',
+    # Finding 8: a property word after a word of the rule, with a value that is no path, number or word.
+    "VAULT_SECRET_ID={uuid}", "vault write auth/approle/login role_id=app secret_id={uuid}",
+    'AUTH_HEADER="Basic {b64}"', 'PASSWORD_COMMAND="echo {v}"', "auth_params = ('ops', '{v}')",
+    # Finding 14: the prose exemption only for ordinary words.
+    "пароль от вайфая {low}", "use passphrase {chain} for the vault", "wifi password {caps}", "door password {acronyms}",
+    # Finding 15: punctuation alone, and a value glued with a hyphen or a dot.
+    "password: {punct}", "token-{low}", "password.{low}",
+]
+
+
+def fill(template: str, seed: int) -> tuple[str, list[str]]:
+    """``template`` with synthetic secrets in place, and the secrets that must not stay."""
+    rnd = Seeded(seed)
+    words = ["copper", "window", "anchor", "violet", "harbor", "mellow", "tunnel", "pocket", "saddle", "lantern",
+             "breeze", "candle"]
+    shapes = {"v": rnd(12, ALNUM) + "7Q", "d4": rnd(4, "0123456789"), "d6": rnd(6, "0123456789"),
+              "h64": rnd(63, HEX) + "a", "h40": rnd(39, HEX) + "b", "uuid": "5f0c7a2e-1b6d-4c2a-9e51-" + rnd(12, HEX),
+              "b64": base64.b64encode(("ops:" + rnd(12, ALNUM)).encode()).decode(), "words": " ".join(words),
+              "low": "qwhzk" + rnd(5, "bcdfghjklmnpqrstvwxz"), "chain": "-".join(words[:4]),
+              "caps": "Purple Monkey", "acronyms": "ABCDE FGHIJ", "punct": "!?*-+!?*-+"}
+    used = [shape for name, shape in shapes.items() if "{" + name + "}" in template]
+    return template.format(**shapes), used
+
+
+def all_masked(template: str, seed: int) -> tuple[bool, str]:
+    text, secrets = fill(template, seed)
+    masked, clean = redaction.redact(text)
+    left = [secret for secret in secrets for piece in secret.split() if len(piece) >= 4 and piece in masked]
+    return clean and not left, masked
+
+
+@pytest.mark.parametrize("template", BELOW_A_LABEL)
+def test_a_value_below_a_label_line_is_masked_in_every_form(template):
+    """v701-4 redaction findings 1 to 3: 25 of 35 cases of a value below its label were written whole."""
+    masked, shown = all_masked(template, 11000 + BELOW_A_LABEL.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("template", NAMES_AND_OPTIONS)
+def test_names_and_options_outside_the_old_lists_name_a_secret(template):
+    """v701-4 redaction findings 4 and 5: joined names by their ending, psk, requirepass, IDENTIFIED BY,
+    Russian slang, and a password option after a user option on the same line."""
+    masked, shown = all_masked(template, 12000 + NAMES_AND_OPTIONS.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("template", PROSE_WORDS)
+def test_prose_words_calls_and_property_names_before_a_value_are_masked(template):
+    """v701-4 redaction findings 6 to 8, 14 and 15."""
+    masked, shown = all_masked(template, 13000 + PROSE_WORDS.index(template))
+    assert masked, shown
+
+
+# Finding 9's second group, documented as passing: nothing names the value, only its position does.
+POSITIONAL = ['conn = pymysql.connect("db.internal", "app", "{v}", "shop")', 'encoded = jwt.encode(payload, "{v}", algorithm="HS256")',
+              "rabbitmqctl add_user app {v}", 'USERS = {{"admin": "{v}", "guest": "guest"}}']
+
+
+@pytest.mark.parametrize("template", POSITIONAL)
+def test_a_positional_secret_with_nothing_naming_it_still_passes(template):
+    text, secrets = fill(template, 16000 + POSITIONAL.index(template))
+    assert secrets[0] in redaction.redact(text)[0]
+
+
+@pytest.mark.parametrize("text", [
+    "api_key_header = \"X-API-Key\"", "TOKEN_ID = 12", "SECRET_ID_PATH=/run/secrets/id", "password:\nusername: admin",
+    "The seed phrase must be written down on paper.", "Passwords are hashed with a slow function.",
+    "The key point is that the hook runs after every turn.", "| key | value |\n|---|---|\n| timeout | 30 |",
+    "entry 3afab3fea63f, key digest 0123", "This PR adds a password strength meter to the signup form.",
+    "kind: Secret\napiVersion: v1", "The hook masks anything that looks like a password.\nNext line stays.",
+])
+def test_the_new_classes_leave_these_lines_alone(text):
+    """Over-masking the new classes could cause on lines a reader needs: a property's plain value, a
+    YAML sibling key, prose with a word of the rule, a key-value table, a kind of resource."""
+    assert redaction.redact(text) == (text, True)

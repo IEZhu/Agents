@@ -50,29 +50,50 @@ SCAN_SECONDS_PER_CHARACTER_AND_SECRET = 2.5e-7
 
 # --- Words that name a secret (owner's decision 2026-11-28) -----------------------------------------
 # A word names a secret on its own and in any identifier: in a sentence it keeps its line only when
-# nothing after it can be a value. Words that end like one count too (PGPASSWORD, clientSecret).
+# nothing after it can be a value. Words that end like one count too (PGPASSWORD, clientSecret), and
+# "assword", which expect scripts match a prompt by.
 STRONG_WORDS = frozenset({
     "password", "passwd", "passphrase", "secret", "token", "credential", "credentials", "creds", "apikey",
-    "accesskey", "secretkey", "privatekey", "authtoken"})
+    "accesskey", "secretkey", "privatekey", "authtoken", "pswd", "assword"})
 STRONG_ENDINGS = ("password", "passwd", "passphrase", "secret", "token")
 STRONG_STEMS = ("парол", "токен", "секрет")
-# Words common in prose: they name a secret only inside an identifier (api_key, authToken), quoted,
-# after a sigil or a dash ($key, -key), or before a separator (key: V, key=V, key 'V').
+# Russian words without a stem of their own: кред- begins кредит too, and пороль is a common misspelling.
+STRONG_RUSSIAN = frozenset({"креды", "кредов", "кредам", "кредами", "кредах", "кредс", "пороль", "пороля",
+                            "поролем", "поролю"})
+# Words common in prose: they name a secret inside an identifier (api_key, authToken), quoted, after
+# a sigil or a dash ($key, -key), before a separator (key: V, key=V, key 'V', 'key', 'V'), as a table
+# cell before a value, before a call in a dotted name (req.SetBasicAuth(, hmac.New(), and in a
+# sentence when a value follows within three words (pwd V, the key is V, ключ от апи: V).
 WEAK_WORDS = frozenset({
-    "key", "keys", "apikeys", "pass", "pwd", "pw", "passcode", "auth", "authorization", "cookie", "cookies",
-    "passwords", "secrets", "tokens", "otp", "hmac", "bearer", "oauth", "dsn", "mnemonic", "sessionid",
-    "capability"})
+    "key", "keys", "apikeys", "pass", "pwd", "pw", "passcode", "auth", "authtok", "authorization", "cookie",
+    "cookies", "passwords", "secrets", "tokens", "otp", "hmac", "bearer", "oauth", "dsn", "mnemonic", "sessionid",
+    "capability", "psk", "пасс"})
 WEAK_STEMS = ("ключ",)
-# A joined name in capitals that ends in one of these (MASTERKEY, SSHPASS, DBPASS).
+# A word of letters in any case glued to one of these endings names a secret as well (dbpass, rootpw,
+# bindpw, DBPWD, masterauth, requirepass, privkey, wpapsk, authtok, JSESSIONID, PHPSESSID), unless it
+# is an everyday word that happens to end so.
+JOINED_ENDINGS = ("pass", "passwd", "pwd", "pw", "psk", "key", "auth", "authtok", "secret", "token",
+                  "sessionid", "sessid")
+COMMON_JOINED = frozenset({
+    "bypass", "compass", "surpass", "trespass", "encompass", "overpass", "underpass", "multipass", "impass",
+    "monkey", "turkey", "hockey", "donkey", "jockey", "whiskey", "lackey", "turnkey", "hotkey", "passkey",
+    "latchkey", "malarkey"})
+# A joined name in capitals that ends in one of these (MASTERKEY, SSHPASS, DBPASS), for environment names.
 CAPS_ENDINGS = ("key", "keys", "pass")
-# Words that name a secret only as the last word of a name right before "=": pin=, salt=, sig=.
+# Words that name a secret only as the last word of a name right before "=": pin=, salt=, sig=. Of
+# them pin and salt also before ":", a quoted value or a pair's value, and in a sentence before a
+# value (the PIN is 4821, NONCE_SALT', 'V').
 EQUALS_WORDS = frozenset({"private", "seed", "salt", "pin", "session", "sig", "signature"})
+COLON_WORDS = frozenset({"pin", "salt"})
 # Calls whose arguments hold a password: conn.login("deploy", "V").
 CALL_WORDS = frozenset({"login", "logon", "signin", "authenticate"})
+# The last component of a dotted name that builds a keyed object out of the component before it: hmac.New(.
+FACTORY_NAMES = frozenset({"new", "create"})
 # Two words that name a secret together, side by side in a name or a blank apart.
 STRONG_PAIRS = frozenset({("api", "key"), ("access", "key"), ("private", "key"), ("signing", "key"),
-                          ("encryption", "key"), ("master", "key")})
-WEAK_PAIRS = frozenset({("session", "id"), ("connection", "string"), ("seed", "phrase"), ("recovery", "phrase")})
+                          ("encryption", "key"), ("master", "key"), ("seed", "phrase"), ("recovery", "phrase"),
+                          ("identified", "by")})
+WEAK_PAIRS = frozenset({("session", "id"), ("connection", "string")})
 # A last word that makes the name a secret's property, not the secret: SSH_KEY_NAME, AUTH_MODE,
 # TOKEN_TYPE, PASSWORD_FILE, ACCESS_TOKEN_EXPIRE_MINUTES.
 PROPERTY_WORDS = frozenset({
@@ -83,6 +104,10 @@ PROPERTY_WORDS = frozenset({
     "timeout", "user", "username", "login", "email", "digest", "hash", "fingerprint", "checksum", "stdin",
     "command", "cmd", "prompt", "header", "headers", "field", "fields", "param", "params", "env", "var",
     "minutes", "seconds", "hours", "days", "age", "lifetime", "model", "backend", "store", "cache"})
+# Of those, the ones that name what carries a secret as often as a property of it: they make a name a
+# property only when its value is a path, a number or one plain word (VAULT_SECRET_ID=<uuid>,
+# AUTH_HEADER="Basic ...", PASSWORD_COMMAND="echo ..." are masked; api_key_header = "X-API-Key" stays).
+VALUE_PROPERTY_WORDS = frozenset({"id", "ids", "header", "headers", "command", "cmd", "param", "params"})
 # A word before token(s) that makes the name a count: max_tokens, input_tokens, MAX_TOKENS.
 QUANTITY_WORDS = frozenset({
     "max", "min", "num", "number", "total", "input", "output", "prompt", "completion", "cache", "count",
@@ -94,6 +119,9 @@ INTRODUCERS = frozenset({
 # "to" introduces one only after a verb that sets it, earlier on the line: "set the password to ...".
 SETTING_VERBS = frozenset({"set", "sets", "change", "changes", "changed", "reset", "resets", "update", "updates",
                            "updated", "поменяй", "смени", "установи"})
+# "be" introduces none after a modal or an auxiliary verb: "the seed phrase must be written down".
+MODALS = frozenset({"must", "should", "can", "could", "will", "would", "may", "might", "shall", "to", "cannot",
+                    "has", "have", "had", "not", "never", "also", "always", "need", "needs"})
 VOWELS = frozenset("aeiouyаеёиоуыэюя")
 
 # --- Names of environment variables (#701 review) ---------------------------------------------------
@@ -127,13 +155,17 @@ _IDENT = re.compile(rf"[0-9{_LETTERS}_]+(?:[-.][0-9{_LETTERS}_]+)*")
 _LETTER_RUN = re.compile(rf"[{_LETTERS}]+")
 _CAMEL = re.compile(r"(?<=[a-zа-џ])(?=[A-ZЀ-Я])|(?<=[A-ZЀ-Я])(?=[A-ZЀ-Я][a-zа-џ])")
 # A line without one of these holds no word of the rule and is skipped at once.
-_HINT = re.compile(r"(?i)pass|pw|key|token|secret|auth|cred|cookie|dsn|otp|hmac|bearer|mnemonic|session|"
+_HINT = re.compile(r"(?i)pass|pw|key|token|secret|auth|cred|cookie|dsn|otp|hmac|bearer|mnemonic|session|sessid|"
                    r"connection|seed|recovery|private|salt|pin|sig|capab|log[io]n|signin|api|access|encryption|"
-                   r"master|парол|токен|ключ|секрет")
+                   r"master|psk|pswd|identified|assword|парол|порол|токен|ключ|секрет|кред|пасс")
 _PLAIN_KEBAB = re.compile(rf"[a-zа-џ]+(?:-[a-zа-џ]+)+")
 # What a label line may end with and still hold no value: quotes, separators, brackets, a YAML
 # block's indicator and sentence punctuation (password: |, "password": {, name="password").
 _NO_VALUE = " \t\"'`:=;,.!?{[()]}|>-+*\\"
+# After a separator, what still is no value: a block's indicator, an opening bracket, an opening quote
+# alone; any other rest is the value, punctuation alone included (password: !?*-+).
+_AFTER_SEPARATOR = re.compile(r"[\"'`)\]*\\]{0,8}[ \t]*(?::=|=>|->|\?=|\+=|==?|:)[ \t]*(?P<rest>.*)", re.S)
+_OPENING_ONLY = re.compile(r"(?:[|>][-+]?[0-9]?|[{\[(]|\"\"\"|'''|[\"'`]|\\)?[ \t,;]*")
 _PLAIN_TOKEN = re.compile(rf"\(?[{_LETTERS}]+(?:['’-][{_LETTERS}]+)*[.,;!?)]{{0,3}}")
 _APOSTROPHES = re.compile(r"['’-]")
 _NAME_TAIL = re.compile(rf"[{_LETTERS}_.\-]*")
@@ -155,11 +187,56 @@ CLIENT_OPTIONS = tuple((re.compile(client), re.compile(option) if option else No
     (r"\b(?:zip|unzip)\b", r"(?<![\w-])-P"),
     (r"\bopenssl\b", r"(?<![\w-])-k\b"),
     (r"\bmongo(?:sh|dump|restore|export|import)?\b", r"(?<![\w-])-p"),
+    # Options with no user option beside them, which the generic rule below cannot see.
+    (r"\bssh-keygen\b", r"(?<![\w-])-[NP]\b"),
+    (r"\bun?rar\b", r"(?<![\w-])-p"),
     (r"::add-mask::", None),
 ))
 _CLIENT_HINT = re.compile(r"mysql|mariadb|docker|sqlcmd|redis-cli|curl|sshpass|http|ldap|smbclient|7z|zip|openssl|"
-                          r"mongo|::add-mask::")
+                          r"mongo|ssh-keygen|rar|::add-mask::")
+# Any other client: a password option after a user option on the same line (podman login -u U -p V,
+# cqlsh -u U -p V, ipmitool -U U -P V, xfreerdp /u:U /p:V), and the value a user option carries after
+# its user (lftp -u U,V; etcdctl --user U:V). A uid:gid pair is no password.
+USER_OPTION = re.compile(r"(?<![\w/-])(?:-u|-U|--user(?:name)?|-user|/u(?:ser)?:)(?:[ \t]*=[ \t]*|[ \t]+|(?<=:))"
+                         r"(?P<user>[^\s\"'`;|&<>]{1,128})")
+PASSWORD_OPTION = re.compile(r"(?<![\w/-])(?:(?:-p|-P|-w|-pw|--pass)(?=[ \t=\"']|$)|/p(?:ass(?:word)?)?:)")
+_ID_PAIR = re.compile(r"[0-9]+[:,][0-9]+")
 STRONG, WEAK, EQUALS, CALL = "strong", "weak", "equals", "call"
+
+# How far below a label line its value is looked for.
+BELOW_LINES = 8
+BELOW_BLANKS = 2
+FENCE_LINES = 40
+HEREDOC_LINES = 50
+TABLE_ROWS = 1000
+CONTINUATION_LINES = 50
+PAIR_LINES = 2
+_FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
+_HEADING = re.compile(r"[ \t]{0,3}#{1,6}[ \t]")
+# A shell heredoc's opener: a terminator in capitals or quoted (EOF, 'EOF'), not C++'s << or <<<.
+_HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(?:(['\"])([A-Za-z_][A-Za-z0-9_]{0,31})\1|()([A-Z_][A-Z0-9_]{0,31})\b)")
+_TABLE_SEPARATOR = re.compile(r"[ \t]*\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)*\|?[ \t]*")
+# A YAML or INI key with nothing after it: a sibling key below it is no value of it.
+_KEY_LINE = re.compile(r"[ \t]*(?:-[ \t]+)?[\"']?[\w.\-]+[\"']?[ \t]*[:=]")
+_IDENTIFIER_KEY = re.compile(r"[ \t]*[\"']?[a-z_][a-z0-9_.\-]*[\"']?[ \t]*[:=][ \t]*")
+# A field that names what a nearby field holds, in JSON, YAML or XML: "Name": "/prod/db/password".
+_NAME_FIELD = re.compile(
+    r"[ \t]*(?:-[ \t]+)?[\"']?(?i:name|key|parameter(?:name|key)?|variable|var|field|setting|secretname|secretid)"
+    r"[\"']?[ \t]*[:=][ \t]*[\"']?(?P<value>[^\"',}\]\s][^\"',}\]]{0,255}?)[\"']?[ \t]*,?[ \t]*"
+    r"|[ \t]*<(?i:name|key)>(?P<xml>[^<]{1,256})</(?i:name|key)>[ \t]*")
+_VALUE_FIELD = re.compile(
+    r"[ \t]*(?:-[ \t]+)?[\"']?(?i:value|val|parametervalue|default|data|content|secretvalue|secretstring)"
+    r"[\"']?[ \t]*[:=][ \t]*(?P<value>\S.{0,1024}?)[ \t]*"
+    r"|[ \t]*<(?i:value)>(?P<xml>.{0,1024}?)</(?i:value)>[ \t]*")
+# Tokens a value can follow a prose-common word with: a dash, and the closing marks of a table cell.
+_DASHES = frozenset({"-", "--", "—", "–", "=", "=>", "->"})
+_TOKEN_TRIM = "\"'`([{<>)]}.,;:!?*"
+_VALUE_SYMBOLS = frozenset("!@#$%^&*+=~|\\/<>{}[]?")
+_TOKEN_CHARACTERS = re.compile(r"[A-Za-z0-9_-]+")
+_IMPOSSIBLE_PAIRS = frozenset(
+    "bx cj cv cx dx fq fx gq gx hx jc jf jg jq js jv jw jx jz kq kx mx px pz qb qc qd qf qg qh qj qk ql qm qn qp "
+    "qs qt qv qw qx qy qz sx vb vf vh vj vm vp vq vt vw vx wx xj xx zj zq zx".split())
+_CELL_TAGS = re.compile(r"[ \t]*</t[dh]>[ \t]*<t[dh][^>]{0,64}>")
 
 # --- Formats and shapes -----------------------------------------------------------------------------
 # Formats the schedule records do not know, masked here on top of theirs, keeping the prefix.
@@ -329,13 +406,24 @@ def environment_secrets(environ=None) -> list:
 # --- The line rule (owner's decision 2026-11-28) -------------------------------------------------------
 
 
+def _joined_weak(lower: str) -> bool:
+    """A word of letters glued to an ending that names a secret (dbpass, rootpw, DBPWD, masterauth,
+    requirepass, privkey, wpapsk, jsessionid), in any case; not an everyday word (bypass, monkey)."""
+    if lower in COMMON_JOINED or not lower.isascii():
+        return False
+    return any(lower.endswith(ending) and len(lower) >= len(ending) + (1 if len(ending) >= 5 else 2)
+               for ending in JOINED_ENDINGS)
+
+
 def _word_class(word: str) -> str | None:
     lower = word.lower()
-    if (lower in STRONG_WORDS or lower.startswith(STRONG_STEMS)
+    if (lower in STRONG_WORDS or lower in STRONG_RUSSIAN or lower.startswith(STRONG_STEMS)
             or len(lower) > 5 and lower.endswith(STRONG_ENDINGS)):
         return STRONG
-    if (lower in WEAK_WORDS or lower.startswith(WEAK_STEMS)
-            or word.isupper() and len(lower) > 3 and lower.endswith(CAPS_ENDINGS)):
+    # A glued ending counts in a word of one case or a capitalised one (dbpass, DBPWD, Requirepass);
+    # camelCase is split at its case changes instead (HTTPBasicAuth: Auth).
+    one_case = word.islower() or word.isupper() or word[:1].isupper() and word[1:].islower()
+    if lower in WEAK_WORDS or lower.startswith(WEAK_STEMS) or one_case and _joined_weak(lower):
         return WEAK
     if lower in EQUALS_WORDS:
         return EQUALS
@@ -347,7 +435,8 @@ def _word_class(word: str) -> str | None:
 def _words(name: str, offset: int) -> list[tuple[int, int, str]]:
     """``(start, end, word)`` of a name's words, at ``offset`` in its line: letter runs, split at
     case changes unless the whole run is a word of the rule (OAuth, APIKey stay whole). A piece of
-    two letters split off by a case change is no word (``wPw7X`` in a random id is not ``pw``)."""
+    two letters split off by a case change is no word (``wPw7X`` in a random id is not ``pw``),
+    except a last ``Pw`` or ``PW`` after a word (adminPw, olcRootPW)."""
     out = []
     for run in _LETTER_RUN.finditer(name):
         text, start = run.group(), run.start()
@@ -355,8 +444,12 @@ def _words(name: str, offset: int) -> list[tuple[int, int, str]]:
             out.append((offset + start, offset + run.end(), text))
             continue
         cuts = [0] + [cut.start() for cut in _CAMEL.finditer(text)] + [len(text)]
-        out.extend((offset + start + a, offset + start + b, text[a:b]) for a, b in zip(cuts, cuts[1:])
-                   if b - a > 2 or b - a == len(text))
+        pieces = list(zip(cuts, cuts[1:]))
+        for number, (a, b) in enumerate(pieces):
+            last_pw = (number == len(pieces) - 1 and number > 0 and text[a:b].lower() == "pw"
+                       and pieces[number - 1][1] - pieces[number - 1][0] >= 3)
+            if b - a > 2 or b - a == len(text) or last_pw:
+                out.append((offset + start + a, offset + start + b, text[a:b]))
     return out
 
 
@@ -391,7 +484,7 @@ def _name_info(name: str) -> tuple:
 
 def _labels(line: str, name: re.Match) -> list[tuple[int, int, str, tuple[str, ...]]]:
     """``(start, end, class, words)`` of the labels in a name, at their place in ``line``; a last
-    word and the next name's first word a blank away may form a pair ("API key", "session id")."""
+    word and the next name's first word a blank away may form a pair ("API key", "IDENTIFIED BY")."""
     words, lowered, labels, _random, pairable = _name_info(name.group())
     offset = name.start()
     out = [(offset + start, offset + end, kind, label) for start, end, kind, label in labels]
@@ -411,12 +504,13 @@ def _labels(line: str, name: re.Match) -> list[tuple[int, int, str, tuple[str, .
 def _separator_after(line: str, index: int) -> str | None:
     """What follows a name, past its closing quotes, brackets and Markdown emphasis and blanks:
     ``=`` (also ``:=``, ``=>``, ``?=``, ``+=``, ``==``), ``:`` (also ``->``; never ``::`` or ``://``),
-    ``quote`` for an opening quote a blank away (``key 'V'``), ``call`` for ``(``, else None."""
+    ``quote`` for an opening quote a blank away (``key 'V'``), ``pair`` for a quoted name's comma and
+    a quoted value after it (``'NONCE_SALT', 'V'``), ``call`` for ``(``, else None."""
     i, length = index, len(line)
     while i < length and line[i] in "\"'`)]*\\" and i - index < 8:
         i += 1
     closed = i
-    while i < length and line[i] in " \t ":
+    while i < length and line[i] in " \t ":
         i += 1
     rest = line[i:i + 3]
     if rest.startswith(("=", ":=", "?=", "+=")):
@@ -427,6 +521,12 @@ def _separator_after(line: str, index: int) -> str | None:
         return "quote"
     if rest[:1] == "(" and i == index:
         return "call"
+    if rest[:1] == "," and closed > index and line[index] in "\"'":
+        j = i + 1
+        while j < length and line[j] in " \t" and j - i < 8:
+            j += 1
+        if line[j:j + 1] in ("\"", "'"):
+            return "pair"
     return None
 
 
@@ -450,25 +550,79 @@ def _field(line: str, start: int, end: int, delimiters=None) -> str | None:
     return None
 
 
+def _cell_value(line: str, start: int, end: int, delimiters) -> str | None:
+    """The next cell's text when the word at ``start:end`` is a table cell of its own (``| pass | V |``,
+    ``<td>pass</td><td>V</td>``), else None; read a bounded way."""
+    tags = _CELL_TAGS.match(line, end)
+    if tags is not None:
+        close = line.find("<", tags.end(), tags.end() + 512)
+        return line[tags.end():close if close >= 0 else tags.end() + 512]
+    if "|" not in delimiters:
+        return None
+    right = end
+    while right < len(line) and line[right] in " \t*`" and right - end <= 64:
+        right += 1
+    if right >= len(line) or line[right] != "|":
+        return None
+    left = start - 1
+    while left >= 0 and line[left] in " \t*`" and start - left <= 64:
+        left -= 1
+    if left >= 0 and line[left] != "|":
+        return None
+    close = line.find("|", right + 1, right + 513)
+    return line[right + 1:close if close >= 0 else right + 513]
+
+
+def _pronounceable(word: str) -> bool:
+    """Whether a run of lowercase Latin letters reads like a word: no five consonants in a row (y
+    counted as a vowel) and no pair of letters English never puts together (qx, zj). Measured on
+    this machine's word list and on random runs: 0.12% of 181,374 words of six letters or more fail,
+    and 76% of random runs of ten letters do."""
+    run = 0
+    for index, character in enumerate(word):
+        run = 0 if character in "aeiouy" else run + 1
+        if run >= 5 or word[index:index + 2] in _IMPOSSIBLE_PAIRS:
+            return False
+    return True
+
+
+def _value_like(token: str) -> bool:
+    """Whether a token is shaped like a value rather than a word: a digit, a symbol inside it, a
+    random-looking run, or lowercase letters no word is made of."""
+    core = token.strip(_TOKEN_TRIM)
+    if len(core) < 4:
+        return False
+    if any(character.isdigit() for character in core) or any(character in _VALUE_SYMBOLS for character in core):
+        return True
+    if len(core) >= 8 and _TOKEN_CHARACTERS.fullmatch(core) and random_looking(core):
+        return True
+    return core.isascii() and core.isalpha() and core.islower() and len(core) >= 6 and not _pronounceable(core)
+
+
 def _prose_token(token: str, introducers: frozenset) -> bool:
-    """A word of ordinary prose: letters with an apostrophe or a hyphen inside, sentence punctuation
-    around, lower case, capitalised or a short acronym, a vowel in a word of four letters or more,
-    and no verb that introduces a value."""
+    """A word of ordinary prose: letters with an apostrophe or one hyphen inside, sentence
+    punctuation around, lower case, capitalised or a short acronym, a vowel in a word of four letters
+    or more, a lowercase word of six letters or more that reads like one, and no verb that
+    introduces a value. A chain of hyphenated words is no word of prose (#701 review: a passphrase of
+    words joined by hyphens)."""
     if not _PLAIN_TOKEN.fullmatch(token):
         return False
     word = token.strip("(.,;!?)")
     letters = _APOSTROPHES.sub("", word)
-    if not letters or not (letters.islower() or letters[0].isupper() and letters[1:].islower()
-                           or letters.isupper() and len(letters) <= 5):
+    if not letters or word.count("-") > 1 or not (letters.islower() or letters[0].isupper() and letters[1:].islower()
+                                                   or letters.isupper() and len(letters) <= 5):
         return False
     lower = letters.lower()
+    if lower.isascii() and letters.islower() and len(lower) >= 6 and not _pronounceable(lower):
+        return False
     return lower not in introducers and (len(lower) < 4 or any(character in VOWELS for character in lower))
 
 
 class _Prose:
     """Whether what follows a word to the end of its line is a sentence of ordinary words, at least
-    two of them. The line's tokens are read once and judged once, so every word's question is a
-    bisection (#701 review: reading the rest of the line per word took 5 to 18 s for one 1 MB line)."""
+    two of them, the first in lower case, and whether a value follows a prose-common word. The
+    line's tokens are read once and judged once, so every word's question is a bisection (#701
+    review: reading the rest of the line per word took 5 to 18 s for one 1 MB line)."""
 
     def __init__(self, line: str):
         self.line, self.ready = line, False
@@ -482,17 +636,32 @@ class _Prose:
         # Where the first verb that sets a value ends: after it, "to" introduces one ("set it to V").
         self.setting = min((run.end() for run in _LETTER_RUN.finditer(words) if run.group().lower() in SETTING_VERBS),
                            default=len(words) + 1)
-        plain = [_prose_token(words[start:end], INTRODUCERS) for start, end in tokens]
-        plain_to = [_prose_token(words[start:end], INTRODUCERS | {"to"}) for start, end in tokens]
-        self.suffix, self.suffix_to = [True] * (len(tokens) + 1), [True] * (len(tokens) + 1)
-        for index in range(len(tokens) - 1, -1, -1):
+        self.texts, self.ready, self.suffix = [words[start:end] for start, end in tokens], True, None
+
+    def _judge(self) -> None:
+        """Which tokens to the end of the line are all ordinary prose, from each one on, with "to"
+        read as a word and as a verb that introduces a value; judged once, when a word first asks."""
+        texts = self.texts
+        plain = [self._plain(texts, index, INTRODUCERS) for index in range(len(texts))]
+        plain_to = [judged and texts[index].strip("(.,;!?)").lower() != "to" for index, judged in enumerate(plain)]
+        self.suffix, self.suffix_to = [True] * (len(texts) + 1), [True] * (len(texts) + 1)
+        for index in range(len(texts) - 1, -1, -1):
             self.suffix[index] = plain[index] and self.suffix[index + 1]
             self.suffix_to[index] = plain_to[index] and self.suffix_to[index + 1]
-        self.ready = True
+
+    @staticmethod
+    def _plain(texts, index: int, introducers: frozenset) -> bool:
+        token = texts[index]
+        if token.strip("(.,;!?)").lower() in ("be", "been", "being") and index and \
+                texts[index - 1].strip("(.,;!?)").lower() in MODALS:
+            return _prose_token(token, introducers - {"be", "been", "being"})
+        return _prose_token(token, introducers)
 
     def after(self, index: int) -> bool:
         if not self.ready:
             self._read()
+        if self.suffix is None:
+            self._judge()
         setting = self.setting <= index
         introducers = INTRODUCERS | {"to"} if setting else INTRODUCERS
         first = bisect_left(self.starts, index)
@@ -500,16 +669,78 @@ class _Prose:
         holder = first - 1  # a token the word ends inside: its rest is the first token after the word
         if holder >= 0 and self.ends[holder] > index:
             count += 1
-            if not _prose_token(self.words[index:self.ends[holder]], introducers):
+            leading = self.words[index:self.ends[holder]]
+            if not _prose_token(leading, introducers):
                 return False
-        return count >= 2 and (self.suffix_to if setting else self.suffix)[first]
+        elif first < len(self.texts):
+            leading = self.texts[first]
+        else:
+            return False
+        # The word right after it is where a value would stand: a capitalised word or an acronym
+        # there may be one ("wifi password Purple Monkey"), so prose begins in lower case.
+        letters = leading.strip("(.,;!?)")
+        return count >= 2 and letters[:1].islower() and (self.suffix_to if setting else self.suffix)[first]
+
+    def value_follows(self, index: int) -> bool:
+        """Whether a value stands within the next three tokens after a prose-common word, with no
+        sentence ending before it: ``pwd V``, ``the key is V``, ``ключ от апи: V``, ``* pass — V``."""
+        if not self.ready:
+            self._read()
+        first = bisect_left(self.starts, index)
+        following = self.texts[first:first + 3]
+        if first and self.ends[first - 1] > index:  # the word ends inside a token: its rest comes first
+            following = [self.words[index:self.ends[first - 1]]] + following[:2]
+        if following and following[0].strip(_TOKEN_TRIM).lower() in PROPERTY_WORDS:
+            return False  # a property's value follows: "key digest <hex>", "the key file id_ed25519"
+        for token in following:
+            if _value_like(token):
+                return True
+            if token.rstrip("\"')*`").endswith((".", "!", "?")) and token not in _DASHES:
+                return False
+        return False
 
 
-def _trigger(line: str) -> tuple[int, str | None] | None:
-    """Where the line rule masks ``line`` from and what kind of label it is (``bare``, ``table:<d>``,
-    ``quoted``, ``label``, or None for a word of prose), for the first label or client option
-    that names a secret; None when no label does."""
-    found = _word_trigger(line) if _HINT.search(line) and not _ARMOUR_LINE.fullmatch(line) else None
+
+def _plain_value(line: str, index: int) -> bool:
+    """Whether the value after a name at ``index`` is a path, a number or one plain word (letters,
+    joined by - or _ at most), which a property name holds (TOKEN_ID = 12, api_key_header =
+    "X-API-Key"); read up to 256 characters."""
+    rest = line[index:index + 256].lstrip("\"'`)]*\\ \t")
+    rest = rest[2:] if rest.startswith((":=", "=>", "->", "?=", "+=", "==")) else rest[1:] if rest[:1] in "=:" else rest
+    value = rest.strip().strip("\"'`,;")
+    if not value:
+        return True
+    return bool(re.fullmatch(r"[A-Za-z]+(?:[-_][A-Za-z]+)*|[0-9][0-9_.,]*|(?:~|\.{1,2})?/[\w./-]*|[\w.-]+(?:/[\w.-]+)+/?",
+                             value))
+
+
+def _call_label(name: str, label_start: int, label_end: int) -> bool:
+    """Whether a word in a dotted name before ``(`` names what the call takes: the last word of the
+    last component (req.SetBasicAuth(, crypto.createHmac(, r.auth(), or the component before a
+    factory (hmac.New(, hmac.new()."""
+    last_dot = name.rfind(".")
+    if label_end == len(name) and label_start > last_dot:
+        return True
+    head = name[:last_dot]
+    return name[last_dot + 1:].lower() in FACTORY_NAMES and label_end == last_dot and label_start > head.rfind(".")
+
+
+def _trigger(line: str, prose=None) -> tuple[int, str | None, int] | None:
+    """Where the line rule masks ``line`` from, what kind of label it is (``bare``, ``table:<d>``,
+    ``quoted``, ``label``, ``end`` for a word that ends the line without a separator, ``option``),
+    and where the label ends, for the first label or password option that names a secret; None when
+    none does."""
+    found = _word_trigger(line, prose) if _HINT.search(line) and not _ARMOUR_LINE.fullmatch(line) else None
+    option = _option_trigger(line)
+    if option is not None and (found is None or option < found[0]):
+        found = (option, "option", option)
+    return found
+
+
+def _option_trigger(line: str) -> int | None:
+    """Where a client's password option leaves its value on ``line``: a known client's option, or a
+    password option after a user option on the same line, or the value after a user option's user."""
+    found = None
     if _CLIENT_HINT.search(line):
         for client, option in CLIENT_OPTIONS:
             match = client.search(line)
@@ -519,13 +750,22 @@ def _trigger(line: str) -> tuple[int, str | None] | None:
                 match = option.search(line, match.end())
                 if match is None:
                     continue
-            if found is None or match.end() < found[0]:
-                found = (match.end(), "label")
+            if found is None or match.end() < found:
+                found = match.end()
+    user = USER_OPTION.search(line)
+    if user is not None:
+        separator = next((user.start("user") + offset for offset, character in enumerate(user.group("user"))
+                          if character in ":,"), None)
+        if separator is not None and not _ID_PAIR.fullmatch(user.group("user")):
+            found = separator + 1 if found is None else min(found, separator + 1)
+        password = PASSWORD_OPTION.search(line, user.end())
+        if password is not None:
+            found = password.end() if found is None else min(found, password.end())
     return found
 
 
-def _word_trigger(line: str) -> tuple[int, str | None] | None:
-    prose, exempt, documents = _Prose(line), None, "docs.google" in line
+def _word_trigger(line: str, prose=None) -> tuple[int, str | None, int] | None:
+    prose, exempt, documents = prose or _Prose(line), None, "docs.google" in line
     # Read once per line, not per word (#701 review: slicing the line per word was quadratic).
     stripped_line = line.strip().rstrip(":=").strip()
     delimiters = {mark for mark in ",;\t|" if mark in line}
@@ -534,15 +774,16 @@ def _word_trigger(line: str) -> tuple[int, str | None] | None:
     while last_value >= 0 and line[last_value] in _NO_VALUE:
         last_value -= 1
     for name in _IDENT.finditer(line.replace(MASK, " " * len(MASK)) if MASK in line else line):
-        if not _HINT.search(name.group()):
+        text = name.group()
+        if not _HINT.search(text):
             continue
         start, end = name.span()
-        _words_, words, _labels_, random_run, _pairable = _name_info(name.group())
+        _words_, words, _labels_, random_run, _pairable = _name_info(text)
         # A random-looking run is a value, never a label: the shape rules judge it, and ids that
         # look random and are no secret (toolu_01..., session_01...) stay.
         if random_run:
             continue
-        if documents or "_01" in name.group() or "_kw" in name.group() or "_lA" in name.group():
+        if documents or "_01" in text or "_kw" in text or "_lA" in text:
             if exempt is None:
                 exempt = _not_secret_spans(line)
             if _inside((start, end), exempt):
@@ -550,7 +791,8 @@ def _word_trigger(line: str) -> tuple[int, str | None] | None:
         for label_start, label_end, kind, label in _labels(line, name):
             label_name_end = max(end, label_end)  # a pair a blank apart ends in the next name
             if words and words[-1] in PROPERTY_WORDS and label[-1] != words[-1]:
-                continue
+                if words[-1] not in VALUE_PROPERTY_WORDS or _plain_value(line, label_name_end):
+                    continue
             index = words.index(label[0]) if label[0] in words else -1
             if label[-1] in ("token", "tokens") and index > 0 and words[index - 1] in QUANTITY_WORDS:
                 continue
@@ -559,43 +801,60 @@ def _word_trigger(line: str) -> tuple[int, str | None] | None:
             quoted = before in ("\"", "'", "<") or line[max(0, start - 2):start] in ("\\\"", "\\'")
             sigil = before in ("$", "@", "%", "-")
             joined = (line[start:label_name_end] != line[label_start:label_end]
-                      and not _PLAIN_KEBAB.fullmatch(name.group()))
+                      and not _PLAIN_KEBAB.fullmatch(text))
             separator = _separator_after(line, label_name_end)
+            last = label_end == label_name_end
             if kind == EQUALS:
-                hit = label_end == label_name_end and separator == "="
+                hit = last and (separator == "=" or label[0] in COLON_WORDS and (
+                    separator in (":", "quote", "pair") or not (joined or quoted or sigil) and separator is None
+                    and prose.value_follows(label_name_end)))
             elif kind == CALL:
-                hit = label_end == label_name_end and separator == "call"
+                hit = last and separator == "call"
             elif kind == WEAK:
                 # A dotted name without a separator is a package path or a file (oauth2.client, server.key),
                 # and a short word that only case or digits set off is chance in a random id (KeyNoe4w).
-                dotted = "." in name.group() and not (quoted or sigil)
+                dotted = "." in text and not (quoted or sigil)
                 chance = label_end - label_start < 4 and not _set_off(line, label_start, label_end)
-                hit = (joined and not dotted and not chance) or quoted or sigil or separator in ("=", ":", "quote")
+                hit = ((joined and not dotted and not chance) or quoted or sigil
+                       or separator in ("=", ":", "quote", "pair")
+                       or separator == "call" and dotted and _call_label(text, label_start - start, label_end - start))
+                if not hit and not (joined or dotted or quoted or sigil) and separator is None:
+                    cell = _cell_value(line, label_start, label_name_end, delimiters)
+                    if cell is not None:
+                        hit = any(_value_like(token) for token in cell.split()[:1])
+                    else:
+                        hit = prose.value_follows(label_name_end)
             else:
-                hit = (joined or quoted or sigil or separator in ("=", ":", "quote")
+                hit = (joined or quoted or sigil or separator in ("=", ":", "quote", "pair", "call")
                        or not prose.after(label_name_end))
             if not hit and kind != STRONG:
                 continue  # only a strong word may head a table's column or stand alone without a hit
             # From the end of the name when the rest of it is words (SECRET_KEY, authToken), else
-            # from the end of the word, so a value glued to it goes too (key-<hex>).
+            # from the end of the word, so a value glued to it goes too (key-<hex>); a long piece glued
+            # by - or . with nothing after the name is a value too (token-<value>, password.<value>).
             rest = line[label_end:label_name_end]
             mask_from = label_name_end if _NAME_TAIL.fullmatch(rest) else label_end
+            if mask_from == label_name_end and rest[:1] in ("-", ".") and separator is None and (
+                    len(rest) > 6 or any(character.isdigit() for character in rest)):
+                mask_from = label_end
             if mask_from > last_value:
-                bare = stripped_line == line[label_start:label_end] or stripped_line == line[start:label_name_end]
-                field = _field(line, start, label_name_end, delimiters)
                 # Nothing to mask on this line: a label line leaves its value for the lines below. A
                 # word alone on its line or heading a table's column is such a label when it names a
                 # secret by itself (Password, username,password), a weaker word only with a separator.
+                bare = stripped_line == line[label_start:label_end] or stripped_line == line[start:label_name_end]
+                field = _field(line, start, label_name_end, delimiters)
                 strong = kind == STRONG or kind == WEAK and separator in ("=", ":")
                 if bare and strong:
-                    return mask_from, "bare"
+                    return mask_from, "bare", label_end
                 if field is not None and strong:
-                    return mask_from, "table:" + field
+                    return mask_from, "table:" + field, label_end
                 if hit and (joined or quoted or sigil or separator in ("=", ":")):
-                    return mask_from, "quoted" if quoted and not separator else "label"
+                    return mask_from, "quoted" if quoted and not separator else "label", label_end
+                if hit and kind == STRONG:
+                    return mask_from, "end", label_end
                 continue
             if hit:
-                return mask_from, "label"
+                return mask_from, "label", label_end
     return None
 
 
@@ -607,6 +866,17 @@ def _set_off(line: str, start: int, end: int) -> bool:
 
 def _indent(text: str) -> int:
     return len(text) - len(text.lstrip(" \t"))
+
+
+def _has_value(tail: str) -> bool:
+    """Whether the rest of a line after a label holds a value: anything but blanks, the label's own
+    closing marks, a separator and an opening bracket, quote or block indicator; punctuation alone
+    after a separator is a value (#701 review: ``password: !?*-+`` was kept), sentence punctuation
+    without one is not ("... looks like a password.")."""
+    if tail.strip(_NO_VALUE):
+        return True
+    after = _AFTER_SEPARATOR.match(tail)
+    return after is not None and not _OPENING_ONLY.fullmatch(after.group("rest"))
 
 
 def _quoted_end(text: str, start: int) -> int:
@@ -629,80 +899,297 @@ def _quoted_end(text: str, start: int) -> int:
 _OPENING_QUOTE = re.compile(r"[\"'`)\]*\\]{0,8}[ \t]*(?::=|=>|->|\?=|\+=|==?|:)[ \t]*(\\?)([\"'`])")
 
 
-def line_spans(text: str) -> list[tuple[int, int]]:
-    """Where the line rule masks ``text`` (owner's decision 2026-11-28): after the first label on a
-    line that names a secret, to the end of the line (``_trigger``); a quoted value that opens there
-    and closes on a later line, to the end of that line; and the value a label line without one leaves
-    below: the lines indented under it (a YAML block, a Terraform block), the next line after a
-    label alone on its line or a quoted name (a form field), and the rows under a table's header."""
-    spans: list[tuple[int, int]] = []
+def _lines(text: str) -> list[tuple[int, int]]:
     lines, offset = [], 0
     for piece in text.split("\n"):
         end = offset + len(piece)
         lines.append((offset, end - 1 if piece.endswith("\r") else end))
         offset = end + 1
-    index, covered = 0, 0
-    while index < len(lines):
-        start, end = lines[index]
-        if start < covered:
-            index += 1
-            continue
-        line = text[start:end]
-        found = _trigger(line)
-        if found is None:
-            index += 1
-            continue
-        mask_from, form = found
-        tail = line[mask_from:]
-        if tail.strip(_NO_VALUE):
-            if tail != MASK:
-                stop = end
-                opening = _OPENING_QUOTE.match(tail)
-                if opening is not None:
-                    quote_at = start + mask_from + opening.start(2)
-                    if opening.group(1):  # an escaped quote, inside a JSON string: it closes escaped too
-                        close = text.find("\\" + opening.group(2), quote_at + 1)
-                        close = len(text) if close < 0 else close
-                    else:
-                        close = _quoted_end(text, quote_at)
-                    if close > end:  # to the end of the line the value closes on
-                        stop = _LINE_END.match(text, close).end()
-                spans.append((start + mask_from, stop))
-                covered = stop
-            index += 1
-            continue
-        if form is None:
-            index += 1
-            continue
-        # A label line without its value: the value is below it.
-        indent, below, masked = _indent(line), index + 1, False
+    return lines
+
+
+def _continued(text: str, lines, index: int) -> int:
+    """The last line of the command or value that line ``index`` continues with trailing backslashes."""
+    last = index
+    while last + 1 < len(lines) and last - index < CONTINUATION_LINES and \
+            text[lines[last][0]:lines[last][1]].rstrip(" \t").endswith("\\"):
+        last += 1
+    return last
+
+
+def _ends_with_colon(line: str) -> bool:
+    return line.rstrip(" \t*_`\"'»)]").endswith((":", "："))
+
+
+def _ends_with_label(line: str, label_end: int) -> bool:
+    """Whether nothing but closing marks, a colon or a dash follows the label: a sentence or a heading
+    that leaves its value for the next line ("Try logging in with the password", "### Admin password")."""
+    return not line[label_end:].strip(" \t*_`\"'»)]:：-—")
+
+
+def _value_shaped(row: str) -> bool:
+    """Whether a line below a label line reads as its value rather than as prose: one token, a code
+    span, a list item or a pair, or four tokens at most with one shaped like a value."""
+    tokens = row.split()
+    if len(tokens) == 1 or row.strip().startswith(("`", "- ", "* ", "• ")) or _KEY_LINE.match(row):
+        return True
+    return len(tokens) <= 4 and any(_value_like(token) for token in tokens)
+
+
+def _below(text: str, lines, index: int, mode: str) -> tuple[list[tuple[int, int]], int]:
+    """The spans of a label line's value below it, and the index of the line after them.
+
+    ``block``: the lines indented under it. ``one``: the next non-blank line (a quoted form field's
+    value). ``lines``: the next non-blank line whatever it holds, then those after it that read as a
+    value, up to a blank line. ``values``: only lines that read as a value. A fenced block first
+    below the label loses its content and keeps its fences; a YAML or INI sibling key below a key
+    line is no value of it. Every mode is bounded."""
+    start, end = lines[index]
+    label = text[start:end]
+    spans, below, blanks = [], index + 1, 0
+    while below < len(lines) and not text[lines[below][0]:lines[below][1]].strip():
+        below += 1
+        blanks += 1
+    if below >= len(lines) or blanks > BELOW_BLANKS and mode != "block":
+        return spans, index + 1
+    row_start, row_end = lines[below]
+    row = text[row_start:row_end]
+    if _indent(row) > _indent(label):  # the lines indented under it: a YAML or Terraform block
         while below < len(lines):
             row_start, row_end = lines[below]
             row = text[row_start:row_end]
-            if not row.strip():
-                below += 1
-                continue
-            if _indent(row) <= indent:
-                break
-            spans.append((row_start + _indent(row), row_end))
-            masked = True
+            if row.strip():
+                if _indent(row) <= _indent(label):
+                    break
+                spans.append((row_start + _indent(row), row_end))
             below += 1
-        if not masked and below < len(lines):
-            if form.startswith("table:"):
-                delimiter = form.split(":", 1)[1]
-                while below < len(lines):
-                    row_start, row_end = lines[below]
-                    row = text[row_start:row_end]
-                    if not row.strip() or delimiter not in row:
-                        break
-                    spans.append((row_start + _indent(row), row_end))
-                    below += 1
-            elif form in ("bare", "quoted"):
-                row_start, row_end = lines[below]
-                spans.append((row_start + _indent(text[row_start:row_end]), row_end))
+        return spans, below
+    if mode == "block" or _ARMOUR_LINE.fullmatch(row):
+        return spans, index + 1  # a key block below a label is the key block rule's
+    fence = _FENCE.match(row)
+    if fence is not None:
+        mark, last = fence.group(1), min(len(lines), below + FENCE_LINES + 1)
+        inner = below + 1
+        while inner < last and not text[lines[inner][0]:lines[inner][1]].lstrip().startswith(mark):
+            if text[lines[inner][0]:lines[inner][1]].strip():
+                spans.append((lines[inner][0] + _indent(text[lines[inner][0]:lines[inner][1]]), lines[inner][1]))
+            inner += 1
+        return spans, min(inner + 1, len(lines))
+    if mode in ("lines", "one") and _IDENTIFIER_KEY.fullmatch(label) and _KEY_LINE.match(row) and \
+            not row.lstrip().startswith("-") and not _value_like(row.split()[0]):
+        return spans, index + 1  # password:⏎username: admin, a sibling key in YAML or INI
+    count = 0
+    while below < len(lines) and count < (1 if mode in ("one", "values") else BELOW_LINES):
+        row_start, row_end = lines[below]
+        row = text[row_start:row_end]
+        if not row.strip() or (count or mode == "values") and not _value_shaped(row):
+            break
+        spans.append((row_start + _indent(row), row_end))
+        below, count = below + 1, count + 1
+    return spans, below
+
+
+def _table_rows(text: str, lines, index: int) -> int | None:
+    """The index after the rows of a table whose header at ``index`` names a secret in one of its
+    cells, in any delimited form: a pipe table with or without outer pipes above its separator row,
+    or comma-, semicolon- or tab-separated values above a row of as many cells; the header's cells
+    are read past blanks, emphasis and quotes. None when the line heads no such table."""
+    start, end = lines[index]
+    line = text[start:end]
+    if index + 1 >= len(lines) or not _HINT.search(line):
+        return None
+    following = text[lines[index + 1][0]:lines[index + 1][1]]
+    if "|" in line and _TABLE_SEPARATOR.fullmatch(following):
+        cells = line.strip().strip("|").split("|")
+    else:
+        delimiter = next((mark for mark in ("\t", ";", ",") if mark in line), None)
+        if delimiter is None or following.count(delimiter) != line.count(delimiter) or \
+                not re.fullmatch(r"[\w .\"'*`\-" + re.escape(delimiter) + "]+", line):
+            return None
+        cells = line.split(delimiter)
+    if len(cells) < 2 or not any(_cell_names_secret(cell.strip(" \t*_`\"'")) for cell in cells):
+        return None
+    below = index + 1
+    while below < len(lines) and below - index <= TABLE_ROWS:
+        row = text[lines[below][0]:lines[below][1]]
+        if not row.strip() or ("|" if "|" in line else delimiter) not in row:
+            break
+        below += 1
+    return below
+
+
+def _cell_names_secret(cell: str) -> bool:
+    """Whether a header's cell names a secret: a strong word or pair, or one of the short words a
+    column of passwords is headed by (Pass, PWD, PIN, OTP); not Key, which heads key-value tables."""
+    for name in _IDENT.finditer(cell):
+        _words_, words, labels, random_run, _pairable = _name_info(name.group())
+        if random_run or words and words[-1] in PROPERTY_WORDS:
+            continue
+        for _start, _end, kind, label in labels:
+            if kind == STRONG or label[0] in ("pass", "pwd", "pw", "passcode", "pin", "otp", "psk", "пасс"):
+                return True
+            if kind == WEAK and label[0] not in ("key", "keys") and len(words) > 1:
+                return True
+    return False
+
+
+def _names_secret(value: str) -> bool:
+    """Whether a field's value names a secret: "/prod/db/password", "db_pass", "ConnectionPassword"."""
+    for name in _IDENT.finditer(value):
+        _words_, words, labels, random_run, _pairable = _name_info(name.group())
+        if random_run or words and words[-1] in PROPERTY_WORDS:
+            continue
+        if any(kind == STRONG or kind == WEAK and (len(words) > 1 or label[0] in ("pass", "pwd", "pw", "psk"))
+               for _start, _end, kind, label in labels):
+            return True
+    return False
+
+
+def _pair_spans(text: str, lines, index: int) -> list[tuple[int, int]]:
+    """The value of a name-value pair whose name field at ``index`` names a secret: a value field
+    within ``PAIR_LINES`` lines above or below it, in JSON, YAML or XML (``"key": "db_pass",`` then
+    ``"value": "V"``; ``<name>...Password</name>`` then ``<value>V</value>``)."""
+    start, end = lines[index]
+    match = _NAME_FIELD.fullmatch(text, start, end)
+    if match is None or not _names_secret(match.group("value") or match.group("xml") or ""):
+        return []
+    spans = []
+    for other in range(max(0, index - PAIR_LINES), min(len(lines), index + PAIR_LINES + 1)):
+        if other == index:
+            continue
+        found = _VALUE_FIELD.fullmatch(text, lines[other][0], lines[other][1])
+        if found is not None:
+            group = "value" if found.group("value") is not None else "xml"
+            spans.append((found.start(group), found.end(group)))
+    return spans
+
+
+def line_spans(text: str) -> list[tuple[int, int]]:
+    """Where the line rule masks ``text`` (owner's decision 2026-11-28): after the first label on a
+    line that names a secret, to the end of the line (``_trigger``) and of the lines it continues with
+    trailing backslashes; a quoted value that opens there and closes on a later line, to the end of
+    that line; the value a label line leaves below it (``_below``): the lines indented
+    under it, a fenced block's content, the lines that read as a value after a line ending in a label
+    or a colon, a heading or a bare label, the next line after a quoted name; a heredoc's body after
+    a line that names a secret; the rows under a table's header that names a secret
+    (``_table_rows``); and a name-value pair's value near a name that names a secret
+    (``_pair_spans``)."""
+    spans: list[tuple[int, int]] = []
+    lines = _lines(text)
+    index, covered = 0, 0
+    while index < len(lines):
+        start, end = lines[index]
+        line = text[start:end]
+        if start < covered or not line.strip():
+            index += 1
+            continue
+        hinted = _HINT.search(line) is not None
+        if hinted:
+            rows = _table_rows(text, lines, index)
+            if rows is not None:
+                spans.extend((lines[row][0] + _indent(text[lines[row][0]:lines[row][1]]), lines[row][1])
+                             for row in range(index + 1, rows) if text[lines[row][0]:lines[row][1]].strip())
+                spans.extend(_trigger_spans(text, lines, index, line))
+                index = rows
+                continue
+            spans.extend(_pair_spans(text, lines, index))
+        prose = _Prose(line) if hinted else None
+        found = _trigger(line, prose) if hinted or _CLIENT_HINT.search(line) or "-" in line or "/" in line else None
+        last = _continued(text, lines, index)
+        if found is None and last > index:
+            # A client's option on a continuation line: mysql -u root \⏎  -p V
+            joined_text = text[start:lines[last][1]]
+            option = _option_trigger(joined_text)
+            if option is not None:
+                found_line = next(row for row in range(index, last + 1) if lines[row][1] >= start + option)
+                spans.append((start + option, lines[found_line][1]))
+                spans.extend((lines[row][0] + _indent(text[lines[row][0]:lines[row][1]]), lines[row][1])
+                             for row in range(found_line + 1, last + 1))
+                index = last + 1
+                continue
+        if found is None:
+            index += 1
+            continue
+        mask_from, form, label_end = found
+        tail = line[mask_from:]
+        valued = _has_value(tail)
+        if not valued and _continued(text, lines, index) > index:
+            # The value goes on after a trailing backslash: curl -u \⏎  user:V \⏎  https://...
+            last = _continued(text, lines, index)
+            spans.extend((lines[row][0] + _indent(text[lines[row][0]:lines[row][1]]), lines[row][1])
+                         for row in range(index + 1, last + 1))
+            covered = lines[last][1]
+            index = last + 1
+            continue
+        if valued and tail != MASK:
+            stop = end
+            opening = _OPENING_QUOTE.match(tail)
+            if opening is not None:
+                quote_at = start + mask_from + opening.start(2)
+                if opening.group(1):  # an escaped quote, inside a JSON string: it closes escaped too
+                    close = text.find("\\" + opening.group(2), quote_at + 1)
+                    close = len(text) if close < 0 else close
+                else:
+                    close = _quoted_end(text, quote_at)
+                if close > end:  # to the end of the line the value closes on
+                    stop = _LINE_END.match(text, close).end()
+            spans.append((start + mask_from, stop))
+            covered = stop
+            closing = next(row for row in range(index, len(lines)) if lines[row][1] >= stop)
+            last = _continued(text, lines, closing)
+            spans.extend((lines[row][0] + _indent(text[lines[row][0]:lines[row][1]]), lines[row][1])
+                         for row in range(closing + 1, last + 1))
+            covered = max(covered, lines[last][1])
+        heredoc = _HEREDOC.search(line)
+        if heredoc is not None:
+            terminator, below = heredoc.group(2) or heredoc.group(4), index + 1
+            while below < len(lines) and below - index <= HEREDOC_LINES and \
+                    text[lines[below][0]:lines[below][1]].strip() != terminator:
+                if text[lines[below][0]:lines[below][1]].strip():
+                    spans.append((lines[below][0], lines[below][1]))
                 below += 1
-        index = below
+            index = below
+            continue
+        mode = None
+        if form == "option":
+            mode = None
+        elif valued:
+            mode = "lines" if _ends_with_colon(line) else None
+        elif form == "quoted":
+            mode = "one"
+        elif form in ("bare",) or _ends_with_colon(line):
+            mode = "lines"
+        elif form == "label":
+            mode = "block"
+        elif form and form.startswith("table:"):
+            mode = "table:" + form.split(":", 1)[1]
+        elif (_HEADING.match(line) or _ends_with_label(line, label_end)) and not any(
+                mark in line[:label_end] for mark in (":", "=")):
+            mode = "values"  # not the value of another key (kind: Secret)
+        if mode is None:
+            index += 1  # lines a quoted value or a continuation covered are skipped above
+            continue
+        if mode.startswith("table:"):
+            delimiter, below = mode.split(":", 1)[1], index + 1
+            while below < len(lines) and below - index <= TABLE_ROWS:
+                row = text[lines[below][0]:lines[below][1]]
+                if not row.strip() or delimiter not in row:
+                    break
+                spans.append((lines[below][0] + _indent(row), lines[below][1]))
+                below += 1
+            index = below
+            continue
+        found_spans, index = _below(text, lines, index, mode)
+        spans.extend(found_spans)
     return [span for span in spans if text[span[0]:span[1]] != MASK]
+
+
+def _trigger_spans(text: str, lines, index: int, line: str) -> list[tuple[int, int]]:
+    """The line rule's span on a table's header line itself: after its label, to the end of the line."""
+    found = _trigger(line)
+    if found is None or not _has_value(line[found[0]:]) or line[found[0]:] == MASK:
+        return []
+    return [(lines[index][0] + found[0], lines[index][1])]
 
 
 # --- Formats and shapes --------------------------------------------------------------------------------
