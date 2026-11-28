@@ -465,6 +465,7 @@ def test_a_configuration_that_names_no_installation_is_no_service(tmp_path, conf
     with pytest.raises(NotInstalled, match="has no service.json that names an installation") as refused:
         require_service(SimpleNamespace(config=config, directory=tmp_path), "recover")
     assert str(tmp_path) in str(refused.value) and "python -m src.daemon recover" in str(refused.value)
+    assert "adding --state <dir> when the service was installed with one" in str(refused.value)
 
 
 def test_a_configuration_that_names_an_installation_is_a_service(tmp_path):
