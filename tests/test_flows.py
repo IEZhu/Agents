@@ -467,15 +467,17 @@ def test_protocol_runs_a_named_flow_before_improvising():
 
 def test_protocol_switches_back_to_the_previous_persona_after_a_flow():
     """#456: the answers after a flow ran under its persona; every surface that states the flow
-    rule now names the role to return to, from the flow's first run_flow."""
+    rule now names the role to return to. The review of the fix added that the rule decides over
+    keep, which descriptor the switch passes, and what a null previous_persona means."""
     from pathlib import Path
 
     import src.server as server
     from src.engine import protocol_text
     root = Path(__file__).resolve().parents[1]
-    rule = ("Once the flow is done, assess the next request that does not continue it against the "
-            "`previous_persona` of its first `run_flow`, and switch back to that role with "
-            "`get_agent_context` when it fits.")
+    rule = ("Once the flow is done, assess the next request that does not continue it against the last "
+            "`previous_persona` that `run_flow` returned, not the flow's persona, even where `keep` would "
+            "apply. If that role fits, switch back to it with `get_agent_context`, passing the flow's "
+            "descriptor as `current_persona`; if it is null or lost, call `route_and_load`.")
     for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
         flat = " ".join((root / name).read_text(encoding="utf-8").split())
         assert rule in flat.split("## Run a named flow", 1)[1].split(" ## ", 1)[0], name

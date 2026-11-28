@@ -155,8 +155,10 @@ that an installed flow covers. If no flow matches, say so and continue without
 one.
 
 Once the flow is done, assess the next request that does not continue it against
-the `previous_persona` of its first `run_flow`, and switch back to that role with
-`get_agent_context` when it fits.
+the last `previous_persona` that `run_flow` returned, not the flow's persona, even
+where `keep` would apply. If that role fits, switch back to it with
+`get_agent_context`, passing the flow's descriptor as `current_persona`; if it is
+null or lost, call `route_and_load`.
 
 ## Describe a repository on first work
 
