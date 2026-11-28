@@ -177,15 +177,9 @@ def describe_preview(preview: dict) -> list[str]:
         lines.append("Choose merge or replace before this preview can start sync.")
     local = preview.get("local_commits")
     if local:
-        title = f"Commits made in this library outside sync: {local['count']}"
-        if local.get("pushed"):
-            lines.append(f"{title}, uploaded with their history.")
-        else:
-            lines.append(f"{title}, kept on this machine ({LOCAL_COMMITS_REFS}); only their files "
-                         "that sync are uploaded.")
-            lines += _listed("Files in them that sync does not upload",
-                             [f"{item['path']} ({item['reason'].replace('_', ' ')})"
-                              for item in local.get("unsynced", [])])
+        lines.append(f"Commits made in this library outside sync: {local['count']}. They stay on this machine "
+                     f"({LOCAL_COMMITS_REFS}); their files count as edits of the working tree, listed below "
+                     "like any other.")
     comparison = preview.get("comparison", {})
     if comparison:
         summary = comparison.get("summary", {})

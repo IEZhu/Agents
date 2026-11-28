@@ -23,8 +23,8 @@ their commits never have private commits as ancestors. Incoming version refs are
 `refs/agents-core/incoming/*`, and the flow tools read them alongside local history. The
 locally retained `refs/agents-core/received/*` tips keep received versions available when a
 remote history ref is later deleted or rewritten, including after Git garbage collection.
-`refs/agents-core/local-commits/*` keeps commits someone made in the library outside sync once
-the branch leaves them behind ([below](#commits-made-in-the-library-outside-sync)).
+`refs/agents-core/local-commits/*` keeps the commits someone made in the library outside sync,
+which never leave the machine ([below](#commits-made-in-the-library-outside-sync)).
 These retained refs are never pushed. The
 `.agents-history-event.json` records in these Git trees are transport metadata, never another
 directory of snapshot files in the library.
@@ -607,32 +607,32 @@ Commits carry the configured identity and messages such as
 
 ### Commits made in the library outside sync
 
-Someone may run `git commit` in the library, as a session does when it commits files by hand.
-The local branch is then ahead of the remote head this machine integrated last. While the remote
-has not moved since the last cycle, a cycle counts those commits as edits of the working tree
-since that head and merges with that head's tree as the base: nothing goes back to the remote's
-version, nothing conflicts, and the preview is an upload, not a join. The scope rules still decide
-what goes up:
+Someone may run `git commit`, `git merge`, `git rebase` or `git commit --amend` in the library, as a
+session does when it commits files by hand. Such commits never leave this machine: their messages,
+authors and intermediate versions stay here. A cycle counts their files as edits of the working
+tree since a commit the remote held, and its own commit, with the configured identity and the
+usual scope rules, size limit and secret scanner, uploads what may go up. Every version a cycle
+keeps for a file it cannot commit (a scanner hit, a file over 5 MiB, an unreadable one) comes from
+that commit too, never from a commit made by hand.
 
-- When every file version the commits add or change is one a cycle would commit from the working
-  tree (on a path that syncs here and not under `.history/`, a regular file of at most 5 MiB that
-  the secret scanner lets through), they go up with their history: the remote branch moves to
-  them, or to the cycle's commit on top of them when the working tree holds more. The
-  mass-deletion guard applies as to any deletion.
-- Otherwise the cycle pushes nothing and stops with `confirmation_needed`. Its message counts the
-  commits and names the first files that keep them here, each with its reason: `never`,
-  `excluded`, `local`, `pending`, `not_regular`, `size`, `secret` or `invalid_mcp_record`; the
-  preview lists every one under `local_commits`. Confirming it uploads only the files that sync, on
-  top of the remote head; the commits stay on this machine under
-  `refs/agents-core/local-commits/<commit>`, and the files that do not sync stay in the working
-  tree.
+| Relation | What a cycle does |
+|---|---|
+| The remote has not moved since the last cycle, or the branch already holds what it gained (merged or rebased onto it by hand), or the last sync commit was amended | the remote head is the base: nothing goes back to the remote's version, nothing conflicts, and the preview is an upload; unattended |
+| The remote moved on (another machine pushed) | `confirmation_needed` naming the commits made outside sync; the preview merges on the remote head integrated last, as for any change both machines made |
+| The remote branch is gone | as before, the owner confirms an upload; it goes on the remote head integrated last, never on the commits made by hand |
+| The remote was rewritten or is unrelated | as before, a join after the owner confirms the preview |
 
-When the remote moved on meanwhile (another machine pushed), the histories have diverged. The
-cycle stops with `confirmation_needed` and a message that names the commits made outside sync, and
-its preview is the join it was before, without a common base. Whenever the branch leaves behind
-commits that neither the remote head nor the one integrated last contains, as a confirmed join
-does, `refs/agents-core/local-commits/<commit>` keeps them. Commits that one of those two remote
-heads holds are not kept: a rewritten remote may have meant to drop them.
+Before the branch moves on, `refs/agents-core/local-commits/<commit>` keeps the commits it leaves
+behind that neither the fetched remote head nor the one integrated last contains. Commits that
+one of those two holds are not kept: a rewritten remote may have meant to drop them. The refs are
+never pushed and never pruned; list them with `git for-each-ref refs/agents-core/local-commits` in
+the library and remove one with `git update-ref -d <ref>` once its commits are no longer needed.
+
+Stage by path when committing in the library. `git add -A` also stages files that never sync here
+(excluded or machine-local groups, files at the root, `.DS_Store`), because the library's
+`.gitignore` is shared by every machine and cannot list what only this machine keeps out. Sync
+never uploads them, but each such commit stays here under its own ref, and the files come back as
+untracked after every cycle.
 
 ## Conflicts
 
@@ -679,8 +679,7 @@ normal save (or, for a deletion, a normal delete, which keeps the text in the fl
 | Empty local library | the library is downloaded |
 | Initial connection with local content or saved versions and a populated remote | the owner chooses Merge or Replace, reviews the selected comparison, and confirms its current preview |
 | Remote history rewritten or reset during an already-started connection | merge recovery preserves files from either side after the owner confirms the preview; connection modes apply only before sync starts |
-| [Commits made in the library outside sync](#commits-made-in-the-library-outside-sync) on the remote head integrated last | uploaded with their history; when one holds a file sync does not upload, the owner confirms an upload of the files that sync and the commits stay here |
-| Such commits while the remote moved on (diverged histories) | merge recovery as for a rewritten remote, after the owner confirms the preview; the commits stay here |
+| [Commits made in the library outside sync](#commits-made-in-the-library-outside-sync) | their files go up as edits of the working tree in a sync commit; the commits stay here; once the remote moved on, the owner confirms the merge first |
 
 - The remote must be empty or hold `.agents-library.json`; a newer `format` stops with
   `format_newer`.
@@ -773,9 +772,10 @@ holds, not only its last tree), the scanner, privacy, a hostile global git confi
 concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
 seeded random edits on both machines. `tests/test_user_sync_ahead.py` pins each relation of the local
 branch to the remote one on the same setup: equal, behind, ahead with commits made outside sync
-(pushed with their history, or held back for each reason a file does not sync, also in an
-intermediate commit), diverged, unrelated and a rewritten remote, and that none of them loses a
-local commit. `tests/test_user_sync_history.py` adds clones of one project
+(also merged, rebased or amended by hand, and each kind of file that never goes up), diverged,
+unrelated, a rewritten remote and a remote recreated empty; none of them loses a local commit, and
+no hand commit, its message or a held-back file reaches the remote.
+`tests/test_user_sync_history.py` adds clones of one project
 for the repository history: nothing shared before approval, the preview (also limited to one
 repository, and changed by another checkout or an older entry), waiting counts that leave out what
 stays local, revocation, also while a run waits for the library; the past of a clone, a worktree or
