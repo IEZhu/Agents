@@ -154,6 +154,10 @@ taking any of its steps. Pass the user's scope and constraints in `request`, plu
 that an installed flow covers. If no flow matches, say so and continue without
 one.
 
+Once the flow is done, assess the next request that does not continue it against
+the `previous_persona` of its first `run_flow`, and switch back to that role with
+`get_agent_context` when it fits.
+
 ## Describe a repository on first work
 
 The first time a conversation works in a repository or a project folder (reads,
