@@ -269,7 +269,10 @@ sometimes lost from the journal. Before anything is written, the hook masks
   ([autodev guards](autodev-guards.md): token formats and private key headers, also split over
   lines or encoded), every value of the hook's own environment whose variable's name names a secret
   (by the same words, plural and joined names included: `API_KEYS`, `SERVICE_TOKENS`, `MASTERKEY`,
-  `SSHPASS`, `ADMIN_PW`; or whose value scans as a secret) as a known secret, raw, split, base64 or
+  `SSHPASS`, `ADMIN_PW`; a last word such as `name`, `path`, `file`, `id`, `type` or `mode` makes
+  it a property, while `AUTH_HEADER`, `TOKEN_STORE`, `SECRET_ENV`, `API_KEY_PARAM` and
+  `INPUT_TOKEN` count, and a quantity before a plural, `MAX_TOKENS`, is a count; or whose value
+  scans as a secret) as a known secret, raw, split, base64 or
   hex, and the credentials that [shared memory](shared-memory.md) and [user sync](user-sync.md)
   refuse to serve or publish. An environment value under eight characters, or one naming an
   existing path, is no known secret.

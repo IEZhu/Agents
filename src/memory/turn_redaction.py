@@ -98,6 +98,16 @@ VOWELS = frozenset("aeiouyаеёиоуыэюя")
 ENVIRONMENT_WORDS = STRONG_WORDS | WEAK_WORDS | frozenset({"secrets", "jwt", "pem", "salt", "signature"})
 # Alone, these words are too common to name a secret: "PASS: test_x" in a test report, the shell's PWD.
 LONE_WORDS = frozenset({"pass", "pwd", "pw"})
+# The last words that make a variable's name a secret's property: the line rule's, without the ones
+# it added for names in code (#701 review: AUTH_HEADER, TOKEN_STORE, SECRET_ENV and API_KEY_PARAM hold
+# secrets as often as not, and their values were no longer looked for).
+ENVIRONMENT_PROPERTY_WORDS = frozenset({
+    "name", "names", "mode", "path", "paths", "file", "files", "dir", "dirs", "directory", "id", "ids",
+    "type", "types", "kind", "length", "size", "count", "limit", "limits", "enabled", "disabled", "set",
+    "version", "provider", "helper", "format", "prefix", "suffix", "label", "policy", "method", "scheme",
+    "algorithm", "endpoint", "host", "port", "region", "url", "uri", "domain", "expiry", "expires", "ttl",
+    "timeout", "user", "username", "login", "email", "digest", "hash", "fingerprint", "checksum", "stdin",
+    "command", "cmd", "prompt"})
 # A database or broker word before URL, URI or DSN: a connection string that often holds a password.
 CONNECTION_WORDS = frozenset({
     "database", "db", "redis", "mongo", "mongodb", "postgres", "postgresql", "pg", "mysql", "mariadb",
@@ -266,16 +276,17 @@ def secret_name(name: str) -> bool:
     clientSecret) or, in a name of capitals, like a key or a password (MASTERKEY, SSHPASS); or a
     database or broker word comes before a last URL, URI or DSN (DATABASE_URL, REDIS_URL). A word
     inside another word does not count (KEYRING, KEYBOARD, AUTHOR), ``pass``, ``pwd`` and ``pw``
-    alone do not (``PASS:`` in a test report, the shell's PWD), a last ``PROPERTY_WORDS`` word names
-    a property (SSH_KEY_NAME, AUTH_MODE), and a quantity before tokens a count (MAX_TOKENS)."""
+    alone do not (``PASS:`` in a test report, the shell's PWD), a last ``ENVIRONMENT_PROPERTY_WORDS``
+    word names a property (SSH_KEY_NAME, AUTH_MODE), and a quantity before a plural tokens a count
+    (MAX_TOKENS; INPUT_TOKEN and CACHE_TOKEN are tokens, #701 review)."""
     words = name_words(name)
     if not words or len(words) == 1 and words[0] in LONE_WORDS:
         return False
     if words[-1] in CONNECTION_ENDINGS and any(word in CONNECTION_WORDS for word in words[:-1]):
         return True
-    if words[-1] in PROPERTY_WORDS:
+    if words[-1] in ENVIRONMENT_PROPERTY_WORDS:
         return False
-    if len(words) > 1 and words[-1] in ("token", "tokens") and words[-2] in QUANTITY_WORDS:
+    if len(words) > 1 and words[-1] == "tokens" and words[-2] in QUANTITY_WORDS:
         return False
     capitals = name.upper() == name
     return any(word in ENVIRONMENT_WORDS or word.endswith(STRONG_ENDINGS) or word.startswith(STRONG_STEMS + WEAK_STEMS)

@@ -1433,6 +1433,17 @@ def test_environment_names_count_by_word_so_their_values_stay(text):
     ("ROOT_PW", True), ("PASSCODE", True), ("JWT", True), ("MAX_TOKENS", False), ("MONKEYPATCH", False),
     ("TOKENIZERS_PARALLELISM", False), ("KEYCLOAK_ADMIN", False), ("PASSWORD_STORE_DIR", False),
     ("AWS_CREDENTIAL_FILE", False), ("XAUTHORITY", False),
+    # The 40 names the fourth attempt dropped by sharing the line rule's property words and its
+    # quantity rule (v701-4 regression), and plural counts that stay counts.
+    *[(name, True) for name in (
+        "AUTH_HEADER", "AUTHORIZATION_HEADER", "API_KEY_HEADER", "PRIVATE_TOKEN_HEADER", "GIT_AUTH_HEADER",
+        "COOKIE_HEADER", "SECRET_ENV", "TOKEN_ENV", "PASSWORD_VAR", "API_KEY_VAR", "TOKEN_VAR", "SECRET_STORE",
+        "TOKEN_STORE", "KEY_STORE", "TOKEN_CACHE", "SECRET_CACHE", "AUTH_CACHE", "CREDENTIALS_CACHE",
+        "CREDENTIAL_STORE", "PASSWORD_FIELD", "TOKEN_FIELD", "API_KEY_PARAM", "TOKEN_PARAM", "AUTH_PARAMS",
+        "SECRET_FIELDS", "AUTH_BACKEND", "SECRET_BACKEND", "TOKEN_MODEL", "AUTH_MODEL", "SECRET_AGE",
+        "TOKEN_LIFETIME", "TOKEN_MINUTES", "PASSWORD_DAYS", "KEY_HOURS", "INPUT_TOKEN", "OUTPUT_TOKEN",
+        "CACHE_TOKEN", "PROMPT_TOKEN", "BUDGET_TOKEN", "USED_TOKEN")],
+    ("INPUT_TOKENS", False), ("CACHE_TOKENS", False), ("REMAINING_TOKENS", False),
 ])
 def test_a_name_names_a_secret_by_its_words(name, counts):
     assert redaction.secret_name(name) is counts
