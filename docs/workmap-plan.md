@@ -415,7 +415,11 @@ model tokens; the page calls no model.
   docked under it) into one card are one trunk with one arrowhead, as the tray's own
   verifies comb is, instead of a bend repeated side by side: a review that waits for an
   attempt and its verifiers takes one line from that tray's foot, its head hollow while
-  any of them is unsettled, and hovering any of them lights it. The layout depends on node
+  any of them is unsettled, and hovering any of them lights it; the legend says so. Edges
+  side to side from pills of one tray into one card make one trunk only where the pills
+  lie next to one another, no other edge side to side touches them and the tray holds no
+  edge of its own: it leaves the top pill and a spur joins each pill below, so every pill
+  shows its line; elsewhere each pill keeps a line of its own. The layout depends on node
   ids, kinds, which nodes are set aside and edges only, so a live status update never
   re-lays the map or moves a card across (setting a node aside does, since no derived
   connector leaves it); a card that takes a second state row grows and moves the cards
@@ -429,7 +433,10 @@ model tokens; the page calls no model.
   besides, so neighbours join side to side, a chain of attempts in its order, unless
   that costs more: between two cards the edge runs straight across, and from a docked
   verifier it leaves its pill's side (the left edge of the tray, past its comb, where the
-  card lies left), turning in the room kept between the two into the card's side. A
+  card lies left), turning in the room kept between the two into the card's side. Two
+  such edges between one pair of neighbours whose ends come in opposite orders on the
+  two sides (the upper pill to the other's pill, the lower pill to the other's card)
+  cross once, and the order counts that crossing. A
   detour runs over the layer, its arrowhead down into the other top, where nothing enters
   the nodes between from above (the gap over the layer holds it, and the first layer
   keeps room over it for that), and otherwise dips below the layer, past the edges down
@@ -457,7 +464,13 @@ model tokens; the page calls no model.
   moved, up to 2,021 px), moves 11 of 28 cards by at most 98 px. The price is that a
   change may cross more than the same map opened afresh: of 411 single additions to eight
   maps 93 did, 1,808 crossings against 1,675 in all; reloading the page lays the map out
-  afresh. The gap
+  afresh. A card may still move several places where that saves a crossing: on a copy of
+  the live map at revision 241, grown by a further #701 attempt and its two verifiers, a
+  stage added after `fix-754` moved that fix four places (1,145 px in Present, with 22 of
+  50 cards) and added a crossing the map opened afresh avoids. The change costs more than
+  opening: a change of structure on 400 nodes and 766 edges is drawn 212 to 251 ms after
+  it arrives (104 to 139 ms at b855b17f), about a second on a CPU four times slower.
+  The gap
   above a layer is as tall as the edges entering it need to bend, 8 px more for each
   level of curves that run the same way above the first. Within the height
   budget the gaps take 26 px each together, the tallest giving way first down to their
@@ -467,7 +480,9 @@ model tokens; the page calls no model.
   scales) and the rest scales, so from 90 % up a map within the budget is no taller than
   with the uniform 28 px of the layout before, while a gap of 26 px is 3 px taller at
   75 % and 8 px at 50 %: on 23 maps in five scenes each, Fit and the opening zoom came out
-  a step lower than at b855b17f in 12 of 115 and more cards were cut in 26. A map whose
+  a step lower than at b855b17f in 12 of 115 and more cards were cut in 26 (on another 9
+  maps in ten scenes each, a step lower in 14 of 90 and higher in 6, more cards cut in 16
+  and fewer in 2). A map whose
   least takes more than the budget, many levels of curves in its gaps, is taller by that
   excess: a map of 78 nodes takes 495 px of gaps at 100 % where the budget gives 312 and
   is 12 % taller. Fit and Present use the taller gaps the edges want only where the map's
@@ -486,7 +501,14 @@ model tokens; the page calls no model.
   two curves that run the same way can still come within 1.5 px of each other for over
   40 px: 18 to 24 pairs a scene on a map of 78 nodes and 4 to 10 and 3 to 9 on two of 64
   and 72 (93 to 186, 32 to 64 and 12 to 27 before), against one pair a scene on one of 20
-  maps of up to 46 nodes. Every edge ends in a straight piece 12 px long at every zoom, so
+  maps of up to 46 nodes. Long dips under one row of attempts can meet at a shallow angle
+  where they cross: on a map of two chains of attempts with `contradicts` across
+  non-neighbours, three dips 941 to 1,250 px wide, two of their pairs within 1.5 px for
+  73.5 to 107 px, their dashes interleaving, though they cross where the order counts.
+  Fewer lanes cost a crossing now and then: on a map of trays at five depths feeding one
+  card, trunks take 19 lanes where single edges took 35, and one trunk crosses a lane
+  that jogs there, one crossing more than b855b17f. Every edge ends in a straight piece
+  12 px long at every zoom, so
   its arrowhead lies along it with no turn within it: vertical, or level side to side and
   between two pills of a tray (round the tray's right edge, its reach and bulge scaled
   with the zoom; the 36 px kept right of a tray keep the next card clear of both at
