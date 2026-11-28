@@ -495,10 +495,38 @@ def test_hidden_copies_leave_no_trace_in_time_or_counts(world, tmp_path):
 
 
 def test_a_root_spelled_in_another_case_still_finds_its_project(world, monkeypatch):
-    monkeypatch.setattr(shared, "_FOLD_CASE", True)
+    # A volume that ignores case: every spelling of a path opens the same directory.
+    monkeypatch.setattr(os.path, "samefile", lambda a, b: os.fspath(a).lower() == os.fspath(b).lower())
     spelled = Path(str(world["root"]).swapcase())
     facts = shared.collect(world["stores"]).facts.values()
     assert "style" in by_name(shared.select(facts, scope="project", projects=shared.project_keys(spelled)))
+
+
+def variant_project(world, tmp_path):
+    """A workspace ``gamma`` and memory kept under the project name of ``GAMMA``, its spelling in another case."""
+    root, variant = tmp_path / "work" / "gamma", tmp_path / "work" / "GAMMA"
+    root.mkdir()
+    write(world["claude"] / "projects" / native.project_name(variant) / "memory" / "variant.md",
+          note("variant", "kept under the other spelling", "Written while working in GAMMA."))
+    return root, variant
+
+
+def test_on_a_case_sensitive_volume_a_project_named_in_another_case_is_another_project(world, tmp_path, monkeypatch):
+    """#722: there /work/Foo and /work/foo are two directories, so neither sees the other's memory."""
+    root, variant = variant_project(world, tmp_path)
+    # A case-sensitive volume: a path spelled in another case is another directory, or none.
+    monkeypatch.setattr(os.path, "samefile", lambda a, b: os.fspath(a) == os.fspath(b))
+    assert "variant" not in visible(world, "project", root=root)
+    assert "variant" in visible(world, "project", root=variant)  # its own spelling matches as it always did
+
+
+def test_a_project_named_in_another_case_follows_the_real_volume(world, tmp_path):
+    """No stand-in for the file system: where case matters ``GAMMA`` is a directory of its own."""
+    root, variant = variant_project(world, tmp_path)
+    variant.mkdir(exist_ok=True)  # a second directory on a case-sensitive volume, the same one elsewhere
+    distinct = "GAMMA" in os.listdir(tmp_path / "work")
+    assert ("variant" in visible(world, "project", root=root)) is not distinct
+    assert "variant" in visible(world, "project", root=variant)
 
 
 def test_the_index_store_never_holds_note_text(world, tmp_path):
