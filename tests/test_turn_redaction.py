@@ -1028,7 +1028,8 @@ def test_line_breaks_of_benign_text_stay_outside_masked_spans():
     """The verification's benign corpus lost 8 line breaks as one text, where the line rule took a
     closing quote for an opening one; now no span of the line rule holds a line break of the final
     verification's benign strings, one by one or as one text."""
-    texts = list(benign_strings().values()) + ["\n".join(benign_strings().values()), "\n\n".join(PROSE)]
+    texts = list(benign_strings().values()) + ["\n".join(benign_strings().values()), "\n\n".join(PROSE),
+                                               *MISREAD_QUOTES, "\n\n".join(MISREAD_QUOTES)]
     for text in texts:
         assert all("\n" not in text[start:end] for start, end in redaction.line_spans(text)), text[:200]
 
