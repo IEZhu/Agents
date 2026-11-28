@@ -915,6 +915,13 @@ PROSE_WORDS = [
     # Finding 15: punctuation alone, and a value glued with a hyphen or a dot.
     "password: {punct}", "token-{low}", "password.{low}",
 ]
+QUOTES = [
+    # Finding 11: quoted values over lines.
+    'password = """\n{v}\n"""', "token = '''\n{v}\n'''", 'password "abc\n{v}"', "mysql -u root -p'abc\n{v}' shop",
+    'API_TOKEN = "abc" \\\n    "{v}"',
+    # Finding 12: a token in a URL's user position.
+    "git push https://{h40}@github.com/org/repo.git main",
+]
 
 
 def fill(template: str, seed: int) -> tuple[str, list[str]]:
@@ -960,6 +967,13 @@ def test_prose_words_calls_and_property_names_before_a_value_are_masked(template
     assert masked, shown
 
 
+@pytest.mark.parametrize("template", QUOTES)
+def test_quoted_values_over_lines_and_url_user_tokens_are_masked(template):
+    """v701-4 redaction findings 11 and 12."""
+    masked, shown = all_masked(template, 15000 + QUOTES.index(template))
+    assert masked, shown
+
+
 # Finding 9's second group, documented as passing: nothing names the value, only its position does.
 POSITIONAL = ['conn = pymysql.connect("db.internal", "app", "{v}", "shop")', 'encoded = jwt.encode(payload, "{v}", algorithm="HS256")',
               "rabbitmqctl add_user app {v}", 'USERS = {{"admin": "{v}", "guest": "guest"}}']
@@ -969,6 +983,40 @@ POSITIONAL = ['conn = pymysql.connect("db.internal", "app", "{v}", "shop")', 'en
 def test_a_positional_secret_with_nothing_naming_it_still_passes(template):
     text, secrets = fill(template, 16000 + POSITIONAL.index(template))
     assert secrets[0] in redaction.redact(text)[0]
+
+
+# Finding 10: a quote that closes the label's own string or code span opened nothing, and the rule
+# masked the lines below it to the next such character or to the end of the text.
+MISREAD_QUOTES = [
+    "Set `password:` in config.yaml and restart.\n\nParagraph two.\nParagraph three.\n\nRun `systemctl status app`.\nLast line.",
+    'print("password:", pw)\nx = 1\ny = 2\nprint("done")\nz = 3',
+    'Run `read -s -p "Password: " PW` and then start the service.\n\nSecond paragraph.\nThird paragraph.',
+    'password: "unclosed\nline two\nline three',
+]
+
+
+@pytest.mark.parametrize("text", MISREAD_QUOTES)
+def test_a_quote_closing_the_labels_own_string_masks_no_later_line(text):
+    masked, clean = redaction.redact(text)
+    assert clean and masked.count("\n") == text.count("\n"), masked
+    assert masked.split("\n")[1:] == text.split("\n")[1:], masked
+
+
+def test_a_quoted_value_is_masked_only_within_its_bound_of_lines():
+    """A close more than ``QUOTE_LINES`` lines below is no close: the label's line alone goes."""
+    lines = [f"plain line {number}" for number in range(redaction.QUOTE_LINES + 3)]
+    text = 'password = "abc\n' + "\n".join(lines) + '\nend"'
+    masked, clean = redaction.redact(text)
+    assert clean and masked.split("\n")[1:] == text.split("\n")[1:], masked
+
+
+def test_line_breaks_of_benign_text_stay_outside_masked_spans():
+    """The verification's benign corpus lost 8 line breaks as one text, where the line rule took a
+    closing quote for an opening one; now no span of the line rule holds a line break of the final
+    verification's benign strings, one by one or as one text."""
+    texts = list(benign_strings().values()) + ["\n".join(benign_strings().values()), "\n\n".join(PROSE)]
+    for text in texts:
+        assert all("\n" not in text[start:end] for start, end in redaction.line_spans(text)), text[:200]
 
 
 @pytest.mark.parametrize("text", [

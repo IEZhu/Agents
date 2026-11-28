@@ -203,7 +203,9 @@ PASSWORD_OPTION = re.compile(r"(?<![\w/-])(?:(?:-p|-P|-w|-pw|--pass)(?=[ \t=\"']
 _ID_PAIR = re.compile(r"[0-9]+[:,][0-9]+")
 STRONG, WEAK, EQUALS, CALL = "strong", "weak", "equals", "call"
 
-# How far below a label line its value is looked for.
+# How far below a label line its value is looked for, and how far a quoted value may run (#701 review:
+# a misread quote masked to the end of the text).
+QUOTE_LINES = 12
 BELOW_LINES = 8
 BELOW_BLANKS = 2
 FENCE_LINES = 40
@@ -278,6 +280,8 @@ HEX_PAIR_LINES = re.compile(r"(?m)(?:^[ \t]*(?:[0-9a-fA-F]{2}:){7,}[0-9a-fA-F]{0
 # at sign), //user:password@ without a scheme, and user:password@host in a DSN (app:pw@tcp(db)).
 URL_CREDENTIAL = re.compile(r"(?i)(?:(?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,20}:)?//[^\s/:@]{0,128}:"
                             r"(?P<value>[^\s/]{1,512})@")
+# A token in a URL's user position: https://<token>@github.com. A run of 20 characters or more counts
+# in any case (#701 review: 40 hex digits were taken for a user's name).
 URL_USER_TOKEN = re.compile(r"(?i)(?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,20}://(?P<value>[^\s/:@]{8,256})@")
 DSN_CREDENTIAL = re.compile(r"(?<![^\s\"'(<=,;])(?P<user>[A-Za-z0-9_.+-]{1,64}):"
                             r"(?P<value>[^\s/@\"']{1,256})@(?=[A-Za-z0-9-])")
@@ -879,12 +883,64 @@ def _has_value(tail: str) -> bool:
     return after is not None and not _OPENING_ONLY.fullmatch(after.group("rest"))
 
 
-def _quoted_end(text: str, start: int) -> int:
-    """The index of the quote closing the value that opens at ``text[start]``, or the end of the
-    text for one never closed: the other quote character and escaped quotes are part of the value,
-    which may run across lines (#734 review)."""
-    quote, index = text[start], start + 1
-    while index < len(text):
+def _opening_quote(line: str, mask_from: int, form: str | None) -> tuple[int, str] | None:
+    """``(index, quote)`` of a quote that opens a value after a label's separator, a blank or a
+    client's option (``password="V``, ``password "V``, ``-p'V``, ``password = \"\"\"``, ``\\"token\\":
+    \\"V``), else None. A quote that closes the label's own string or code span is none: its kind
+    stands an odd number of times before the separator (``print("password:", pw)``,
+    ``Set `password:` in``), and a single quote opens one only with a value after it on its line."""
+    i, length = mask_from, len(line)
+    if form == "option" and line[i:i + 1] in ("\"", "'"):  # mysql -p'V: the quote opens the option's value
+        return (i, line[i]) if line[i + 1:].strip() else None
+    while i < length and line[i] in "\"'`)]*\\" and i - mask_from < 8:
+        i += 1
+    separator_at = i
+    while i < length and line[i] in " \t":
+        i += 1
+    blanks = i > separator_at
+    for mark in (":=", "=>", "->", "?=", "+=", "==", "=", ":"):
+        if line.startswith(mark, i):
+            separator_at, i = i, i + len(mark)
+            while i < length and line[i] in " \t":
+                i += 1
+            break
+    else:
+        if not (blanks or form == "option" and i == mask_from):
+            return None
+    escaped = line.startswith("\\", i)
+    at = i + 1 if escaped else i
+    if at >= length or line[at] not in "\"'`":
+        return None
+    quote = line[at:at + 3] if line[at:at + 3] in ('"""', "'''") else line[at]
+    token = ("\\" if escaped else "") + quote[0]
+    if (line.count(token, 0, separator_at) if escaped else _unescaped(line, quote[0], separator_at)) % 2:
+        return None
+    if len(quote) == 1 and not line[at + 1:].strip():
+        return None
+    return (at - 1 if escaped else at), ("\\" if escaped else "") + quote
+
+
+def _unescaped(line: str, quote: str, end: int) -> int:
+    count, index = 0, line.find(quote, 0, end)
+    while index >= 0:
+        if not (index and line[index - 1] == "\\"):
+            count += 1
+        index = line.find(quote, index + 1, end)
+    return count
+
+
+def _quote_close(text: str, at: int, quote: str, limit: int) -> int | None:
+    """The index of the quote closing a value that opens at ``at`` with ``quote``, searched up to
+    ``limit``: escaped quotes close escaped, triple quotes with three, and a backslash escapes the
+    next character of a plain quote's value. None when no close comes before ``limit``."""
+    if quote.startswith("\\"):
+        close = text.find(quote, at + len(quote), limit)
+        return None if close < 0 else close
+    if len(quote) == 3:
+        close = text.find(quote, at + 3, limit)
+        return None if close < 0 else close
+    index = at + 1
+    while index < limit:
         character = text[index]
         if character == "\\":
             index += 2
@@ -892,11 +948,7 @@ def _quoted_end(text: str, start: int) -> int:
         if character == quote:
             return index
         index += 1
-    return len(text)
-
-
-# The quote that opens a value after a label's separator (password="..., "token": '..., \"key\": \"...).
-_OPENING_QUOTE = re.compile(r"[\"'`)\]*\\]{0,8}[ \t]*(?::=|=>|->|\?=|\+=|==?|:)[ \t]*(\\?)([\"'`])")
+    return None
 
 
 def _lines(text: str) -> list[tuple[int, int]]:
@@ -1067,8 +1119,8 @@ def _pair_spans(text: str, lines, index: int) -> list[tuple[int, int]]:
 def line_spans(text: str) -> list[tuple[int, int]]:
     """Where the line rule masks ``text`` (owner's decision 2026-11-28): after the first label on a
     line that names a secret, to the end of the line (``_trigger``) and of the lines it continues with
-    trailing backslashes; a quoted value that opens there and closes on a later line, to the end of
-    that line; the value a label line leaves below it (``_below``): the lines indented
+    trailing backslashes; a quoted value that opens there and closes within ``QUOTE_LINES`` lines, to
+    the end of that line; the value a label line leaves below it (``_below``): the lines indented
     under it, a fenced block's content, the lines that read as a value after a line ending in a label
     or a colon, a heading or a bare label, the next line after a quoted name; a heredoc's body after
     a line that names a secret; the rows under a table's header that names a secret
@@ -1112,7 +1164,9 @@ def line_spans(text: str) -> list[tuple[int, int]]:
             continue
         mask_from, form, label_end = found
         tail = line[mask_from:]
-        valued = _has_value(tail)
+        opening = _opening_quote(line, mask_from, form)
+        # A triple quote at the line's end opens a value on the lines below (password = """).
+        valued = _has_value(tail) or opening is not None and len(opening[1].lstrip("\\")) == 3
         if not valued and _continued(text, lines, index) > index:
             # The value goes on after a trailing backslash: curl -u \⏎  user:V \⏎  https://...
             last = _continued(text, lines, index)
@@ -1123,15 +1177,11 @@ def line_spans(text: str) -> list[tuple[int, int]]:
             continue
         if valued and tail != MASK:
             stop = end
-            opening = _OPENING_QUOTE.match(tail)
             if opening is not None:
-                quote_at = start + mask_from + opening.start(2)
-                if opening.group(1):  # an escaped quote, inside a JSON string: it closes escaped too
-                    close = text.find("\\" + opening.group(2), quote_at + 1)
-                    close = len(text) if close < 0 else close
-                else:
-                    close = _quoted_end(text, quote_at)
-                if close > end:  # to the end of the line the value closes on
+                at, quote = opening
+                limit = lines[min(index + QUOTE_LINES, len(lines) - 1)][1]
+                close = _quote_close(text, start + at, quote, limit)
+                if close is not None and close > end:  # to the end of the line the value closes on
                     stop = _LINE_END.match(text, close).end()
             spans.append((start + mask_from, stop))
             covered = stop
@@ -1330,8 +1380,8 @@ def _shape_spans(text: str, exempt: list[tuple[int, int]]) -> list[tuple[int, in
     for pattern in (URL_CREDENTIAL, URL_USER_TOKEN, DSN_CREDENTIAL, PGPASS_LINE):
         for match in pattern.finditer(text):
             value = match.group("value")
-            if pattern is URL_USER_TOKEN and not (_mixed(value) or not value.isalnum()):
-                continue  # https://deploy@host: a user's name, not a token
+            if pattern is URL_USER_TOKEN and not (_mixed(value) or not value.isalnum() or len(value) >= 20):
+                continue  # https://deploy@host: a user's name, not a token; 20 characters or more are one
             if pattern is DSN_CREDENTIAL and match.group("user").lower() == "mailto":
                 continue
             spans.append(match.span("value"))
