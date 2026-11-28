@@ -403,16 +403,32 @@ model tokens; the page calls no model.
   outlined box says both (`V0→V3`). Every node the tiles count as waiting for you or as
   needing attention has a solid attention border, a validated one below its need
   included, and a node whose who acts is the owner a filled `you` badge as well. A
-  verifier docks in a tray under the node it checks, as a pill that names its id and
-  shows its verdict on the target's current result: an empty ring while pending (a
-  running one keeps its turning ring), a check when clean, the attention triangle and the
-  counts for a critical or high finding, a struck ring when it judged an older result or
-  runs on one, a dash when no verdict was recorded. Edges differ by line and head:
-  `depends_on` from the prerequisite to its dependant, the head hollow while the
-  prerequisite is not settled; `verifies` dashed; `supersedes` dotted; `contradicts`
-  dash-dot. An edge leaves a node at the foot of its group, under the verifier tray, and
-  so does one from a docked verifier to a card below. With one goal and no edge into it,
-  a dotted connector marked derived leads to it from the nodes nothing follows. The edges
+  verifier that follows nothing but the node it checks docks in a tray under it, as a
+  pill that names its id and shows its verdict on the target's current result: an empty
+  ring while pending (a running one keeps its turning ring), a check when clean, the
+  attention triangle and the counts for a critical or high finding, a struck ring when it
+  judged an older result or runs on one, a dash when no verdict was recorded; a verifier
+  with another input is a card of its own, so no edge has to enter a tray. Edges differ
+  by line and head: `depends_on` from the prerequisite to its dependant, the head hollow
+  while the prerequisite is not settled; `verifies` dashed; `supersedes` dotted;
+  `contradicts` dash-dot. The layout depends on node ids, kinds and edges only, so a live
+  status update never moves a card. Within each layer the order is the one with the
+  fewest crossings that sweeps of the weighted median and swaps of neighbours find, a
+  docked tray moving with its node; every edge that crosses a layer, a `supersedes` or
+  `contradicts` one too, passes a lane there that no card covers. Across, each node sits
+  where most of its edges run straight (least total run across, within the widest
+  layer's width, so placing never widens the map), and the gap above a layer is as tall
+  as the edges entering it need to bend. An edge leaves the foot of its group, under the
+  tray (an edge from a docked verifier too), and enters the top of a card; the ends on
+  one side are spread in the order of their other ends, each aimed at its lane or at the
+  middle between the two boxes, so two boxes that overlap meet straight. Between two
+  layers an edge is one smooth curve with vertical ends, through its lanes; the curves
+  of one span bend between the same two heights, starting right under the lowest box
+  above them, so the drawing crosses only where the order does and no curve passes
+  through a card or a tray. Every edge ends in a straight vertical piece at least 12 px
+  long, so its arrowhead lies along it (one between two pills of a tray runs round the
+  tray's right edge and ends level with its pill). With one goal and no edge into it, a
+  dotted connector marked derived leads to it from the nodes nothing follows. The edges
   of the critical path are drawn at double weight and the stages the goal waits on are
   underlined: what runs, can start or needs someone on it, the verifier checking a node
   on it, and a stale node on it. A node set aside stays in place as a ghost. A map of
@@ -500,7 +516,7 @@ visual design how it looks:
 | Point | Information design | Visual design | Chosen |
 |---|---|---|---|
 | Direction | columns left to right, goal rightmost | layers top to bottom, goal last | top to bottom; the goal alone in the last layer |
-| Verifiers | own column after the target | docked in a tray under the target | docked, unless it follows a node level with its target; the comb's head points into the target, and it never crosses a layer; a pill names its id and shows its recorded verdict |
+| Verifiers | own column after the target | docked in a tray under the target | docked when the target is all it follows, a card of its own otherwise; the comb's head points into the target, and it never crosses a layer; a pill names its id and shows its recorded verdict |
 | Glyphs | text glyphs | SVG discs | SVG discs; ready and stale as marks |
 | Words | status names, `prepared` as running | `attention` on a card | status names everywhere, `needs attention` included |
 | Running | word and elapsed time | word, attempt | word, elapsed time and attempt |
