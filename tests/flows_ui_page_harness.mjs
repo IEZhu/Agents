@@ -2657,19 +2657,23 @@ function workmapSynth(n, seed) {
   if (rounds.length > 2) edges.push({ from: pick(rounds[last]), to: pick(rounds[0]), type: "supersedes" });
   return { nodes, edges };
 }
-// Boxes as the stylesheet draws a layout at `scale` (section 6): rows stacked with the layout's gaps
-// (14 px fixed, the rest scaled), each entry at its x, a card heightOf(id) px tall at 100 % and, under a
-// card with docked verifiers, a tray: 7 px, then a 24-px pill every 28 px. Returns workmapRoutes' geo
-// and the boxes it was made of.
-function workmapGeometry(layout, scale, heightOf) {
-  const rows = [], cards = new Map(), groups = new Map(), lanes = new Map(), trays = new Set();
+// Boxes as the stylesheet draws a layout at `scale` (section 6): rows stacked with the layout's gaps,
+// those within the height budget (`tight`) or those its edges want (14 px of each, 26 where it holds a
+// second straight end, fixed above 100 % and scaled below it down to 2 px less; the rest scaled), each
+// entry at its x, a card heightOf(id) px tall at 100 % and, under a card with docked verifiers, a tray:
+// 7 px, then a 24-px pill every 28 px, and room under the last layer for its dips. Returns
+// workmapRoutes' geo, the boxes it was made of and the height drawn.
+function workmapGeometry(layout, scale, heightOf, tight = true) {
+  const rows = [], cards = new Map(), groups = new Map(), lanes = new Map(), trays = new Set(), next = new Map();
   let y = 12;
   layout.layers.forEach((entries, k) => {
-    if (k) y += 14 + (layout.gaps[k] - 14) * scale;
+    const gap = (tight ? layout.tight : layout.gaps)[k], two = layout.heads[k] === 2;
+    if (k) y += Math.min(14, Math.max(12, 14 * scale)) + (two ? 12 : 0) + (gap - (two ? 26 : 14)) * scale;
     const top = y;
     let bottom = top;
-    for (const entry of entries) {
+    for (const [i, entry] of entries.entries()) {
       const left = 16 + entry.x * scale;
+      if (i + 1 < entries.length) next.set(entry.id, 16 + entries[i + 1].x * scale);
       if (entry.lane) { lanes.set(entry.id, left); continue; }
       const card = { l: left, t: top, r: left + entry.w * scale, b: top + heightOf(entry.id) * scale };
       cards.set(entry.id, card);
@@ -2686,9 +2690,10 @@ function workmapGeometry(layout, scale, heightOf) {
     rows.push({ t: top, b: bottom });
     y = bottom;
   });
+  if (layout.foot) y += 15 + (6 + 5 * (layout.foot - 1)) * scale;
   const host = (id) => layout.docked[id] || id;
-  return { geo: { scale, rows, card: (id) => cards.get(id), group: (id) => groups.get(host(id)), lane: (id) => lanes.get(id) },
-           cards, groups, trays };
+  return { geo: { scale, rows, card: (id) => cards.get(id), group: (id) => groups.get(host(id)), lane: (id) => lanes.get(id),
+                  next: (id) => (next.has(host(id)) ? next.get(host(id)) : null) }, cards, groups, trays, height: y + 12 };
 }
 // Points along a route's steps about every px, for the checks below.
 function workmapSample(steps) {
@@ -2736,26 +2741,30 @@ function workmapCrossings(a, b) {
   return count;
 }
 // Lays a map out and routes its edges over synthetic boxes, then measures what the criteria name: the
-// layout's crossings and the drawing's (between layers, and those of the dips below a layer), points of
-// any edge inside a card, a pill or a tray (a route inside one tray is left out of its own), each end's
-// straight piece, its angle and the angle where the curve before it meets it, the angle at which any
-// curve leaves or meets the steps beside it (`smooth`), the order of the ends on
+// layout's crossings and the drawing's (every pair of edges, `dips` those that involve an edge below its
+// layer), points of any edge inside a card, a pill or a tray (a route inside one tray is left out of its
+// own), each end's straight piece, its angle and the angle where the curve before it meets it, the
+// angle at which any curve leaves or meets the steps beside it (`smooth`), the order of the ends on
 // every side against the order of their other ends, the foot an edge from a docked verifier leaves,
-// the spacing in each layer, the width and the gaps.
-function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.charCodeAt(id.length - 1) % 3) * 20) {
+// the spacing in each layer, the width, the gaps and the height drawn, and the curves that run under
+// WM_GEOM.jog px across (`jogs`) or bend at all (`bent`) between two given nodes (`between`).
+function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.charCodeAt(id.length - 1) % 3) * 20,
+                            { tight = true, between = null } = {}) {
   const nodes = data.nodes.map((item) => ({ status: "planned", level: "V0", needs: "V2", risk: "routine", settled: false,
     ready: false, attention: false, ...item }));
   const map = { nodes, edges: data.edges, closed: false, verdicts: [] };
   const t0 = performance.now();
   const layout = context.workmapLayers(nodes, data.edges);
   const ms = performance.now() - t0;
-  const { geo, cards, groups, trays } = workmapGeometry(layout, scale, heightOf);
+  const { geo, cards, groups, trays, height } = workmapGeometry(layout, scale, heightOf, tight);
   const edges = context.workmapEdgeList(context.workmapView(map, layout));
   const routes = context.workmapRoutes(edges, layout, geo);
   const points = routes.map((route) => workmapSample(route.steps));
   const out = { crossings: layout.crossings, drawn: 0, dips: 0, inside: [], shortest: Infinity, steepest: 0, joint: 0, smooth: 0, misordered: [],
-                closest: Infinity, foot: [], spacing: Infinity, width: layout.width, packed: 0, gaps: layout.gaps.slice(1), ms: Math.round(ms),
-                kinds: {}, routes: routes.length, edges: edges.length };
+                closest: Infinity, foot: [], spacing: Infinity, width: layout.width, packed: 0, gaps: layout.gaps.slice(1),
+                tight: layout.tight.slice(1), heads: layout.heads.slice(1), foot_room: layout.foot, height: Math.round(height),
+                ms: Math.round(ms), kinds: {}, routes: routes.length, edges: edges.length, jogs: 0, bent: 0 };
+  const jog = vm.runInContext("WM_GEOM.jog", context) * scale;
   routes.forEach((route, i) => {
     out.kinds[route.kind] = (out.kinds[route.kind] || 0) + 1;
     const boxes = [...[...cards].map(([id, box]) => [id, box]), ...[...trays].map((id) => [id + "#tray", groups.get(id)])];
@@ -2767,7 +2776,9 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
     const last = route.steps.at(-1), before = route.steps.at(-2);
     const from = before[0] === "C" ? [before[5], before[6]] : before[0] === "M" ? [before[1], before[2]] : null;
     const end = points[i].at(-1), back = points[i].at(-4);
-    const vertical = route.kind !== "tray";
+    const vertical = route.kind !== "tray" && route.kind !== "side";
+    for (const curve of route.curves || []) if (curve.dx > 0.05 && curve.dx < jog) out.jogs += 1;
+    if (between && between.includes(route.start) && between.includes(route.end) && route.steps.some(([op]) => op === "C")) out.bent += 1;
     const length = from ? (vertical ? Math.abs(last[1] - from[1]) : Math.abs(last[1] - from[0])) : Math.abs(last[1] - (before[0] === "V" ? before[1] : 0));
     out.shortest = Math.min(out.shortest, length);
     const angle = Math.atan2(Math.abs(vertical ? end[0] - back[0] : end[1] - back[1]), Math.abs(vertical ? end[1] - back[1] : end[0] - back[0])) * 180 / Math.PI;
@@ -2816,12 +2827,37 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
   for (let i = 0; i < routes.length; i++) {
     for (let j = i + 1; j < routes.length; j++) {
       const count = workmapCrossings(points[i], points[j]);
-      if (!count) continue;
-      const between = ["down", "up"];
-      if (between.includes(routes[i].kind) && between.includes(routes[j].kind)) out.drawn += count; else out.dips += count;
+      out.drawn += count;
+      if (routes[i].kind === "dip" || routes[j].kind === "dip") out.dips += count;
     }
   }
-  const sep = (a, b) => (a.lane && b.lane ? 12 : a.lane || b.lane ? 16 : 20);
+  // Curves of one gap whose spans overlap, that run the same way and keep their order, on one level:
+  // their flat middles would lie on one line. And how far any edge runs below the last layer's room.
+  out.flat = 0;
+  const byGap = new Map();
+  for (const route of routes) for (const curve of route.curves || []) byGap.set(curve.k, [...(byGap.get(curve.k) || []), curve]);
+  for (const curves of byGap.values()) {
+    for (let a = 0; a < curves.length; a++) {
+      for (let b = a + 1; b < curves.length; b++) {
+        const p = curves[a], q = curves[b], way = Math.sign(p.bottom - p.top);
+        if (Math.abs(p.bottom - p.top) <= 0.5 || Math.abs(q.bottom - q.top) <= 0.5 || Math.sign(q.bottom - q.top) !== way) continue;
+        if (p.lo > q.hi + 2 || q.lo > p.hi + 2 || (p.top - q.top) * (p.bottom - q.bottom) < 0) continue;
+        if (p.level === q.level) out.flat += 1;
+      }
+    }
+  }
+  out.below = Math.max(0, Math.round(Math.max(...points.flat().map(([, y]) => y)) - (height - 12)));
+  // How far right of the middle the cards lie on average (px at 100 %): the side with more comes first.
+  const boxes = layout.layers.flat().filter((entry) => !entry.lane);
+  out.lean = Math.round(boxes.reduce((sum, entry) => sum + entry.x + entry.w / 2 - layout.width / 2, 0) / (boxes.length || 1) * 10) / 10;
+  // The room between two entries as the layout keeps it: more between neighbours joined side to side
+  // and right of a group whose tray holds an edge of its own.
+  const host = (id) => layout.docked[id] || id, joined = new Set(), trayed = new Set();
+  for (const route of routes) {
+    if (route.kind === "side") joined.add(route.start + "\n" + route.end).add(route.end + "\n" + route.start);
+    if (route.kind === "tray") trayed.add(host(route.start));
+  }
+  const sep = (a, b) => Math.max(a.lane && b.lane ? 12 : a.lane || b.lane ? 16 : 20, joined.has(a.id + "\n" + b.id) ? 28 : 0, trayed.has(a.id) ? 36 : 0);
   for (const entries of layout.layers) {
     if (entries.length) out.packed = Math.max(out.packed, entries.reduce((sum, entry, i) => sum + entry.w + (i ? sep(entries[i - 1], entry) : 0), 0));
     entries.forEach((entry, i) => {
@@ -2837,10 +2873,107 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
   return out;
 }
 
+// A map written compactly: nodes "id:kind" (g goal, s stage, d decision, q question) and edges "a>b"
+// (a depends_on b), "a~b" (verifies), "a^b" (supersedes) and "a!b" (contradicts), in the payload's order.
+function workmapShape(nodes, edges) {
+  const kinds = { g: "goal", s: "stage", d: "decision", q: "question" }, types = { ">": "depends_on", "~": "verifies", "^": "supersedes", "!": "contradicts" };
+  return { nodes: nodes.split(" ").map((item) => { const [id, kind] = item.split(":"); return { id, kind: kinds[kind], title: id }; }),
+           edges: edges.split(" ").map((item) => { const [, from, type, to] = /^([^>~^!]+)([>~^!])(.+)$/.exec(item); return { from, to, type: types[type] }; }) };
+}
+// The structures of three of the verification's maps (ids replaced, order kept): a wide fan-in and
+// fan-out, a plan as sessions write them, and seven verifier trays. Their fewest crossings: 17 and 2
+// (exact, by dynamic programming over the permutations of neighbouring layers) and 6 (the best of 300
+// random restarts of barycentre sweeps and sifting).
+const WORKMAP_ORDERS = {
+  fan: [workmapShape("f0:g f1:s f2:s f3:s f4:s f5:s f6:s f7:s f8:s f9:s f10:s f11:s f12:s f13:s f14:s f15:s f16:s f17:s f18:s f19:s f20:s f21:s f22:d",
+    "f3>f1 f4>f1 f5>f1 f6>f1 f7>f1 f8>f1 f9>f1 f10>f1 f11>f1 f3>f2 f7>f2 f11>f2 f12>f3 f12>f4 f12>f5 f12>f6 f12>f7 f12>f8 f12>f9 f12>f10 "
+    + "f12>f11 f13>f3 f13>f4 f13>f7 f14>f6 f14>f11 f15>f12 f16>f12 f17>f12 f18>f12 f19>f12 f20>f12 f15>f13 f18>f13 f18>f14 f19>f14 "
+    + "f21>f15 f21>f16 f21>f17 f21>f18 f21>f19 f21>f20 f22>f21"), 17],
+  mixed: [workmapShape("m0:s m1:s m2:s m3:s m4:q m5:s m6:s m7:d m8:s m9:s m10:s m11:s m12:s m13:s m14:s m15:s m16:s m17:s m18:g m19:s",
+    "m4>m0 m7>m4 m5>m0 m6>m0 m10>m7 m10^m6 m1~m10 m2~m10 m11>m5 m11>m7 m12>m7 m3~m12 m13>m12 m13>m10 m14>m10 m15>m11 m15>m10 m15>m14 "
+    + "m8~m15 m8>m5 m9>m5 m16>m15 m16>m13 m16>m9 m16>m0 m17>m16 m18>m16 m18>m17 m19>m17"), 2],
+  trays: [workmapShape("t0:g t1:s t2:s t3:s t4:s t5:s t6:s t7:s t8:s t9:s t10:s t11:s t12:s t13:s t14:s t15:s t16:s t17:s t18:s t19:s t20:s t21:s "
+    + "t22:s t23:s t24:s t25:s t26:s t27:s",
+    "t3~t1 t4~t1 t5~t2 t18>t1 t6~t18 t7~t18 t8~t18 t19>t1 t19>t2 t9~t19 t20>t2 t22>t18 t22>t19 t10~t22 t11~t22 t12~t22 t13~t22 t23>t19 "
+    + "t23>t20 t14~t23 t15~t23 t21~t18 t21>t2 t16~t19 t16~t20 t24~t22 t24>t23 t25>t22 t25>t10 t26>t22 t26>t23 t26>t14 t27>t25 t27>t26 t17~t27"), 6],
+};
+// Alternatives as a session records them: three options after one brief, the second supersedes the
+// first, the third contradicts the second, one decision reads all three and a cost model the second.
+const WORKMAP_ALT = workmapShape("goal:g brief:s a:s b:s c:s compare:d cost:s build:s",
+  "a>brief b>brief c>brief b^a c!b compare>a compare>b compare>c cost>b build>compare build>cost goal>build");
+// Edges between nodes of one layer beside edges down: three of x, y, z joined in a ring, so one of
+// them cannot be between neighbours and runs below the layer, past the edges down from the one between.
+const WORKMAP_BESIDE = workmapShape("goal:g r:s x:s y:s z:s p:s q:s",
+  "x>r y>r z>r x^y y!z z^x p>x p>y q>y q>z goal>p goal>q");
+// A tray of four verifiers whose node and verifiers one card follows: the five edges between the two
+// run straight down side by side.
+const WORKMAP_COMB = workmapShape("goal:g h:s v1:s v2:s v3:s v4:s t:s u:s",
+  "v1~h v2~h v3~h v4~h t>h t>v1 t>v2 t>v3 t>v4 u>t goal>u");
+// A tray whose verifiers hold edges of their own (one supersedes another, one contradicts the node they
+// check) between two neighbours: the edges round the tray's right edge keep clear of them at every zoom.
+const WORKMAP_TRAY = workmapShape("goal:g r:s m:s a:s n:s v1:s v2:s v3:s",
+  "m>r a>r n>r v1~a v2~a v3~a v2^v1 v3!a goal>m goal>a goal>n");
+// Three goals joined in a ring by edges between them: one runs below the last layer, in the room the
+// layout keeps under it.
+const WORKMAP_GOALS = workmapShape("g1:g g2:g g3:g s:s t:s", "g1>s g2>s g3>t g1^g2 g2!g3 g3^g1");
+// A tall map: twelve rounds of a fan out and back in, every gap wanting to bend far.
+const WORKMAP_TALL = (() => {
+  const nodes = ["goal:g"], edges = [];
+  for (let k = 0; k < 12; k++) {
+    for (let i = 0; i < 4; i++) {
+      nodes.push(`n${k}x${i}:s`);
+      if (k) for (const j of [i, (i + 1) % 4, (i + 3) % 4]) edges.push(`n${k}x${i}>n${k - 1}x${j}`);
+    }
+  }
+  for (let i = 0; i < 4; i++) edges.push(`goal>n11x${i}`);
+  return workmapShape(nodes.join(" "), edges.join(" "));
+})();
+
 if (scenario === "workmap_routes") {
   const out = { release: workmapRouteChecks(RELEASE_SHAPE), release_100: workmapRouteChecks(RELEASE_SHAPE, 1, () => 72),
+                release_wide: workmapRouteChecks(RELEASE_SHAPE, 1.25, undefined, { tight: false }),
                 fixture: workmapRouteChecks({ nodes: workmapNodes(), edges: WORKMAP_EDGES }) };
   for (const n of [20, 40, 60]) out[`synth_${n}`] = workmapRouteChecks(workmapSynth(n, n));
+  // Same-layer edges at every zoom from 50 to 160 %, and a tray of four verifiers feeding one card.
+  for (const scale of [0.5, 0.8, 1, 1.25, 1.6]) {
+    out[`alt_${scale * 100}`] = workmapRouteChecks(WORKMAP_ALT, scale);
+    out[`beside_${scale * 100}`] = workmapRouteChecks(WORKMAP_BESIDE, scale);
+    out[`tray_${scale * 100}`] = workmapRouteChecks(WORKMAP_TRAY, scale, () => 72);
+    out[`goals_${scale * 100}`] = workmapRouteChecks(WORKMAP_GOALS, scale, () => 72);
+  }
+  // A dip from a to b past m beside an edge from a that runs on past b, laid out by hand: the dip leaves
+  // a's foot at the end facing b, past that edge, and the curves of the gap bend below the dip, so the
+  // edge from a runs under it; the two crossings are the dip's over the edge down from m and that edge's
+  // with the one from a, as the order counts them.
+  const card = (id, x) => ({ id, lane: false, verifiers: [], x, w: 232 });
+  const dipLayout = { layers: [[card("a", 0), card("m", 252), card("b", 504)], [card("d", 252), card("c", 760)]],
+    layer: { a: 0, m: 0, b: 0, d: 1, c: 1 }, docked: {}, via: {}, derived: [], crossings: 2, gaps: [0, 56], tight: [0, 56], heads: [0, 2],
+    width: 992, foot: 0, beside: { "a|b|supersedes": "dip" } };
+  const dipEdges = [{ key: "a|b|supersedes", type: "supersedes", start: "a", end: "b", via: [] },
+                    { key: "c|a|depends_on", type: "depends_on", start: "a", end: "c", via: [] },
+                    { key: "d|m|depends_on", type: "depends_on", start: "m", end: "d", via: [] }];
+  out.dip_under = [0.5, 1, 1.6].map((scale) => {
+    const routes = context.workmapRoutes(dipEdges, dipLayout, workmapGeometry(dipLayout, scale, () => 72).geo);
+    const points = routes.map((route) => workmapSample(route.steps));
+    let drawn = 0;
+    for (let i = 0; i < routes.length; i++) for (let j = i + 1; j < routes.length; j++) drawn += workmapCrossings(points[i], points[j]);
+    return drawn;
+  });
+  out.comb = workmapRouteChecks(WORKMAP_COMB, 1.25, () => 72, { between: ["h", "t"] });
+  out.comb_wide = workmapRouteChecks(WORKMAP_COMB, 1, () => 72, { tight: false, between: ["h", "t"] });
+  // The order on the verification's maps, and the height budget on a tall one: the gaps within it, and
+  // the height drawn at 50, 100 and 160 % against the layout before (28 px a gap, scaled).
+  out.orders = Object.fromEntries(Object.entries(WORKMAP_ORDERS).map(([name, [shape, fewest]]) => {
+    const laid = context.workmapLayers(shape.nodes, shape.edges), boxes = laid.layers.flat().filter((entry) => !entry.lane);
+    return [name, { crossings: laid.crossings, fewest,
+                    lean: Math.round(boxes.reduce((sum, entry) => sum + entry.x + entry.w / 2 - laid.width / 2, 0) / boxes.length * 10) / 10 }];
+  }));
+  const tall = context.workmapLayers(WORKMAP_TALL.nodes, WORKMAP_TALL.edges);
+  out.tall = { layers: tall.layers.length, tight: tall.tight.slice(1).reduce((sum, gap) => sum + gap, 0),
+               wanted: tall.gaps.slice(1).reduce((sum, gap) => sum + gap, 0),
+               budget: vm.runInContext("WM_GEOM.gap.budget", context) * (tall.layers.length - 1),
+               drawn: [0.5, 1, 1.6].map((scale) => [workmapGeometry(tall, scale, () => 72).height,
+                                                   12 + 12 + tall.layers.length * 72 * scale + (tall.layers.length - 1) * 28 * scale]) };
   // The same structure, any statuses: the layout reads ids, kinds and edges only.
   const restless = workmapNodes().map((item, i) => ({ ...item, status: ["prepared", "validated", "needs_attention"][i % 3], settled: i % 2 === 0 }));
   out.stable = JSON.stringify(context.workmapLayers(workmapNodes(), WORKMAP_EDGES)) === JSON.stringify(context.workmapLayers(restless, WORKMAP_EDGES));
@@ -3204,6 +3337,28 @@ if (scenario === "workmap_refit") {
   fire(byId("wm-present"), "click");
   await sleep(40);
   out.present_off = session.has("agents-core.workmap-present");
+  // Fit takes the largest step at which the map shows whole with the gaps within the height budget
+  // (the stage's data-tight), then the gaps the edges want only where the map's height still fits with
+  // them at that step: here 600 px at 100 % with the budget's gaps, 700 or 620 with the wanted ones; and
+  // a map wider than the canvas at the floor takes them too while its height fits.
+  const stage = byId("wm-stage"), zoom = () => vm.runInContext("wm.zoom", context);
+  out.gaps = {};
+  for (const [name, wanted] of [["tight", 700], ["wanted", 620]]) {
+    Object.defineProperty(layers, "offsetHeight", { configurable: true, get: () => Math.round(("tight" in stage.dataset ? 600 : wanted) * zoom() / 100) });
+    Object.defineProperty(layers, "offsetWidth", { configurable: true, get: () => Math.round(1000 * zoom() / 100) });
+    context.fitWorkmap();
+    out.gaps[name] = [zoom(), "tight" in stage.dataset];
+  }
+  Object.defineProperty(layers, "offsetWidth", { configurable: true, get: () => Math.round(4000 * zoom() / 100) });
+  context.fitWorkmap();
+  out.gaps.wide = [zoom(), "tight" in stage.dataset];
+  // From the smallest zoom, with 200 px of the height not scaling: the estimate lands nine steps low,
+  // and Fit climbs on until the next step no longer fits (140 %: 200 + 400 x 1.4 = 760 of 776 px).
+  Object.defineProperty(layers, "offsetHeight", { configurable: true, get: () => Math.round(200 + 400 * zoom() / 100) });
+  Object.defineProperty(layers, "offsetWidth", { configurable: true, get: () => Math.round(1000 * zoom() / 100) });
+  context.setWorkmapZoom(50);
+  context.fitWorkmap();
+  out.climb = zoom();
   await finish(out);
 }
 
