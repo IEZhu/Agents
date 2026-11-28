@@ -195,13 +195,18 @@ session's own worktree, and the branch pushed without a pull request: neither
 reaches the other session's reviewers or the owner. What the agreement gates is
 opening the pull request, or marking a draft ready, because that starts the
 reviewers and puts both changes in front of the owner. When no agreement can be
-recorded, because the other session cannot be reached or its participant is not
-live (a `propose` answers `stale_generation` while any participant it binds is
-`suspect`), say so and ask the user before opening it, or before marking an
-existing draft ready: the user's consent stands in for the agreement in both
-cases. When the other pull
-request merges first, the overlap is gone, and the branch is updated as
-[keep the branch current](#keep-the-branch-current-and-git-healthy) describes.
+recorded, because the other session cannot be reached or does not acknowledge
+before the proposal expires, say so and ask the user before opening it, or
+before marking an existing draft ready: the user's consent stands in for the
+agreement in both cases. A `suspect` peer blocks neither the `propose` nor a
+consent it already gave, but it has to `recover` before it can acknowledge, and
+the proposal waits an hour by default and a day at most
+(`acknowledgement_timeout_seconds`); the
+[runtime guide](../docs/agent-cooperation/runtime.md#priority-and-host-limitations)
+describes agreements between sessions that act only at their turn boundaries.
+When the other pull request merges first, the overlap is gone, and the branch is
+updated as [keep the branch current](#keep-the-branch-current-and-git-healthy)
+describes.
 
 The coordinator is optional, so this step must not become a prerequisite. When
 either call answers `store_unavailable`, report the unavailable coordinator and
