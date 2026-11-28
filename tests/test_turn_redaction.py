@@ -915,6 +915,12 @@ PROSE_WORDS = [
     # Finding 15: punctuation alone, and a value glued with a hyphen or a dot.
     "password: {punct}", "token-{low}", "password.{low}",
 ]
+BEFORE_ITS_LABEL = [
+    # Finding 9, first group (owner's call): the value before its label on the same line.
+    "echo {v} | docker login -u ci --password-stdin registry.example.com", 'echo "deploy:{v}" | chpasswd',
+    "Use {v} as the password for the staging admin.", "I typed {v} into the password field and it failed.",
+    "printf '%s' {v} | docker login --username ci --password-stdin ghcr.io", "echo '{v}' | sudo -S apt-get update",
+]
 QUOTES = [
     # Finding 11: quoted values over lines.
     'password = """\n{v}\n"""', "token = '''\n{v}\n'''", 'password "abc\n{v}"', "mysql -u root -p'abc\n{v}' shop",
@@ -964,6 +970,14 @@ def test_names_and_options_outside_the_old_lists_name_a_secret(template):
 def test_prose_words_calls_and_property_names_before_a_value_are_masked(template):
     """v701-4 redaction findings 6 to 8, 14 and 15."""
     masked, shown = all_masked(template, 13000 + PROSE_WORDS.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("template", BEFORE_ITS_LABEL)
+def test_a_value_written_before_its_label_is_masked(template):
+    """v701-4 redaction finding 9, its first group (the owner's call): use V as the password, echo V
+    piped into a login with --password-stdin, into chpasswd or into sudo -S."""
+    masked, shown = all_masked(template, 14000 + BEFORE_ITS_LABEL.index(template))
     assert masked, shown
 
 

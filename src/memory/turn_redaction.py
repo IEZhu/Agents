@@ -122,6 +122,9 @@ SETTING_VERBS = frozenset({"set", "sets", "change", "changes", "changed", "reset
 # "be" introduces none after a modal or an auxiliary verb: "the seed phrase must be written down".
 MODALS = frozenset({"must", "should", "can", "could", "will", "would", "may", "might", "shall", "to", "cannot",
                     "has", "have", "had", "not", "never", "also", "always", "need", "needs"})
+# What ties a value written before its label to it: "use V as the password", "typed V into the
+# password field".
+VALUE_LINKS = frozenset({"as", "into", "for", "in", "как", "в"})
 VOWELS = frozenset("aeiouyаеёиоуыэюя")
 
 # --- Names of environment variables (#701 review) ---------------------------------------------------
@@ -230,11 +233,17 @@ _VALUE_FIELD = re.compile(
     r"[ \t]*(?:-[ \t]+)?[\"']?(?i:value|val|parametervalue|default|data|content|secretvalue|secretstring)"
     r"[\"']?[ \t]*[:=][ \t]*(?P<value>\S.{0,1024}?)[ \t]*"
     r"|[ \t]*<(?i:value)>(?P<xml>.{0,1024}?)</(?i:value)>[ \t]*")
+# A value piped into a command that reads a password on its standard input.
+PIPED_VALUE = re.compile(r"(?<![\w-])(?:echo|printf)(?:[ \t]+-[neE]{1,3})*[ \t]+(?P<value>[^|;&\r\n]{1,512}?)[ \t]*"
+                         r"\|(?P<rest>[^|;&\r\n]{0,512})")
+STDIN_PASSWORD = re.compile(r"--password-stdin|--passwd-stdin|-password-stdin|\bchpasswd\b|\bpasswd\b.*--stdin|"
+                            r"\bsudo\b(?:[ \t]+-\w+)*[ \t]+-S\b|\bkinit\b|\bsshpass\b")
 # Tokens a value can follow a prose-common word with: a dash, and the closing marks of a table cell.
 _DASHES = frozenset({"-", "--", "—", "–", "=", "=>", "->"})
 _TOKEN_TRIM = "\"'`([{<>)]}.,;:!?*"
 _VALUE_SYMBOLS = frozenset("!@#$%^&*+=~|\\/<>{}[]?")
 _TOKEN_CHARACTERS = re.compile(r"[A-Za-z0-9_-]+")
+_LINK_HINT = re.compile(r"(?i)(?<!\w)(?:as|into|for|in|как|в)(?!\w)")
 _IMPOSSIBLE_PAIRS = frozenset(
     "bx cj cv cx dx fq fx gq gx hx jc jf jg jq js jv jw jx jz kq kx mx px pz qb qc qd qf qg qh qj qk ql qm qn qp "
     "qs qt qv qw qx qy qz sx vb vf vh vj vm vp vq vt vw vx wx xj xx zj zq zx".split())
@@ -703,6 +712,19 @@ class _Prose:
                 return False
         return False
 
+    def value_before(self, link: int) -> int | None:
+        """The token index of a value written right before ``link`` (as, into, for) when a word naming
+        a secret follows within four tokens: "use V as the password", "typed V into the password
+        field"; else None."""
+        if not self.ready:
+            self._read()
+        if link == 0 or not _value_like(self.texts[link - 1]):
+            return None
+        for token in self.texts[link + 1:link + 5]:
+            word = token.strip(_TOKEN_TRIM)
+            if word and (_word_class(word) == STRONG or word.lower() in ("pass", "pwd", "pw", "passcode", "pin")):
+                return link - 1
+        return None
 
 
 def _plain_value(line: str, index: int) -> bool:
@@ -1116,6 +1138,29 @@ def _pair_spans(text: str, lines, index: int) -> list[tuple[int, int]]:
     return spans
 
 
+def _before_label_spans(line: str, offset: int, prose=None) -> list[tuple[int, int]]:
+    """Values written before their label on ``line`` (owner's call, v701-4 redaction finding 9's first
+    group): a value piped into a command that reads a password on its standard input (``echo V |
+    docker login --password-stdin``, ``echo "u:V" | chpasswd``, ``| sudo -S``), and a token shaped
+    like a value right before ``as``, ``into`` or ``for`` with a word naming a secret after it ("use V
+    as the password")."""
+    spans = []
+    if "|" in line:
+        for match in PIPED_VALUE.finditer(line):
+            if STDIN_PASSWORD.search(match.group("rest")):
+                spans.append((offset + match.start("value"), offset + match.end("value")))
+    if prose is None or not _LINK_HINT.search(line):  # no label after a value without these
+        return spans
+    if not prose.ready:
+        prose._read()
+    for link, token in enumerate(prose.texts):
+        if token.lower() in VALUE_LINKS:
+            value = prose.value_before(link)
+            if value is not None:
+                spans.append((offset + prose.starts[value], offset + prose.ends[value]))
+    return spans
+
+
 def line_spans(text: str) -> list[tuple[int, int]]:
     """Where the line rule masks ``text`` (owner's decision 2026-11-28): after the first label on a
     line that names a secret, to the end of the line (``_trigger``) and of the lines it continues with
@@ -1124,8 +1169,8 @@ def line_spans(text: str) -> list[tuple[int, int]]:
     under it, a fenced block's content, the lines that read as a value after a line ending in a label
     or a colon, a heading or a bare label, the next line after a quoted name; a heredoc's body after
     a line that names a secret; the rows under a table's header that names a secret
-    (``_table_rows``); and a name-value pair's value near a name that names a secret
-    (``_pair_spans``)."""
+    (``_table_rows``); a name-value pair's value near a name that names a secret (``_pair_spans``);
+    and a value written before its label (``_before_label_spans``)."""
     spans: list[tuple[int, int]] = []
     lines = _lines(text)
     index, covered = 0, 0
@@ -1146,6 +1191,8 @@ def line_spans(text: str) -> list[tuple[int, int]]:
                 continue
             spans.extend(_pair_spans(text, lines, index))
         prose = _Prose(line) if hinted else None
+        if hinted or "|" in line:
+            spans.extend(_before_label_spans(line, start, prose))
         found = _trigger(line, prose) if hinted or _CLIENT_HINT.search(line) or "-" in line or "/" in line else None
         last = _continued(text, lines, index)
         if found is None and last > index:
