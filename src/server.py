@@ -1127,6 +1127,8 @@ async def run_flow(
     request and instruction. Continue executing that content using client tools.
     When the flow names a persona (flow.persona), persona_activation is a protocol 2
     response for it: pass current_persona and apply it as a switch before executing.
+    previous_persona comes with it: the current_persona received (null without one),
+    the role to switch back to once the flow is done.
     force_reload=True with current_persona returns that persona's full instruction again.
     This tool only reads instructions: it does not run commands, edit files,
     create a background task, sample a model or claim the workflow is complete.
@@ -1151,6 +1153,9 @@ async def run_flow(
             # instead of returning the flow with an ERROR activation.
             await asyncio.to_thread(flow_persona.check_known, spec)
             query = f"{loaded.title}\n{request}".strip()
+            # The role to switch back to once the flow is done (#456): the server keeps no
+            # activation state, so it returns the caller's descriptor as it arrived.
+            bundle["previous_persona"] = current_persona
             problem = await _readiness_problem("run_flow")
             if problem is not None:
                 bundle["persona_activation"] = json.loads(_persona_not_ready(problem))

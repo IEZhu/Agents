@@ -313,6 +313,61 @@ async def test_run_flow_persona_waits_for_readiness(environment, tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_run_flow_returns_the_persona_to_switch_back_to(environment, tmp_path, monkeypatch,
+                                                              persona_components):
+    """#456: nothing told a session to leave a flow's persona, so the answers after thread-close ran
+    under it. Every persona_activation comes with previous_persona, the current_persona run_flow
+    received; a flow without a persona returns neither."""
+    from unittest.mock import AsyncMock
+
+    from src import client_instructions
+    from src.engine import persona
+
+    monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "lib"))
+
+    async def build(agent, query, history, tier=None, selection=None):
+        return SimpleNamespace(
+            agent=agent, bundle_revision="c" * 64, scope="Review code",
+            persona_block="Role", rules_block="Rules", skills_block="Skills",
+            implants_block="", skills_loaded=[], implants_loaded=[], rules_loaded=[], tier="standard")
+    monkeypatch.setattr(persona, "build_persona_bundle", build)
+    monkeypatch.setattr(server.router, "update_cache", AsyncMock())
+    monkeypatch.setattr(client_instructions, "drift_warnings", lambda context=None: [])
+    engineer = {"agent": "software_engineer", "activation_id": "before-flow", "bundle_revision": "e" * 64,
+                "scope": "Write code", "skills_loaded": ["skill-a"], "implants_loaded": [],
+                "rules_loaded": ["truth"]}
+
+    plain = json.loads(await server.run_flow("check", current_persona=engineer))
+    assert "persona_activation" not in plain and "previous_persona" not in plain
+
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer"))
+    switched = json.loads(await server.run_flow("check", current_persona=engineer))
+    assert switched["persona_activation"]["status"] == "SUCCESS"
+    assert switched["persona_activation"]["replaces_activation_id"] == "before-flow"
+    assert switched["previous_persona"] == engineer
+
+    # Called again under the flow's own persona, it echoes that persona: the caller keeps the
+    # previous_persona of the flow's first run_flow.
+    reviewer = switched["persona_activation"]["persona"]
+    again = json.loads(await server.run_flow("check", current_persona=reviewer))
+    assert again["persona_activation"]["status"] == "NO_CHANGE"
+    assert again["previous_persona"] == reviewer
+
+    fresh = json.loads(await server.run_flow("check"))
+    assert fresh["persona_activation"]["status"] == "SUCCESS" and fresh["previous_persona"] is None
+
+    async def warming(tool):
+        return "warming_up"
+    monkeypatch.setattr(server, "_readiness_problem", warming)
+    waiting = json.loads(await server.run_flow("check", current_persona=engineer))
+    assert waiting["persona_activation"]["status"] == "ERROR"
+    assert waiting["previous_persona"] == engineer
+
+    tool = {t.name: t for t in await server.mcp.list_tools()}["run_flow"]
+    assert "previous_persona" in " ".join(tool.description.split())
+
+
+@pytest.mark.asyncio
 async def test_stdio_empty_cwd_works_but_program_files_are_refused(environment, tmp_path, monkeypatch):
     monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
     monkeypatch.setattr(config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
