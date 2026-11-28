@@ -868,8 +868,16 @@ def test_a_pass_that_embedded_nothing_yet_saves_nothing(world, tmp_path):
 
     model.fingerprint = fingerprint
     index = make_index(tmp_path / "index", model)
+    saved_under, real_save = [], index._save
+
+    def save(vectors, documents, model):  # the store on disk, which this process's cached copy can hide
+        saved_under.append(model)
+        real_save(vectors, documents, model)
+
+    index._save = save
     index.refresh(documents)
     index.join(30)
     assert changed and index.status()["state"] == "ready"
+    assert saved_under == ["loaded"]  # nothing under the cache's fingerprint, which would drop the stored vectors
     assert index.coverage(second)["covered"] == len(second)
     assert model.calls - before <= shared.EMBED_BATCH + 1  # the batch that loaded the model, then the new chunk
