@@ -307,8 +307,8 @@ Deterministic redaction cannot catch everything, and these shapes still pass:
   rarely, a random one of 20 to 32 characters (about 4 in 100 at 20 to 24 characters and 1 to 3 in
   100 at 32, in 400 samples of each kind);
 - a secret of the hook's environment under eight characters, or in a form the scanner does not
-  decode: split into concatenated pieces, reversed, upper-cased, or only part of it (a 15-character
-  prefix of 30, all but the last four characters).
+  decode: split into concatenated or quoted pieces, reversed, upper-cased, rot13, or only part of it
+  (a 15-character prefix of 30, all but the last four characters).
 
 A turn that holds such details is protected by the model's own call: a `log_interaction` call with
 the turn redacted, which the hook leaves alone, or `journal=false`, which keeps the turn out. The

@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import tracemalloc
+import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1370,6 +1371,7 @@ def environment_forms():
         "in a shell export": (f"export DEPLOY_SERVICE_TOKEN={value}", value),
         "JSON-escaped inside a JSON string": ('{"env": "{\\"T\\": \\"%s\\"}"}' % value, value),
         "base32": ("x " + base64.b32encode(value.encode()).decode(), base64.b32encode(value.encode()).decode()),
+        "percent-quoted, the unsafe characters only": ("url?p=" + urllib.parse.quote(value + "&/="), value),
         "with zero-width spaces": ("deployed with " + "\u200b".join(value) + " today", value),
     }
 
@@ -1378,11 +1380,17 @@ def environment_forms():
 # decode, written without a label. The value names no secret word itself, so the line rule leaves it.
 NEUTRAL_VALUE = "c0bra-Deploy-mint-phrase-2026"
 NEUTRAL_ENVIRONMENT = {**ENVIRONMENT, "DEPLOY_SERVICE_TOKEN": NEUTRAL_VALUE}
+ROT13 = str.maketrans(string.ascii_lowercase + string.ascii_uppercase,
+                      string.ascii_lowercase[13:] + string.ascii_lowercase[:13]
+                      + string.ascii_uppercase[13:] + string.ascii_uppercase[:13])
 ENVIRONMENT_FORMS_PASSING = {
     "concatenated pieces": (f'"{NEUTRAL_VALUE[:14]}" + "{NEUTRAL_VALUE[14:]}"', NEUTRAL_VALUE[14:]),
     "reversed": (f"deployed with {NEUTRAL_VALUE[::-1]} today", NEUTRAL_VALUE[::-1]),
     "upper-cased": (f"deployed with {NEUTRAL_VALUE.upper()} today", NEUTRAL_VALUE.upper()),
+    "three quoted pieces": (f'"{NEUTRAL_VALUE[:10]}" "{NEUTRAL_VALUE[10:20]}" "{NEUTRAL_VALUE[20:]}"', NEUTRAL_VALUE[10:20]),
+    "rot13": (f"deployed with {NEUTRAL_VALUE.translate(ROT13)} today", NEUTRAL_VALUE.translate(ROT13)),
     "a 15-character prefix": (f"it starts with {NEUTRAL_VALUE[:15]}", NEUTRAL_VALUE[:15]),
+    "all but the last four characters": (f"it starts with {NEUTRAL_VALUE[:-4]}", NEUTRAL_VALUE[:-4]),
     "a value under eight characters": ("the run printed hunter2 twice", "hunter2"),
 }
 
