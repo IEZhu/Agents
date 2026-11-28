@@ -412,22 +412,40 @@ model tokens; the page calls no model.
   by line and head: `depends_on` from the prerequisite to its dependant, the head hollow
   while the prerequisite is not settled; `verifies` dashed; `supersedes` dotted;
   `contradicts` dash-dot. The layout depends on node ids, kinds and edges only, so a live
-  status update never moves a card. Within each layer the order is the one with the
-  fewest crossings that sweeps of the weighted median and swaps of neighbours find, a
+  status update never re-lays the map or moves a card across; a card that takes a second
+  state row grows and moves the cards below it down. Within each layer the order is the
+  one with the fewest crossings that sweeps of the weighted median, swaps of neighbours,
+  layers re-sorted by their neighbours and sifting (each entry tried at every place of
+  its layer) find, from the payload's order and others shuffled by a fixed seed, a
   docked tray moving with its node; every edge that crosses a layer, a `supersedes` or
-  `contradicts` one too, passes a lane there that no card covers. Across, each node sits
-  where most of its edges run straight (least total run across, within the widest
-  layer's width, so placing never widens the map), and the gap above a layer is as tall
-  as the edges entering it need to bend. An edge leaves the foot of its group, under the
-  tray (an edge from a docked verifier too), and enters the top of a card; the ends on
-  one side are spread in the order of their other ends, each aimed at its lane or at the
-  middle between the two boxes, so two boxes that overlap meet straight. Between two
-  layers an edge is one smooth curve with vertical ends, through its lanes; the curves
-  of one span bend between the same two heights, starting right under the lowest box
-  above them, so the drawing crosses only where the order does and no curve passes
-  through a card or a tray. Every edge ends in a straight vertical piece at least 12 px
-  long, so its arrowhead lies along it (one between two pills of a tray runs round the
-  tray's right edge and ends level with its pill). With one goal and no edge into it, a
+  `contradicts` one too, passes a lane there that no card covers. An edge between two
+  nodes of one layer counts as well: the order puts its ends side by side where the
+  other crossings allow, and then it runs straight between the two cards; between two
+  that are not neighbours (or from a docked verifier) it dips below the layer, past the
+  edges down from the nodes between, which it crosses and the order counts. Across, each
+  node sits where most of its edges run straight (least total run across, within the
+  widest layer's width, so placing never widens the map). The gap above a layer is as
+  tall as the edges entering it need to bend; the gaps within the height budget take
+  26 px each together, the tallest giving way first, so that from 75 % up the map is no
+  taller than with the uniform 28 px of the layout before (the 14 px of a gap that hold
+  an edge's straight end stay fixed above 100 % and 12 below 86 %), and Fit and Present
+  use the taller gaps only where the map's height still fits the canvas with them at
+  the zoom the budget reaches. The side of the map that holds more cards comes first,
+  since a map wider than the canvas opens at its left edge.
+  An edge leaves the foot of its group, under the tray (an edge from a docked verifier
+  too), and enters the top of a card; the ends on one side are spread in the order of
+  their other ends, each aimed at its lane, then at the end it runs to, so the edges
+  between two boxes that overlap run straight side by side, and an end a few px off its
+  other end's line moves onto it. Between two layers an edge is one smooth curve with
+  vertical ends, through its lanes; the curves of one span bend between the same two
+  heights, starting right under the lowest box above them (and below a dip), staggered
+  so that two running the same way never lie on one line and every pair crosses as the
+  order says: the drawing crosses only where the order does and no curve passes
+  through a card or a tray. Every edge ends in a straight vertical piece 12 px long, so
+  its arrowhead lies along it (shorter only in a gap planned too low for it; one side to
+  side or between two pills of a tray ends level with the box it enters, the latter
+  round the tray's right edge, its reach and bulge scaled with the zoom and short of the
+  next card). With one goal and no edge into it, a
   dotted connector marked derived leads to it from the nodes nothing follows. The edges
   of the critical path are drawn at double weight and the stages the goal waits on are
   underlined: what runs, can start or needs someone on it, the verifier checking a node
