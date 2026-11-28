@@ -423,6 +423,13 @@ details.persona summary { cursor: pointer; }
   font-weight: 600; color: var(--st-attn); }
 /* Rung until the viewer picks a map: the page chose one of several the link could mean. */
 #wm-map[data-ring] { outline: 2px solid var(--st-attn); outline-offset: 2px; }
+/* Present's own theme switch closes the first row, which Present leaves to the title: it takes no
+   room from the tiles, and it is no taller than the row. Hidden outside Present (section 10). */
+#wm-theme { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
+  padding: 0 var(--s4); font-size: var(--f-meta); line-height: 1.6; color: var(--text); background: var(--chip);
+  border-color: transparent; border-radius: var(--r-float); }
+#wm-theme:hover { box-shadow: inset 0 0 0 1px var(--wm-rule); }
+#wm-theme[aria-pressed="true"] { font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--text); }
 .wm-summary-stats { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--s3) var(--s5); min-width: 0; }
 /* The stacked bar: one segment per category, in a fixed order, drawn with attributes only. */
 .wm-progress { flex: none; width: calc(8 * var(--f-body)); height: var(--s4); border-radius: var(--r-pill);
@@ -524,14 +531,20 @@ details.persona summary { cursor: pointer; }
 .wm-tools output { min-width: 3.2em; text-align: center; font-size: var(--f-body); font-variant-numeric: tabular-nums;
   color: var(--muted); }
 .wm-tools .wm-sep { align-self: stretch; width: 1px; margin: var(--s2) 0; background: var(--line); }
-/* The legend opens over the foot of the canvas and the refresh alert over its top: neither takes
-   height from the canvas, so opening one never rescales the graph. */
+/* The legend opens over the foot of the canvas: it takes no height from the canvas, so opening it
+   never rescales the graph. */
 .wm-legend { position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; max-height: 62%; overflow-y: auto;
   display: flex; flex-wrap: wrap; gap: var(--s3) var(--s7); padding: var(--s4) var(--s6);
   background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -2px 12px rgba(0, 0, 0, .16);
   font-size: var(--f-meta); }
-.wm-canvas-wrap > .wm-alert { position: absolute; z-index: 7; top: var(--s4); left: var(--s6); right: var(--s6);
-  margin: 0; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); }
+/* The refresh alert stands in the summary's first row, in the place of the revision line, on one line
+   no taller than the row: it covers no card and changes no height, so it never rescales the graph. */
+.wm-summary-head > .wm-alert { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; gap: var(--s4); margin: 0;
+  padding: 0 var(--s2) 0 var(--s4); line-height: 1.6; }
+.wm-summary-head > .wm-alert > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-summary-head > .wm-alert button { flex: none; min-height: 24px; padding: 0 var(--s4); font-size: var(--f-meta);
+  line-height: 1.6; }
+#wm-alert:not([hidden]) + .wm-ids { display: none; }
 /* "N more below": the graph runs past the canvas's foot or side. A click scrolls the next card into view. */
 .wm-more { position: absolute; z-index: 5; bottom: var(--s4); right: var(--s6);
   display: inline-flex; align-items: center; gap: var(--s2); min-height: max(28px, calc(28px * var(--k)));
@@ -543,6 +556,9 @@ details.persona summary { cursor: pointer; }
   white-space: nowrap; }
 .wm-lg-item .wm-kind { margin: 0; color: var(--muted); }
 .wm-lg-edge { flex: none; width: 40px; height: 12px; overflow: visible; }
+/* The legend's sample of the attention border that 7d gives a card. */
+.wm-lg-border { flex: none; width: calc(2 * var(--f-meta)); height: var(--f-meta); border: 1px solid var(--st-attn);
+  border-radius: var(--r-badge); box-shadow: 0 0 0 1px var(--st-attn); }
 
 /* 6. GRAPH — layers are flex rows, top to bottom in dependency order; CSS places every card.
       A group is a node with the verifiers that check it docked in a tray under it. A lane is
@@ -580,6 +596,10 @@ details.persona summary { cursor: pointer; }
 .wm-you { flex: none; padding: 0 var(--s3); border-radius: var(--r-pill); font-weight: 700; color: var(--wm-on);
   background: var(--st-attn); }
 .wm-extra { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+/* The elapsed time of a running card, which the page rewrites between polls: one unit ("13m", "4h",
+   "2d"), monospaced, in a box as wide as the widest of them, so no rewrite changes the row's width
+   and the row never wraps or unwraps by itself. */
+.wm-age { flex: none; min-width: 4ch; font-family: var(--font-mono); font-size: .92em; color: var(--muted); }
 /* The level badge: square-cornered and monospaced, so it never reads as a status chip. A level
    reached is a filled box ("V2"); a level still needed an outlined one with an arrow ("→V3"); with
    nothing reached yet one outlined box says both ("V0→V3"). Reached and needed differ by fill and by
@@ -688,9 +708,11 @@ details.persona summary { cursor: pointer; }
 /* 7c. Needs attention and disputed carry the same second pixel as running: their tint alone works
    by hue, which a washed-out projector may lose. */
 .wm-node[data-status="needs_attention"], .wm-node[data-status="disputed"] { box-shadow: 0 0 0 1px var(--st-attn); }
-/* 7d. Waiting for you: a solid attention border whatever the status form, after the forms above, so
-   the owner's own decision is never drawn as the quietest card on the map. */
-.wm-node[data-who="you"] { border-style: solid; border-color: var(--st-attn); box-shadow: 0 0 0 1px var(--st-attn); }
+/* 7d. Waiting for you and needs attention: a solid attention border whatever the status form, after
+   the forms above, so the owner's own decision is never drawn as the quietest card on the map and
+   every card the tiles count as needing someone is marked, a validated one below its need included. */
+.wm-node[data-who="you"], .wm-node[data-cat="action"] { border-style: solid; border-color: var(--st-attn);
+  box-shadow: 0 0 0 1px var(--st-attn); }
 /* 7e. A docked verifier's disc is its verdict on the target's current result, not its own status:
    an empty ring while pending, a check when clean, the attention triangle for a critical or high
    finding, a struck ring when it judged an older result, a dash when no verdict was recorded. A
@@ -827,7 +849,7 @@ details.persona summary { cursor: pointer; }
 .wm-node[data-status="needs_attention"]:hover, .wm-node[data-status="disputed"]:hover { border-color: var(--st-attn); }
 .wm-node:focus-visible, .wm-tile:focus-visible, .wm-jump:focus-visible, .wm-tools button:focus-visible,
 .wm-close:focus-visible, .wm-copy:focus-visible, .wm-result button:focus-visible, .seg button:focus-visible,
-.wm-more:focus-visible, .wm-more-text:focus-visible, #wm-result-text:focus-visible {
+.wm-more:focus-visible, .wm-more-text:focus-visible, #wm-result-text:focus-visible, #wm-theme:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Selected: the tint of the open item's pane and an ink outline; the panel beside it shares the tint. */
 .wm-node[aria-pressed="true"] { background-color: var(--tint); background-image: none; border-style: solid;
@@ -901,11 +923,14 @@ details.persona summary { cursor: pointer; }
 #workmap-page[data-state="ready"][data-graph="omitted"] :is(.wm-stage, .wm-more) { display: none; }
 #workmap-page[data-graph="omitted"] .wm-state[data-for="omitted"] { display: block; }
 /* Present: the projector's view. The page header, the slots, the ids and the map select go; the
-   title, the bar, the tiles and the tools stay, and the graph takes the room (about 120 % instead
-   of 115 % at 1920 x 1080). The Present button, or Escape, brings the rest back. */
+   title, the bar, the tiles and the tools stay, and the graph takes the room (about 125 % instead
+   of 115 % at 1920 x 1080), never less than a readable zoom (workmapFitFloor). The header's theme
+   switch goes with the header, so the summary's first row carries one of its own while Present is
+   on. The Present button, or Escape, brings the rest back. */
 :root[data-wm-present] body > header { display: none; }
 #workmap-page[data-present] { padding-top: var(--edge); }
 #workmap-page[data-present] :is(.wm-lists, .wm-ids, .wm-pick-row) { display: none !important; }
+#workmap-page:not([data-present]) #wm-theme { display: none; }
 
 /* 11. RESPONSIVE
        1100 px and up: canvas and panel side by side (1280 laptop, 1920 projector).
@@ -927,7 +952,9 @@ details.persona summary { cursor: pointer; }
   .wm-canvas-wrap { overflow: visible; background: none; }
   .wm-canvas { display: block; overflow: visible; cursor: default; background: none; scrollbar-gutter: auto; }
   .wm-tools > :not([data-keep]), .wm-more { display: none; }
-  .wm-legend, .wm-canvas-wrap > .wm-alert { position: static; box-shadow: none; }
+  .wm-legend { position: static; box-shadow: none; }
+  .wm-summary-head > .wm-alert { flex-basis: 100%; }
+  .wm-summary-head > .wm-alert > span { white-space: normal; overflow-wrap: anywhere; }
   .wm-stage { --k: 1.077; margin: 0; padding: 0; }
   .wm-edges, .wm-lane { display: none; }
   .wm-layers { width: auto; align-items: stretch; gap: var(--s5); }
@@ -1034,6 +1061,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <symbol id="wm-i-fit" viewBox="0 0 16 16"><path d="M2.8 6V2.8H6M10 2.8h3.2V6M13.2 10v3.2H10M6 13.2H2.8V10"/></symbol>
     <symbol id="wm-i-key" viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M2.8 8h10.4M2.8 11.5h6.4"/></symbol>
     <symbol id="wm-i-screen" viewBox="0 0 16 16"><rect x="2.2" y="3" width="11.6" height="7.6" rx="1.2"/><path d="M8 10.6v2.6M5.4 13.4h5.2"/></symbol>
+    <symbol id="wm-i-theme" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.4"/><path d="M8 2.6a5.4 5.4 0 0 1 0 10.8z" fill="currentColor" stroke="none"/></symbol>
     <symbol id="wm-i-copy" viewBox="0 0 16 16"><rect x="5.6" y="5.6" width="7.6" height="7.6" rx="1.6"/><path d="M10.4 5.6V4.2a1.4 1.4 0 0 0-1.4-1.4H4.2a1.4 1.4 0 0 0-1.4 1.4V9a1.4 1.4 0 0 0 1.4 1.4h1.4"/></symbol>
     <symbol id="wm-i-file" viewBox="0 0 16 16"><path d="M4 2.2h5.2l2.8 2.8v8.8H4z"/><path d="M9.2 2.2V5H12"/></symbol>
     <symbol id="wm-i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.9.9"/><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.9-.9"/></symbol>
@@ -1187,8 +1215,12 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       <!-- The title is the goal node's title; without a map it is the page's own name. -->
       <h2 class="wm-title" id="wm-title" tabindex="-1"><span id="wm-goal" data-when="ready"></span><span data-when="unready">Work map</span></h2>
       <span class="wm-flag" id="wm-flag" data-when="ready" data-flag="open">open</span>
+      <!-- A refresh that failed keeps the last map on screen and says so here, in the place of the revision line. -->
+      <div class="notice bar wm-alert" id="wm-alert" role="status" data-when="ready" hidden><span id="wm-alert-text"></span><button type="button" id="wm-alert-retry">Try again</button></div>
       <span class="wm-ids" id="wm-ids" data-when="ready"></span>
       <span class="wm-pick-row" data-when="has-maps"><span class="wm-pick-note" id="wm-pick-note" role="status" hidden></span><label class="wm-pick">Map <select id="wm-map" aria-label="Work map"></select></label><button type="button" class="wm-copy" id="wm-copy-task" aria-label="Copy the task id"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-copy"/></svg></button></span>
+      <!-- Present hides the page header and its theme switch: this one stands in for it, in the room Present leaves here. -->
+      <button type="button" id="wm-theme" aria-pressed="false" title="Dark theme: switch the page between light and dark, as the header's switch does"><svg class="wm-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#wm-i-theme"/></svg>Dark</button>
     </div>
     <div class="wm-summary-stats">
       <svg class="wm-progress" id="wm-progress" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="Progress"></svg>
@@ -1209,8 +1241,6 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   </div>
   <div class="wm-body" id="wm-body" data-panel="closed">
     <div class="wm-canvas-wrap">
-      <!-- A refresh that failed keeps the last map on screen and says so here, over the canvas's top. -->
-      <div class="notice bar wm-alert" id="wm-alert" role="status" hidden><span id="wm-alert-text"></span><button type="button" id="wm-alert-retry">Try again</button></div>
       <div class="wm-canvas" id="wm-canvas" tabindex="0" role="group" aria-label="Work map graph">
         <div class="wm-stage" id="wm-stage" data-zoom="100">
           <!-- Edges: the script draws one path per edge here; markers live in the sprite. -->
@@ -6140,7 +6170,9 @@ async function switchAutodev(mode) {
 // ("Web view and footer link") lists where the two differed and what was chosen.
 // The page polls the open map; a stored result is fetched only on an explicit click and shown as text.
 // The summary keeps one height and the graph is refit only on first load, a change of nodes or edges,
-// a window resize, Fit or Present, so a live update repaints cards in place and never rescales them.
+// a window resize, Fit or Present, or when a repaint left a fitted map larger than its canvas (a card
+// took a second state row): a live update repaints cards in place and rescales them only so that none
+// is cut. Every change of a card's size draws the edges again.
 // #workmap opens the most recently changed open map, #workmap/<task id> or
 // #workmap/<workspace>/<task id> one map; the address bar keeps the open map's link.
 
@@ -6177,16 +6209,18 @@ const WM_VERDICT_SHORT = { pending: "pending", clean: "clean", found: "finding",
   withdrawn: "withdrawn" };
 const WM_VERDICT_ICON = { pending: null, clean: "check", found: "bang", older: "slash", none: "dash", withdrawn: "cross" };
 // padX, padY: the stage's padding across and down. auto is the floor of an automatic fit; Fit may go
-// down to min.
-const WM_ZOOM = { min: 50, max: 160, step: 5, auto: 75, padX: 32, padY: 24 };
+// down to min. In Present the floor is the readable zoom instead (workmapFitFloor): `present` on a
+// viewport `presentWidth` wide, the status words at 13.2 px on a 1920-px image.
+const WM_ZOOM = { min: 50, max: 160, step: 5, auto: 75, present: 110, presentWidth: 1920, padX: 32, padY: 24 };
 const WM_THEME_KEY = "agents-core.theme";
+const WM_PRESENT_KEY = "agents-core.workmap-present";  // in sessionStorage: this browser tab keeps Present
 const WM_LIST_MAX = 5;  // ids a slot or a sentence names before "and N more"
 // A map larger than this is not drawn: the layout's lanes and sweeps grow with layers times long edges.
 const WM_DRAW_MAX = { nodes: 400, lanes: 2000 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 // `gen` drops an answer for a map or node that another one overtook; `listGen` does so for the list.
 const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, view: null, node: null,
-  record: null, timer: null, ticks: 0, result: null, zoom: 100, autoFit: true, fitFloor: WM_ZOOM.auto, refit: true,
+  record: null, timer: null, ticks: 0, result: null, zoom: 100, autoFit: true, whole: false, refit: true,
   filter: null, hovered: null, frame: 0, structure: "", ages: [], changed: new Map(), cards: new Map(), slots: [],
   present: false, pick: null, expanded: new Set() };
 
@@ -6257,13 +6291,16 @@ function workmapCategory(item, who) {
 // The verdict of `verifier` on `target`'s current result. The store records a verdict only on a target
 // that still holds the result the verifier was given; `recorded` holds those of each verifier's current
 // attempt (the map's `verdicts`). Pending while the verifier has no result, older when what it judged,
-// or was given, is not the result the target holds now, none when the store recorded nothing.
+// or was given, is not the result the target holds now, none when the store recorded nothing. A
+// verifier running on an older result is older already: the store will record no verdict on the
+// result the target holds.
 function workmapVerdict(verifier, target, recorded) {
   if (WM_SET_ASIDE.includes(verifier.status)) return "withdrawn";
+  const pin = (verifier.inputs || {})[target.id];
+  if (verifier.status === "prepared" && pin && pin !== target.result_sha256) return "older";
   if (verifier.status === "planned" || verifier.status === "prepared") return "pending";
   const verdict = recorded && recorded.get(verifier.id + "\n" + target.id);
   if (verdict) return verdict.result_sha256 === target.result_sha256 ? verdict.verdict : "older";
-  const pin = (verifier.inputs || {})[target.id];
   if (pin && pin !== target.result_sha256) return "older";
   return "none";
 }
@@ -6605,6 +6642,16 @@ function workmapAge(iso, now = Date.now()) {
   return `${Math.floor(minutes / 1440)}d`;
 }
 
+// The same on a running card, in its largest unit only ("13m", "2h", "3d"): at most four characters
+// until 1,000 days, so the box .wm-age keeps for it holds every text a refresh writes there.
+function workmapCardAge(iso, now = Date.now()) {
+  const seconds = (now - Date.parse(iso || "")) / 1000;
+  if (!Number.isFinite(seconds)) return "";
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  if (minutes < 60) return `${minutes}m`;
+  return minutes < 24 * 60 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 1440)}d`;
+}
+
 function workmapClock(iso) {
   const at = new Date(iso || "");
   if (Number.isNaN(at.getTime())) return "";
@@ -6781,15 +6828,18 @@ function setWorkmapHover(id) {
   highlightWorkmap();
 }
 
-// The elapsed time of a running node, kept current between polls (see refreshWorkmapAges).
-function wmAgeSpan(parent, iso, className, format = (age) => age) {
-  const span = node("span", parent, format(workmapAge(iso)), className);
+// The elapsed time of a running node, kept current between polls (see refreshWorkmapAges). `format`
+// turns the stamp into the text shown.
+function wmAgeSpan(parent, iso, className, format = workmapAge) {
+  const span = node("span", parent, format(iso), className);
   wm.ages.push([span, iso, format]);
   return span;
 }
 
+// Only texts change here, never the layout the fit was made for: a card's age keeps one width
+// (.wm-age), and a card whose size changes for another reason has its edges drawn again (wmResized).
 function refreshWorkmapAges() {
-  for (const [span, iso, format] of wm.ages) span.textContent = format(workmapAge(iso));
+  for (const [span, iso, format] of wm.ages) span.textContent = format(iso);
 }
 
 // --- theme: no attribute follows the system, data-theme="light" or "dark" overrides it ---------------
@@ -6808,9 +6858,22 @@ function setTheme(theme, remember) {
     button.setAttribute("aria-pressed", String(on));
   }
   if (remember) { try { localStorage.setItem(WM_THEME_KEY, theme); } catch (_) {} }
+  $("wm-theme").setAttribute("aria-pressed", String(wmDark()));
+}
+
+// Whether the page is dark now: the switch's choice, else the system's.
+function wmDark() {
+  const theme = document.documentElement ? document.documentElement.getAttribute("data-theme") : null;
+  if (theme === "light" || theme === "dark") return theme === "dark";
+  try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch (_) { return false; }
 }
 
 for (const button of $("theme").children || []) button.addEventListener("click", () => setTheme(button.dataset.theme, true));
+// Present hides the header and its switch: the Dark button that closes the summary's first row then
+// switches between light and dark in one click, remembered as the header's choice is. Colours only
+// change, so nothing is refit.
+$("wm-theme").addEventListener("click", () => setTheme(wmDark() ? "light" : "dark", true));
+try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => setTheme(storedTheme(), false)); } catch (_) {}
 setTheme(storedTheme(), false);
 
 // --- the page -------------------------------------------------------------------------------------
@@ -6823,8 +6886,10 @@ function wmCalm() {
   try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { return false; }
 }
 
+// The alert keeps the summary's first row to one line: a long message is cut there and whole in its tooltip.
 function workmapAlert(message) {
   $("wm-alert-text").textContent = message || "";
+  $("wm-alert").title = message || "";
   $("wm-alert").hidden = !message;
 }
 
@@ -6845,6 +6910,8 @@ async function showWorkmapPage(link) {
   $("workmap-page").classList.remove("hidden");
   $("wm-title").focus();
   if (!wm.data) setWorkmapState("loading");
+  // A reload, or the bookmark opened again in this tab, keeps presenting: the first fit is Present's.
+  if (storedPresent()) setWorkmapPresent(true, false);
   if (link && link.task) {
     // A link that names its map opens it at once; the list loads beside it.
     const listed = loadWorkmapList();
@@ -6865,7 +6932,7 @@ function hideWorkmapPage() {
   clearTimeout(wm.timer);
   wm.timer = null;
   closeWorkmapResult();
-  setWorkmapPresent(false);
+  setWorkmapPresent(false, false);  // the tab's choice stays for its next visit
   $("workmap-page").classList.add("hidden");
   if (workmapLink(location.hash)) history.replaceState(null, "", location.pathname);
 }
@@ -6883,6 +6950,7 @@ function stopWorkmap() {
   $("wm-edges").replaceChildren();
   $("wm-lists").replaceChildren();
   $("wm-goal").textContent = "";
+  $("wm-result-text").textContent = "";  // the closed dialog no longer holds the result it showed
   setWorkmapState("loading");
 }
 
@@ -6901,7 +6969,9 @@ async function loadWorkmapList() {
 }
 
 // The select names every listed map, grouped by repository, newest first; the open map always has an
-// option, even when it is older than the maps a repository lists.
+// option, even when it is older than the maps a repository lists. Whether it was listed comes from the
+// comparison, never from reading `selected` back: a browser's select keeps one option selected, so the
+// first option reads true even right after it was set to false.
 function renderWorkmapPicker() {
   const select = $("wm-map");
   select.replaceChildren();
@@ -6917,8 +6987,9 @@ function renderWorkmapPicker() {
     for (const item of repo.maps) {
       const option = node("option", group, item.task_id + (item.closed ? " (closed)" : ""));
       option.value = JSON.stringify([repo.workspace, item.task_id]);
-      option.selected = Boolean(wm.open && wm.open.workspace === repo.workspace && wm.open.task === item.task_id);
-      found = found || option.selected;
+      const open = Boolean(wm.open && wm.open.workspace === repo.workspace && wm.open.task === item.task_id);
+      if (open) option.selected = true;
+      found = found || open;
     }
   }
   if (wm.open && !found) {
@@ -6975,7 +7046,7 @@ async function openWorkmap(workspace, task, keepNode = false, why = null) {
   const same = wm.open && wm.open.workspace === data.workspace && wm.open.task === data.task_id;
   wm.open = { workspace: data.workspace, task: data.task_id };
   if (!same) {
-    wm.data = null; wm.filter = null; wm.autoFit = true; wm.fitFloor = WM_ZOOM.auto;
+    wm.data = null; wm.filter = null; wm.autoFit = true; wm.whole = false;
     wm.expanded.clear();
     closeWorkmapResult();
   }
@@ -7041,8 +7112,10 @@ function applyWorkmap(data) {
   page.dataset.graph = layout.omitted ? "omitted" : "drawn";
   if (data.closed) page.dataset.closed = ""; else delete page.dataset.closed;
   renderWorkmap();
-  // Refit on a new map and on a change of nodes or edges only: a status change repaints in place.
-  scheduleWorkmapEdges(relaid || !before);
+  // Refit on a new map and on a change of nodes or edges; a status change repaints in place and refits
+  // only when the repaint left a fitted map larger than its canvas, as a card's second state row does,
+  // so the goal never slips under the fold while Fit still reads pressed.
+  scheduleWorkmapEdges(relaid || !before || workmapOutgrown());
   if (wm.changed.size) setTimeout(clearWorkmapChanged, 3000);
 }
 
@@ -7096,7 +7169,7 @@ function renderWorkmapSummary(view) {
   ids.appendChild(document.createTextNode(`${where} · revision ${data.revision}`));
   if (data.updated) {
     ids.appendChild(document.createTextNode(` · last change ${workmapClock(data.updated)} (`));
-    wmAgeSpan(ids, data.updated, "", (age) => age + " ago");
+    wmAgeSpan(ids, data.updated, "", (iso) => workmapAge(iso) + " ago");
     ids.appendChild(document.createTextNode(")" + (changed.length ? ": " + wmIds(changed) : "")));
   }
   ids.appendChild(document.createTextNode(` · updates every ${WORKMAP_POLL_MS / 1000} s`));
@@ -7252,6 +7325,13 @@ function renderWorkmapGraph(view) {
       }
     }
   });
+  // Every card's size is watched, as the canvas's is: a card that grows or shrinks between repaints
+  // has its edges drawn again, and refits a fitted map it made too large.
+  if (wmResized) {
+    wmResized.disconnect();
+    wmResized.observe($("wm-canvas"));
+    for (const card of wm.cards.values()) wmResized.observe(card);
+  }
 }
 
 // One node as a card (or, docked under the node it verifies, a pill). Its state row is hidden from
@@ -7314,11 +7394,12 @@ function workmapCard(view, item, pill) {
   node("span", meta, word, "wm-status");
   if (who === "you") node("span", meta, "you", "wm-you");
   if (item.status === "prepared") {
+    // The age has a box of its own, so the text a refresh writes there never moves the rest of the row.
+    if (running && item.since) wmAgeSpan(meta, item.since, "wm-age", workmapCardAge);
     const extra = [];
     if (item.attempts > 1) extra.push(`attempt ${item.attempts}`);
     if (item.invalid) extra.push(wmInvalid(item.invalid));
-    if (running && item.since) wmAgeSpan(meta, item.since, "wm-extra", (age) => [age, ...extra].join(" · "));
-    else if (extra.length) node("span", meta, extra.join(" · "), "wm-extra");
+    if (extra.length) node("span", meta, extra.join(" · "), "wm-extra");
   } else if (item.invalid) {
     node("span", meta, wmInvalid(item.invalid), "wm-extra");
   }
@@ -7410,8 +7491,11 @@ function drawWorkmapEdges() {
   };
   const cards = wm.cards;
   const isPill = (id) => cards.get(id).classList.contains("wm-pill");
+  // A docked verifier belongs to the group of the card it docks under.
+  const hostOf = (id) => (isPill(id) && wm.view.layout.docked[id]) || id;
   // Where an edge leaves a node: the whole group, so that it starts under the verifier tray.
   const outBox = (id) => box(isPill(id) ? cards.get(id) : cards.get(id).parentElement);
+  const groupBox = (id) => box(cards.get(hostOf(id)).parentElement);
   const inBox = (id) => box(cards.get(id));
   const n = (value) => Math.round(value * 10) / 10;
   const draw = (type, d, ends, marker, extra = "") => {
@@ -7439,9 +7523,16 @@ function drawWorkmapEdges() {
     });
   }
   const drawn = workmapEdgeList(wm.view).filter((edge) => cards.has(edge.start) && cards.has(edge.end)).map((edge) => {
-    const a = outBox(edge.start), b = inBox(edge.end);
-    let sides;
-    if (isPill(edge.start) && isPill(edge.end)) sides = ["right", "right"];
+    const b = inBox(edge.end);
+    // `ports`: the node whose side each end is spread along. An edge from a docked verifier to a
+    // card below leaves the foot of its group, spread with the group card's own edges, instead of
+    // the pill's side, from where it would sweep back under its own tray.
+    let a = outBox(edge.start), sides, ports = [edge.start, edge.end];
+    if (isPill(edge.start) && !isPill(edge.end) && b.t >= groupBox(edge.start).b - 1) {
+      a = groupBox(edge.start);
+      ports = [hostOf(edge.start), edge.end];
+      sides = ["bottom", "top"];
+    } else if (isPill(edge.start) && isPill(edge.end)) sides = ["right", "right"];
     else if (isPill(edge.start)) sides = ["right", b.t >= a.b ? "top" : "bottom"];
     else if (b.t >= a.b - 1) sides = ["bottom", "top"];
     else if (a.t >= b.b - 1) sides = ["top", "bottom"];
@@ -7449,7 +7540,7 @@ function drawWorkmapEdges() {
     // An edge that climbs leaves the card itself and arrives under the other node's tray.
     const from = sides[0] === "top" ? inBox(edge.start) : a;
     const to = sides[1] === "bottom" ? outBox(edge.end) : b;
-    return { edge, sides, from, to };
+    return { edge, sides, from, to, ports };
   });
   // Spread the ends that share one side of one node, ordered by where their other end sits.
   const ports = new Map();
@@ -7459,8 +7550,8 @@ function drawWorkmapEdges() {
     ports.get(key).push({ item, other });
   };
   for (const item of drawn) {
-    claim(item.edge.start, item.sides[0], item, item.to.cx);
-    claim(item.edge.end, item.sides[1], item, item.from.cx);
+    claim(item.ports[0], item.sides[0], item, item.to.cx);
+    claim(item.ports[1], item.sides[1], item, item.from.cx);
   }
   const at = (id, side, item, target) => {
     const list = ports.get(`${id}|${side}`).sort((p, q) => p.other - q.other);
@@ -7480,8 +7571,8 @@ function drawWorkmapEdges() {
   };
   for (const item of drawn) {
     const [side1, side2] = item.sides;
-    const [x1, y1] = at(item.edge.start, side1, item, item.from);
-    const [x2, y2] = at(item.edge.end, side2, item, item.to);
+    const [x1, y1] = at(item.ports[0], side1, item, item.from);
+    const [x2, y2] = at(item.ports[1], side2, item, item.to);
     let d = `M${n(x1)} ${n(y1)}`, x = x1, y = y1, side = side1;
     // A long edge runs straight down the lane kept free for it in each layer it crosses.
     for (const id of (side1 === "bottom" && side2 === "top" && item.edge.via) || []) {
@@ -7534,18 +7625,36 @@ function workmapFits() {
   return !(layers.offsetWidth > canvas.clientWidth - WM_ZOOM.padX + 1 || layers.offsetHeight > canvas.clientHeight - WM_ZOOM.padY + 1);
 }
 
-// Fit: the largest step at which the whole map shows. An automatic fit stops at WM_ZOOM.auto; the Fit
-// button may go down to WM_ZOOM.min, and "N more below" says what a fit at the floor still leaves out.
+// The map outgrew an automatic fit while nothing rescaled it: a card took a second state row, or the
+// canvas shrank. The panel keeps the zoom while it is open (closing it refits).
+function workmapOutgrown() {
+  return Boolean(wm.shown && wm.view && wm.autoFit && $("wm-body").dataset.panel !== "open" && !workmapFits());
+}
+
+// The floor of an automatic fit: WM_ZOOM.min after Fit, which shows the whole map however small; in
+// Present the readable zoom, so a larger map, a status row or the browser's bars leave the words their
+// size and "N more below" says what the canvas cannot show. A projector shows the whole viewport, so
+// the readable zoom scales with the viewport's width; it is never under WM_ZOOM.auto, which a smaller
+// screen keeps.
+function workmapFitFloor() {
+  if (wm.whole) return WM_ZOOM.min;
+  if (!wm.present) return WM_ZOOM.auto;
+  const readable = Math.floor(WM_ZOOM.present * (Number(window.innerWidth) || 0) / WM_ZOOM.presentWidth / WM_ZOOM.step) * WM_ZOOM.step;
+  return Math.min(WM_ZOOM.max, Math.max(WM_ZOOM.auto, readable));
+}
+
+// Fit: the largest step at which the whole map shows, down to the floor (workmapFitFloor); "N more
+// below" says what a fit at the floor still leaves out.
 function fitWorkmap() {
   const canvas = $("wm-canvas"), layers = $("wm-layers");
   if (wmNarrow() || !canvas.clientWidth || !layers.offsetWidth) return;
-  const scale = wm.zoom / 100;
+  const scale = wm.zoom / 100, floor = workmapFitFloor();
   const room = Math.min((canvas.clientWidth - WM_ZOOM.padX) / (layers.offsetWidth / scale),
                         (canvas.clientHeight - WM_ZOOM.padY) / (layers.offsetHeight / scale));
-  setWorkmapZoom(Math.max(wm.fitFloor, Math.min(WM_ZOOM.max, Math.floor(room * 100 / WM_ZOOM.step) * WM_ZOOM.step)));
+  setWorkmapZoom(Math.max(floor, Math.min(WM_ZOOM.max, Math.floor(room * 100 / WM_ZOOM.step) * WM_ZOOM.step)));
   // Borders and minimum sizes do not scale with the zoom, so the estimate can be a step off either way:
   // step down while the graph overflows, else up while the next step still fits.
-  for (let tries = 0; tries < 12 && wm.zoom > wm.fitFloor && !workmapFits(); tries++) setWorkmapZoom(wm.zoom - WM_ZOOM.step);
+  for (let tries = 0; tries < 12 && wm.zoom > floor && !workmapFits(); tries++) setWorkmapZoom(wm.zoom - WM_ZOOM.step);
   for (let tries = 0; tries < 4 && wm.zoom < WM_ZOOM.max && workmapFits(); tries++) {
     setWorkmapZoom(wm.zoom + WM_ZOOM.step);
     if (!workmapFits()) { setWorkmapZoom(wm.zoom - WM_ZOOM.step); break; }
@@ -7568,24 +7677,28 @@ function zoomWorkmap(steps) {
 
 $("wm-zoom-out").addEventListener("click", () => zoomWorkmap(-2));
 $("wm-zoom-in").addEventListener("click", () => zoomWorkmap(2));
-$("wm-fit").addEventListener("click", () => { wm.autoFit = true; wm.fitFloor = WM_ZOOM.min; scheduleWorkmapEdges(true); });
-// The canvas resizes with the window, the panel and Present; the summary keeps its height. A resize
-// rescales the graph only when the window changed or the map stopped fitting with the panel closed:
-// opening the panel keeps the zoom, so the card just selected stays under the pointer.
-if (typeof ResizeObserver === "function") {
-  new ResizeObserver(() => {
-    if (wm.shown && wm.view && wm.autoFit && $("wm-body").dataset.panel !== "open" && !workmapFits()) wm.refit = true;
-    scheduleWorkmapEdges();
-  }).observe($("wm-canvas"));
-}
+$("wm-fit").addEventListener("click", () => { wm.autoFit = true; wm.whole = true; scheduleWorkmapEdges(true); });
+// The canvas resizes with the window, the panel and Present, and a card when its state row takes a line
+// or gives one back; the summary keeps its height. Any of these draws the edges again from the new
+// boxes, and rescales the graph only when the map stopped fitting with the panel closed: opening the
+// panel keeps the zoom, so the card just selected stays under the pointer. renderWorkmapGraph adds the
+// cards it draws.
+const wmResized = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+  if (workmapOutgrown()) wm.refit = true;
+  scheduleWorkmapEdges();
+}) : null;
+if (wmResized) wmResized.observe($("wm-canvas"));
 window.addEventListener("resize", () => { if (wm.shown) { fitWorkmapSlots(); scheduleWorkmapEdges(true); } });
 try { window.matchMedia("(max-width: 760px)").addEventListener("change", () => scheduleWorkmapEdges(true)); } catch (_) {}
 
 // Present: the projector's view hides the page header, the slots, the ids and the map select, and
-// refits the graph into the room they leave.
-function setWorkmapPresent(on) {
+// refits the graph into the room they leave, down to the readable floor (workmapFitFloor). The viewer's
+// choice (`remember`) is kept in this browser tab, so a reload goes on presenting.
+function setWorkmapPresent(on, remember = true) {
+  if (remember) { try { if (on) sessionStorage.setItem(WM_PRESENT_KEY, "1"); else sessionStorage.removeItem(WM_PRESENT_KEY); } catch (_) {} }
   if (on === wm.present) return;
   wm.present = on;
+  wm.whole = false;  // Present means a readable map; leaving it goes back to the automatic fit
   const page = $("workmap-page"), root = document.documentElement;
   if (on) page.dataset.present = ""; else delete page.dataset.present;
   if (root) { if (on) root.setAttribute("data-wm-present", ""); else root.removeAttribute("data-wm-present"); }
@@ -7593,6 +7706,9 @@ function setWorkmapPresent(on) {
   if (!on) fitWorkmapSlots();
   scheduleWorkmapEdges(true);
 }
+
+function storedPresent() { try { return sessionStorage.getItem(WM_PRESENT_KEY) === "1"; } catch (_) { return false; } }
+
 $("wm-present").addEventListener("click", () => setWorkmapPresent(!wm.present));
 
 // "N more below": what the canvas cannot show at the zoom the fit stopped at, or after a zoom in.
@@ -7659,6 +7775,9 @@ function renderWorkmapLegend() {
   const you = item(status);
   node("span", you, "you", "wm-you");
   you.appendChild(document.createTextNode("waiting for you: the owner acts"));
+  const border = item(status);
+  node("span", border, null, "wm-lg-border").setAttribute("aria-hidden", "true");
+  border.appendChild(document.createTextNode("attention border: waiting for you or needs attention, as the tiles count"));
   const edges = group("Edges");
   for (const [type, words, marker] of [["depends_on", "is needed by (filled: settled)", "depends_on"],
       ["depends_on", "still holds it back", "depends_on-open"], ["verifies", "verifies", "verifies"],
@@ -7862,6 +7981,7 @@ function wmClamped(key, text) {
     if (String(text).length <= 150) return;
     const more = node("button", cell, wm.expanded.has(key) ? "less" : "more", "wm-more-text");
     more.type = "button";
+    more.dataset.focus = "clamp:" + key;  // its word changes on the click that redraws the panel
     more.setAttribute("aria-expanded", String(wm.expanded.has(key)));
     more.addEventListener("click", () => {
       if (wm.expanded.has(key)) wm.expanded.delete(key); else wm.expanded.add(key);
@@ -7933,6 +8053,7 @@ function renderWorkmapNode() {
   if (!view || !id || !view.index.byId.has(id)) return;
   const item = view.index.byId.get(id), index = view.index, record = wm.record && wm.record.node.id === id ? wm.record : null;
   const sheet = $("wm-d");
+  const focused = wmFocusSpot(sheet);  // a redraw gives the focus back to the same control
   sheet.replaceChildren();
   sheet.hidden = false;
   sheet.dataset.status = item.status;
@@ -8063,6 +8184,7 @@ function renderWorkmapNode() {
     const box = node("div", result, null, "wm-result");
     const show = node("button", box, `Show full result (${record.result_chars} characters)`);
     show.type = "button";
+    show.dataset.focus = "result";  // its count changes with a new result
     show.addEventListener("click", () => {
       if (wm.result && wm.result.sha256 === item.result_sha256) openWorkmapResult();
       else showWorkmapResult().catch(workmapFailed);
@@ -8163,6 +8285,34 @@ function renderWorkmapNode() {
         + (step.by ? ` (${step.by})` : "")));
     }
   }
+  if (focused) wmRestoreFocus(sheet, focused);
+}
+
+// Which control of the panel holds the focus, as [key, rank] its replacement matches after a redraw:
+// the heading, a node chip by the node it names, a button whose words change by its data-focus, any
+// other control by its label; rank tells apart controls of one key. Null when the focus is elsewhere.
+function wmFocusKey(element) {
+  if (element.id === "wm-d-title") return "title";
+  const data = element.dataset || {};
+  if (data.focus || data.go) return data.focus ? "focus:" + data.focus : "go:" + data.go;
+  return "label:" + ((element.getAttribute && element.getAttribute("aria-label")) || element.textContent || "");
+}
+
+function wmFocusables(sheet) {
+  return typeof sheet.querySelectorAll === "function" ? [...sheet.querySelectorAll("button, [tabindex]")] : [];
+}
+
+function wmFocusSpot(sheet) {
+  const active = document.activeElement;
+  if (!active || active === sheet || typeof sheet.contains !== "function" || !sheet.contains(active)) return null;
+  const key = wmFocusKey(active);
+  return [key, wmFocusables(sheet).filter((element) => wmFocusKey(element) === key).indexOf(active)];
+}
+
+function wmRestoreFocus(sheet, [key, rank]) {
+  const same = wmFocusables(sheet).filter((element) => wmFocusKey(element) === key);
+  const target = same[Math.max(0, rank)] || same[0];
+  if (target) target.focus({ preventScroll: true });
 }
 
 // The full result opens in a dialog of its own; a live update leaves its text and its scroll alone.

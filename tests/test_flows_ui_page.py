@@ -1914,8 +1914,10 @@ def test_the_view_derives_categories_who_acts_and_the_critical_path(workmap_layo
 
 def test_a_verdict_is_the_one_the_store_recorded_on_the_result_the_target_holds(workmap_layout):
     # pending: prepared or planned. clean and found: recorded on the target's current result. older: the
-    # verdict, or the pin, is about another result. none: nothing recorded, whatever the findings say.
-    assert workmap_layout["verdicts"] == ["pending", "pending", "clean", "found", "older", "older", "none", "none", "withdrawn"]
+    # verdict, or the pin, is about another result, a running verifier's pin included (no verdict on the
+    # current result is coming). none: nothing recorded, whatever the findings say.
+    assert workmap_layout["verdicts"] == ["pending", "pending", "clean", "found", "older", "older", "none", "none", "withdrawn",
+                                          "older"]
 
 
 def test_who_acts_counts_only_a_verifier_given_the_result_the_node_holds(workmap_layout):
@@ -1998,7 +2000,8 @@ def test_cards_show_who_acts_level_forms_and_docked_verdicts(workmap_page):
     # The owner's decision has its own encoding: data-who, a "you" badge beside the status word.
     assert cards["decide"]["who"] == "you" and cards["decide"]["text"][:3] == ["Pick the fixes", "planned", "you"]
     assert cards["decide"]["cat"] == "you" and cards["decide"]["path"] == "frontier"
-    assert cards["build"]["text"][:4] == ["Build the page", "running", "13m · attempt 2 · 1/5 invalid", "V0→V2"]
+    # The age has a box of its own (.wm-age); the attempt and the invalid count follow it.
+    assert cards["build"]["text"][:5] == ["Build the page", "running", "13m", "attempt 2 · 1/5 invalid", "V0→V2"]
     assert cards["build"]["levels"] == [["target", "V0→V2"]] and cards["triage"]["levels"] == [["met", "V2"]]
     assert cards["fix"]["levels"] == [["met", "V2"], ["target", "→V3"]] and cards["fix"]["cat"] == "action"
     assert cards["audit"]["text"][:5] == ["Audit the release", "needs attention", "V0→V2", "1", "2"]  # failed first
@@ -2046,7 +2049,8 @@ def test_a_tile_dims_the_other_categories_and_the_theme_switch_is_remembered(wor
 
 def test_present_hides_the_header_and_refits_and_fit_may_go_below_the_automatic_floor(workmap_page):
     present = workmap_page["present"]
-    assert present == {"page": True, "root": True, "pressed": "true", "fits": [75], "off": [False, False]}
+    # Present refits down to the readable floor, 110 % on a 1920-px viewport, never to the automatic 75 %.
+    assert present == {"page": True, "root": True, "pressed": "true", "fits": [110], "off": [False, False]}
     assert workmap_page["fit"] == [50]
 
 
@@ -2078,6 +2082,76 @@ def test_signing_out_takes_the_map_off_the_page_and_stops_its_polls():
     after = result["after"]
     assert after["hidden"] and after["cards"] == 0 and after["polls"] == 0 and after["signin"]
     assert after["requests_later"] == after["requests"]  # nothing more is asked once signed out
+    assert after["result_text"] == ""  # the closed dialog keeps no result it showed
+
+
+def test_the_map_select_names_the_open_map_even_when_the_list_leaves_it_out():
+    # The open map is older than the maps its repository lists, and the select behaves as a browser's:
+    # the first option reads selected right after it was set to false, so the page decides from the
+    # comparison and adds the open map's own option.
+    result = run_sync("workmap_picker")
+    assert result["options"] == [["agents (2 older not listed)", "task:old (closed)", False], ["other", "task:2", False],
+                                 [None, "task:1", True]]
+    assert json.loads(result["value"]) == ["ws-1", "task:1"] and result["url"] == "/ui#workmap/ws-1/task%3A1"
+
+
+def test_a_reload_in_this_tab_keeps_presenting_and_escape_forgets_it():
+    result = run_sync("workmap_present")
+    assert result["opened"] == {"present": True, "pressed": "true", "root": True, "floor": 110, "stored": "1"}
+    assert result["escaped"] == {"present": False, "pressed": "false", "root": False, "floor": 75, "stored": None}
+
+
+@pytest.fixture(scope="module")
+def workmap_refit():
+    return run_sync("workmap_refit")
+
+
+def test_a_status_change_refits_only_a_fitted_map_it_left_larger_than_the_canvas(workmap_refit):
+    # A repaint that still fits keeps the zoom; one that left the layers taller than the canvas, as a card's
+    # second state row does, refits at once, so the goal never slips under the fold with Fit pressed.
+    assert workmap_refit["fits"] == [] and workmap_refit["outgrown"] == [75]
+    # The open panel keeps the zoom, and closing it refits; a zoom of the viewer's own stands.
+    assert workmap_refit["panel"] == [] and workmap_refit["panel_closed"] == [75] and workmap_refit["manual"] == []
+
+
+def test_every_card_is_watched_so_a_change_of_its_size_draws_the_edges_again(workmap_refit):
+    assert workmap_refit["observed"] == {"canvas": True, "cards": 11, "drawn": 11}
+    # A card that grew draws the edges again; one that made the fitted map too large refits as well.
+    assert workmap_refit["resized"] == {"draws": 1, "fits": []}
+    assert workmap_refit["resized_outgrown"] == {"draws": 1, "fits": [50]}  # after Fit, down to its floor
+
+
+def test_the_elapsed_time_of_a_running_card_keeps_one_width(workmap_layout, workmap_refit):
+    # One unit, four characters at most up to 999 days: the box the card keeps for it holds them all,
+    # so a refresh between polls never wraps or unwraps the state row.
+    ages = workmap_layout["card_ages"]
+    assert ages["longest"] == "100d" and ages["samples"] == ["0m", "59m", "1h", "1h", "10h", "23h", "1d", "999d"]
+    _, _, style = page_parts()
+    rule = re.search(r"\.wm-age \{([^}]*)\}", style).group(1)
+    assert "min-width: 4ch" in rule and "font-family: var(--font-mono)" in rule and "flex: none" in rule
+    # A refresh three hours on rewrites the age and leaves the attempt and the invalid count alone.
+    assert workmap_refit["age"] == {"before": ["running", "13m", "attempt 2 · 1/5 invalid"],
+                                    "after": ["running", "3h", "attempt 2 · 1/5 invalid"]}
+
+
+def test_present_keeps_a_readable_floor_for_the_viewport_and_a_theme_switch_of_its_own(workmap_refit):
+    # Present's floor is 110 % on a 1920-px viewport and scales with the width, never under 75 %.
+    assert workmap_refit["present"] == {"fits": [110], "stored": "1"} and workmap_refit["present_1280"] == [75]
+    # The header and its switch are hidden: the tools' Dark button switches the theme, remembered, with no refit.
+    assert workmap_refit["theme"] == ["dark", "true", "dark", "light", "false"] and workmap_refit["theme_fits"] == []
+    assert workmap_refit["present_off"] is False  # leaving Present, the tab forgets it
+    _, _, style = page_parts()
+    assert "#workmap-page:not([data-present]) #wm-theme { display: none; }" in style
+
+
+def test_every_card_the_tiles_count_as_needing_someone_has_the_attention_border(workmap_page):
+    _, _, style = page_parts()
+    assert re.search(r'\.wm-node\[data-who="you"\], \.wm-node\[data-cat="action"\] \{ border-style: solid; '
+                     r'border-color: var\(--st-attn\);', style)
+    cards = workmap_page["opened"]["cards"]
+    tiles = dict(workmap_page["opened"]["tiles"])
+    marked = [card for card in cards.values() if card["cat"] in ("you", "action")]
+    assert len(marked) == int(tiles["you"].split()[0]) + int(tiles["action"].split()[0])
 
 
 def test_the_work_map_script_never_writes_markup_or_style():

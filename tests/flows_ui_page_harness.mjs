@@ -213,8 +213,10 @@ function workmapData(path) {
   const summary = { task_id: "task:1", goal: "Ship the demo", closed: false, revision: workmapRevision + (workmapExtra ? 1 : 0),
     updated: "2026-11-27T10:00:00Z", counts: {}, nodes: 11, edges: 10, running: ["check-fix", "build"] };
   if (path === "/ui/api/workmap/maps") {
+    // workmap_picker: the open map is older than the maps its repository lists, so the list leaves it out.
     return [200, { workspaces: [{ workspace: "ws-1", name: "agents", total: 3, skipped: 0, too_large: 0, maps: [
-      { ...summary, task_id: "task:old", goal: "Older work", closed: true, updated: "2026-11-27T11:00:00Z" }, summary] },
+      { ...summary, task_id: "task:old", goal: "Older work", closed: true, updated: "2026-11-27T11:00:00Z" },
+      ...(scenario === "workmap_picker" ? [] : [summary])] },
       { workspace: "ws-2", name: "other", total: 1, skipped: 0, too_large: 0, maps: [
         { ...summary, task_id: "task:2", goal: "Other work", updated: "2026-11-27T09:00:00Z" }] }] }];
   }
@@ -818,6 +820,55 @@ async function fireTimers(delay) {
   }
   await sleep(30);
 }
+// The Work map scenarios' viewport width (Present's readable floor scales with it), their tab's
+// sessionStorage (workmap_present starts presenting), and a ResizeObserver whose callback a scenario
+// runs itself, as a browser would after a box changed size.
+let viewportWidth = 1920;
+const session = new Map(scenario === "workmap_present" ? [["agents-core.workmap-present", "1"]] : []);
+const resizeObservers = [];
+class StubResizeObserver {
+  constructor(callback) { this.callback = callback; this.observed = new Set(); resizeObservers.push(this); }
+  observe(target) { this.observed.add(target); }
+  disconnect() { this.observed.clear(); }
+}
+// The map select as a browser keeps it, an HTML single-select of display size 1: one option is always
+// selected once there is one. An option inserted into a select with none selected is selected; selecting
+// one deselects the others; deselecting the selected one selects the first again, so `selected` read
+// back is not what was assigned. `value` is the selected option's.
+function browserSelect(select) {
+  select.tag = "select";
+  const options = () => select.children.flatMap((child) => (child.tag === "optgroup" ? child.children : [child]))
+    .filter((child) => child.tag === "option");
+  const settle = () => {
+    const all = options();
+    if (all.length && !all.some((option) => option.chosen)) all[0].chosen = true;
+  };
+  const adopt = (option) => {
+    if (option.tag !== "option" || "chosen" in option) return;
+    option.chosen = false;
+    Object.defineProperty(option, "selected", {
+      get: () => option.chosen,
+      set: (value) => {
+        if (value) for (const other of options()) other.chosen = false;
+        option.chosen = Boolean(value);
+        settle();
+      },
+    });
+  };
+  const watch = (parent) => {
+    const append = parent.appendChild;
+    parent.appendChild = (child) => {
+      append(child);
+      if (child.tag === "optgroup") watch(child);
+      adopt(child);
+      settle();
+    };
+  };
+  watch(select);
+  Object.defineProperty(select, "value", {
+    get: () => (options().find((option) => option.chosen) || { value: "" }).value, set: () => {} });
+}
+if (isWorkmap) browserSelect(byId("wm-map"));
 const documentStub = {
   getElementById: byId, createElement: (tag) => element("", tag),
   createElementNS: (namespace, tag) => Object.assign(element("", tag), { namespace }),
@@ -832,7 +883,13 @@ const context = vm.createContext({
     addEventListener(type, handler) { (windowHandlers[type] = windowHandlers[type] || []).push(handler); },
     matchMedia: (query) => ({ matches: query.includes("reduced-motion") ? scenario.includes("reduced")
                                                                     : scenario.includes("narrow") || narrowNow }),
+    get innerWidth() { return viewportWidth; },
   },
+  sessionStorage: {
+    getItem: (key) => (session.has(key) ? session.get(key) : null), setItem: (key, value) => session.set(key, String(value)),
+    removeItem: (key) => session.delete(key),
+  },
+  ...(isWorkmap ? { ResizeObserver: StubResizeObserver } : {}),
   // ui_place measures stub boxes; the page reads the header gap, the pane's corner and the joint.
   getComputedStyle: () => ({ columnGap: "8px", borderTopLeftRadius: "22px", width: "13px" }),
   localStorage: {
@@ -840,7 +897,8 @@ const context = vm.createContext({
     setItem: (key, value) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); storage.set(key, value); },
   },
   location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev"
-                : scenario === "workmap" ? "#workmap" : scenario === "workmap_signout" ? "#workmap/ws-1/task%3A1" : "",
+                : ["workmap", "workmap_refit", "workmap_present"].includes(scenario) ? "#workmap"
+                : ["workmap_signout", "workmap_picker"].includes(scenario) ? "#workmap/ws-1/task%3A1" : "",
               pathname: "/ui" },
   history: { replaceState(...args) { replacedUrls.push(args); } },
   fetch: fetchStub, alert(message) { alerts.push(message); }, confirm: (question) => { confirms.push(question); return confirmAnswer; },
@@ -2581,6 +2639,7 @@ if (scenario === "workmap_layout") {
     [verifier("validated", {}, WORKMAP_FIX)],  // the store recorded none (the target was not a verdict target)
     [verifier("validated", { critical: 2 })],  // no pin: no verdict, whatever its findings
     [verifier("refuted", {})],
+    [verifier("prepared", null, "0".repeat(64))],  // running on an older result: no verdict on this one is coming
   ].map(([item, map]) => context.workmapVerdict(item, fix, map || new Map()));
   // Who acts while a verifier runs on an older result, is only ready, or checks a disputed node.
   const scene = (target, verifier) => {
@@ -2605,6 +2664,16 @@ if (scenario === "workmap_layout") {
     index.byId.get("docs"), index.byId.get("fix")].map((item) => context.workmapLevelSentence(item));
   out.invalid = [2, 5, 7].map((count) => context.wmInvalid(count));
   out.ages = [0, 13, 125, 3 * 1440].map((minutes) => context.workmapAge(workmapAgo(minutes)));
+  // A running card's age, every minute of two days and every hour up to 999 days: its longest text,
+  // which the card's box for it (.wm-age, in ch of a monospaced face) must hold.
+  const started = Date.parse("2026-11-27T12:00:00Z"), since = new Date(started).toISOString();
+  let longest = "";
+  for (let minute = 0; minute <= 999 * 1440; minute += minute < 2 * 1440 ? 1 : 60) {
+    const text = context.workmapCardAge(since, started + minute * 60000);
+    if (text.length > longest.length) longest = text;
+  }
+  out.card_ages = { longest, samples: [0, 59, 60, 119, 615, 1439, 1440, 999 * 1440]
+    .map((minutes) => context.workmapCardAge(since, started + minutes * 60000)) };
   const noon = Date.parse("2026-11-27T12:00:00Z");
   out.when = ["2026-11-27T09:05:00Z", "2026-11-18T20:40:00Z", "2025-11-18T20:40:00Z"].map((iso) => context.workmapWhen(iso, noon));
   out.links = ["#workmap", "#workmap/task%3A1", "#workmap/ws-1/task%3A1", "#workmap/ws/%E0%A4%A", "#history/x", "#workmapx"]
@@ -2640,18 +2709,19 @@ if (scenario === "workmap" || scenario === "workmap_signout") {
   // Every fit the page runs: an automatic fit only on a new map or a change of nodes or edges.
   const fits = [];
   const fitWorkmap = context.fitWorkmap;
-  context.fitWorkmap = () => { fits.push(vm.runInContext("wm.fitFloor", context)); return fitWorkmap(); };
+  context.fitWorkmap = () => { fits.push(vm.runInContext("workmapFitFloor()", context)); return fitWorkmap(); };
   const out = {};
   if (scenario === "workmap_signout") {
     out.before = { hidden: byId("workmap-page").classes.has("hidden"), cards: Object.keys(cards()).length,
                    polls: pendingTimers(5000).length };
+    byId("wm-result-text").textContent = "a result shown before";  // as the dialog holds one it showed
     refuseSignIn = true;  // the session is revoked with automatic sign-in off
     signedIn = false;
     await fireTimers(5000);
     await sleep(50);
     out.after = { hidden: byId("workmap-page").classes.has("hidden"), cards: walk(byId("wm-layers")).length,
                   polls: pendingTimers(5000).length, signin: !byId("signin").classList.contains("hidden"),
-                  requests: mapRequests().length };
+                  requests: mapRequests().length, result_text: byId("wm-result-text").textContent };
     await fireTimers(5000);
     out.after.requests_later = mapRequests().length;
     await finish(out);
@@ -2747,6 +2817,120 @@ if (scenario === "workmap" || scenario === "workmap_signout") {
   await sleep(50);
   out.left = { page_hidden: byId("workmap-page").classes.has("hidden"), main_hidden: byId("main").classes.has("hidden"),
                polls: pendingTimers(5000).length, url: replacedUrls.at(-1)[2] };
+  await finish(out);
+}
+
+// workmap_picker: the link opens a map older than the maps its repository lists, with a select that
+// behaves as a browser's (browserSelect). The select must still name the open map.
+if (scenario === "workmap_picker") {
+  await sleep(40);
+  const select = byId("wm-map");
+  const options = select.children.flatMap((child) => (child.tag === "optgroup"
+    ? child.children.map((option) => [child.label, option.textContent, option.selected]) : [[null, child.textContent, child.selected]]));
+  await finish({ options, value: select.value, url: replacedUrls.at(-1)[2] });
+}
+
+// workmap_present: this tab was presenting before the reload, so the page opens presenting; Escape
+// leaves Present and the tab forgets it.
+if (scenario === "workmap_present") {
+  await sleep(40);
+  const state = () => ({ present: "present" in byId("workmap-page").dataset, pressed: byId("wm-present").attrs["aria-pressed"],
+    root: "data-wm-present" in context.document.documentElement.attrs, floor: vm.runInContext("workmapFitFloor()", context),
+    stored: session.get("agents-core.workmap-present") || null });
+  const opened = state();
+  press("Escape");
+  await sleep(40);
+  await finish({ opened, escaped: state() });
+}
+
+// workmap_refit: when a repaint refits, read from canvas and layer sizes the scenario sets, as a
+// browser's layout would give them: a status change refits only a fitted map it left larger than the
+// canvas (a card took a second state row), never with the panel open or after a manual zoom; the
+// observer that watches the canvas and every card draws the edges again and refits the same way;
+// a refresh rewrites only a running card's age, in its own box; Present's floor is the readable zoom
+// for the viewport's width, and its own theme switch changes colours without a refit.
+if (scenario === "workmap_refit") {
+  await sleep(40);
+  const canvas = byId("wm-canvas"), layers = byId("wm-layers");
+  Object.assign(canvas, { clientWidth: 1600, clientHeight: 800 });
+  Object.assign(layers, { offsetWidth: 1000, offsetHeight: 600 });
+  const nodes = (element, found = []) => {
+    for (const child of element.children || []) {
+      if (child.nodeType === 3) continue;
+      if (String(child.className || "").split(" ").includes("wm-node")) found.push(child);
+      nodes(child, found);
+    }
+    return found;
+  };
+  const cardOf = (id) => nodes(layers).find((card) => card.dataset.id === id);
+  const texts = (element) => [element.textContent, ...(element.children || []).flatMap((child) => (child.nodeType === 3
+    ? [child.textContent] : texts(child)))].filter(Boolean);
+  const fits = [], draws = [];
+  const fitWorkmap = context.fitWorkmap, drawWorkmapEdges = context.drawWorkmapEdges;
+  context.fitWorkmap = () => { fits.push(vm.runInContext("workmapFitFloor()", context)); return fitWorkmap(); };
+  context.drawWorkmapEdges = () => { draws.push(1); return drawWorkmapEdges(); };
+  const out = {};
+  // The running card's age has a box of its own; a refresh three hours on rewrites it and nothing else.
+  const meta = (id) => texts(cardOf(id)).slice(1, 4);
+  out.age = { before: meta("build") };
+  vm.runInContext("{ const real = Date.now; Date.now = () => real() + 3 * 3600000; }", context);
+  context.refreshWorkmapAges();
+  out.age.after = meta("build");
+  const poll = async (revision, height) => {
+    layers.offsetHeight = height;
+    workmapRevision = revision;
+    fits.length = 0;
+    await fireTimers(5000);
+    await sleep(50);
+    return [...fits];
+  };
+  out.fits = await poll(10, 600);  // a status change whose repaint still fits
+  out.outgrown = await poll(11, 900);  // one that left the map taller than its canvas
+  fire(cardOf("fix"), "click");  // the panel keeps the zoom while it is open
+  await sleep(50);
+  out.panel = await poll(12, 900);
+  fits.length = 0;
+  press("Escape");
+  await sleep(40);
+  out.panel_closed = [...fits];
+  fire(byId("wm-zoom-in"), "click");  // the viewer's own zoom stands
+  await sleep(40);
+  out.manual = await poll(13, 1200);
+  fire(byId("wm-fit"), "click");
+  await sleep(40);
+  const observer = resizeObservers[0];
+  out.observed = { canvas: observer.observed.has(canvas), cards: [...observer.observed].filter((element) => element !== canvas).length,
+                   drawn: nodes(layers).length };
+  for (const [name, height] of [["resized", 600], ["resized_outgrown", 900]]) {
+    layers.offsetHeight = height;
+    fits.length = 0;
+    draws.length = 0;
+    observer.callback([]);
+    await sleep(40);
+    out[name] = { draws: draws.length, fits: [...fits] };
+  }
+  layers.offsetHeight = 600;
+  fits.length = 0;
+  fire(byId("wm-present"), "click");
+  await sleep(40);
+  out.present = { fits: [...fits], stored: session.get("agents-core.workmap-present") || null };
+  viewportWidth = 1280;
+  fits.length = 0;
+  for (const handler of windowHandlers.resize || []) handler({});
+  await sleep(40);
+  out.present_1280 = [...fits];
+  viewportWidth = 1920;
+  fits.length = 0;
+  const root = context.document.documentElement;
+  fire(byId("wm-theme"), "click");
+  out.theme = [root.attrs["data-theme"], byId("wm-theme").attrs["aria-pressed"], storage.get("agents-core.theme")];
+  fire(byId("wm-theme"), "click");
+  out.theme.push(root.attrs["data-theme"], byId("wm-theme").attrs["aria-pressed"]);
+  await sleep(40);
+  out.theme_fits = [...fits];
+  fire(byId("wm-present"), "click");
+  await sleep(40);
+  out.present_off = session.has("agents-core.workmap-present");
   await finish(out);
 }
 
