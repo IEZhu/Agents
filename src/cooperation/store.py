@@ -134,9 +134,12 @@ CREATE INDEX participants_repository ON participants(repository_id);
 #: schema: a new key there would fail a client that listed the tools before an
 #: update, and an older coordinator reading this journal. Older code never
 #: reads this table, so it carries no schema version: a downgrade keeps the
-#: journal readable and only falls back to the plain heartbeat deadline.
+#: journal readable and only falls back to the plain heartbeat deadline. A row
+#: counts only for the generation it names, because older code recovers and
+#: cleans up participants without deleting it.
 WINDOWS_TABLE = """CREATE TABLE IF NOT EXISTS participant_windows (
-    participant_id TEXT PRIMARY KEY REFERENCES participants(id), checkpoint_due REAL NOT NULL)"""
+    participant_id TEXT PRIMARY KEY REFERENCES participants(id), generation INTEGER NOT NULL,
+    checkpoint_due REAL NOT NULL)"""
 
 
 class Store:

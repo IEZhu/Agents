@@ -211,17 +211,24 @@ class CooperationService:
 
     @staticmethod
     def _windows(db, repo):
-        """Each participant's work-unit window in ``repo``, kept out of its body (see store.WINDOWS_TABLE)."""
-        return dict(db.execute("SELECT w.participant_id, w.checkpoint_due FROM participant_windows w "
-                               "JOIN participants p ON p.id = w.participant_id WHERE p.repository_id=?", (repo,)).fetchall())
+        """Each participant's work-unit window in ``repo``, kept out of its body (see store.WINDOWS_TABLE).
+
+        A row written for another generation is ignored: an older coordinator
+        recovers or cleans up a participant without deleting it.
+        """
+        rows = db.execute("SELECT w.participant_id, w.generation, w.checkpoint_due, p.body FROM participant_windows w "
+                          "JOIN participants p ON p.id = w.participant_id WHERE p.repository_id=?", (repo,)).fetchall()
+        return {participant_id: due for participant_id, generation, due, body in rows
+                if json.loads(body)["generation"] == generation}
 
     @staticmethod
     def _set_window(db, participant, due):
         if due is None:
             db.execute("DELETE FROM participant_windows WHERE participant_id=?", (participant["participant_id"],))
         else:
-            db.execute("INSERT INTO participant_windows VALUES (?,?) ON CONFLICT(participant_id) "
-                       "DO UPDATE SET checkpoint_due=excluded.checkpoint_due", (participant["participant_id"], due))
+            db.execute("INSERT INTO participant_windows VALUES (?,?,?) ON CONFLICT(participant_id) DO UPDATE SET "
+                       "generation=excluded.generation, checkpoint_due=excluded.checkpoint_due",
+                       (participant["participant_id"], participant["generation"], due))
 
     def _authenticate(self, db, repository, participant_id, capability, *, allow_terminal=False):
         row = db.execute("SELECT verifier FROM participants WHERE id=? AND repository_id=?", (participant_id, repository)).fetchone()
@@ -1101,7 +1108,10 @@ class CooperationService:
             db.execute("UPDATE claims SET participant_id=?,body=? WHERE id=?", (new["participant_id"], canonical(claim), claim["claim_id"]))
         subject.update(running=False, ready_since=None, intent=[])
         new.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None)
-        self._set_window(db, new, due)
+        # A shorter handed interval must not cut a window the new owner already
+        # has: that window may be what keeps it live at this very moment. Both
+        # count from its own calls, so the longer one keeps the bound.
+        self._set_window(db, new, max(due, self._windows(db, repo).get(new["participant_id"], due)))
         self._save_participant(db, new)
         agreement.update(state="active", revision=revision)
         self._save_agreement(db, repo, agreement)

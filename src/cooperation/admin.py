@@ -119,6 +119,10 @@ def cleanup(directory, *, repository_id, participant_id, expected_generation,
             db.execute("UPDATE participants SET verifier='',body=? WHERE id=?", (canonical(participant), participant_id))
             for identifier in held:
                 db.execute("DELETE FROM claims WHERE id=?", (identifier,))
+            # The window table appears on the coordinator's first start after it
+            # was added, so a journal cleaned up before that has none yet.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='participant_windows'").fetchone():
+                db.execute("DELETE FROM participant_windows WHERE participant_id=?", (participant_id,))
             for agreement in bodies(db, "agreements", repository_id):
                 if participant_id in agreement["required_participants"] and agreement["state"] not in ("completed", "cancelled", "rejected", "expired"):
                     agreement.update(state="cancelled", reason="owner_offline_cleanup", terminal_at=now)
