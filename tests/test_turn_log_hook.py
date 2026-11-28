@@ -278,7 +278,8 @@ def test_the_hook_inputs_last_message_wins_without_its_time_line_and_secrets(swi
     given = f"2026.11.24 10:00:00\n\nDeployed with token {FAKE_ANTHROPIC_KEY}.\n\n" + FOOTER
     hook.record_turn(stop_event(project, prompt_id="prompt-2", last_assistant_message=given))
     [entry] = entries(project)
-    assert entry.outcome == f"Deployed with token sk-ant-***. {FOOTER}"
+    # "token" names a secret: the rest of its line goes (owner's decision 2026-11-28).
+    assert entry.outcome == f"Deployed with token{redaction.MASK} {FOOTER}"
     assert "abcdefghijklmnop" not in entry.outcome and "2026.11.24" not in entry.outcome
 
 
@@ -524,19 +525,20 @@ def test_reminders_are_stripped_only_before_the_prompt_and_in_linear_time():
 
 
 @pytest.mark.parametrize("secret,kept", [
-    (FAKE_OPENAI_PROJECT_KEY, "sk-proj-<secret>"),
-    ("xoxb-1234567890-abcdefghij", "xoxb-<secret>"),
-    ("AIzaSyA1234567890abcdefghijklmnopqrstu", "AIza<secret>"),
-    (FAKE_JWT, "eyJ<secret>"),
-    ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key=<secret>"),
-    (f'"capability":"{FAKE_CAPABILITY}"', '"capability":"<secret>"'),
-    ('{"password":"hunter2"}', '{"password":"<secret>"}'),
-    ("password=short1", "password=<secret>"),
-    ("ghp_abcdefghijklmnop1234", "ghp_***"),
+    (FAKE_OPENAI_PROJECT_KEY, "sk-proj-<secret> after"),
+    ("xoxb-1234567890-abcdefghij", "xoxb-<secret> after"),
+    ("AIzaSyA1234567890abcdefghijklmnopqrstu", "AIza<secret> after"),
+    (FAKE_JWT, "eyJ<secret> after"),
+    ("ghp_abcdefghijklmnop1234", "ghp_*** after"),
+    # A label naming a secret loses the rest of its line (owner's decision 2026-11-28).
+    ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key<secret>"),
+    (f'"capability":"{FAKE_CAPABILITY}"', '"capability<secret>'),
+    ('{"password":"hunter2"}', '{"password<secret>'),
+    ("password=short1", "password<secret>"),
 ])
 def test_the_hook_masks_common_secret_formats(secret, kept):
     masked, clean = hook.redact(f"before {secret} after")
-    assert clean and masked == f"before {kept} after"
+    assert clean and masked == f"before {kept}"
 
 
 def test_a_bare_capability_in_prose_is_masked_and_commit_and_digest_hashes_are_not():
@@ -1311,10 +1313,30 @@ def corpus_false_positives():
     }
 
 
-@pytest.mark.parametrize("name", sorted(corpus_false_positives()))
+# The review's false positives that the line rule masks now (owner's decision 2026-11-28: a harmless
+# line tail is sometimes lost): a name of a secret in code, in a placeholder or in a label of prose.
+LINE_RULE_MASKS = {
+    "cli help": "use --password<secret>",
+    "placeholder": "password<secret>",
+    "prose: password is": "the password<secret>",
+    "prose: secret word": "secret<secret>",
+    "python code: a keyword argument passed on": "client = Client(api_key<secret>",
+    "python code: api_key from env": "client = Client(api_key<secret>",
+    "python code: password parameter": "def login<secret>",
+    "python code: token variable": "token<secret>",
+    "yaml docs: token key": "token<secret>",
+}
+
+
+@pytest.mark.parametrize("name", sorted(set(corpus_false_positives()) - set(LINE_RULE_MASKS)))
 def test_no_false_positive_of_the_review_corpus_is_masked(name):
     text = corpus_false_positives()[name]
     assert redaction.redact(text) == (text, True)
+
+
+@pytest.mark.parametrize("name", sorted(LINE_RULE_MASKS))
+def test_the_line_rule_masks_these_false_positives_after_their_label(name):
+    assert redaction.redact(corpus_false_positives()[name]) == (LINE_RULE_MASKS[name], True)
 
 
 ENVIRONMENT_VALUE = "s3cr3t-Deploy-pass-phrase-2026"
@@ -1347,19 +1369,21 @@ def environment_forms():
         "in a JSON string": ('{"env": {"DEPLOY_SERVICE_TOKEN": "%s"}}' % value, value),
         "in a shell export": (f"export DEPLOY_SERVICE_TOKEN={value}", value),
         "JSON-escaped inside a JSON string": ('{"env": "{\\"T\\": \\"%s\\"}"}' % value, value),
+        "base32": ("x " + base64.b32encode(value.encode()).decode(), base64.b32encode(value.encode()).decode()),
         "with zero-width spaces": ("deployed with " + "\u200b".join(value) + " today", value),
     }
 
 
-# docs/memory.md, "these shapes still pass": forms of an environment secret the scanner does not decode.
+# docs/memory.md, "these shapes still pass": forms of an environment secret the scanner does not
+# decode, written without a label. The value names no secret word itself, so the line rule leaves it.
+NEUTRAL_VALUE = "c0bra-Deploy-mint-phrase-2026"
+NEUTRAL_ENVIRONMENT = {**ENVIRONMENT, "DEPLOY_SERVICE_TOKEN": NEUTRAL_VALUE}
 ENVIRONMENT_FORMS_PASSING = {
-    "concatenated pieces": (f'"{ENVIRONMENT_VALUE[:14]}" + "{ENVIRONMENT_VALUE[14:]}"', ENVIRONMENT_VALUE[14:]),
-    "base32": ("x " + base64.b32encode(ENVIRONMENT_VALUE.encode()).decode(),
-               base64.b32encode(ENVIRONMENT_VALUE.encode()).decode()),
-    "reversed": (f"deployed with {ENVIRONMENT_VALUE[::-1]} today", ENVIRONMENT_VALUE[::-1]),
-    "upper-cased": (f"deployed with {ENVIRONMENT_VALUE.upper()} today", ENVIRONMENT_VALUE.upper()),
-    "a 15-character prefix": (f"it starts with {ENVIRONMENT_VALUE[:15]}", ENVIRONMENT_VALUE[:15]),
-    "a value under eight characters": ("psql with PGPASSWORD hunter2 worked", "hunter2"),
+    "concatenated pieces": (f'"{NEUTRAL_VALUE[:14]}" + "{NEUTRAL_VALUE[14:]}"', NEUTRAL_VALUE[14:]),
+    "reversed": (f"deployed with {NEUTRAL_VALUE[::-1]} today", NEUTRAL_VALUE[::-1]),
+    "upper-cased": (f"deployed with {NEUTRAL_VALUE.upper()} today", NEUTRAL_VALUE.upper()),
+    "a 15-character prefix": (f"it starts with {NEUTRAL_VALUE[:15]}", NEUTRAL_VALUE[:15]),
+    "a value under eight characters": ("the run printed hunter2 twice", "hunter2"),
 }
 
 
@@ -1373,11 +1397,11 @@ def test_an_environment_secret_is_masked_in_every_form_the_scanner_decodes(form)
 @pytest.mark.parametrize("form", sorted(ENVIRONMENT_FORMS_PASSING))
 def test_the_environment_forms_the_docs_name_as_passing_still_pass(form):
     text, kept = ENVIRONMENT_FORMS_PASSING[form]
-    assert kept in redaction.redact(text, redaction.environment_secrets(ENVIRONMENT))[0]
+    assert kept in redaction.redact(text, redaction.environment_secrets(NEUTRAL_ENVIRONMENT))[0]
 
 
 @pytest.mark.parametrize("text", ["commit as Synthetic Person today", "write to person@example.com",
-                                  "reset my password please", "clone github.com/example/* repos",
+                                  "the password policy works for new users", "clone github.com/example/* repos",
                                   "the key file id_ed25519 is missing", "layout us-intl-altgr set",
                                   "run it in a subprocess"])
 def test_environment_names_count_by_word_so_their_values_stay(text):
@@ -1393,6 +1417,13 @@ def test_environment_names_count_by_word_so_their_values_stay(text):
     ("Authorization", True), ("credentials", True), ("KEYRING", False), ("KEYBOARD_LAYOUT", False),
     ("GIT_AUTHOR_NAME", False), ("GOPRIVATE", False), ("SSH_KEY_NAME", False), ("AUTH_MODE", False), ("PWD", False),
     ("PASS", False), ("max_tokens", False), ("TOKEN_TYPE", False), ("GITHUB_API_URL", False),
+    # Plural and joined names (#701 review, final verification).
+    ("OPENAI_API_KEYS", True), ("API_KEYS", True), ("SERVICE_TOKENS", True), ("VALID_TOKENS", True),
+    ("MASTERKEY", True), ("DEPLOYKEY", True), ("AUTHKEY", True), ("MYAPIKEY", True), ("SIGNINGKEY", True),
+    ("GITHUB_OAUTH", True), ("PRIVATE_PEM", True), ("SSHPASS", True), ("DBPASS", True), ("ADMIN_PW", True),
+    ("ROOT_PW", True), ("PASSCODE", True), ("JWT", True), ("MAX_TOKENS", False), ("MONKEYPATCH", False),
+    ("TOKENIZERS_PARALLELISM", False), ("KEYCLOAK_ADMIN", False), ("PASSWORD_STORE_DIR", False),
+    ("AWS_CREDENTIAL_FILE", False), ("XAUTHORITY", False),
 ])
 def test_a_name_names_a_secret_by_its_words(name, counts):
     assert redaction.secret_name(name) is counts
@@ -1496,7 +1527,7 @@ def test_redaction_keeps_its_time_on_large_texts():
 def test_redaction_stops_at_its_deadline():
     """A round the deadline leaves no time for is not started: the field is not clean, so it is withheld."""
     assert redaction.redact("password: hunter2", deadline=time.monotonic() - 1) == ("password: hunter2", False)
-    assert redaction.redact("password: hunter2", deadline=time.monotonic() + 60) == ("password: <secret>", True)
+    assert redaction.redact("password: hunter2", deadline=time.monotonic() + 60) == ("password<secret>", True)
 
 
 # --- The second review's reproductions, now asserting the fixed behaviour (#701 review) -----------
@@ -1655,7 +1686,7 @@ def test_a_pasted_env_file_and_its_echo_reach_the_journal_masked(project, tmp_pa
     for secret in (api_token, jwt_secret, db_password, xapp):
         assert secret not in text, secret
     [entry] = entries(project)
-    assert "redaction" not in entry.metadata and "JWT_SECRET=<secret>" in entry.intent
+    assert "redaction" not in entry.metadata and "JWT_SECRET<secret>" in entry.intent
 
 
 def test_a_turn_whose_own_call_the_server_refused_is_not_logged(project, tmp_path, monkeypatch, capsys):

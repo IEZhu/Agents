@@ -66,7 +66,8 @@ MEMORY_SECRETS = (
         r"(?i)(?<![\w-])(?:password|passwd|passphrase|пароль|secret|token|api[_ -]?key|access[_ -]?key|"
         r"client[_ -]?secret)(?![\w-])[\"'`*]*\s*(?::|=|\bis\b|—|-)\s*[\"'`]?"
         r"(?P<value>(?=[^\s\"'`<>]*[^\W\d_])(?=[^\s\"'`<>]*[\d!@#%^&*_+=~])(?!\$\{|\{\{)[^\s\"'`<>]{6,})")),
-    ("url_credential", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
+    # A scheme of 21 characters at most: unbounded, a run of dotted letters took quadratic time (#701 review).
+    ("url_credential", re.compile(r"(?i)\b[a-z][a-z0-9+.-]{0,20}://[^\s/:@]+:[^\s/@]+@")),
     ("stripe_key", re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}")),
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),

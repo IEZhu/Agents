@@ -45,12 +45,12 @@ hook removes is recorded for the user library sync (``src.user_sync.history.reco
 the next reconcile of a process that shares this repository's history takes it out of what this
 machine shared.
 
-Secrets are cleaned before anything is written (``src.memory.turn_redaction.redact``): token
-formats, values after a label naming a secret, private key bodies, command-line passwords,
-random-looking strings, and what the repository's scanners find, the hook's own environment values
-under a secret's name among them. A text that cannot be cleaned in time is withheld and the entry
-marked. Free-form personal details are not detected: the model's own redacted ``log_interaction``
-call, or ``journal=false``, protects a turn that holds them.
+Secrets are cleaned before anything is written (``src.memory.turn_redaction.redact``): the rest
+of every line after a word that names a secret or a client's password option, token formats,
+private key bodies, random-looking strings, and what the repository's scanners find, the hook's
+own environment values under a secret's name among them. A text that cannot be cleaned in time is
+withheld and the entry marked. Free-form personal details are not detected: the model's own
+redacted ``log_interaction`` call, or ``journal=false``, protects a turn that holds them.
 
 A turn whose project does not resolve goes to the fallback journal that ``log_interaction`` uses
 (#292). A Stop event has ``DEADLINE_SECONDS`` in all, below the registration's timeout: the
