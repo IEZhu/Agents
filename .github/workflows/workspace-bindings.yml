@@ -41,6 +41,17 @@ on:
       - tests/test_usage_stats.py
       - tests/test_memory_acceptance.py
       - tests/test_history_artifact_safety.py
+      - src/memory/turn_log_hook.py
+      - src/memory/turn_redaction.py
+      - src/memory/shared.py
+      - src/user_sync/history.py
+      - src/schedules/scan.py
+      - src/schedules/records.py
+      - tests/test_turn_log_hook.py
+      - tests/test_turn_redaction.py
+      - tests/test_turn_log_hook_sync.py
+      - tests/test_user_sync.py
+      - tests/test_user_sync_history.py
       - requirements.txt
       - .github/workflows/workspace-bindings.yml
   workflow_dispatch:
@@ -115,3 +126,35 @@ jobs:
           tests/test_history_artifact_safety.py tests/test_usage_stats.py tests/test_history_ui.py
           tests/test_read_history_size.py tests/test_log_interaction_contract.py tests/test_thread_close_miss_rate.py
           -q -rs -p no:cacheprovider
+
+  # The Stop hook that logs a turn (#701): its own tests, the redaction of what it writes, and its
+  # records for user sync on two machines. The hook imports the runtime's dependencies (pydantic,
+  # numpy), so these run here, with requirements.txt installed, and not in the User sync workflow;
+  # git cycles of the two-machine tests make Windows and macOS slower than the job above.
+  turn-log-hook:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      LANGFUSE_TRACING_ENABLED: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    steps:
+      - name: Preserve exact source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install runtime and test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Turn-log hook, redaction and the hook's sync records
+        run: >-
+          python -B -m pytest tests/test_turn_log_hook.py tests/test_turn_redaction.py
+          tests/test_turn_log_hook_sync.py -q -rs -p no:cacheprovider --durations=10

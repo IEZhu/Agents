@@ -48,11 +48,13 @@ part and run), never while a history lock is held; a new part is written whole. 
 disk can leave the last block of a part cut short. Such a block counts as missing here, so it is
 removed and appended again whole by the next run, and readers on other machines ignore a last block
 without its ``**Machine:**`` line meanwhile. Reading a segment needs no lock. Segments grow by one
-file per machine and month; the only removal is an entry deleted from a journal (the web UI's
-History tab, ``src.memory.history.delete_entry``). The newest ``DELETED_KEEP`` deletions of a key are
-kept in the state: a run takes such an entry, by its id and time, out of this machine's part (a part
-left without entries is removed), so other machines lose it with their next pull, and never shares it
-again, also from another checkout that still holds it. Merged reads here leave it out at once, while
+file per machine and month; the only removal is an entry deleted from a journal: by the web UI's
+History tab (``src.memory.history.delete_entry``), or replaced or withdrawn by the turn-log hook
+(``record_deletion``, written before the journal changes). The newest ``DELETED_KEEP`` deletions of
+a key are kept in the state: a run takes such an entry, by its id and time, out of this machine's
+part (a part left without entries is removed), so other machines lose it with their next pull, and
+never shares it again, also from another checkout that still holds it. A record whose id and time no
+part of this machine holds any more costs a run nothing. Merged reads here leave it out at once, while
 sync is paused or the repository is not approved here too. The library's git history keeps it.
 """
 from __future__ import annotations
@@ -448,6 +450,7 @@ class _Recent(OrderedDict):
 
 _HEADERS: _Recent = _Recent(1024)    # path -> (stat key, origin named in the header)
 _KNOWN: _Recent = _Recent(128)       # path -> (stat key, ids of the part's complete blocks)
+_TIMED: _Recent = _Recent(128)       # path -> (stat key, (id, time) of the part's complete blocks)
 _VERDICTS: _Recent = _Recent(16384)  # (label, origin, id) -> why the entry stays here, or None
 _CACHE_GUARD = threading.Lock()
 _MISSING = object()
@@ -503,12 +506,23 @@ def _known_ids(path: Path) -> frozenset[str]:
     disk cut short, or one that lost its final blank line, is missing, so the next run removes it
     and appends the entry again whole.
     """
+    return _complete(path, _KNOWN, lambda entries: frozenset(entry.id for entry in entries))
+
+
+def _known_times(path: Path) -> frozenset[tuple[str, str]]:
+    """``(id, time)`` of a part's complete blocks, read once per inode, size and mtime: a deletion
+    record names an entry by both, and a replacement keeps the id of the entry it replaced."""
+    return _complete(path, _TIMED, lambda entries: frozenset((entry.id, entry.timestamp) for entry in entries))
+
+
+def _complete(path: Path, cache: "_Recent", summary):
+    """``summary`` of a part's complete blocks, cached in ``cache`` by inode, size and mtime."""
     try:
         with open(path, "rb") as stream:
             info = os.fstat(stream.fileno())
             key = (info.st_ino, info.st_size, info.st_mtime_ns)
             with _CACHE_GUARD:
-                cached = _KNOWN.get(str(path))
+                cached = cache.get(str(path))
                 if cached is not None and cached[0] == key:
                     return cached[1]
             data = stream.read()
@@ -517,10 +531,10 @@ def _known_ids(path: Path) -> frozenset[str]:
     end = _block_end(path.parent.name)
     cut = data.rfind(end)
     data = data[:cut + len(end)] if cut >= 0 else b""
-    ids = frozenset(entry.id for entry in journal.HistoryReader._parse(data.decode("utf-8", "replace")))
+    value = summary(journal.HistoryReader._parse(data.decode("utf-8", "replace")))
     with _CACHE_GUARD:
-        _KNOWN[str(path)] = (key, ids)
-    return ids
+        cache[str(path)] = (key, value)
+    return value
 
 
 def _segments(repo: _Repository, scopes: scope.Scopes | None = None, *, own: bool = True,
@@ -564,6 +578,14 @@ def _shared_ids(repo: _Repository, scopes: scope.Scopes | None = None) -> set[st
     for _, path in _segments(repo, scopes, others=False)[0]:
         ids |= _known_ids(path)
     return ids
+
+
+def _shared_times(repo: _Repository, scopes: scope.Scopes | None = None) -> set[tuple[str, str]]:
+    """``(id, time)`` of what this machine has shared for the key."""
+    pairs: set[tuple[str, str]] = set()
+    for _, path in _segments(repo, scopes, others=False)[0]:
+        pairs |= _known_times(path)
+    return pairs
 
 
 def _other_origins(repo: _Repository, scopes: scope.Scopes | None) -> list[str]:
@@ -1012,9 +1034,18 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
     unreviewed = _unreviewed(machine, record)
     tombstones = _tombstones(machine.state_dir, repo.key)
     dropped = set(tombstones)
+    # Deleted entries this machine still shares, by id and time: a replacement keeps the id of the
+    # entry it replaced, so once its copy is shared the record names nothing shared, and an
+    # unchanged run does not call the writer for it again (#701 review).
+    shared = _shared_times(repo, scopes) if any(entry_id in known for entry_id, _ in tombstones) else set()
+    shared_deleted = [pair for pair in tombstones if pair in shared]
+    # An id whose shared copy this run takes out is free again: a later entry under it, such as the
+    # corrected answer that replaced a deleted one under its key (#701), is shared in the same run.
+    # The write checks each month's part again after the removal, so nothing is shared twice.
+    freed = {entry_id for entry_id, _ in shared_deleted}
     items, skipped = [], Counter()
     for entry, body in entries:
-        if entry.id in known or (entry.id, entry.timestamp) in dropped:
+        if (entry.id in known and entry.id not in freed) or (entry.id, entry.timestamp) in dropped:
             continue
         if entry.id in unreviewed:
             skipped["unreviewed"] += 1   # waits for the owner's review: history export lists it
@@ -1024,8 +1055,6 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
             skipped[reason] += 1
         else:
             items.append(item)
-    # Deleted entries this machine still shares: the others were taken out already, or never shared.
-    shared_deleted = [pair for pair in tombstones if pair[0] in known]
     outcome = (_write(repo, items, wait=wait, tombstones=shared_deleted) if items or shared_deleted
                else {"status": "unchanged", "written": [], "present": [], "held": [], "removed": []})
     if outcome["status"] == "skipped" and outcome.get("reason") == "other_origin":
@@ -1215,6 +1244,67 @@ def machine_history(root, *, state_dir=None, library=None) -> journal.MachineHis
                                   deleted=frozenset(_tombstones(machine.state_dir, repo.key)))
 
 
+def record_deletion(history_path: str, entry_id: str, timestamp: str, *, state_dir=None, library=None) -> bool:
+    """Keep a journal's deleted entry, by its id and time, until a run takes it out of this
+    machine's segments; True when the repository's history takes part in sync here.
+
+    It only writes the sync state, so a process that shares nothing itself, such as the Stop hook
+    that logs a turn (``src.memory.turn_log_hook``), records what it removed for the next
+    reconcile of a process that does, and merged reads leave the entry out at once (#701 review).
+    A state that cannot be written is recorded as ``deletion_unrecorded`` and raises.
+    """
+    root = Path(history_path).parent
+    machine = _machine(state_dir, library)
+    if machine is None:
+        return False
+    workspace = _workspace(root, machine)
+    if not _shared(workspace):
+        return False
+
+    def change(state):
+        pending = state.setdefault("deleted", {}).setdefault(workspace.key, [])
+        if [entry_id, timestamp] not in pending:
+            pending.append([entry_id, timestamp])
+        del pending[:-DELETED_KEEP]
+    try:
+        _change_state(machine.state_dir, change)
+    except OSError as error:
+        # The entry stays in what this machine shared: say so where status shows sync's errors.
+        _record_error(machine, "deletion_unrecorded", f"{type(error).__name__}: {error}", workspace.key)
+        raise
+    return True
+
+
+def forget_deletion(history_path: str, entry_id: str, timestamp: str, *, state_dir=None, library=None) -> bool:
+    """Take back what ``record_deletion`` kept for an entry its journal still holds, because the
+    change that was to remove it raised (#701 review: a full disk after the record took the turn out
+    of the shared history while this machine's journal kept it). True when a record went."""
+    machine = _machine(state_dir, library)
+    if machine is None:
+        return False
+    workspace = _workspace(Path(history_path).parent, machine)
+    if not _shared(workspace):
+        return False
+    taken = []
+
+    def change(state):
+        pending = (state.get("deleted") or {}).get(workspace.key)
+        if isinstance(pending, list) and [entry_id, timestamp] in pending:
+            pending.remove([entry_id, timestamp])
+            taken.append(True)
+    _change_state(machine.state_dir, change)
+    return bool(taken)
+
+
+def prepare_deletions(history_path: str, *, state_dir=None, library=None) -> None:
+    """Resolve what ``record_deletion`` reads for ``history_path`` before a caller takes the journal's
+    locks: this machine's settings and the checkout's key, origin and top level (two git calls),
+    which ``WORKSPACE_SECONDS`` keeps, so only the state write happens under the locks (#701 review)."""
+    machine = _machine(state_dir, library)
+    if machine is not None:
+        _workspace(Path(history_path).parent, machine)
+
+
 class Integration:
     """What ``install`` hands to ``src.memory.history.set_sync``."""
 
@@ -1226,26 +1316,8 @@ class Integration:
 
     def deleted(self, history_path: str, entry_id: str, timestamp: str) -> None:
         """Keep a journal's deleted entry until a run takes it out of this machine's segments."""
-        root = Path(history_path).parent
-        machine = _machine(self.state_dir, self.library)
-        if machine is None:
-            return
-        workspace = _workspace(root, machine)
-        if not _shared(workspace):
-            return
-
-        def change(state):
-            pending = state.setdefault("deleted", {}).setdefault(workspace.key, [])
-            if [entry_id, timestamp] not in pending:
-                pending.append([entry_id, timestamp])
-            del pending[:-DELETED_KEEP]
-        try:
-            _change_state(machine.state_dir, change)
-        except OSError as error:
-            # The entry stays in what this machine shared: say so where status shows sync's errors.
-            _record_error(machine, "deletion_unrecorded", f"{type(error).__name__}: {error}", workspace.key)
-            raise
-        _EXPORTER.mark(self.state_dir, self.library, root)
+        if record_deletion(history_path, entry_id, timestamp, state_dir=self.state_dir, library=self.library):
+            _EXPORTER.mark(self.state_dir, self.library, Path(history_path).parent)
 
     def machines(self, history_path: str) -> journal.MachineHistory | None:
         root = Path(history_path).parent

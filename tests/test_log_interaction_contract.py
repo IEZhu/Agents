@@ -60,6 +60,17 @@ def entries(writer):
     return writer.return_value.append_entry.call_args_list
 
 
+
+@pytest.mark.asyncio
+async def test_journal_false_keeps_the_turn_out_of_every_sink(writer, workspace):
+    """#701: the signal that a turn is not to be journaled, which a Stop hook logging turns honours too."""
+    response = await call(journal=False, idempotency_key="k-1", record={"v": 1})
+    assert response["history"] == {"status": "withheld", "state": "not_written"}
+    assert "timestamp" in response and "request_id" in response
+    assert server.drain_pending_logs(5)
+    writer.return_value.append_entry.assert_not_called()
+    assert not (workspace / "history.md").exists()
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("persona,missing_or_invalid", [
     ({"agent": "lawyer", "activation_id": "a"}, "bundle_revision"),

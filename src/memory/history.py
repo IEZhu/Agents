@@ -31,6 +31,7 @@ from src.file_lock import file_lock
 
 import contextlib
 import datetime as _dt
+from datetime import datetime as _datetime, timedelta as _timedelta  # reading times; _dt.datetime.now gives them
 import hashlib
 import json
 import logging
@@ -39,9 +40,10 @@ import re
 import shutil
 import stat
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field, replace
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 
 from src.memory import config as _memory_config
 from src.memory.config import (
@@ -78,6 +80,8 @@ except ImportError:  # pragma: no cover - Windows
 # Process-local mutex — fcntl.flock is advisory and per-process on Linux,
 # so concurrent threads (e.g. multiple run_in_executor calls) can bypass it.
 _WRITE_LOCK = threading.Lock()
+# How often a write with a lock deadline tries the sidecar lock again.
+_LOCK_POLL_SECONDS = 0.05
 
 
 # An entry's id: the first 12 hex digits of its content hash (HistoryWriter._compute_entry_hash).
@@ -422,8 +426,15 @@ def set_sync(integration):
     ``integration.machines(history_path)`` returns a ``MachineHistory``, or None
     while the repository's history does not take part in sync; an optional
     ``integration.deleted(history_path, entry_id, timestamp)`` hears of an entry
-    ``delete_entry`` removed, also once the locks are released. Without an
-    integration the history is this machine's journal only.
+    ``delete_entry`` removed, also once the locks are released; an optional
+    ``integration.deleting(history_path, entry_id, timestamp)`` hears of an entry a
+    keyed write (``supersede``, ``withdraw``) is about to remove, under the
+    journal's locks and before the journal changes, so a process ended right
+    after the change still leaves its record (#701 review); an optional
+    ``integration.not_deleting(history_path, entry_id, timestamp)`` hears, under
+    the same locks, of such an entry still in the journal after the change
+    raised, so the record is taken back. Without an integration the history is
+    this machine's journal only.
     ``src.user_sync.history.install`` sets it.
     """
     global _sync
@@ -453,6 +464,62 @@ def _appended(history_path: str, entry_id: Optional[str]) -> None:
         logger.warning("could not schedule sharing the history of %s", history_path, exc_info=True)
 
 
+def _deleting(history_path: str, entries) -> None:
+    """Tell the sync, under the journal's locks and before the journal changes, which entries a
+    keyed write is about to remove (#701 review). A failure is logged and the write goes on, as
+    after a removal; an interruption (``KeyboardInterrupt``) ends it before the journal changes."""
+    hook = getattr(_sync, "deleting", None)
+    if hook is None:
+        return
+    for entry in entries:
+        try:
+            hook(history_path, entry.id, entry.timestamp)
+        except Exception:
+            logger.warning("could not record a removal of %s for sync", history_path, exc_info=True)
+
+
+def _not_deleting(history_path: str, entries) -> None:
+    """Take back, best effort, what ``_deleting`` recorded for ``entries``: a journal change that
+    raised after the record left them in the journal (#701 review: with a full disk the turn left
+    the shared history while this journal kept it). A process killed inside the change itself
+    cannot do this; docs/user-sync.md names that window."""
+    hook = getattr(_sync, "not_deleting", None)
+    if hook is None:
+        return
+    for entry in entries:
+        try:
+            hook(history_path, entry.id, entry.timestamp)
+        except Exception:
+            logger.warning("could not take back a removal of %s recorded for sync", history_path, exc_info=True)
+
+
+def _unchanged(path: str, identity) -> bool:
+    """Whether the file at ``path`` is still the one ``identity`` (an ``fstat`` result) describes, by
+    its size and modification time, which ``os.stat`` and ``os.fstat`` report alike on every system
+    (their ctimes differ on Windows). False when it cannot be told."""
+    if identity is None:
+        return False
+    try:
+        now = os.stat(path)
+    except OSError:
+        return False
+    return (now.st_size, now.st_mtime_ns) == (identity.st_size, identity.st_mtime_ns)
+
+
+def _later_than(timestamp: str, earlier) -> str:
+    """``timestamp``, or one second after the latest of ``earlier`` when that is not before it: a
+    replacement keeps the id of the entry it replaces, so only its time tells the two apart, for
+    sync's record of the removed one too (#701 review: both in one second dropped the turn)."""
+    try:
+        now = _datetime.fromisoformat(timestamp)
+        latest = max(_datetime.fromisoformat(value) for value in earlier)
+        if latest < now:
+            return timestamp
+    except (TypeError, ValueError):  # a time without a zone, or none at all: nothing to compare
+        return timestamp
+    return (latest + _timedelta(seconds=1)).isoformat(timespec="seconds")
+
+
 def _deleted(history_path: str, entry_id: str, timestamp: str) -> None:
     """Tell the sync that an entry was deleted; called once every history lock is released."""
     integration = _sync
@@ -473,8 +540,106 @@ class MemoryWriteRejected(ValueError):
     """A write was rejected before mutation, rather than failing in storage."""
 
 
+class JournalBusy(MemoryWriteRejected):
+    """Another writer held the journal past the caller's ``lock_timeout``; nothing was written."""
+
+
+@contextlib.contextmanager
+def _write_locks(history_path: str, timeout: Optional[float] = None):
+    """The locks every journal write holds: this process's mutex, then the sidecar lock.
+
+    Without ``timeout`` both are waited for as long as it takes. With it, ``JournalBusy`` is
+    raised once that many seconds pass without both, so a caller with a deadline of its own, such
+    as a Stop hook under its client's hook timeout (#701), fails visibly instead of being killed
+    while it waits.
+    """
+    if timeout is None:
+        with _WRITE_LOCK, file_lock(_sidecar(history_path)):
+            yield
+        return
+    deadline = time.monotonic() + max(timeout, 0.0)
+    if not _WRITE_LOCK.acquire(timeout=max(timeout, 0.0)):
+        raise JournalBusy("journal_busy")
+    try:
+        with contextlib.ExitStack() as stack:
+            while True:
+                try:
+                    stack.enter_context(file_lock(_sidecar(history_path), blocking=False))
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise JournalBusy("journal_busy") from None
+                    time.sleep(_LOCK_POLL_SECONDS)
+            yield
+    finally:
+        _WRITE_LOCK.release()
+
+
+def entry_metadata(entry: "HistoryEntry") -> Dict[str, Any]:
+    """An entry's metadata as a mapping: a ``**Meta:**`` line holding other JSON (a list, a
+    number) carries none, so a reader never fails on it (#701 review)."""
+    return entry.metadata if isinstance(entry.metadata, dict) else {}
+
+
 _MARKER = re.compile(r"\s*(?:<!--|>)")  # a rotation's merge comment or the archive pointer
 _RECEIPT_RE = re.compile(r"^<!-- agents-write-receipt (.+) -->\r?$", re.MULTILINE)
+# What _temp_beside names a replacement's temporary file: "." + the file's name + 16 hex digits.
+_TEMP_NAME = re.compile(r"\.(?P<name>.+)\.[0-9a-f]{16}\.tmp")
+
+
+def _comment_receipts(text: str, *, strict: bool = False) -> List[Dict[str, Any]]:
+    """The receipts ``text`` keeps as comments, where a removal left them without their entry.
+
+    A comment that is not JSON, cut short by an edit or a merge, may have been the receipt a
+    write is looking for: ``strict``, as ``log_interaction``'s keyed retries read them, it raises,
+    so the write fails as a storage failure instead of writing twice (MEM-01). Otherwise, as the
+    turn-log hook's writes read them, it is skipped, as ``entry_metadata`` skips a ``**Meta:**``
+    line that is no object: one bad line must not stop every later turn (#701 review). A comment
+    holding other JSON than an object is no receipt either way.
+    """
+    receipts = []
+    for match in _RECEIPT_RE.findall(text):
+        try:
+            receipt = json.loads(match)
+        except ValueError:
+            if strict:
+                raise
+            continue
+        if isinstance(receipt, dict):
+            receipts.append(receipt)
+    return receipts
+
+
+def _receipt_comment(receipt: Dict[str, Any]) -> str:
+    """The comment that keeps a removed entry's receipt, so no later write under its key brings it back."""
+    return "\n<!-- agents-write-receipt " + json.dumps(receipt, sort_keys=True) + " -->\n"
+
+
+def _remove_stale_temps(directory: str, info, wanted) -> None:
+    """Remove the temporary files that writes killed before their move left in ``directory`` (#701 review).
+
+    Called under the journal's write locks, when no writer of this journal is between creating
+    such a file and moving it into place. Only regular files named as ``_temp_beside`` names
+    them, for a file ``wanted`` accepts, go; any failure is ignored, since a leftover is waste,
+    not damage.
+    """
+    message = "journal directory changed before its leftovers were removed"
+    try:
+        with _anchored_dir(directory, info, message) as dir_fd:
+            listed = os.listdir(dir_fd if dir_fd is not None and os.listdir in os.supports_fd else directory)
+            for name in listed:
+                match = _TEMP_NAME.fullmatch(name)
+                if match is None or not wanted(match.group("name")):
+                    continue
+                with contextlib.suppress(OSError):
+                    if dir_fd is None:
+                        _refuse_swapped_dir(directory, info, message)
+                        if stat.S_ISREG(os.lstat(os.path.join(directory, name)).st_mode):
+                            os.unlink(os.path.join(directory, name))
+                    elif stat.S_ISREG(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode):
+                        os.unlink(name, dir_fd=dir_fd)
+    except OSError:
+        pass
 
 
 def without_entry(content: str, entry_id: str, timestamp: str) -> str:
@@ -766,7 +931,7 @@ def delete_entry(history_path: str, month: Optional[str], entry_id: str, timesta
         updated = without_entry(content, entry_id, timestamp)
         for entry in HistoryReader._parse(content):
             if entry.id == entry_id and entry.timestamp == timestamp:
-                receipt = (entry.metadata or {}).get("_agents_write")
+                receipt = entry_metadata(entry).get("_agents_write")
                 if receipt:
                     # Keep only the acceptance receipt, not the deleted content.
                     # A delayed retry must not resurrect a deliberately removed entry.
@@ -957,12 +1122,28 @@ class HistoryWriter:
         *,
         idempotency_key: Optional[str] = None,
         payload_fingerprint: Optional[str] = None,
+        supersede: Optional[Callable[["HistoryEntry"], bool]] = None,
+        lock_timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Append a single entry; returns a JSON-friendly status dict.
 
         ``dedupe_action`` replaces ``action`` in the content hash, so a retry that
         differs only in an appended attribution line is still a duplicate.
+
+        ``supersede`` lets a keyed write replace what an earlier write under the same
+        ``idempotency_key`` left, instead of answering ``idempotency_conflict`` (#701): it
+        gets the newest entry that write left, wherever it is now (``history.md`` or an
+        archive), and True replaces every entry under the key with this one under the same
+        locks (``replaced`` names the newest); False keeps them and writes nothing (``kept``).
+        The new entry goes into ``history.md`` in the same replacement that removes the copies
+        there, and archived copies go after it, so a write killed between the two leaves the new
+        entry and an older copy, which readers show as the later one and the next write under
+        the key removes, never neither. An entry removed on purpose under the key (``withdraw``
+        or ``delete_entry``) stays removed: ``withdrawn``. ``lock_timeout`` bounds the wait for
+        the journal's locks (``JournalBusy``).
         """
+        if supersede is not None and idempotency_key is None:
+            raise ValueError("supersede needs an idempotency_key")
         if idempotency_key is not None and (not isinstance(idempotency_key, str)
                                              or not 1 <= len(idempotency_key) <= 256
                                              or not idempotency_key.strip()):
@@ -984,16 +1165,17 @@ class HistoryWriter:
         # Commit the entry and its retry receipt in the SAME atomic replacement.
         # The journal is also the recoverable source for indexing and Git export.
         rotated_to: Optional[str] = None
-        with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
+        with _write_locks(self.history_path, lock_timeout):
             if os.path.islink(self.history_path):
                 raise MemoryWriteRejected("journal_symlink_unsupported")
             # The journal's directory as the read in _append_locked finds it.
             # The replacement that commits the entry and the rotation after it
             # both reach this directory or refuse.
             directory_info = _journal_directory(self.history_path)
-            result, fresh = self._append_locked(
+            self._remove_stale_temps_locked(directory_info)
+            result, fresh, removed = self._append_locked(
                 entry_id, intent, action, outcome, files, tags, metadata,
-                idempotency_key, payload_fingerprint, directory_info,
+                idempotency_key, payload_fingerprint, directory_info, supersede,
             )
 
             # Rotate after the append handle is closed (Windows cannot move an
@@ -1010,6 +1192,8 @@ class HistoryWriter:
 
         # Outside every history lock, and it only schedules the work: sharing the
         # entry waits for the library lock in the sync's own worker, never here.
+        for gone in removed:
+            _deleted(self.history_path, gone.id, gone.timestamp)
         if fresh:
             _appended(self.history_path, result["entry_id"])
         elif idempotency_key is not None:
@@ -1020,8 +1204,131 @@ class HistoryWriter:
             result["rotated_to"] = rotated_to
         return result
 
+    def _key_digest(self, idempotency_key: str) -> str:
+        """The digest a keyed write's receipt carries: the key within this journal."""
+        scope = os.path.normcase(os.path.realpath(self.history_path))
+        return hashlib.sha256(json.dumps(
+            ["log_interaction/v1", scope, idempotency_key], ensure_ascii=False,
+        ).encode("utf-8")).hexdigest()
+
+    def _keyed_texts(self, content: str, journal_info, needle: Optional[str] = None):
+        """``([(path, text, identity)], archive_info)``: ``history.md`` as read (``content``), a
+        pending rotation and the archives, which a keyed write searches for its receipt; with
+        ``needle`` (a keyed write's entry id, which begins its key digest), only those that hold it.
+
+        A file without ``needle`` holds neither an entry with that id nor an intact receipt of that
+        key, so it is not decoded or parsed: a substring search of its bytes keeps the turn-log
+        hook's write and withdrawal under the journal's locks near the time of an unkeyed append,
+        however many archives there are (#701 review). ``log_interaction``'s keyed retries search
+        without it, since a receipt cut short before its digest fails them (MEM-01). Synced
+        segments are another writer's data, not this acceptance scope. ``archive_info`` is the
+        archive directory's identity, checked before the archives are read, so a receipt replayed
+        from one is synced, and an archive rewritten, in the directory that read checked.
+        """
+        texts = [(self.history_path, content, journal_info)] if needle is None or needle in content else []
+        archives = _archive_names(self.archive_dir, strict=True)
+        archive_info = _checked_directory(self.archive_dir) if archives else None
+        pending = self.history_path + ".rotating"
+        wanted = needle.encode("utf-8") if needle is not None else b""
+        for path in [pending] + [os.path.join(self.archive_dir, name) for name in archives]:
+            try:
+                with _open_regular(path, "rb", root=(None if path == pending
+                                                     else _archive_root(self.history_path, self.archive_dir))) as fh:
+                    data = fh.read()
+                    if wanted in data:
+                        texts.append((path, data.decode("utf-8", "surrogateescape"), os.fstat(fh.fileno())))
+            except FileNotFoundError:
+                continue
+        return texts, archive_info
+
+    @staticmethod
+    def _keyed_entries(texts, key_digest: str, entry_id: str, *, strict: bool = False):
+        """``(holders, keyed, bare)`` in ``texts``: ``(index, entry)`` of every entry with
+        ``entry_id``, ``(index, entry, receipt)`` of every entry that carries the receipt of
+        ``key_digest``, and ``(index, receipt)`` of that key's receipts kept without their entry
+        (``strict``: see ``_comment_receipts``)."""
+        holders, keyed, bare = [], [], []
+        for index, (_path, text, _info) in enumerate(texts):
+            for entry in HistoryReader._parse(text):
+                if entry.id == entry_id:
+                    holders.append((index, entry))
+                receipt = entry_metadata(entry).get("_agents_write")
+                if isinstance(receipt, dict) and receipt.get("key_digest") == key_digest:
+                    keyed.append((index, entry, receipt))
+            bare.extend((index, receipt) for receipt in _comment_receipts(text, strict=strict)
+                        if receipt.get("key_digest") == key_digest)
+        return holders, keyed, bare
+
+    def _removing(self, texts, items, change):
+        """``change()``, the journal change that removes ``items`` (``(index, entry, ...)`` of entries
+        parsed from ``texts``), after sync heard of them (``_deleting``). When the record or the
+        change raises, sync hears again of those their file still holds (``_not_deleting``), so a
+        write that failed, such as one on a full disk, or an interruption inside the record, takes no
+        entry out of the shared history while this journal keeps it (#701 reviews); the error goes on."""
+        try:
+            _deleting(self.history_path, [item[1] for item in items])
+            return change()
+        except BaseException:
+            _not_deleting(self.history_path, [item[1] for item in items
+                                              if self._holds(texts[item[0]][0], item[1], texts[item[0]][2])])
+            raise
+
+    def _holds(self, path: str, entry: "HistoryEntry", identity=None) -> bool:
+        """Whether the file at ``path`` still holds ``entry``'s heading. A file that cannot be read
+        holds it only while it is the file the entry was read from (``identity``, its ``fstat``): a
+        change that failed after its new file was moved in removed the entry, so its record stays
+        (#701 review: taking it back left the first answer shared for good)."""
+        live = path in (self.history_path, self.history_path + ".rotating")
+        try:
+            with _open_regular(path, encoding="utf-8", errors="surrogateescape", newline="",
+                               root=None if live else _archive_root(self.history_path, self.archive_dir)) as fh:
+                content = fh.read()
+        except FileNotFoundError:
+            return False
+        except (OSError, ValueError):
+            return _unchanged(path, identity)
+        return any(header.group("id") == entry.id and header.group("ts") == entry.timestamp
+                   for header in _HEADER_RE.finditer(content))
+
+    def _remove_keyed(self, texts, keyed, directory_info, archive_info) -> List["HistoryEntry"]:
+        """Remove the ``keyed`` entries from their files, keeping each one's receipt in its place,
+        and return them. ``texts`` are those the entries were parsed from."""
+        by_file: Dict[int, List[Tuple["HistoryEntry", Dict[str, Any]]]] = {}
+        for index, entry, receipt in keyed:
+            by_file.setdefault(index, []).append((entry, receipt))
+        removed = []
+        for index, pairs in by_file.items():
+            path, text, _ = texts[index]
+            for entry, receipt in pairs:
+                text = without_entry(text, entry.id, entry.timestamp) + _receipt_comment(receipt)
+            _replace(path, text, info=directory_info if path == self.history_path else archive_info)
+            removed.extend(entry for entry, _ in pairs)
+        return removed
+
+    def _merge_pending_first(self) -> None:
+        """Merge a rotation an interruption left pending into its archive, as the next rotation
+        would; only that merge may change the pending file (``delete_entry`` refuses it)."""
+        pending = self.history_path + ".rotating"
+        if os.path.lexists(pending):
+            self._merge_pending_locked(pending)
+
+    def _remove_stale_temps_locked(self, directory_info) -> None:
+        """Remove what killed writes left beside ``history.md`` and in the archive directory:
+        ``.history.md.<16 hex digits>.tmp`` and ``history/.<month>.md.<16 hex digits>.tmp``. The
+        caller holds the journal's write locks."""
+        name = os.path.basename(self.history_path)
+        _remove_stale_temps(os.path.dirname(self.history_path) or ".", directory_info,
+                            lambda target: target == name)
+        try:
+            archive_info = _checked_directory(self.archive_dir)
+        except OSError:
+            return
+        _remove_stale_temps(self.archive_dir, archive_info, lambda target: bool(_ARCHIVE_NAME.fullmatch(target)))
+
     def _append_locked(self, entry_id, intent, action, outcome, files, tags, metadata,
-                       idempotency_key, payload_fingerprint, directory_info):
+                       idempotency_key, payload_fingerprint, directory_info, supersede=None):
+        """``(result, fresh, removed)``: what ``append_entry`` answers, whether an entry was
+        written, and the entries removed under its key, which the sync hears of."""
         # The identity of each file read here goes with its text, so a replay
         # syncs the very file whose bytes held the receipt or refuses.
         journal_info = None
@@ -1035,51 +1342,65 @@ class HistoryWriter:
             content = self._render_header()
         metadata = dict(metadata or {})
         key_digest = None
+        replacing: List[Tuple[int, "HistoryEntry", Dict[str, Any]]] = []
+        texts: List[Tuple[str, str, Any]] = []
+        archive_info = None
         if idempotency_key is not None:
-            scope = os.path.normcase(os.path.realpath(self.history_path))
-            key_digest = hashlib.sha256(json.dumps(
-                ["log_interaction/v1", scope, idempotency_key], ensure_ascii=False,
-            ).encode("utf-8")).hexdigest()
+            key_digest = self._key_digest(idempotency_key)
             payload_digest = payload_fingerprint or hashlib.sha256(json.dumps(
                 [intent, action, outcome, files or [], tags or [], metadata],
                 sort_keys=True, ensure_ascii=False, separators=(",", ":"),
             ).encode("utf-8")).hexdigest()
-            # The local journal includes archives and interrupted rotations.
-            # Synced segments are another writer's data, not this acceptance scope.
-            texts = [(self.history_path, content, journal_info)]
-            archives = _archive_names(self.archive_dir, strict=True)
-            # Checked before the archives are read, so a receipt replayed from
-            # one is synced in the directory that read checked.
-            archive_info = _checked_directory(self.archive_dir) if archives else None
-            paths = [self.history_path + ".rotating"] + [os.path.join(self.archive_dir, name) for name in archives]
-            for path in paths:
-                try:
-                    with _open_regular(path, root=(None if path == self.history_path + ".rotating"
-                                                   else _archive_root(self.history_path, self.archive_dir)),
-                                       encoding="utf-8", errors="surrogateescape", newline="") as fh:
-                        texts.append((path, fh.read(), os.fstat(fh.fileno())))
-                except FileNotFoundError:
-                    continue
+            if supersede is not None:
+                # What this write may replace must sit in a file it may rewrite.
+                self._merge_pending_first()
             entry_id = key_digest[:12]  # Preserve the v1 Personal/Git id format.
-            collision = False
-            for path, text, file_info in texts:
-                entries = HistoryReader._parse(text)
-                receipts = [(entry.metadata or {}).get("_agents_write", {}) for entry in entries]
-                receipts.extend(json.loads(match) for match in _RECEIPT_RE.findall(text))
-                collision |= any(entry.id == entry_id for entry in entries)
-                for receipt in receipts:
-                    if not isinstance(receipt, dict) or receipt.get("key_digest") != key_digest:
-                        continue
-                    if receipt.get("payload_digest") != payload_digest:
-                        raise MemoryWriteRejected("idempotency_conflict")
+            texts, archive_info = self._keyed_texts(content, journal_info,
+                                                    entry_id if supersede is not None else None)
+            # A write that may replace reads leniently: it is the turn-log hook's (#701 review).
+            holders, keyed, bare = self._keyed_entries(texts, key_digest, entry_id, strict=supersede is None)
+            found = [(index, entry, receipt) for index, entry, receipt in keyed] + [
+                (index, None, receipt) for index, receipt in bare]
+            for index, entry, receipt in found:
+                if receipt.get("payload_digest") == payload_digest and isinstance(receipt.get("result"), dict):
                     # A prior call could have died between replace and directory
                     # sync. Establish durability again before replaying its receipt.
+                    path, _text, file_info = texts[index]
                     live = path in (self.history_path, self.history_path + ".rotating")
                     _sync_recorded(path, directory_info if live else archive_info,
                                    root=None if live else _archive_root(self.history_path, self.archive_dir),
                                    expected=file_info)
-                    return {**receipt["result"], "path": self.history_path}, False
-            if collision:
+                    removed = []
+                    others = [item for item in keyed if item[1] is not entry]
+                    if supersede is not None and others:
+                        # A write killed between its new entry and the removal of the copy it
+                        # replaced left that copy: this write under the key removes it, keeping
+                        # receipts only where the key was withdrawn.
+                        removed = self._removing(texts, others, lambda: (
+                            self._remove_keyed(texts, others, directory_info, archive_info) if entry is None
+                            else self._remove_copies(texts, others, directory_info, archive_info)))
+                    return {**receipt["result"], "path": self.history_path}, False, removed
+            if found and supersede is None:
+                raise MemoryWriteRejected("idempotency_conflict")
+            if bare:
+                # Removed on purpose: a later write under the key must not bring it back, and a
+                # copy that an interrupted removal left goes as well.
+                removed = self._removing(
+                    texts, keyed, lambda: self._remove_keyed(texts, keyed, directory_info, archive_info))
+                return {"status": "withdrawn", "entry_id": entry_id, "path": self.history_path,
+                        "state": "durably_accepted"}, False, removed
+            if keyed:
+                newest = max(keyed, key=lambda item: item[1].timestamp)[1]
+                if not supersede(newest):
+                    return {"status": "kept", "entry_id": newest.id, "timestamp": newest.timestamp,
+                            "path": self.history_path, "state": "durably_accepted"}, False, []
+                replacing = keyed
+                for index, entry, _receipt in keyed:
+                    if texts[index][0] == self.history_path:
+                        # Without its receipt: the entry written below carries the key's receipt now.
+                        content = without_entry(content, entry.id, entry.timestamp)
+            replaced = {(index, entry.id, entry.timestamp) for index, entry, _receipt in replacing}
+            if any((index, entry.id, entry.timestamp) not in replaced for index, entry in holders):
                 raise MemoryWriteRejected("idempotency_collision")
         else:
             entries = HistoryReader._parse(content)
@@ -1103,9 +1424,11 @@ class HistoryWriter:
             if complete_duplicate:
                 _sync_recorded(self.history_path, directory_info, expected=journal_info)
                 return {"status": "duplicate", "entry_id": entry_id, "path": self.history_path,
-                        "state": "durably_accepted"}, False
+                        "state": "durably_accepted"}, False, []
 
         timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+        if replacing:
+            timestamp = _later_than(timestamp, [entry.timestamp for _index, entry, _receipt in replacing])
         result = {"status": "recorded", "entry_id": entry_id, "path": self.history_path,
                   "timestamp": timestamp, "state": "durably_accepted"}
         if "answer_timestamp" in metadata:
@@ -1115,8 +1438,74 @@ class HistoryWriter:
                                         "payload_digest": payload_digest,
                                         "result": {key: value for key, value in result.items() if key != "path"}}
         block = self._render_entry(entry_id, timestamp, intent, action, outcome, files, tags, metadata)
-        _replace(self.history_path, content + block, info=directory_info)
-        return result, True
+        # Sync hears of what goes before anything changes, so the record survives a kill after it.
+        # The new entry first, in the replacement that also drops history.md's older copies.
+        self._removing(texts, replacing, lambda: _replace(self.history_path, content + block, info=directory_info))
+        removed = [entry for _index, entry, _receipt in replacing]
+        if replacing:  # after the receipt: a replay must not report it again
+            newest = max(removed, key=lambda entry: entry.timestamp)
+            result["replaced"] = {"entry_id": newest.id, "timestamp": newest.timestamp}
+            archived = [(index, entry, {}) for index, entry, _receipt in replacing
+                        if texts[index][0] != self.history_path]
+            try:
+                # Then the archived copies, without their receipts. A failure here leaves an older
+                # copy that readers rank below the new entry and the next write under the key removes.
+                self._remove_copies(texts, archived, None, archive_info)
+            except OSError as error:
+                logger.warning("an older copy of a replaced entry stays in an archive of %s: %s",
+                               self.history_path, error)
+        return result, True, removed
+
+    def _remove_copies(self, texts, copies, directory_info, archive_info) -> List["HistoryEntry"]:
+        """Remove superseded ``copies`` (``(index, entry, receipt)``) from their files without
+        keeping receipts, since the entry that replaced them carries the key's receipt; return them."""
+        by_file: Dict[int, List["HistoryEntry"]] = {}
+        for index, entry, _ in copies:
+            by_file.setdefault(index, []).append(entry)
+        for index, entries in by_file.items():
+            path, text, _ = texts[index]
+            for entry in entries:
+                text = without_entry(text, entry.id, entry.timestamp)
+            _replace(path, text, info=directory_info if path == self.history_path else archive_info)
+        return [entry for _, entry, _ in copies]
+
+    def withdraw(self, idempotency_key: str, *, lock_timeout: Optional[float] = None) -> Dict[str, Any]:
+        """Remove every entry a keyed append wrote under ``idempotency_key`` (#701).
+
+        Each one's receipt stays in its file, as ``delete_entry`` keeps it, so no later append
+        under the key writes the entry again (``withdrawn``, naming the newest). ``absent`` when
+        no entry holds the key's receipt. ``lock_timeout`` bounds the wait for the journal's
+        locks (``JournalBusy``).
+        """
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise MemoryWriteRejected("invalid_idempotency_key")
+        # Nothing to search, and no lock file to create, in a directory that never held a journal.
+        # A first rotation moves history.md to the pending file before the archive directory
+        # exists, so the pending file counts too (#701 review).
+        if not (os.path.lexists(self.history_path) or os.path.lexists(self.history_path + ".rotating")
+                or os.path.isdir(self.archive_dir)):
+            return {"status": "absent"}
+        key_digest = self._key_digest(idempotency_key)
+        with _write_locks(self.history_path, lock_timeout):
+            directory_info = _journal_directory(self.history_path)
+            self._remove_stale_temps_locked(directory_info)
+            self._merge_pending_first()
+            try:
+                with _open_regular(self.history_path, encoding="utf-8", errors="surrogateescape",
+                                   newline="") as fh:
+                    content, journal_info = fh.read(), os.fstat(fh.fileno())
+            except FileNotFoundError:
+                content, journal_info = "", None
+            texts, archive_info = self._keyed_texts(content, journal_info, key_digest[:12])
+            _holders, keyed, _bare = self._keyed_entries(texts, key_digest, key_digest[:12])
+            removed = self._removing(
+                texts, keyed, lambda: self._remove_keyed(texts, keyed, directory_info, archive_info))
+        if not removed:
+            return {"status": "absent"}
+        for entry in removed:
+            _deleted(self.history_path, entry.id, entry.timestamp)
+        newest = max(removed, key=lambda entry: entry.timestamp)
+        return {"status": "withdrawn", "entry_id": newest.id, "timestamp": newest.timestamp}
 
     def append_existing(self, entry: "HistoryEntry") -> Dict[str, Any]:
         """Append an entry kept elsewhere as it is: its id, time, fields and metadata (#292).

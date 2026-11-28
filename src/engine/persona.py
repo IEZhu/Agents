@@ -1,6 +1,7 @@
 """Stateless version 2 handlers. Activation state belongs to the caller's dialogue."""
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 from src import client_instructions
 from src.engine import config, protocol_text
@@ -23,11 +25,27 @@ logger = logging.getLogger(__name__)
 
 # Sent as the instruction of a conversation's first SUCCESS and of a restore; composed from
 # src/engine/protocol/ (#431). A later SUCCESS points to it instead (#433), and every SUCCESS but
-# a restore points to the managed section when the client holds it (#734).
-APPLY_INSTRUCTION = protocol_text.bundle_instruction()
-INSTRUCTION_POINTER = protocol_text.bundle_pointer()
-SECTION_POINTER = protocol_text.bundle_section_pointer()
-INSTRUCTION_REVISION = protocol_text.instruction_revision()
+# a restore points to the managed section when the client holds it (#734). These are the texts for
+# a client whose model logs each turn; ``_instructions`` holds both sets, so they never depend on
+# the switches in force when this module was first imported (#701).
+APPLY_INSTRUCTION = protocol_text.bundle_instruction(False)
+INSTRUCTION_POINTER = protocol_text.bundle_pointer(False)
+SECTION_POINTER = protocol_text.bundle_section_pointer(False)
+INSTRUCTION_REVISION = protocol_text.instruction_revision(False)
+
+
+class _Instructions(NamedTuple):
+    full: str
+    pointer: str
+    section_pointer: str
+    revision: str
+
+
+@functools.cache
+def _instructions(hook: bool) -> _Instructions:
+    """The four texts above for a client whose Stop hook logs each turn (``hook``) or not (#701)."""
+    return _Instructions(protocol_text.bundle_instruction(hook), protocol_text.bundle_pointer(hook),
+                         protocol_text.bundle_section_pointer(hook), protocol_text.instruction_revision(hook))
 # What the caller needs to choose a ROUTE_REQUIRED candidate; trigger_command is for people.
 CANDIDATE_FIELDS = ("name", "display_name", "role")
 ROUTE_INSTRUCTION = ("Choose the best agent for the request and relevant conversation, then call "
@@ -218,10 +236,12 @@ def error_response(error: Exception | str, request_id: str | None = None, *,
 
 
 def unchanged(persona: PersonaDescriptor, request_id: str) -> str:
+    # The instruction carries the current logging decision too, so a session whose server switched
+    # it since the last SUCCESS learns it from a NO_CHANGE as well (#701 review).
     return PersonaResponse(
         status="NO_CHANGE", request_id=request_id, persona=persona,
         replaces_activation_id=persona.activation_id, footer=persona_footer(persona),
-        instruction="Keep the existing activation and its instructions.",
+        instruction=protocol_text.no_change_instruction(),
     ).to_json()
 
 
@@ -607,22 +627,27 @@ def _remember(key: str, record: "_ReportRecord") -> None:
             _reported_workspaces.pop(next(iter(_reported_workspaces)))
 
 
-async def _instruction(current: PersonaDescriptor | None, force_reload: bool) -> str:
-    """The ``instruction`` of a SUCCESS: the full text, or a pointer to rules the client already holds.
+async def _instruction(current: PersonaDescriptor | None, force_reload: bool) -> tuple[str, str]:
+    """The ``instruction`` of a SUCCESS and its ``instruction_revision``: the full text, or a pointer
+    to rules the client already holds.
 
     A restore always gets the full text. Otherwise the client holds the rules when the headless
     profile says its installation put the managed section in place, or when every checkout the
     session may run in holds the current section in the file the client loads (the check behind
     the Codex initialization pointer); then even a first activation gets the section pointer. Else
-    a later SUCCESS points to the full text its conversation's first activation sent.
+    a later SUCCESS points to the full text its conversation's first activation sent. Every text
+    leaves logging to the client's Stop hook while the process-wide switches say so
+    (``config.turn_log_hook()``, #734); an interactive session's own hook announces it turn by
+    turn instead (#701), which the model-logging texts defer to.
     """
-    if force_reload:
-        return APPLY_INSTRUCTION
     client = client_instructions.REQUEST_CLIENT.get()  # None over stdio, which never verifies a section
+    texts = _instructions(config.turn_log_hook())
+    if force_reload:
+        return texts.full, texts.revision
     if config.headless_profile() or (
             client is not None and await asyncio.to_thread(client_instructions.holds_current_section, client)):
-        return SECTION_POINTER
-    return INSTRUCTION_POINTER if current is not None else APPLY_INSTRUCTION
+        return texts.section_pointer, texts.revision
+    return (texts.pointer if current is not None else texts.full), texts.revision
 
 
 async def load_persona(
@@ -664,11 +689,12 @@ async def load_persona(
             skills_loaded=bundle.skills_loaded, implants_loaded=bundle.implants_loaded,
             rules_loaded=bundle.rules_loaded,
         )
+        instruction, instruction_revision = await _instruction(current, force_reload)
         result = PersonaResponse(
             status="SUCCESS", request_id=request_id, persona=persona,
             replaces_activation_id=current.activation_id if current else None,
-            footer=persona_footer(persona), instruction=await _instruction(current, force_reload),
-            instruction_revision=INSTRUCTION_REVISION,
+            footer=persona_footer(persona), instruction=instruction,
+            instruction_revision=instruction_revision,
             persona_block=bundle.persona_block, rules_block=bundle.rules_block,
             skills_block=bundle.skills_block, implants_block=bundle.implants_block,
         )
