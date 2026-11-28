@@ -495,7 +495,26 @@ def test_update_and_recover_without_a_service_refuse_and_create_nothing(tmp_path
     assert refused["state"] == "not_installed"
     assert str(state.resolve() if not explicit_state else state) in refused["error"]
     assert f"python -m src.daemon {command}" in refused["error"] and "--state" in refused["error"]
+    assert "interrupted update" not in refused["error"]  # nothing is left in the directory
     assert not state.exists()
+
+
+@pytest.mark.parametrize("left", [("transaction.json",), ("maintenance.json",), ("transaction.json", "maintenance.json")])
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_the_refusal_names_the_journal_an_interrupted_update_left(tmp_path, capsys, command, left):
+    """#592: `uninstall` after an interrupted update leaves the journal and no service.json. `recover` cleared a
+    before-mutation journal there; it now refuses, and says what is left and what to do instead of only refusing."""
+    from src.daemon import control
+    state = tmp_path / "state"
+    state.mkdir()
+    for name in left:
+        (state / name).write_text(json.dumps({"phase": "draining", "was_running": False}))
+    assert control.main(["--state", str(state), command]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "not_installed"
+    assert f"It also holds {' and '.join(left)}, left by an interrupted update" in refused["error"]
+    assert "install the service again, then run `python -m src.daemon recover`" in refused["error"]
+    assert sorted(path.name for path in state.iterdir()) == sorted(left)  # nothing was cleared, nothing created
 
 
 @pytest.mark.parametrize("command", ["update", "recover"])

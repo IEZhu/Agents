@@ -366,11 +366,17 @@ def require_service(controller, command="update"):
     """
     if (controller.config or {}).get("installation"):
         return
-    raise NotInstalled(
+    message = (
         f"Service is not installed: {controller.directory} has no service.json that names an "
         "installation. The state directory comes from --state, AGENTS_SERVICE_DIR or the checkout "
         f"whose code runs the command: run `python -m src.daemon {command}` in the installation's own "
         "directory with its .venv interpreter, adding --state <dir> when the service was installed with one")
+    # `uninstall` after an interrupted update leaves the journal behind, and only a service can recover it.
+    left = [name for name in ("transaction.json", "maintenance.json") if (Path(controller.directory) / name).exists()]
+    if left:
+        message += (f". It also holds {' and '.join(left)}, left by an interrupted update: install the "
+                    "service again, then run `python -m src.daemon recover`")
+    raise NotInstalled(message)
 
 
 class WrongSource(RuntimeError):

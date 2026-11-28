@@ -1575,7 +1575,10 @@ them (`python -m src.daemon` imports `src` from the working directory). A direct
 without a `service.json` that names an installation, such as a checkout that is not the
 installation, ends as `{"state": "not_installed", "error": ...}` with exit code 1. The
 error names the directory it looked in and the command to run from the installation, and
-nothing is created there, no run lease and no lock.
+nothing is created there, no run lease and no lock. When the directory holds the journal of
+an interrupted update (`transaction.json`, `maintenance.json`), as `uninstall` leaves it, the
+error names those files too: only a service can recover them, so install the service again
+and run `recover`. Nothing is cleared.
 
 They also run only from the installation's own tree. The updater keeps its record and its
 prepared build in the `data/` of the tree whose code runs it, so a checkout that is not the
