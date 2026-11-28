@@ -1275,6 +1275,27 @@ def record_deletion(history_path: str, entry_id: str, timestamp: str, *, state_d
     return True
 
 
+def forget_deletion(history_path: str, entry_id: str, timestamp: str, *, state_dir=None, library=None) -> bool:
+    """Take back what ``record_deletion`` kept for an entry its journal still holds, because the
+    change that was to remove it raised (#701 review: a full disk after the record took the turn out
+    of the shared history while this machine's journal kept it). True when a record went."""
+    machine = _machine(state_dir, library)
+    if machine is None:
+        return False
+    workspace = _workspace(Path(history_path).parent, machine)
+    if not _shared(workspace):
+        return False
+    taken = []
+
+    def change(state):
+        pending = (state.get("deleted") or {}).get(workspace.key)
+        if isinstance(pending, list) and [entry_id, timestamp] in pending:
+            pending.remove([entry_id, timestamp])
+            taken.append(True)
+    _change_state(machine.state_dir, change)
+    return bool(taken)
+
+
 class Integration:
     """What ``install`` hands to ``src.memory.history.set_sync``."""
 

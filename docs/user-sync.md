@@ -548,9 +548,14 @@ An entry deleted on the web UI's History tab, and one the [turn-log hook](memory
 replaced with a corrected answer or withdrew, leaves this machine's segment at the next run: the
 deletion (its id and time) is kept in the sync state, a run takes the entry out of the part (a part
 left without entries is removed), and other machines lose it with their next pull. The hook writes
-that record before it changes the journal, so a hook ended in between leaves a record and no
-stale copy; a replacement always carries a later time than the entry it replaced, also within one
-second. While sync is paused, the repository is not approved here or the group is excluded, the
+that record before it changes the journal. A journal change that fails after the record, such as a write on a full disk, takes the record back for every entry the journal still
+holds, so both machines keep the earlier answer until the turn's next Stop replaces it. A hook
+killed inside the change itself (the replacement of `history.md`, about a millisecond) cannot take
+it back: the next run takes the shared copy out, so nothing stale stays shared, and the turn's next
+Stop shares the corrected answer; without a next Stop the other machines read no entry of that
+turn, while this machine's journal keeps it. A replacement always carries a later time than the
+entry it replaced, also within one second. While sync is paused, the repository is not approved
+here or the group is excluded, the
 deletion waits and the entry stays in what was shared; merged reads on this machine leave it out at
 once either way. The newest 1,000 deletions of a repository are kept, so no run shares such an
 entry again, also from another checkout that still holds it; a record whose id and time no part of

@@ -430,8 +430,11 @@ def set_sync(integration):
     ``integration.deleting(history_path, entry_id, timestamp)`` hears of an entry a
     keyed write (``supersede``, ``withdraw``) is about to remove, under the
     journal's locks and before the journal changes, so a process ended right
-    after the change still leaves its record (#701 review). Without an
-    integration the history is this machine's journal only.
+    after the change still leaves its record (#701 review); an optional
+    ``integration.not_deleting(history_path, entry_id, timestamp)`` hears, under
+    the same locks, of such an entry still in the journal after the change
+    raised, so the record is taken back. Without an integration the history is
+    this machine's journal only.
     ``src.user_sync.history.install`` sets it.
     """
     global _sync
@@ -473,6 +476,21 @@ def _deleting(history_path: str, entries) -> None:
             hook(history_path, entry.id, entry.timestamp)
         except Exception:
             logger.warning("could not record a removal of %s for sync", history_path, exc_info=True)
+
+
+def _not_deleting(history_path: str, entries) -> None:
+    """Take back, best effort, what ``_deleting`` recorded for ``entries``: a journal change that
+    raised after the record left them in the journal (#701 review: with a full disk the turn left
+    the shared history while this journal kept it). A process killed inside the change itself
+    cannot do this; docs/user-sync.md names that window."""
+    hook = getattr(_sync, "not_deleting", None)
+    if hook is None:
+        return
+    for entry in entries:
+        try:
+            hook(history_path, entry.id, entry.timestamp)
+        except Exception:
+            logger.warning("could not take back a removal of %s recorded for sync", history_path, exc_info=True)
 
 
 def _later_than(timestamp: str, earlier) -> str:
@@ -1228,6 +1246,34 @@ class HistoryWriter:
                         if receipt.get("key_digest") == key_digest)
         return holders, keyed, bare
 
+    def _removing(self, texts, items, change):
+        """``change()``, the journal change that removes ``items`` (``(index, entry, ...)`` of entries
+        parsed from ``texts``), after sync heard of them (``_deleting``). When it raises, sync hears
+        again of those their file still holds (``_not_deleting``), so a write that failed, such as one
+        on a full disk, takes no entry out of the shared history while this journal keeps it (#701
+        review); the error goes on."""
+        _deleting(self.history_path, [item[1] for item in items])
+        try:
+            return change()
+        except BaseException:
+            _not_deleting(self.history_path, [item[1] for item in items if self._holds(texts[item[0]][0], item[1])])
+            raise
+
+    def _holds(self, path: str, entry: "HistoryEntry") -> bool:
+        """Whether the file at ``path`` still holds ``entry``'s heading; True when it cannot be read,
+        so a record is taken back rather than kept for an entry that may still be there."""
+        live = path in (self.history_path, self.history_path + ".rotating")
+        try:
+            with _open_regular(path, encoding="utf-8", errors="surrogateescape", newline="",
+                               root=None if live else _archive_root(self.history_path, self.archive_dir)) as fh:
+                content = fh.read()
+        except FileNotFoundError:
+            return False
+        except (OSError, ValueError):
+            return True
+        return any(header.group("id") == entry.id and header.group("ts") == entry.timestamp
+                   for header in _HEADER_RE.finditer(content))
+
     def _remove_keyed(self, texts, keyed, directory_info, archive_info) -> List["HistoryEntry"]:
         """Remove the ``keyed`` entries from their files, keeping each one's receipt in its place,
         and return them. ``texts`` are those the entries were parsed from."""
@@ -1314,17 +1360,17 @@ class HistoryWriter:
                         # A write killed between its new entry and the removal of the copy it
                         # replaced left that copy: this write under the key removes it, keeping
                         # receipts only where the key was withdrawn.
-                        _deleting(self.history_path, [item[1] for item in others])
-                        removed = (self._remove_keyed(texts, others, directory_info, archive_info) if entry is None
-                                   else self._remove_copies(texts, others, directory_info, archive_info))
+                        removed = self._removing(texts, others, lambda: (
+                            self._remove_keyed(texts, others, directory_info, archive_info) if entry is None
+                            else self._remove_copies(texts, others, directory_info, archive_info)))
                     return {**receipt["result"], "path": self.history_path}, False, removed
             if found and supersede is None:
                 raise MemoryWriteRejected("idempotency_conflict")
             if bare:
                 # Removed on purpose: a later write under the key must not bring it back, and a
                 # copy that an interrupted removal left goes as well.
-                _deleting(self.history_path, [item[1] for item in keyed])
-                removed = self._remove_keyed(texts, keyed, directory_info, archive_info)
+                removed = self._removing(
+                    texts, keyed, lambda: self._remove_keyed(texts, keyed, directory_info, archive_info))
                 return {"status": "withdrawn", "entry_id": entry_id, "path": self.history_path,
                         "state": "durably_accepted"}, False, removed
             if keyed:
@@ -1377,9 +1423,8 @@ class HistoryWriter:
                                         "result": {key: value for key, value in result.items() if key != "path"}}
         block = self._render_entry(entry_id, timestamp, intent, action, outcome, files, tags, metadata)
         # Sync hears of what goes before anything changes, so the record survives a kill after it.
-        _deleting(self.history_path, [entry for _index, entry, _receipt in replacing])
         # The new entry first, in the replacement that also drops history.md's older copies.
-        _replace(self.history_path, content + block, info=directory_info)
+        self._removing(texts, replacing, lambda: _replace(self.history_path, content + block, info=directory_info))
         removed = [entry for _index, entry, _receipt in replacing]
         if replacing:  # after the receipt: a replay must not report it again
             newest = max(removed, key=lambda entry: entry.timestamp)
@@ -1437,8 +1482,8 @@ class HistoryWriter:
                 content, journal_info = "", None
             texts, archive_info = self._keyed_texts(content, journal_info, key_digest[:12])
             _holders, keyed, _bare = self._keyed_entries(texts, key_digest, key_digest[:12])
-            _deleting(self.history_path, [item[1] for item in keyed])
-            removed = self._remove_keyed(texts, keyed, directory_info, archive_info)
+            removed = self._removing(
+                texts, keyed, lambda: self._remove_keyed(texts, keyed, directory_info, archive_info))
         if not removed:
             return {"status": "absent"}
         for entry in removed:

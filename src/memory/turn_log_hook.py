@@ -46,7 +46,9 @@ refused is not logged at all, as it was not before this hook, and neither is one
 ``journal=false`` call a server older than that parameter recorded; both are reported. What the
 hook removes is recorded for the user library sync (``src.user_sync.history.record_deletion``),
 before the journal changes, so the next reconcile of a process that shares this repository's
-history takes it out of what this machine shared.
+history takes it out of what this machine shared; a change that raises takes the record back for
+what the journal still holds (``forget_deletion``), and only a hook killed inside the change keeps
+a record of an entry still there.
 
 Secrets are cleaned before anything is written (``src.memory.turn_redaction.redact``): the rest
 of every line after a word that names a secret or a client's password option, token formats,
@@ -609,7 +611,8 @@ class _RemovalsForSync:
     process that shares this repository's history takes them out of what this machine shared, and
     merged reads leave them out at once (#701 review). The record is written under the journal's
     locks before the journal changes (``deleting``), so a hook ended right after the change, by
-    the client's timeout or its own watchdog, still leaves it."""
+    the client's timeout or its own watchdog, still leaves it, and taken back when the change
+    raised with the entry still in the journal (``not_deleting``)."""
 
     def appended(self, history_path: str, entry_id: str | None = None) -> None:
         return None
@@ -620,6 +623,10 @@ class _RemovalsForSync:
     def deleting(self, history_path: str, entry_id: str, timestamp: str) -> None:
         from src.user_sync import history as history_sync
         history_sync.record_deletion(history_path, entry_id, timestamp)
+
+    def not_deleting(self, history_path: str, entry_id: str, timestamp: str) -> None:
+        from src.user_sync import history as history_sync
+        history_sync.forget_deletion(history_path, entry_id, timestamp)
 
     def deleted(self, history_path: str, entry_id: str, timestamp: str) -> None:
         return None  # recorded before the change

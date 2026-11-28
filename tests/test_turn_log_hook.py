@@ -2050,3 +2050,136 @@ def test_the_hook_command_runs_with_standard_error_closed(project):
     failed = subprocess.run(command, input=json.dumps(stop_event(project, transcript="relative.jsonl")).encode(),
                             cwd=ROOT, env=env, stdout=subprocess.PIPE, timeout=120, preexec_fn=lambda: os.close(2))
     assert (failed.returncode, failed.stdout) == (1, b"")
+
+
+class SyncRecorder:
+    """A sync integration that keeps, in order, what keyed writes tell it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def appended(self, history_path, entry_id=None):
+        return None
+
+    def machines(self, history_path):
+        return None
+
+    def deleting(self, history_path, entry_id, timestamp):
+        self.calls.append(("deleting", entry_id, timestamp))
+
+    def not_deleting(self, history_path, entry_id, timestamp):
+        self.calls.append(("not_deleting", entry_id, timestamp))
+
+    def deleted(self, history_path, entry_id, timestamp):
+        self.calls.append(("deleted", entry_id, timestamp))
+
+
+@pytest.fixture
+def recorder():
+    recorder = SyncRecorder()
+    previous = history_module.set_sync(recorder)
+    yield recorder
+    history_module.set_sync(previous)
+
+
+def keyed(writer, outcome, fingerprint, key="stop-hook/s/p1"):
+    return writer.append_entry("question", "Agent: a", outcome, idempotency_key=key, payload_fingerprint=fingerprint,
+                               supersede=lambda earlier: True)
+
+
+def no_space(*_arguments, **_keywords):
+    import errno
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+@pytest.mark.parametrize("failure", [no_space, KeyboardInterrupt])
+def test_a_replacement_that_raises_after_its_record_takes_the_record_back(tmp_path, recorder, monkeypatch, failure):
+    """v701-4 regression: with the record written first, a replacement that failed (a full disk) left a
+    record of an entry the journal still held, and sync took the turn out of the shared history."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    def failing(*_arguments, **_keywords):
+        if failure is no_space:
+            no_space()
+        raise KeyboardInterrupt("the client cancelled the hook")
+    monkeypatch.setattr(history_module, "_replace", failing)
+    with pytest.raises((OSError, KeyboardInterrupt)):
+        keyed(writer, "second answer", "f2")
+    pair = (first["entry_id"], first["timestamp"])
+    assert recorder.calls == [("deleting", *pair), ("not_deleting", *pair)]
+    assert [entry.outcome for entry in entries(tmp_path)] == ["first answer"]
+
+
+def test_a_replacement_that_raises_after_its_move_keeps_the_record(tmp_path, recorder, monkeypatch):
+    """The journal changed before the error (the directory sync after the move): the entry is gone, so
+    its record stays."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    monkeypatch.setattr(history_module, "_sync_moved", no_space)
+    with pytest.raises(OSError):
+        keyed(writer, "second answer", "f2")
+    assert recorder.calls == [("deleting", first["entry_id"], first["timestamp"])]
+    assert [entry.outcome for entry in entries(tmp_path)] == ["second answer"]
+
+
+def test_a_withdrawal_that_raises_takes_its_record_back(tmp_path, recorder, monkeypatch):
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    monkeypatch.setattr(history_module, "_replace", no_space)
+    with pytest.raises(OSError):
+        writer.withdraw("stop-hook/s/p1")
+    pair = (first["entry_id"], first["timestamp"])
+    assert recorder.calls == [("deleting", *pair), ("not_deleting", *pair)]
+    assert [entry.outcome for entry in entries(tmp_path)] == ["first answer"]
+
+
+def leftover_copy(tmp_path, writer, entry_id):
+    """An archive holding a copy of the journal's entry ``entry_id``, as a write killed between the
+    replacement of history.md and the rewrite of the archive leaves one."""
+    [block] = [block for entry, block in history_module.journal_blocks(writer.history_path, writer.archive_dir)
+               if entry.id == entry_id]
+    (tmp_path / "history").mkdir(exist_ok=True)
+    (tmp_path / "history" / "2026-10.md").write_text(block, encoding="utf-8")
+
+
+def test_a_replay_that_removes_a_leftover_copy_records_it(tmp_path, recorder):
+    """v701-4 coverage: removing the record of a leftover copy on a replay left every test green."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    leftover_copy(tmp_path, writer, first["entry_id"])
+    archived = (tmp_path / "history" / "2026-10.md").read_text(encoding="utf-8")
+    old = "## " + first["timestamp"]
+    (tmp_path / "history" / "2026-10.md").write_text(archived.replace(old, "## 2026-10-01T09:00:00+00:00"),
+                                                     encoding="utf-8")
+    recorder.calls.clear()
+    again = keyed(writer, "first answer", "f1")  # the same write again: a replay of its receipt
+    assert again["entry_id"] == first["entry_id"] and again["timestamp"] == first["timestamp"]
+    assert ("deleting", first["entry_id"], "2026-10-01T09:00:00+00:00") in recorder.calls
+    assert first["entry_id"] not in (tmp_path / "history" / "2026-10.md").read_text(encoding="utf-8")
+
+
+def test_a_write_under_a_withdrawn_key_that_removes_a_leftover_copy_records_it(tmp_path, recorder):
+    """v701-4 coverage: removing the record of a leftover copy under a withdrawn key left every test green."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    leftover_copy(tmp_path, writer, first["entry_id"])
+    # The withdrawal rewrote history.md and was ended before the archive: the copy there stays.
+    real_replace = history_module._replace
+
+    def ended_at_the_archive(path, text, *, info):
+        if path.endswith("2026-10.md"):
+            raise KeyboardInterrupt("the hook was ended at its timeout")
+        return real_replace(path, text, info=info)
+    history_module._replace = ended_at_the_archive
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            writer.withdraw("stop-hook/s/p1")
+    finally:
+        history_module._replace = real_replace
+    assert first["entry_id"] in (tmp_path / "history" / "2026-10.md").read_text(encoding="utf-8")
+    recorder.calls.clear()
+    later = keyed(writer, "another answer", "f3")
+    assert later["status"] == "withdrawn"
+    assert recorder.calls[0] == ("deleting", first["entry_id"], first["timestamp"])  # before the journal changes
+    heading = f"## {first['timestamp']} | {first['entry_id']}"
+    assert heading not in (tmp_path / "history" / "2026-10.md").read_text(encoding="utf-8")

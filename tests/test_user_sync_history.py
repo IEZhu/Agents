@@ -1887,11 +1887,67 @@ def test_a_corrected_answer_written_in_the_same_second_still_replaces_the_shared
     assert question_outcomes(b) == [flat(corrected)] and question_outcomes(a) == [flat(corrected)]
 
 
-def test_a_hook_ended_after_its_record_and_before_the_change_leaves_nothing_stale_shared(
+def no_space_left(*_arguments, **_keywords):
+    import errno
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+def cancelled(*_arguments, **_keywords):
+    raise KeyboardInterrupt("the client cancelled the hook after its record")
+
+
+def replace_failing_for(text, failure):
+    """``journal._replace`` that fails as ``failure`` does for the write holding ``text``."""
+    from tests.test_turn_log_hook import flat
+    real_replace = journal._replace
+
+    def replace(path, content, *, info):
+        if flat(text) in flat(content):
+            failure()
+        return real_replace(path, content, info=info)
+    return replace
+
+
+@pytest.mark.parametrize("failure", [no_space_left, cancelled], ids=["full disk", "interrupted"])
+def test_a_journal_change_that_raises_after_its_record_takes_the_record_back(
+        shared, clock, hook_process, monkeypatch, tmp_path, failure):
+    """v701-4 regression (s1b): the removal is recorded before the journal changes, and a replacement that
+    then failed left a record of an entry the journal still held: the next reconcile took the turn out of
+    the shared history for good. The record is taken back now, so both machines keep the first answer
+    until the turn's next Stop replaces it."""
+    from tests.test_turn_log_hook import flat
+    a, b = shared
+    as_this_machine(monkeypatch, a)
+    transcript, first_answer, corrected = hook_turn(tmp_path)
+    first = hook_process.record_turn(hook_stop(a, transcript, last_assistant_message=first_answer), interactive=True)
+    assert reconcile(a)["status"] == "exported"
+    real_replace = journal._replace
+    monkeypatch.setattr(journal, "_replace", replace_failing_for(corrected, failure))
+    with pytest.raises((OSError, KeyboardInterrupt)):
+        hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
+                                 interactive=True)
+    monkeypatch.setattr(journal, "_replace", real_replace)
+    assert not (history_sync._read_state(a.machine.state).get("deleted") or {}).get(KEY)
+    assert reconcile(a)["status"] == "unchanged"
+    for box in (a, b, a, b):
+        box.sync()
+    assert question_outcomes(a) == [flat(first_answer)] and question_outcomes(b) == [flat(first_answer)]
+    again = hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
+                                     interactive=True)
+    outcome = reconcile(a)
+    assert "replaced" in again and (outcome["removed"], outcome["written"]) == ([first["entry_id"]], [again["entry_id"]])
+    for box in (a, b, a, b):
+        box.sync()
+    assert question_outcomes(b) == [flat(corrected)]
+
+
+def test_a_hook_killed_inside_the_journal_change_keeps_its_record_until_the_turns_next_stop(
         shared, clock, hook_process, monkeypatch, tmp_path):
-    """Final verification T6: the removal is recorded before the journal changes. A hook ended in between
-    leaves a record of an entry still in the journal: the next reconcile takes the shared copy out and
-    shares it no more, and the turn's next Stop replaces it and shares the corrected answer."""
+    """Final verification T6, the window docs/user-sync.md names: a hook killed inside the journal's
+    replacement (about a millisecond), after its record, cannot take the record back. The next reconcile
+    takes the shared copy out, so nothing stale stays shared, and the turn's next Stop shares the corrected
+    answer; without one the other machine reads no entry of the turn. The kill is simulated by an
+    interruption whose take-back never runs."""
     from tests.test_turn_log_hook import flat
     a, b = shared
     as_this_machine(monkeypatch, a)
@@ -1901,17 +1957,14 @@ def test_a_hook_ended_after_its_record_and_before_the_change_leaves_nothing_stal
     for box in (a, b):
         box.sync()
     assert question_outcomes(b) == [flat(first_answer)]
-    real_replace = journal._replace
-
-    def ended(path, text, *, info):
-        if flat(corrected) in flat(text):
-            raise KeyboardInterrupt("the client cancelled the hook after its record")
-        return real_replace(path, text, info=info)
-    monkeypatch.setattr(journal, "_replace", ended)
+    real_replace, real_not_deleting = journal._replace, hook_process._RemovalsForSync.not_deleting
+    monkeypatch.setattr(journal, "_replace", replace_failing_for(corrected, cancelled))
+    monkeypatch.setattr(hook_process._RemovalsForSync, "not_deleting", lambda *arguments: None)  # never reached
     with pytest.raises(KeyboardInterrupt):
         hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
                                  interactive=True)
     monkeypatch.setattr(journal, "_replace", real_replace)
+    monkeypatch.setattr(hook_process._RemovalsForSync, "not_deleting", real_not_deleting)
     assert history_sync._read_state(a.machine.state)["deleted"] == {KEY: [[first["entry_id"], first["timestamp"]]]}
     assert reconcile(a)["removed"] == [first["entry_id"]]
     for box in (a, b, a, b):
