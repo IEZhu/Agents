@@ -1321,3 +1321,261 @@ def test_the_attempt_5_slow_shapes_are_linear_at_one_megabyte(make):
     finished = time.monotonic()
     assert finished - middle < SLOW_SECONDS, len(large)
     assert finished - middle < 8 * (middle - started) + 1.0, (middle - started, finished - middle)
+
+
+# --- The verification of attempt 6 (#701 review, v701-6) --------------------------------------------------
+# Each class by its finding, held by the verifier's shapes and others of the same class; "{v}" and the
+# other fields are synthetic values made at run time by ``fill``, "{words}" twelve words of three to eight
+# lowercase letters, as a wallet's seed phrase is written.
+
+INLINE_CODE_LINES = [
+    # High 1: a value in inline triple backticks on the line under a label opens no fence.
+    "Password:\n```{v}```\nUse it for the VPN.\nThen log out.\n\n## Next steps\nInstall the client.",
+    "Пароль:\n```{v}```\n" + "\n".join(f"Строка {number} ответа." for number in range(1, 46)),
+    "The password:\n```{v}```\n\n```bash\nssh admin@host\n```\nDone.", "Token:\n`{v}`\nThat is all.",
+]
+
+
+@pytest.mark.parametrize("template", INLINE_CODE_LINES)
+def test_a_value_in_inline_backticks_under_a_label_goes_and_opens_no_fence(template):
+    """v701-6 high 1: ```V``` under a label was taken for an opening fence, so the value was written whole
+    and up to forty lines after it went as the block's content; it is a code span, whose code goes."""
+    text, secrets = fill(template, 23000 + INLINE_CODE_LINES.index(template))
+    masked, clean = redaction.redact(text)
+    lines, out = text.split("\n"), masked.split("\n")
+    assert clean and secrets[0] not in masked and len(out) == len(lines), masked
+    ticks = len(lines[1]) - len(lines[1].lstrip("`"))
+    assert out[2:] == lines[2:] and out[1][:ticks + 1] == "`" * ticks + "<", masked  # its backticks stay
+
+
+SEED_LABELS = [
+    # High 2: seed and recovery phrase labels beyond the short list, inline and on the next lines.
+    "Recovery seed: {words}", "Backup phrase:\n{words}", "Seed words: {words}", "Wallet words:\n{words}",
+    "Wallet recovery words:\n{words}", "24 words: {words} {words}", "24 words:\n{words}\n{words}", "Seed: {words}",
+    "Seed:\n{words}", "the seed is {words}", "my seed words {words}", "Recovery phrase:\n\n```\n{words}\n{words}\n```",
+    "Фраза восстановления: {words}", "Фраза восстановления:\n{words}", "Мнемоническая фраза кошелька:\n{words} {words}",
+    "Мнемоника: {words}", "Мнемоника кошелька:\n{words}\nХрани её офлайн.", "Резервная фраза: {words}",
+    "Ключевая фраза:\n{words}", "Слова восстановления: {words}", "Фраза для восстановления доступа: {words}",
+    "Сид-фраза:\n```\n{words}\n```",
+    # The labels name the phrase whatever its shape.
+    "Recovery seed: {v}", "Backup phrase:\n{v}", "Wallet words: {chain}", "Фраза восстановления: {v}",
+    "Резервная фраза:\n{v}",
+]
+SEED_PROSE = [
+    "The seed is planted in spring and grows fast.", "Set the random seed to 42 for reproducible runs.", "seed: 42",
+    "Write down your backup phrase and keep it safe.", "Резервная фраза нужна для восстановления кошелька.",
+    "Мнемоническая фраза состоит из 12 или 24 слов из списка BIP-39, а порядок слов важен.",
+    "Install these packages:\nsudo apt install curl wget htop tmux tree unzip make gcc perl less nano",
+]
+
+
+@pytest.mark.parametrize("template", SEED_LABELS)
+def test_a_seed_phrase_goes_after_any_label_that_names_one(template):
+    """v701-6 high 2: Recovery seed, Backup phrase, Seed words, Wallet words, 24 words, Seed:, the seed is,
+    Мнемоника, Фраза восстановления and their kin left twelve or twenty-four words whole."""
+    masked, shown = all_masked(template, 24000 + SEED_LABELS.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("text", SEED_PROSE)
+def test_prose_that_mentions_a_seed_stays(text):
+    """The seed phrase goes by its shape where a seed is named, so prose about a seed, a random seed and a
+    list of words where none is named stay as written."""
+    assert redaction.redact(text) == (text, True)
+
+
+BOX_TABLES = [
+    # High 3: box-drawing tables of database clients.
+    " id │ username │ password\n────┼──────────┼──────────────\n  1 │ admin    │ {v}\n  2 │ ops      │ {v}\n(2 rows)",
+    "┌────┬──────────┬──────────────┐\n│ id │ username │   password   │\n├────┼──────────┼──────────────┤\n"
+    "│ 1  │ admin    │ {v} │\n└────┴──────────┴──────────────┘",
+    "┌───────┬──────────┬──────────────┐\n│  id   │   user   │   password   │\n│ int32 │ varchar  │   varchar    │\n"
+    "├───────┼──────────┼──────────────┤\n│     1 │ admin    │ {v} │\n└───────┴──────────┴──────────────┘",
+    "┌─id─┬─name───┬─password─────┐\n│  1 │ deploy │ {v} │\n└────┴────────┴──────────────┘\n"
+    "┌─id─┬─name───┬─password─────┐\n│  2 │ backup │ {v} │\n└────┴────────┴──────────────┘",
+    "╔════╦═══════╦══════════════╗\n║ id ║ user  ║ password     ║\n╠════╬═══════╬══════════════╣\n║ 1  ║ admin ║ {v} ║\n"
+    "╚════╩═══════╩══════════════╝",
+    "┏━━━━┳━━━━━━━━━━┓\n┃ id ┃ api key  ┃\n┡━━━━╇━━━━━━━━━━┩\n│ 1  │ {v} │\n└────┴──────────┘",
+]
+
+
+@pytest.mark.parametrize("template", BOX_TABLES)
+def test_the_rows_of_a_box_drawing_table_are_masked(template):
+    """v701-6 high 3: DuckDB, ClickHouse, psql's unicode linestyle, sqlite's .mode box and double-line
+    boxes formed no table, so the rows under a header naming a password were written whole."""
+    masked, shown = all_masked(template, 25000 + BOX_TABLES.index(template))
+    assert masked, shown
+
+
+def test_a_box_of_keys_and_values_is_no_table():
+    """A box whose first row holds a key and its value (npm token create) is no header: only that row's
+    value goes, and the rows of other keys stay."""
+    token = "npm_" + Seeded(25900)(36, ALNUM)
+    text = ("┌──────────┬──────────────────────────────────────────┐\n│ token    │ " + token + " │\n"
+            "├──────────┼──────────────────────────────────────────┤\n│ readonly │ true                                     │\n"
+            "└──────────┴──────────────────────────────────────────┘")
+    masked, clean = redaction.redact(text)
+    assert clean and token not in masked and "│ readonly │ true" in masked, masked
+
+
+CREDENTIAL_BULLETS = [
+    # High 4: credential bullets below a label, of any length.
+    "Passwords:\n- admin / {v} — for the web panel\n- ops / {v} — for the database",
+    "Passwords:\n- web panel: admin / {v}\n- database: ops / {v}",
+    "The passwords for the demo:\n1. {v} (web panel, rotate after)\n2. {v} (database, read only)",
+    "Staging passwords:\n- Grafana (admin): {v}\n- Kibana (elastic): {v}", "Пароли:\n- админка: admin / {v}\n- база: ops / {v}",
+    "Credentials:\n* use {v} for the staging box, and rotate it after the demo",
+]
+STEP_BULLETS = [
+    "To rotate the token:\n1. Open the settings page.\n2. Click Regenerate.\n3. Copy the new value into the vault.",
+    "To reset your password:\n- open the login page\n- follow the link in the email",
+    "Here is how the token refresh works:\n1. The client sends it to `/api/v2/session`.\n"
+    "2. Run `make deploy` with deploy-v2.yaml.\n3. Wait 30 seconds, then open https://example.com/settings.",
+]
+
+
+@pytest.mark.parametrize("template", CREDENTIAL_BULLETS)
+def test_credential_bullets_below_a_label_are_masked_whatever_their_length(template):
+    """v701-6 high 4: attempt 6 took a list item below a label only at four tokens or fewer, so bullets
+    masked at 9bdbdd1c were written whole; an item holding a token shaped like a value goes again."""
+    masked, shown = all_masked(template, 26000 + CREDENTIAL_BULLETS.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("text", STEP_BULLETS)
+def test_step_bullets_with_paths_versions_and_numbers_stay(text):
+    """Steps stay: their only tokens shaped like a value are a path, a URL, a file name, a version or a
+    number; the label line alone may lose its tail."""
+    masked, clean = redaction.redact(text)
+    assert clean and masked.split("\n")[1:] == text.split("\n")[1:], masked
+
+
+LABEL_LINE_ENDINGS = [
+    # Medium: a label line ending in a dash, an arrow, =, ->, is, a remark in brackets, here or an emoji.
+    "DB password —\n```\n{v}\n```", "DB password –\n```\n{v}\n```", "DB password =\n```\n{v}\n```",
+    "DB password ->\n```\n{v}\n```", "DB password =>\n```\n{v}\n```", "DB password →\n```\n{v}\n```",
+    "DB password is\n```\n{v}\n```", "DB password (prod)\n```\n{v}\n```", "DB password here\n```\n{v}\n```",
+    "DB password 👇\n```\n{v}\n```", "DB password –\n{v}", "DB password →\n{v}", "DB password (prod)\n{v}",
+    "DB password here\n{v}", "DB password 👇\n{v}", "Here's the password you need ->\n```\n{v}\n```",
+    "Here's your new token (expires in 30 days)\n```\n{v}\n```", "Пароль —\n```\n{v}\n```",
+    # Medium: a lead-in with a colon before the label.
+    "Update: the new password\n```\n{v}\n```", "Note: the new token\n```\n{v}\n```", "UPD: новый пароль\n```\n{v}\n```",
+    "Важно: новый пароль\n```\n{v}\n```",
+    # Medium: a prose-common label with a remark before its colon.
+    "GitHub recovery codes (keep them offline):\n\n```\n{low}\n{v}\n```", "Backup codes (one-time use):\n```\n{v}\n```",
+    "Basic auth pair:\n```\ndeploy:{v}\n```", "Ключ API:\n```\n{v}\n```", "Ключ доступа:\n```\n{v}\n```",
+]
+LABEL_LINE_KEEPS = [
+    "The password is\nnot stored anywhere.", "Change the password here\nThen log in again.", "Key features:\n- fast\n- small",
+    "Ключ API можно получить в личном кабинете.\nДальше обычный текст.",
+    "- `tests/test_login.py`: тест, что в логе нет ключа `password`\n\n```python\nprint(request.json())\n```",
+]
+
+
+@pytest.mark.parametrize("template", LABEL_LINE_ENDINGS)
+def test_a_value_below_a_label_line_with_any_ending_is_masked(template):
+    """v701-6 mediums: these endings, a lead-in such as Update: and a remark such as (keep them offline)
+    gave the label line no mode that takes the value or the fenced block below it."""
+    masked, shown = all_masked(template, 27000 + LABEL_LINE_ENDINGS.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("text", LABEL_LINE_KEEPS)
+def test_lines_below_these_label_lines_stay(text):
+    """A sentence that goes on below, a word that is no value's holder and a fence a blank line away keep
+    their lines; the label line itself may lose its tail."""
+    masked, clean = redaction.redact(text)
+    assert clean and masked.split("\n")[1:] == text.split("\n")[1:], masked
+
+
+@pytest.mark.parametrize("text,expected", [
+    ('token=""\napi_key=os.getenv("API_KEY")', "token<secret>\napi_key<secret>"),
+    ("PASSWORD=********\nTOKEN=[REDACTED]", "PASSWORD<secret>\nTOKEN<secret>"),
+])
+def test_a_value_after_its_separator_points_nowhere_below(text, expected):
+    """An empty quoted value or a placeholder after a separator is the line's own value: the next line is
+    read by its own label, not taken whole as the value of this one."""
+    assert redaction.redact(text) == (expected, True)
+
+
+WORDS_AND_LETTERS = [
+    # Medium: Latin-1 letters, swapped letters, keyboard-layout slips, lookalikes and Russian nouns.
+    "contraseña: {v}", "Contraseña: {v}", "CONTRASEÑA: {v}", "toekn: {v}", "tokne: {v}", "secrte: {v}", "sercet: {v}",
+    "api_kye: {v}", "paswrd: {v}", "passprase: {words}", "gfhjkm: {v}", "Gfhjkm: {v}", "njrty: {v}", "зфыыцщкв: {v}",
+    "ещлут: {v}", "Пaроль: {v}", "тoкен: {v}", "Учётные данные: admin / {v}", "Доступы к серверу: root / {v}",
+    "Данные для входа:\n```\nadmin\n{v}\n```", "Учётка: admin / {v}",
+    "Доступы к стенду:\n\n| Сервис | Логин | Пароль |\n|---|---|---|\n| Jenkins | admin | {v} |",
+    # Low: a value later in a sentence after a property word, and a comment between paired elements.
+    "The password store has {v} as the root entry.", "<key>Password</key>\n<!-- prod -->\n<string>{v}</string>",
+]
+
+
+@pytest.mark.parametrize("template", WORDS_AND_LETTERS)
+def test_words_outside_the_letter_class_and_the_lists_name_a_secret(template):
+    """v701-6 mediums and lows: contraseña split at its ñ, misspellings, words typed in the other keyboard
+    layout, Latin lookalikes in a Cyrillic word and Russian nouns for credentials were no label."""
+    masked, shown = all_masked(template, 28000 + WORDS_AND_LETTERS.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("text", ["We have taken the train.", "Our secretary sent it.",
+                                  "if self.tokens >= tokens:\n    self.tokens -= tokens\n    return True",
+                                  "Чтобы сменить ключ API, откройте настройки и нажмите «Перевыпустить».",
+                                  "Ключ от квартиры лежит на столе.", "Café au lait, s'il vous plaît.",
+                                  "The password policy changed last week. Accounts created before 2024 keep their rules."])
+def test_everyday_words_near_the_new_ones_stay(text):
+    """Only a swap counts as a misspelling of token or secret (taken stays), and a property word keeps its
+    sentence when no value follows before the sentence ends."""
+    assert redaction.redact(text) == (text, True)
+
+
+BEYOND_THE_BLOCK = [
+    # Medium: a heredoc without its terminator and a trailing Windows backslash took text past their block.
+    ("```bash\ncat <<EOF | chpasswd\nadmin:{v}\n```\n\nThen log in as admin and change it.\nThe old account stays locked.", 3),
+    ("kubectl create secret generic db --from-env-file=/dev/stdin <<EOF\nPASSWORD={v}\n...\n\n"
+     "After that, restart the deployment.\nWatch the rollout with kubectl rollout status.", 3),
+    ("Copy the private key to C:\\Users\\deploy\\.ssh\\\nand restart the agent.", 1),
+    ("The token file is in %APPDATA%\\gh\\\nOpen it with Notepad.", 1),
+    ("```bash\ncat <<EOF | chpasswd\nadmin:{v}\n```\n\nThe heredoc above lost its end.\nEOF", 3),
+]
+
+
+@pytest.mark.parametrize("template,first_kept", BEYOND_THE_BLOCK)
+def test_a_heredoc_cut_short_and_a_windows_path_mask_nothing_past_their_block(template, first_kept):
+    """v701-6 mediums: a heredoc whose terminator never came masked fifty lines on, past its fence, and a
+    path's last backslash read as a continuation took the next line of the answer."""
+    text, secrets = fill(template, 29000 + [shape for shape, _ in BEYOND_THE_BLOCK].index(template))
+    masked, clean = redaction.redact(text)
+    assert clean and all(secret not in masked for secret in secrets), masked
+    assert masked.split("\n")[first_kept:] == text.split("\n")[first_kept:], masked
+
+
+def test_a_shell_continuation_still_continues():
+    """Only a path's last backslash ends a line: a command's continuation still carries its value on."""
+    text, secrets = fill("mysql -u root \\\n  -p{v} \\\n  shop\ncurl -u \\\n  ops:{v} \\\n  https://api.example.com/", 29900)
+    masked, clean = redaction.redact(text)
+    assert clean and all(secret not in masked for secret in secrets), masked
+
+
+ATTEMPT_7_SHAPES = [
+    lambda size: ("Password:\n```Xk9#mP2vLq7w```\n" * (size // 30)),
+    lambda size: "┌──┬──────────┐\n│id│ password │\n├──┼──────────┤\n" + "│ 1│ Xk9#mP2vLq7w │\n" * (size // 19),
+    lambda size: "┌" + "─password─┬" * (size // 11),
+    lambda size: ("Seed:\nglass valve picture gravity machine north sort system female filter attitude volume\n"
+                  * (size // 90)),
+]
+
+
+@pytest.mark.parametrize("make", ATTEMPT_7_SHAPES, ids=["code-lines-under-labels", "box-rows", "named-border-line",
+                                                    "seed-lines"])
+def test_the_attempt_7_classes_are_linear_at_one_megabyte(make):
+    """The classes attempt 7 adds read each line once and a bounded window of it: four times the text
+    takes at most about four times as long, and seconds at 1 MB."""
+    small, large = make(256 * KB), make(1024 * KB)
+    started = time.monotonic()
+    redaction.redact(small)
+    middle = time.monotonic()
+    masked, clean = redaction.redact(large)
+    finished = time.monotonic()
+    assert finished - middle < SLOW_SECONDS, len(large)
+    assert finished - middle < 8 * (middle - started) + 1.0, (middle - started, finished - middle)
