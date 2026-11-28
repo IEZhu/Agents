@@ -277,7 +277,8 @@ _HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(?:(['\"])([A-Za-z_][A-Za-z0-9_]{0,
 # A table's rule line: runs of dashes or of equals signs joined by pipes or plus signs (Markdown, psql,
 # a bordered MySQL or reStructuredText grid), or apart by blanks (sqlite's column mode, a simple
 # reStructuredText table); colons align a Markdown column.
-_TABLE_SEPARATOR = re.compile(r"[ \t]*[|+]?[ \t]*:?(?:-{2,}|={2,}):?[ \t]*(?:[|+][ \t]*:?(?:-{2,}|={2,}):?[ \t]*)*[|+]?[ \t]*")
+_TABLE_SEPARATOR = re.compile(r"[ \t]*[|+]?[ \t]*:?(?:-{2,}|={2,}):?[ \t]*"
+                              r"(?:[|+][ \t]*:?(?:-{2,}|={2,}):?[ \t]*)*[|+]?[ \t]*")
 _SPACED_RULE = re.compile(r"[ \t]*(?:-{2,}|={2,})(?:[ \t]{1,8}(?:-{2,}|={2,}))+[ \t]*")
 _BORDER = re.compile(r"[ \t]*\+(?:[-=]{1,}\+)+[ \t]*")
 # Cells of a header whose columns are set by blanks: two or more blanks, or a tab, between them.
@@ -301,7 +302,8 @@ _LIST_MARKER = re.compile(r"[ \t]*(?:[-*•+]|\d{1,3}[.)])[ \t]+")
 _CODE_HEADER = re.compile(
     r"[ \t]*(?:(?:async[ \t]+)?(?:def|class|if|elif|else|for|while|with|try|except|finally|match|case)\b[^\r\n]*:"
     r"|(?:function|func|fn|class|interface|struct|impl|enum|if|else|for|while|switch|try|catch|do|public|private|"
-    r"protected|static|export)\b[^\r\n]*\{|[^\r\n]*\)[ \t]*(?:->[^\r\n{]{0,128}|throws[^\r\n{]{0,128}|const)?[ \t]*\{)[ \t]*")
+    r"protected|static|export)\b[^\r\n]*\{"
+    r"|[^\r\n]*\)[ \t]*(?:->[^\r\n{]{0,128}|throws[^\r\n{]{0,128}|const)?[ \t]*\{)[ \t]*")
 _QUOTED_LITERAL = re.compile(r"\"[^\"\r\n]+\"|'[^'\r\n]+'|`[^`\r\n]+`")
 # A YAML or INI key with nothing after it: a sibling key below it is no value of it.
 _KEY_LINE = re.compile(r"[ \t]*(?:-[ \t]+)?[\"']?[\w.\-]+[\"']?[ \t]*[:=]")
@@ -394,7 +396,8 @@ SQLPLUS_CREDENTIAL = re.compile(r"(?i)\bsqlplus\b[^\r\n/@]{0,64}?[ \t][\"']?[\w$
 # A proxy's login=user:password (squid's cache_peer).
 LOGIN_PAIR = re.compile(r"(?i)(?<![\w.-])login=[^\s:=,;]{1,64}:(?P<value>[^\s,;]{1,256})")
 # A URL query parameter that carries a one-time credential: an OAuth code, a session id.
-QUERY_CREDENTIAL = re.compile(r"(?i)[?&;](?:code|sid|auth_code|session_?id|sessid|ticket)=(?P<value>[^&#\s\"'<>]{4,512})")
+QUERY_CREDENTIAL = re.compile(r"(?i)[?&;](?:code|sid|auth_code|session_?id|sessid|ticket)="
+                              r"(?P<value>[^&#\s\"'<>]{4,512})")
 # A token in a URL's user position: https://<token>@github.com. A run of 20 characters or more counts
 # in any case (#701 review: 40 hex digits were taken for a user's name).
 URL_USER_TOKEN = re.compile(r"(?i)(?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,20}://(?P<value>[^\s/:@]{8,256})@")
@@ -541,7 +544,7 @@ def _leading_strong(lower: str) -> bool:
     """A word that begins with a strong word and goes on with letters names a value of it (tokenstr,
     secretval, passwordtext, PASSWORDVALUE, #701 review), unless the rest is a property (tokentype)
     or an ending of an everyday word (tokenize, tokens, secretary, passwordless)."""
-    if not lower.isascii() or not lower.isalpha():
+    if not lower.startswith(("passw", "passp", "secre", "token")) or not lower.isascii() or not lower.isalpha():
         return False
     for word in STRONG_ENDINGS:
         if lower.startswith(word) and len(lower) >= len(word) + 2:
@@ -554,7 +557,7 @@ def _password_typo(lower: str) -> bool:
     """A misspelling of password one edit away: a letter left out, doubled, swapped with the next one
     or replaced (pasword, passsword, passowrd, passwrod, pssword, passwort; #701 review)."""
     target = "password"
-    if lower == target or lower == "passwords" or not 7 <= len(lower) <= 9 or not lower.isascii():
+    if not 7 <= len(lower) <= 9 or lower[0] not in "pa" or lower in (target, "passwords") or not lower.isascii():
         return False
     if len(lower) == len(target):
         diff = [index for index in range(len(target)) if lower[index] != target[index]]
@@ -619,7 +622,8 @@ PAIR_FIRSTS = frozenset(first for first, _ in STRONG_PAIRS | WEAK_PAIRS) | froze
     word for firsts, _ in RUSSIAN_PAIRS for word in firsts)
 
 
-_PAIR_FIRST_ENDINGS = tuple(sorted(PAIR_FIRSTS))
+# The first words of pairs that hold no hint of their own: a name ending in one is read for its pair.
+_PAIR_ONLY_FIRSTS = tuple(sorted(word for word in PAIR_FIRSTS if not _HINT.search(word)))
 
 
 def _pair_kind(first: str, second: str) -> str | None:
@@ -948,7 +952,8 @@ def _call_label(name: str, label_start: int, label_end: int) -> bool:
     return name[last_dot + 1:].lower() in FACTORY_NAMES and label_end == last_dot and label_start > head.rfind(".")
 
 
-def _trigger(line: str, prose=None, view: str | None = None) -> tuple[int, str | None, int] | None:
+def _trigger(line: str, prose=None, view: str | None = None,
+             hinted: bool | None = None) -> tuple[int, str | None, int] | None:
     """Where the line rule masks ``line`` from, what kind of label it is (``bare``, ``table:<d>``,
     ``quoted``, ``label``, ``end`` for a word that ends the line without a separator, ``below`` for
     a word in a sentence of a few words that leaves the value for the next line, ``option``), and
@@ -956,7 +961,9 @@ def _trigger(line: str, prose=None, view: str | None = None) -> tuple[int, str |
     none does. ``view`` is the line with an earlier round's masks blanked, which no name is read
     from (#701 review: an element named secret in the turn hid its value as the mask's text did)."""
     names = line if view is None else view
-    found = _word_trigger(line, prose, names) if _HINT.search(names) and not _ARMOUR_LINE.fullmatch(line) else None
+    if hinted is None:
+        hinted = _HINT.search(names) is not None  # a caller that read the line already says so
+    found = _word_trigger(line, prose, names) if hinted and not _ARMOUR_LINE.fullmatch(line) else None
     option = _option_trigger(line)
     if option is not None and (found is None or option < found[0]):
         found = (option, "option", option)
@@ -1025,7 +1032,7 @@ def _word_trigger(line: str, prose=None, names: str | None = None) -> tuple[int,
     below = None  # a strong word a few words of a sentence follow: its value may stand on the next line
     for name in _IDENT.finditer(names):
         text = name.group()
-        if not _HINT.search(text) and not text.lower().endswith(_PAIR_FIRST_ENDINGS):
+        if not _HINT.search(text) and not (len(text) <= 64 and text.lower().endswith(_PAIR_ONLY_FIRSTS)):
             continue  # no word of the rule, and no first word of a pair a blank away (backup codes)
         start, end = name.span()
         _words_, words, _labels_, random_run, _pairable, plain, dotted_name, tail = _name_info(text)
@@ -1200,17 +1207,20 @@ def _quote_close(text: str, at: int, quote: str, limit: int) -> int | None:
         close = text.find(quote, at + 3, limit)
         return None if close < 0 else close
     index = at + 1
-    while index < limit:
-        character = text[index]
-        if character == "\\":
-            index += 2
-            continue
+    while True:
+        close = text.find(quote, index, limit)
+        if close < 0:
+            return None
+        # A backslash escapes the next character: a quote after an odd run of them is the value's own.
+        escapes = close
+        while escapes > at + 1 and text[escapes - 1] == "\\":
+            escapes -= 1
         # An apostrophe inside a word closes no single quote ("It's", #701 review: two lines of
         # prose went between a label's quote and the next one).
-        if character == quote and not (quote == "'" and text[index + 1:index + 2].isalnum()):
-            return index
-        index += 1
-    return None
+        if (close - escapes) % 2 or quote == "'" and text[close + 1:close + 2].isalnum():
+            index = close + 1
+            continue
+        return close
 
 
 def _lines(text: str) -> list[tuple[int, int]]:
@@ -1419,6 +1429,8 @@ def _below(text: str, lines, index: int, mode: str, openers=None) -> tuple[list[
 
 def _cells(line: str, delimiter: str) -> list[str]:
     """The cells of a delimited row, a quoted field read as one cell (``"Smith, John"``)."""
+    if "\"" not in line and "'" not in line:
+        return line.split(delimiter)
     cells, cell, quote, started = [], [], None, False
     for character in line:
         if quote is not None:
@@ -1439,16 +1451,18 @@ def _cells(line: str, delimiter: str) -> list[str]:
 
 
 def _header_cell(cell: str) -> bool:
-    """Whether a cell reads as a column's name: short, four words at most, no sentence's end."""
+    """Whether a cell reads as a column's name: short, four words at most, no sentence's end, and no
+    key with its value or bracket of a record (a JSON line is no header)."""
     name = cell.strip(" \t*_`\"'")
-    return 0 < len(name) <= 64 and len(name.split()) <= 4 and not name.endswith((".", "!", "?"))
+    return (0 < len(name) <= 64 and len(name.split()) <= 4 and not name.endswith((".", "!", "?"))
+            and not any(mark in name for mark in ("{", "}", "[", "]", "=", "<", ">", ": ")))
 
 
 def _rule_line(row: str) -> bool:
     return bool(_TABLE_SEPARATOR.fullmatch(row) or _BORDER.fullmatch(row) or _SPACED_RULE.fullmatch(row))
 
 
-def _table_rows(text: str, lines, index: int) -> tuple[int, list[int]] | None:
+def _table_rows(text: str, lines, index: int, hinted: bool = False) -> tuple[int, list[int]] | None:
     """``(end, rows)``: the index after the table whose header at ``index`` names a secret in one of
     its cells, and the indices of its rows, in any delimited or aligned form: a pipe table with or
     without outer pipes above its rule line, psql's rule of dashes joined by plus signs, a bordered
@@ -1459,7 +1473,7 @@ def _table_rows(text: str, lines, index: int) -> tuple[int, list[int]] | None:
     blanks, emphasis and quotes. None when the line heads no such table."""
     start, end = lines[index]
     line = text[start:end]
-    if index + 1 >= len(lines) or not _HINT.search(line) or _is_fence(line):
+    if index + 1 >= len(lines) or not (hinted or _HINT.search(line)) or _is_fence(line):
         return None
     following = text[lines[index + 1][0]:lines[index + 1][1]]
     if not any(mark in following for mark in ("--", "==", "|", ",", ";", "\t", "  ")):
@@ -1471,9 +1485,11 @@ def _table_rows(text: str, lines, index: int) -> tuple[int, list[int]] | None:
         cells, kind, ruled = _COLUMN_GAP.split(line.strip()), "aligned", True
     else:
         delimiter = next((mark for mark in ("\t", ";", ",") if mark in line), None)
-        if delimiter is not None and delimiter in following:
+        # A quoted field's cell holds the naive first piece, so a first piece that is no column's
+        # name rules the line out before it is read character by character (a JSON record).
+        if delimiter is not None and delimiter in following and _header_cell(line.split(delimiter, 1)[0]):
             header = _cells(line, delimiter)
-            if len(_cells(following, delimiter)) == len(header) and all(_header_cell(cell) for cell in header):
+            if all(_header_cell(cell) for cell in header) and len(_cells(following, delimiter)) == len(header):
                 cells, kind = header, delimiter
         if cells is None and "|" not in line:
             # A comment of column names heads a file's lines too (pppd's # client  server  secret).
@@ -1483,7 +1499,8 @@ def _table_rows(text: str, lines, index: int) -> tuple[int, list[int]] | None:
             if len(header) >= 2 and all(any(name.fullmatch(cell) for name in named) for cell in header) and \
                     len(_COLUMN_GAP.split(following.strip())) >= 2:
                 cells, kind, ruled = header, "aligned", comment
-    if cells is None or len(cells) < 2 or not any(_cell_names_secret(cell.strip(" \t*_`\"'")) for cell in cells):
+    if cells is None or len(cells) < 2 or not any(
+            _HINT.search(cell) and _cell_names_secret(cell.strip(" \t*_`\"'")) for cell in cells):
         return None
     rows, below = [], index + 1
     while below < len(lines) and below - index <= TABLE_ROWS:
@@ -1688,7 +1705,7 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
         names, words, inside = _mask_views(line, start, end, masks, mask_starts)
         hinted = _HINT.search(names) is not None
         if hinted:
-            table = _table_rows(text, lines, index)
+            table = _table_rows(text, lines, index, hinted)
             if table is not None:
                 rows_end, rows = table
                 spans.extend((lines[row][0] + _indent(text[lines[row][0]:lines[row][1]]), lines[row][1])
@@ -1700,8 +1717,8 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
         prose = _Prose(words) if hinted else None
         if hinted or "|" in line or "<<<" in line:
             spans.extend(_before_label_spans(line, start, prose))
-        found = _trigger(line, prose, names) if hinted or _CLIENT_HINT.search(line) or "-" in line or "/" in line \
-            else None
+        readable = hinted or _CLIENT_HINT.search(line) or "-" in line or "/" in line
+        found = _trigger(line, prose, names, hinted) if readable else None
         if found is None and index > windowed:
             last = _continued(text, lines, index)
             if last > index:
