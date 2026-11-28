@@ -1045,3 +1045,24 @@ def test_the_new_classes_leave_these_lines_alone(text):
     """Over-masking the new classes could cause on lines a reader needs: a property's plain value, a
     YAML sibling key, prose with a word of the rule, a key-value table, a kind of resource."""
     assert redaction.redact(text) == (text, True)
+
+
+@pytest.mark.parametrize("template,expected", [
+    ("Password:\n```\n{v}\n```", "Password:\n```\n<secret>\n```"),
+    ("Here is the root password:\n\n```\n{v}\n```\nDone.", "Here is the root password:\n\n```\n<secret>\n```\nDone."),
+    ("Пароль:\n~~~text\n{v}\n{v}\n~~~", "Пароль:\n~~~text\n<secret>\n<secret>\n~~~"),
+    ("The token:\n```\n" + "line {v}\n" * 12 + "```\nkept", "The token:\n```\n" + "<secret>\n" * 12 + "```\nkept"),
+])
+def test_a_fenced_block_under_a_label_loses_its_content_and_keeps_its_fences(template, expected):
+    """v701-4 redaction finding 2: the fence line was taken for the value and the block kept; its content
+    goes now, past the eight lines a value below a label may take, and the fences stay."""
+    text, _secrets = fill(template, 17000)
+    assert redaction.redact(text) == (expected, True)
+
+
+def test_a_fenced_block_under_a_label_is_masked_to_its_bound():
+    """An unclosed fence takes ``FENCE_LINES`` lines at most, never the rest of the answer."""
+    lines = [f"line {number}" for number in range(redaction.FENCE_LINES + 5)]
+    text = "Password:\n```\n" + "\n".join(lines)
+    masked, clean = redaction.redact(text)
+    assert clean and masked.endswith("\n".join(lines[redaction.FENCE_LINES:])), masked[-200:]

@@ -1505,7 +1505,11 @@ def _secret_spans(text: str, scanner) -> list[tuple[int, int]] | None:
         tails = _LineTails(text)  # one per pattern: its matches come in order
         for match in pattern.finditer(text):
             if name == "labelled_credential":
-                tails.add(spans, match.start("value"))
+                start = match.start("value")
+                line_start = text.rfind("\n", match.start(), start) + 1
+                if line_start and _FENCE.match(text, line_start):
+                    continue  # a fence a label leaves below it is no value: the line rule masks its content
+                tails.add(spans, start)
             else:
                 spans.append(match.span())
     for name, pattern in _sync_patterns():
