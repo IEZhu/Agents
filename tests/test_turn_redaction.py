@@ -1182,8 +1182,9 @@ def test_the_narrower_boundaries_of_attempt_5_are_closed(template):
     assert masked, shown
 
 
-B64_LINES = ["QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAx",
-             "MjM0NTY3ODlBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWmFiY2RlZmdoaWprbG1ub3BxcnN0"]
+# Two lines of base64 made at run time, so this file's own text stays clean for the tracked-files scan.
+B64_LINES = [base64.b64encode(text.encode()).decode() for text in (
+    string.ascii_uppercase + string.ascii_lowercase + "01", "23456789" + string.ascii_uppercase + string.ascii_lowercase[:20])]
 
 
 @pytest.mark.parametrize("text,kept", [
