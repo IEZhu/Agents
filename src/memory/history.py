@@ -31,6 +31,7 @@ from src.file_lock import file_lock
 
 import contextlib
 import datetime as _dt
+from datetime import datetime as _datetime, timedelta as _timedelta  # reading times; _dt.datetime.now gives them
 import hashlib
 import json
 import logging
@@ -454,6 +455,20 @@ def _appended(history_path: str, entry_id: Optional[str]) -> None:
         integration.appended(history_path, entry_id)
     except Exception:
         logger.warning("could not schedule sharing the history of %s", history_path, exc_info=True)
+
+
+def _later_than(timestamp: str, earlier) -> str:
+    """``timestamp``, or one second after the latest of ``earlier`` when that is not before it: a
+    replacement keeps the id of the entry it replaces, so only its time tells the two apart, for
+    sync's record of the removed one too (#701 review: both in one second dropped the turn)."""
+    try:
+        now = _datetime.fromisoformat(timestamp)
+        latest = max(_datetime.fromisoformat(value) for value in earlier)
+        if latest < now:
+            return timestamp
+    except (TypeError, ValueError):  # a time without a zone, or none at all: nothing to compare
+        return timestamp
+    return (latest + _timedelta(seconds=1)).isoformat(timespec="seconds")
 
 
 def _deleted(history_path: str, entry_id: str, timestamp: str) -> None:
@@ -1330,6 +1345,8 @@ class HistoryWriter:
                         "state": "durably_accepted"}, False, []
 
         timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+        if replacing:
+            timestamp = _later_than(timestamp, [entry.timestamp for _index, entry, _receipt in replacing])
         result = {"status": "recorded", "entry_id": entry_id, "path": self.history_path,
                   "timestamp": timestamp, "state": "durably_accepted"}
         if "answer_timestamp" in metadata:

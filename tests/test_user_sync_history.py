@@ -1853,6 +1853,40 @@ def test_an_entry_the_hook_withdrew_after_a_reconcile_leaves_the_shared_history(
     assert [entry.outcome for entry in b.read(limit=20) if entry.intent == "question"] == [model]
 
 
+def hook_turn(tmp_path, prompt_id="p1", question="question"):
+    """A transcript whose turn delivered LONG_ANSWER, then CORRECTED after another Stop hook continued it."""
+    from tests.test_turn_log_hook import CORRECTED, FEEDBACK, LONG_ANSWER, activation_rows, answer_row, opener, rows_file
+    return rows_file(tmp_path / f"{prompt_id}.jsonl", [
+        opener(prompt_id, question), *activation_rows(), answer_row(LONG_ANSWER, "m1"),
+        {**FEEDBACK, "promptId": prompt_id}, answer_row(CORRECTED, "m2")]), LONG_ANSWER, CORRECTED
+
+
+def question_outcomes(box: Box, question="question") -> list[str]:
+    return [entry.outcome for entry in box.read(limit=50) if entry.intent == question]
+
+
+def test_a_corrected_answer_written_in_the_same_second_still_replaces_the_shared_one(
+        shared, clock, hook_process, monkeypatch, tmp_path):
+    """Final verification T4: with both writes of a turn in one second, the record of the replaced entry
+    named its replacement too, so the next reconcile took the first answer out and shared nothing."""
+    from tests.test_turn_log_hook import flat
+    a, b = shared
+    as_this_machine(monkeypatch, a)
+    transcript, first_answer, corrected = hook_turn(tmp_path)
+    frozen = clock.now
+    first = hook_process.record_turn(hook_stop(a, transcript, last_assistant_message=first_answer), interactive=True)
+    assert reconcile(a)["status"] == "exported"
+    clock.now = frozen  # the second Stop's write lands in the same second as the first
+    again = hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
+                                     interactive=True)
+    assert again["timestamp"] > first["timestamp"] and again["entry_id"] == first["entry_id"]
+    outcome = reconcile(a)
+    assert (outcome["removed"], outcome["written"]) == ([first["entry_id"]], [again["entry_id"]]), outcome
+    for box in (a, b, a, b):
+        box.sync()
+    assert question_outcomes(b) == [flat(corrected)] and question_outcomes(a) == [flat(corrected)]
+
+
 # --- the fallback journal (#292) ----------------------------------------------------------------
 
 FALLBACK_SEGMENTS = f"repos/{history_sync.FALLBACK_KEY}/history"

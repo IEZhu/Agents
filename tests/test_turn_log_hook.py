@@ -1838,6 +1838,25 @@ def test_the_hard_watchdog_ends_a_command_whose_computation_holds_the_interprete
     assert time.monotonic() - started < 30
 
 
+def test_a_replacement_written_in_the_same_second_gets_a_later_time(project, tmp_path, monkeypatch):
+    """A replacement keeps the id of the entry it replaces, so only its time tells them apart; in one
+    second, user sync's record of the replaced entry named the replacement too and dropped the turn."""
+    from datetime import datetime, timezone
+    frozen = datetime(2026, 10, 5, 9, 0, 4, tzinfo=timezone.utc)
+    monkeypatch.setattr(history_module, "_dt", SimpleNamespace(
+        datetime=SimpleNamespace(now=lambda tz=None: frozen), timezone=timezone))
+    transcript = corrected_turn(tmp_path, answer_row(CORRECTED, "m2"))
+    first = hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                             interactive=True)
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                        last_assistant_message=CORRECTED), interactive=True)
+    assert first["timestamp"] == "2026-10-05T09:00:04+00:00"
+    assert again["replaced"] == {"entry_id": first["entry_id"], "timestamp": first["timestamp"]}
+    assert again["timestamp"] == "2026-10-05T09:00:05+00:00" and again["entry_id"] == first["entry_id"]
+    [entry] = entries(project)
+    assert entry.timestamp == again["timestamp"] and entry.outcome == flat(CORRECTED)
+
+
 def persona_rows(tool_name, persona):
     return [{"type": "assistant", "message": {"id": "a1", "content": [
                 {"type": "tool_use", "id": "t1", "name": tool_name, "input": {}}]}},
