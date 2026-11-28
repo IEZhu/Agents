@@ -175,7 +175,10 @@ registered as `Agents-Core` or `Agents-Core-Desktop` in any letter case, also as
 (`plugin_<plugin>_Agents-Core`); another server's tool of the same name does not attribute the
 turn. The model's own `log_interaction` call counts under any server name (`Agents_Core`, as the
 evaluation runner registers it, or a name of your own), so a turn it logged, or kept out with
-`journal=false`, is never written by the hook as well. The agent
+`journal=false`, is never written by the hook as well; under a name that is no Agents-Core
+registration a call counts only with Agents-Core's arguments (`agent_name`, `query` and
+`response_content`, or `journal`), so another server's tool of that name, such as a CRM's
+`log_interaction`, leaves the turn to the hook and withdraws no entry. The agent
 is the one the delivered footer names, and the descriptor is reported against it: `mismatch`
 when the footer names another agent, `unverified` with `missing=footer` when the answer has no
 footer, `unverified` and the footer's agent without a descriptor, and `unattributed` without

@@ -122,11 +122,16 @@ def activation_rows(tool_id="t1", status="SUCCESS", tool="route_and_load", argum
                     {"status": status, "persona": persona or PERSONA})}]}}]
 
 
+MODEL_LOG_ARGUMENTS = {"agent_name": "software_engineer", "query": "question", "response_content": "Answer."}
+
+
 def log_rows(history, tool_id="l1", arguments=None, result=True, server="Agents-Core"):
-    """A log_interaction call of the server registered as ``server`` and, with ``result``, its result
-    carrying ``history``."""
+    """A log_interaction call of the server registered as ``server``, with the arguments the model's
+    own call carries unless ``arguments`` says otherwise, and, with ``result``, its result carrying
+    ``history``."""
     call = {"type": "assistant", "message": {"id": "a" + tool_id, "content": [
-        {"type": "tool_use", "id": tool_id, "name": f"mcp__{server}__log_interaction", "input": arguments or {}}]}}
+        {"type": "tool_use", "id": tool_id, "name": f"mcp__{server}__log_interaction",
+         "input": dict(MODEL_LOG_ARGUMENTS) if arguments is None else arguments}]}}
     answer = {"type": "user", "message": {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(
             {"result": json.dumps({"timestamp": "2026.11.27 10:00:00", "history": history})})}]}}
@@ -2201,6 +2206,30 @@ def test_a_write_under_a_withdrawn_key_that_removes_a_leftover_copy_records_it(t
 
 
 # --- The second verification of attempt 5 (#701 review, v701-5 regression) -----------------------------
+
+
+@pytest.mark.parametrize("arguments,history,logged", [
+    ({"contact": "ACME", "note": "call back on Monday"}, {"status": "recorded"}, False),
+    ({}, {"status": "error"}, False), (dict(MODEL_LOG_ARGUMENTS), {"status": "recorded"}, True),
+    ({"journal": False}, {"status": "withheld", "state": "not_written"}, True),
+])
+def test_another_servers_log_interaction_counts_only_with_agents_cores_arguments(project, tmp_path, arguments,
+                                                                               history, logged):
+    """v701-5 regression: any tool named log_interaction made the hook drop the turn (exit 1, or no entry)
+    and withdraw the entry an earlier Stop wrote. Under a name that is no Agents-Core registration a
+    call counts as the model's own only with Agents-Core's arguments; a CRM's call of that name leaves
+    the turn to the hook."""
+    first_rows = [opener("p1", "question"), *activation_rows(), answer_row("First.\n\n" + FOOTER, "m1")]
+    transcript = rows_file(tmp_path / "t.jsonl", first_rows)
+    assert hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)["status"] == "recorded"
+    rows_file(transcript, [*first_rows, FEEDBACK, *log_rows(history, arguments=arguments, server="crm"),
+                           answer_row("Logged the call.\n\n" + FOOTER, "m2")])
+    again = hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True), interactive=True)
+    kept = HistoryReader(str(project / "history.md")).read_all()
+    if logged:
+        assert again["reason"] in ("logged_by_model", "not_journaled") and kept == [], again
+    else:
+        assert again["status"] == "recorded" and len(kept) == 1, again
 
 
 def test_the_soft_watchdog_ends_the_command_without_a_standard_error():

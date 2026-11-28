@@ -264,9 +264,10 @@ def _persona_tool(name) -> str | None:
 
     A persona result of another server's tool of the same name must not attribute the turn (#701
     review). log_interaction is read whatever the server is called (``Agents_Core`` in the
-    evaluation runner, a name of the user's own choosing), as before that check: a foreign tool of
-    that name can only make the hook leave the turn to the model, while missing the model's own call
-    wrote a second entry or a turn the model kept out with ``journal=false`` (#701 review)."""
+    evaluation runner, a name of the user's own choosing), as before that check, since missing the
+    model's own call wrote a second entry or a turn the model kept out with ``journal=false`` (#701
+    review); under a name that is no Agents-Core registration only a call with Agents-Core's
+    arguments counts (``_model_log_call``)."""
     if not isinstance(name, str) or not name.startswith("mcp__"):
         return None
     server, separator, tool = name[len("mcp__"):].rpartition("__")
@@ -274,10 +275,30 @@ def _persona_tool(name) -> str | None:
         return None
     if tool == LOG_TOOL:
         return tool
-    server = server.lower()
-    if not (server in SERVER_NAMES or any(server.endswith("_" + known) for known in SERVER_NAMES)):
+    if not _agents_core_server(server):
         return None
     return tool if tool in PERSONA_TOOLS or tool == FLOW_TOOL else None
+
+
+def _agents_core_server(server: str) -> bool:
+    """Whether an MCP server name is one of Agents-Core's registrations, in any letter case, also as
+    a plugin's server (``plugin_<plugin>_Agents-Core``)."""
+    server = server.lower()
+    return server in SERVER_NAMES or any(server.endswith("_" + known) for known in SERVER_NAMES)
+
+
+# What only Agents-Core's log_interaction is called with: a call of that name under another server
+# name counts as the model's own when it carries these, or journal (#701 review: a CRM server's
+# log_interaction made the hook drop the turn and withdraw the entry an earlier Stop wrote).
+LOG_ARGUMENTS = ("agent_name", "query", "response_content")
+
+
+def _model_log_call(name: str, arguments: dict) -> bool:
+    """Whether a log_interaction call is the model's own call of Agents-Core: under one of
+    Agents-Core's registrations, or under another name with Agents-Core's arguments."""
+    if _agents_core_server(name[len("mcp__"):].rpartition("__")[0]):
+        return True
+    return "journal" in arguments or all(key in arguments for key in LOG_ARGUMENTS)
 
 
 def _action(success: tuple[str, dict] | None) -> str:
@@ -389,6 +410,8 @@ def read_turn(lines, prompt_id: str | None = None) -> Turn | None:
                     tool = _persona_tool(block.get("name"))
                     if tool is not None:
                         arguments = block.get("input") if isinstance(block.get("input"), dict) else {}
+                        if tool == LOG_TOOL and not _model_log_call(block["name"], arguments):
+                            continue  # another server's tool of that name, such as a CRM's
                         tools[block["id"]] = (tool, arguments)
                         if tool == LOG_TOOL and start is not None:
                             calls[block["id"]] = [_journal_false(arguments), None, None]
