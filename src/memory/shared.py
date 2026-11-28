@@ -347,8 +347,11 @@ def shows(project: str, scope: str, projects: set) -> bool:
 # --- chunks and lexical search ----------------------------------------------------------------------
 
 def chunks(fact: Fact) -> List[Tuple[str, str]]:
-    """``(chunk id, text)`` of a fact: its body split at Markdown headings, then into pieces of at
-    most ``CHUNK_CHARS`` at paragraph ends. Each chunk starts with the fact's name, for context."""
+    """``(chunk id, text)`` of a fact: its body split at Markdown headings, then into pieces at
+    paragraph ends. Each chunk starts with the fact's name and description, for context, and with them
+    holds at most ``CHUNK_CHARS`` characters."""
+    title = _cut(" — ".join(filter(None, (fact.name, fact.description))), TITLE_CHARS) or ""
+    budget = CHUNK_CHARS - (len(title) + 1 if title else 0)  # what the title and its line break leave
     _, body = split_frontmatter(fact.text)
     body = body if body is not None else fact.text
     sections, current = [], []
@@ -364,22 +367,21 @@ def chunks(fact: Fact) -> List[Tuple[str, str]]:
         piece = ""
         for paragraph in re.split(r"\n\s*\n", section):
             paragraph = paragraph.strip()
-            while len(paragraph) > CHUNK_CHARS:
+            while len(paragraph) > budget:
                 if piece:
                     pieces.append(piece)
                     piece = ""
-                pieces.append(paragraph[:CHUNK_CHARS])
-                paragraph = paragraph[CHUNK_CHARS:]
+                pieces.append(paragraph[:budget])
+                paragraph = paragraph[budget:]
             if not paragraph:
                 continue
-            if piece and len(piece) + len(paragraph) + 2 > CHUNK_CHARS:
+            if piece and len(piece) + len(paragraph) + 2 > budget:
                 pieces.append(piece)
                 piece = paragraph
             else:
                 piece = f"{piece}\n\n{paragraph}" if piece else paragraph
         if piece:
             pieces.append(piece)
-    title = _cut(" — ".join(filter(None, (fact.name, fact.description))), TITLE_CHARS) or ""
     if not pieces:
         pieces = [""]
     return [(f"{fact.id}:{number}", f"{title}\n{piece}".strip() if title else piece)

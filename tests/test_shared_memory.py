@@ -623,9 +623,13 @@ def test_a_same_size_rewrite_with_the_old_time_is_read_again(world):
 
 
 def test_a_long_description_does_not_grow_every_chunk(world):
-    write(world["own"] / "wordy.md", note("wordy", "d" * 50_000, "x " * 5_000))
+    # A paragraph cut into pieces, one only a little over the budget the title leaves, and short ones joined.
+    body = "\n\n".join(["x" * 10_000, "y" * 1_400] + ["word " * 19 + "end"] * 100)
+    write(world["own"] / "wordy.md", note("wordy", "d" * 50_000, body))
     wordy = by_name(shared.collect(world["stores"]).facts.values())["wordy"]
-    assert all(len(text) <= shared.CHUNK_CHARS + shared.TITLE_CHARS + 1 for _, text in shared.chunks(wordy))
+    pieces = shared.chunks(wordy)
+    assert all(text.startswith("wordy — ddd") for _, text in pieces)
+    assert all(len(text) <= shared.CHUNK_CHARS for _, text in pieces)  # the title counts
 
 
 def test_a_failing_semantic_search_still_answers_lexically(world, tmp_path):

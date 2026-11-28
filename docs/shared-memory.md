@@ -61,7 +61,7 @@ User-level facts are Claude Code's top-level `<config dir>/memory/` and all of C
 
 ## The background index
 
-Facts are split at Markdown headings, then into pieces of at most 1,500 characters at paragraph ends. Each chunk starts with the fact's name and description.
+Facts are split at Markdown headings, then into pieces at paragraph ends. Each chunk starts with the fact's name and description (200 characters at most) and, with them, holds at most 1,500 characters.
 
 A query never waits for the vector build itself; it can wait a moment for a save in progress, which holds the store's save lock. The lexical index answers at once; the vectors come from the installation's embedding model and are built by one background thread in batches of 2 chunks, stored in `shared_memory_store` under the installation data directory (`memory/`). The store keeps each chunk's vector, the SHA-256 of its text (never the text) and the fingerprint of the model that made the vector, written in the same save. The build saves progress about every 60 seconds. Unchanged chunks keep their vectors, vectors of another model are ignored and rebuilt, chunks of deleted notes are pruned, and a lock file keeps two server processes from building at once; a save holds a second lock that reloads share, so no process reads half a save. In the shared service every embedding goes through one inference worker: before each batch the build waits while another embedding (persona routing, a query) is queued, so such a call waits for at most one batch. A query's own embedding still queues behind the batch in progress. When the semantic part of a search fails, the answer is the lexical ranking and `index.semantic_error` says why.
 
