@@ -612,7 +612,16 @@ class _RemovalsForSync:
     merged reads leave them out at once (#701 review). The record is written under the journal's
     locks before the journal changes (``deleting``), so a hook ended right after the change, by
     the client's timeout or its own watchdog, still leaves it, and taken back when the change
-    raised with the entry still in the journal (``not_deleting``)."""
+    raised with the entry still in the journal (``not_deleting``). The sync module's import and the
+    checkout's key are resolved before the locks are taken, so only the state write happens under
+    them (#701 review)."""
+
+    def __init__(self, history_path: str):
+        from src.user_sync import history as history_sync
+        try:
+            history_sync.prepare_deletions(history_path)
+        except Exception:  # noqa: BLE001 - the record under the locks reports its own failure
+            pass
 
     def appended(self, history_path: str, entry_id: str | None = None) -> None:
         return None
@@ -664,7 +673,7 @@ def record_turn(payload, interactive: bool = False, deadline: float | None = Non
         raise TurnNotLogged("the transcript's last turn does not hold the Stop's answer yet")
     key = turn_key(payload, prompt_id or turn.opener_id)
     writer = journal.HistoryWriter(str(root / "history.md"), str(root / "history"))
-    previous = journal.set_sync(_RemovalsForSync())
+    previous = journal.set_sync(_RemovalsForSync(writer.history_path))
     try:
         return _write_turn(payload, turn, key, given, writer, unresolved, prompt_id, deadline)
     finally:

@@ -1978,6 +1978,26 @@ def test_a_hook_killed_inside_the_journal_change_keeps_its_record_until_the_turn
     assert question_outcomes(b) == [flat(corrected)]
 
 
+def test_the_hook_resolves_the_checkout_before_it_takes_the_journal_lock(
+        shared, clock, hook_process, monkeypatch, tmp_path):
+    """v701-4 info: the record ran two git calls under the journal's write locks (17 of 18 ms), keeping
+    other writers waiting; the hook resolves the checkout's key before them now."""
+    import src.user_flows
+    a, _b = shared
+    as_this_machine(monkeypatch, a)
+    transcript, first_answer, corrected = hook_turn(tmp_path)
+    hook_process.record_turn(hook_stop(a, transcript, last_assistant_message=first_answer), interactive=True)
+    history_sync._WORKSPACES.clear()
+    real_repo_key, held = src.user_flows.repo_key, []
+    monkeypatch.setattr(src.user_flows, "repo_key", lambda root: held.append(journal._WRITE_LOCK.locked())
+                        or real_repo_key(root))
+    again = hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
+                                     interactive=True)
+    assert "replaced" in again
+    assert held and not any(held), held
+    assert history_sync._read_state(a.machine.state)["deleted"][KEY]
+
+
 def test_an_unchanged_reconcile_after_many_replaced_turns_does_not_call_the_writer(
         shared, clock, hook_process, monkeypatch, tmp_path):
     """Final verification T5: the record of a replaced turn named an id still shared (its replacement's),

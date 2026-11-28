@@ -548,7 +548,9 @@ An entry deleted on the web UI's History tab, and one the [turn-log hook](memory
 replaced with a corrected answer or withdrew, leaves this machine's segment at the next run: the
 deletion (its id and time) is kept in the sync state, a run takes the entry out of the part (a part
 left without entries is removed), and other machines lose it with their next pull. The hook writes
-that record before it changes the journal. A journal change that fails after the record, such as a write on a full disk, takes the record back for every entry the journal still
+that record before it changes the journal, and resolves the checkout's key before it takes the
+journal's locks, so only the state write happens under them. A journal change that fails after the
+record, such as a write on a full disk, takes the record back for every entry the journal still
 holds, so both machines keep the earlier answer until the turn's next Stop replaces it. A hook
 killed inside the change itself (the replacement of `history.md`, about a millisecond) cannot take
 it back: the next run takes the shared copy out, so nothing stale stays shared, and the turn's next

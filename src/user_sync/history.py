@@ -1296,6 +1296,15 @@ def forget_deletion(history_path: str, entry_id: str, timestamp: str, *, state_d
     return bool(taken)
 
 
+def prepare_deletions(history_path: str, *, state_dir=None, library=None) -> None:
+    """Resolve what ``record_deletion`` reads for ``history_path`` before a caller takes the journal's
+    locks: this machine's settings and the checkout's key, origin and top level (two git calls),
+    which ``WORKSPACE_SECONDS`` keeps, so only the state write happens under the locks (#701 review)."""
+    machine = _machine(state_dir, library)
+    if machine is not None:
+        _workspace(Path(history_path).parent, machine)
+
+
 class Integration:
     """What ``install`` hands to ``src.memory.history.set_sync``."""
 
