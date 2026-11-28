@@ -1209,6 +1209,8 @@ def test_a_block_of_base64_or_key_lines_keeps_its_line_breaks_and_indentation(te
     ("```bash\nsudoedit /etc/app/secrets.env   # DB_PASSWORD is added by hand\n```\n\nKeep it out of the shell history.",
      "```\n\nKeep it out of the shell history."),
     ("Here is the token:\n\n```\n{v}\n```\n\nRotate it monthly.", "```\n<secret>\n```\n\nRotate it monthly."),
+    ("```text\nThe password:\n```\n\nThat paragraph stays.\n\nAnd this one.", "```\n\nThat paragraph stays.\n\nAnd this one."),
+    ("password = \"\"\"\n```\n{v}\n```\n\"\"\"\nafter", "password<secret>\n```\n<secret>\n```\n<secret>\nafter"),
 ])
 def test_no_fence_line_is_masked(text, kept):
     """v701-5 redaction F10: a closing fence was a value line below a label inside the block, both
@@ -1242,6 +1244,16 @@ def test_lines_below_a_label_that_hold_no_value_stay(text):
     assert clean and masked.count("\n") == text.count("\n"), masked
     kept = [line for line in lines[1:] if line in masked.split("\n")]
     assert len(kept) >= len(lines[1:]) - 1, masked
+
+
+def test_the_line_rule_reads_a_turns_lines_once(monkeypatch):
+    """The line rule runs in the first round only, on the turn's own lines: a later round would read a
+    label line its own mask cut short, and it would read every line again for nothing."""
+    calls = []
+    real = redaction.line_spans
+    monkeypatch.setattr(redaction, "line_spans", lambda *arguments: calls.append(1) or real(*arguments))
+    masked, clean = redaction.redact("password: Tr0ub4dor&3xQ\ntoken = ghp_" + "a1B2" * 9 + "\nAKIA" + "7Q2W" * 4)
+    assert clean and calls == [1], calls
 
 
 def test_a_code_block_under_a_label_loses_its_quoted_literals():
