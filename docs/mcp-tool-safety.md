@@ -172,11 +172,11 @@ For Node, import the same API from the `.mjs` module and inject the host's
 retention/emission functions. A source stored in memory is available only while
 that host's task store survives: secure necessary nonsecret evidence before a
 reset. For `run_flow` retain its original `persona_activation`, descriptor,
-footer and all instruction blocks. Read required fields separately with an
-explicit offset, next offset and end marker, within the return budget, until
-complete; compare the assembled bytes with the retained source. Never apply a
-truncated activation or count a summary as having read the flow. This helper
-does not grant extra access to a referenced source.
+footer, all instruction blocks and `previous_persona`. Read required fields
+separately with an explicit offset, next offset and end marker, within the return
+budget, until complete; compare the assembled bytes with the retained source.
+Never apply a truncated activation or count a summary as having read the flow.
+This helper does not grant extra access to a referenced source.
 
 Known sensitive values are matched against the original selected string. All overlapping match spans are suppressed, including partial overlaps and repeated self-overlaps.
 

@@ -73,7 +73,7 @@ that require optimistic concurrency.
 |---|---|---|
 | `list_flows` | Discover built-in, personal and repository procedures and overrides | [Workflow catalog](../flows/README.md) |
 | `get_flow` | Read current text, upstream text or a saved version before an edit | [Workflow library](../flows/README.md) |
-| `run_flow` | Return a user-requested procedure bound to its target; `needs_execution` requires the current model to execute it | [Workflow execution](../flows/README.md) |
+| `run_flow` | Return a user-requested procedure bound to its target; `needs_execution` requires the current model to execute it. A flow persona's `persona_activation` comes with `previous_persona`, the caller's `current_persona` (null without one), the role to switch back to once the flow is done; it is absent when that descriptor is already a flow's activation (`activation_id` starting with `flow-`) | [Workflow execution](../flows/README.md) |
 | `save_flow` | Save complete Markdown to a personal or repository flow with the expected revision | [Workflow library](../flows/README.md) |
 | `delete_flow` | Remove a requested local flow; saved history remains | [Workflow library](../flows/README.md) |
 | `set_flow_persona` | Set or reset the user's agent/component overlay without copying built-in text | [Flow personas](../flows/README.md) |

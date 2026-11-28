@@ -465,6 +465,27 @@ def test_protocol_runs_a_named_flow_before_improvising():
         assert phrase in instructions, phrase
 
 
+def test_protocol_switches_back_to_the_previous_persona_after_a_flow():
+    """#456: the answers after a flow ran under its persona; every surface that states the flow
+    rule now names the role to return to. The review of the fix added that the rule decides over
+    keep, which descriptor the switch passes, and what a null previous_persona means."""
+    from pathlib import Path
+
+    import src.server as server
+    from src.engine import protocol_text
+    root = Path(__file__).resolve().parents[1]
+    rule = ("Once the flow is done, assess the next request that does not continue it against the last "
+            "`previous_persona` that `run_flow` returned, never keep the flow's persona: switch back to that "
+            "role with `get_agent_context` (the flow's descriptor as `current_persona`) when it fits, else "
+            "call `route_and_load`.")
+    for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
+        flat = " ".join((root / name).read_text(encoding="utf-8").split())
+        assert rule in flat.split("## Run a named flow", 1)[1].split(" ## ", 1)[0], name
+    for name, text in (("server instructions", server.mcp.instructions),
+                       ("server pointer", protocol_text.server_pointer())):
+        assert rule.replace("`", "") in " ".join(text.split()), name
+
+
 @pytest.mark.asyncio
 async def test_thread_close_audits_every_installed_tool_and_catalogues_every_server_tool():
     """Static tool names stay complete alongside the runtime proxy family."""

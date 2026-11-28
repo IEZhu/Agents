@@ -71,6 +71,19 @@ def parse_persona(value: PersonaDescriptor | dict | str | None) -> PersonaDescri
         ) from error
 
 
+# A flow persona's activation ID starts with this, so that a later call can tell it from the
+# role the session had before the flow without the server keeping any state (#456).
+FLOW_ACTIVATION_PREFIX = "flow-"
+
+
+def is_flow_activation(descriptor: PersonaDescriptor | dict | object) -> bool:
+    """Whether ``descriptor``, parsed or as a client sent it, is the activation of a flow's persona."""
+    if isinstance(descriptor, PersonaDescriptor):
+        activation_id = descriptor.activation_id
+    else:
+        activation_id = descriptor.get("activation_id") if isinstance(descriptor, dict) else None
+    return isinstance(activation_id, str) and activation_id.startswith(FLOW_ACTIVATION_PREFIX)
+
 
 
 @dataclass
@@ -634,7 +647,10 @@ async def load_persona(
     learn: bool = True,
 ) -> str:
     """With ``selection`` (a flow's persona) bundles are compared by revision, not
-    agent name, and the choice does not train the shared router cache.
+    agent name, the new activation ID starts with ``FLOW_ACTIVATION_PREFIX``, and the choice
+    does not train the shared router cache. A ``current_persona`` that is a flow's activation is
+    compared by revision as well, so loading its own agent again replaces the flow's components;
+    a refresh or a ``force_reload`` restore of it keeps the prefix.
 
     ``learn=False`` keeps the choice out of that cache as well: an agent the server picked
     without a model choice must not later be served from the cache as if a model had chosen it.
@@ -646,20 +662,28 @@ async def load_persona(
         current = parse_persona(current_persona)
         if refresh and (current is None or current.agent != agent_name):
             raise ValueError("Refresh requires the descriptor of the same agent")
+        # Leaving a flow's persona for its own agent compares bundles too: NO_CHANGE by name
+        # would keep the flow's components (#456).
+        by_revision = selection is not None or (current is not None and is_flow_activation(current))
         if (current and current.agent == agent_name and not force_reload and not refresh
-                and selection is None):
+                and not by_revision):
             return await with_repo_context(unchanged(current, request_id),
                                            ctx=ctx, workspace=workspace)
 
         bundle = await build_persona_bundle(agent_name, query, history, selection=selection)
-        if ((refresh or selection is not None) and current and not force_reload
+        if ((refresh or by_revision) and current and not force_reload
                 and current.agent == agent_name
                 and current.bundle_revision == bundle.bundle_revision):
             return await with_repo_context(unchanged(current, request_id),
                                            ctx=ctx, workspace=workspace)
 
+        # A refresh or a force_reload restore of a flow's activation rebuilds the same agent and
+        # stays the flow's, so a later run_flow still returns no previous_persona for it (#456).
+        keeps_flow = ((refresh or force_reload) and current is not None and is_flow_activation(current)
+                      and current.agent == agent_name)
+        flow_mark = FLOW_ACTIVATION_PREFIX if selection is not None or keeps_flow else ""
         persona = PersonaDescriptor(
-            agent=bundle.agent, activation_id=str(uuid.uuid4()),
+            agent=bundle.agent, activation_id=flow_mark + str(uuid.uuid4()),
             bundle_revision=bundle.bundle_revision, scope=bundle.scope,
             skills_loaded=bundle.skills_loaded, implants_loaded=bundle.implants_loaded,
             rules_loaded=bundle.rules_loaded,
