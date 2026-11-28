@@ -25,10 +25,11 @@ as intent (``[image]`` or ``[no text]`` for a prompt without text), ``Agent: <ag
 persona attribution line as action, and the last text the turn delivered, without a time line, as
 outcome. The persona is the descriptor of the last ``SUCCESS`` or ``NO_CHANGE`` of
 ``route_and_load``, ``get_agent_context`` or ``refresh_persona_context``, or the
-``persona_activation`` of ``run_flow``, in the transcript; it is held against the footer the answer
-ends with, so another agent there gives ``mismatch`` and no footer ``unverified``. Only a canonical
-agent name counts as the footer's: any other text in that place is no footer and never reaches the
-entry. A ``SUCCESS`` in the turn decides its persona action, whatever ``NO_CHANGE`` follows it.
+``persona_activation`` of ``run_flow``, of an Agents-Core server in the transcript; it is held
+against the footer the answer ends with, so another agent there gives ``mismatch`` and no footer
+``unverified``. Only a canonical agent name counts, the footer's and the descriptor's: any other
+text in that place never reaches the entry, and the persona line is cleaned like the turn's text.
+A ``SUCCESS`` in the turn decides its persona action, whatever ``NO_CHANGE`` follows it.
 
 One entry per turn, the one delivered last: the entry is written under an idempotency key made of
 the session and prompt ids, so a later Stop of the same turn (another Stop hook continued it)
@@ -100,6 +101,9 @@ HARD_WATCHDOG_SECONDS = 29.0
 WRITE_RESERVE_SECONDS = 1.0
 NOTICE_EVENT, STOP_EVENT = "UserPromptSubmit", "Stop"
 PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
+# The names Agents-Core's server is registered under (scripts/session_readiness.py): another server's
+# tool of the same name is not read (#701 review). A plugin's server is plugin_<plugin>_<server>.
+SERVER_NAMES = ("agents-core", "agents-core-desktop")
 # run_flow returns a flow persona's activation nested under persona_activation (#734 review).
 FLOW_TOOL = "run_flow"
 LOG_TOOL = "log_interaction"
@@ -249,10 +253,14 @@ def _tool_payload(block: dict) -> dict | None:
 
 
 def _persona_tool(name) -> str | None:
-    """The Agents-Core tool the hook reads a result of: a persona tool, run_flow or log_interaction."""
+    """The Agents-Core tool the hook reads a result of: a persona tool, run_flow or log_interaction,
+    of an Agents-Core server under any of its registrations; never another server's (#701 review)."""
     if not isinstance(name, str) or not name.startswith("mcp__"):
         return None
-    tool = name.rsplit("__", 1)[-1]
+    server, separator, tool = name[len("mcp__"):].rpartition("__")
+    server = server.lower()
+    if not separator or not (server in SERVER_NAMES or any(server.endswith("_" + known) for known in SERVER_NAMES)):
+        return None
     return tool if tool in PERSONA_TOOLS or tool in (FLOW_TOOL, LOG_TOOL) else None
 
 
@@ -537,7 +545,8 @@ def _attribution(turn: Turn, answer: str) -> tuple[str, str]:
     from src.engine.persona import LoggedPersona, parse_persona_for_logging, persona_history_line
 
     agent = turn.persona.get("agent") if turn.persona is not None else None
-    agent = agent if isinstance(agent, str) and agent.strip() else None
+    # The descriptor's agent counts only as a canonical name, as the footer's does (#701 review).
+    agent = agent if isinstance(agent, str) and _canonical(agent, None) else None
     footer = _canonical(_footer_agent(answer), agent)
     if agent is not None:
         logged = parse_persona_for_logging(turn.persona, footer or agent)
@@ -667,10 +676,14 @@ def _write_turn(payload, turn: Turn, key, given, writer, unresolved, prompt_id, 
     answer = TIME_LINE.sub("", answer or "", count=1).strip() or NO_ANSWER
     agent, line = _attribution(turn, answer)
     action = f"Agent: {agent}"
-    attributed = action + ("\n" + line if line else "")
     known = environment_secrets()
     # Each field may use the time left before the journal write needs its share.
     redaction_deadline = None if deadline is None else deadline - WRITE_RESERVE_SECONDS
+    # The persona line carries a client's descriptor fields: it is cleaned as the fields are.
+    line, line_clean = redact(line, known, redaction_deadline) if line else (line, True)
+    if not line_clean:
+        line = WITHHELD
+    attributed = action + ("\n" + line if line else "")
     intent, intent_clean = redact(turn.prompt, known, redaction_deadline)
     outcome, outcome_clean = redact(answer, known, redaction_deadline)
     metadata = {"answer_timestamp": datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"),

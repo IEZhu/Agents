@@ -1836,3 +1836,45 @@ def test_the_hard_watchdog_ends_a_command_whose_computation_holds_the_interprete
                             env={**os.environ, "LANGFUSE_TRACING_ENABLED": "false"})
     assert result.returncode == 1 and b"Timeout" in result.stderr
     assert time.monotonic() - started < 30
+
+
+def persona_rows(tool_name, persona):
+    return [{"type": "assistant", "message": {"id": "a1", "content": [
+                {"type": "tool_use", "id": "t1", "name": tool_name, "input": {}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": json.dumps(
+                    {"status": "SUCCESS", "persona": persona})}]}}]
+
+
+@pytest.mark.parametrize("tool_name,read", [
+    ("mcp__some-other-server__route_and_load", False), ("mcp__Agents-Core__route_and_load", True),
+    ("mcp__Agents-Core-Desktop__get_agent_context", True), ("mcp__plugin_agents-core_Agents-Core__route_and_load", True),
+])
+def test_only_an_agents_core_servers_persona_result_attributes_the_turn(project, tmp_path, tool_name, read):
+    """Final verification M3: a result of another server's tool of the same name set the attribution."""
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *persona_rows(tool_name, PERSONA),
+                                                  answer_row("Done.", "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message="Done."), interactive=True)
+    [entry] = entries(project)
+    assert entry.action.startswith("Agent: software_engineer" if read else "Agent: unattributed"), entry.action
+
+
+def test_a_descriptor_agent_that_is_no_canonical_name_never_reaches_the_action_line(project, tmp_path):
+    """Final verification E4: a token-shaped agent in the persona result was written whole."""
+    odd = "sk-ant-" + "api03-" + fake(32, ALNUM, 9)
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *activation_rows(persona={**PERSONA, "agent": odd}),
+                                                  answer_row("Done.", "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message="Done."), interactive=True)
+    [entry] = entries(project)
+    assert odd not in entry.action and "api03" not in entry.action and entry.action.startswith("Agent: unattributed")
+
+
+def test_the_persona_line_is_cleaned_as_the_turns_text_is(project, tmp_path):
+    secret = fake(24, ALNUM, 11)
+    persona = {**PERSONA, "activation_id": "token=" + secret}
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *activation_rows(persona=persona),
+                                                  answer_row("Done.\n\n" + FOOTER, "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message="Done.\n\n" + FOOTER),
+                     interactive=True)
+    [entry] = entries(project)
+    assert secret not in entry.action and entry.action.startswith("Agent: software_engineer")
