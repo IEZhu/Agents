@@ -226,14 +226,31 @@ _CAMEL = re.compile(r"(?<=[a-zа-џ])(?=[A-ZЀ-Я])|(?<=[A-ZЀ-Я])(?=[A-ZЀ-Я]
 _QWERTY, _JCUKEN = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`", "йцукенгшщзхъфывапролджэячсмитьбюё"
 _TO_RUSSIAN, _TO_LATIN = str.maketrans(_QWERTY, _JCUKEN), str.maketrans(_JCUKEN, _QWERTY)
 # A line without one of these holds no word of the rule and is skipped at once: the words, their stems,
-# the swapped spellings and the slips of the keyboard layout.
-_HINT = re.compile(r"(?i)pass|pw|key|token|secret|auth|cred|cookie|dsn|otp|hmac|bearer|mnemonic|session|sessid|"
-                   r"connection|seed|recovery|private|salt|pin|sig|capab|log[io]n|signin|api|access|encryption|"
-                   r"master|psk|pswd|psw|identified|assword|p\w{0,3}word|p/w|kennw|contrase|parol|code|answer|"
-                   r"phrase|wallet|kye|pasw|gfhjk|njrty|ctrhtn|gfcdjhl|gfccdjhl|"
-                   + "|".join(sorted(word for words in SWAPPED.values() for word in words)) + r"|"
-                   r"парол|порол|токен|ключ|секрет|кред|пасс|пасвор|кей|код|пин|сид|фраз|восстанов|мнемони|"
-                   r"доступ|учётн|учетн|учётк|учетк|вход|зфыы|ещлут|ыускуе")
+# the swapped spellings and the slips of the keyboard layout, in any case.
+HINT_WORDS = (
+    "pass", "pw", "key", "token", "secret", "auth", "cred", "cookie", "dsn", "otp", "hmac", "bearer", "mnemonic",
+    "session", "sessid", "connection", "seed", "recovery", "private", "salt", "pin", "sig", "capab", "log[io]n",
+    "signin", "api", "access", "encryption", "master", "psk", "pswd", "psw", "identified", "assword", r"p\w{0,3}word",
+    "p/w", "kennw", "contrase", "parol", "code", "answer", "phrase", "wallet", "pasw", "gfhjk", "njrty", "ctrhtn",
+    "gfcdjhl", "gfccdjhl", *sorted(SWAPPED["token"] | SWAPPED["secret"]), "парол", "порол", "токен", "ключ",
+    "секрет", "кред", "пасс", "пасвор", "кей", "код", "пин", "сид", "фраз", "восстанов", "мнемони", "доступ", "учётн",
+    "учетн", "учётк", "учетк", "вход", "зфыы", "ещлут", "ыускуе")
+_HINT = re.compile("(?i)" + "|".join(HINT_WORDS))
+
+
+def _by_first_letter(fragments) -> str:
+    """An alternation of ``fragments``, each beginning with a letter, grouped by that letter."""
+    groups: dict[str, list[str]] = {}
+    for fragment in fragments:
+        groups.setdefault(fragment[0], []).append(fragment[1:])
+    return "|".join(head + ("(?:" + "|".join(tails) + ")" if len(tails) > 1 else tails[0])
+                    for head, tails in groups.items())
+
+
+# The same hints read on the lowered text and grouped by their first letter: a case-insensitive pattern
+# folds the case of every branch at every position, which made the hint, read for every line and every
+# name, the line rule's largest cost (#701: five to twenty times slower than this).
+_HINT_LOWER = re.compile(_by_first_letter(HINT_WORDS))
 # A word that mixes Latin letters into a Cyrillic one (Пaроль, тoкен) or Cyrillic into a Latin one, which
 # no hint above may match: read on lines that are not ASCII.
 _MIXED_SCRIPT = re.compile(r"[A-Za-z][Ѐ-ӿ]|[Ѐ-ӿ][A-Za-z]")
@@ -693,8 +710,10 @@ _PAIR_ONLY_FIRSTS = tuple(sorted(word for word in PAIR_FIRSTS if not _HINT.searc
 
 
 def _hinted(text: str) -> bool:
-    """Whether ``text`` may hold a word of the rule: one of its hints, or a word that mixes scripts."""
-    return _HINT.search(text) is not None or not text.isascii() and _MIXED_SCRIPT.search(text) is not None
+    """Whether ``text`` may hold a word of the rule: one of its hints in any case, or a word that mixes
+    scripts."""
+    return (_HINT_LOWER.search(text.lower()) is not None
+            or not text.isascii() and _MIXED_SCRIPT.search(text) is not None)
 
 
 def _pair_kind(first: str, second: str) -> str | None:
