@@ -428,6 +428,29 @@ async def test_a_second_flow_leaves_the_role_from_before_the_first(switch_back):
 
 
 @pytest.mark.asyncio
+async def test_a_refresh_or_restore_under_a_flow_stays_the_flows_activation(switch_back):
+    """#456 re-verification: refresh_persona_context and a force_reload restore, which a session
+    readiness reminder prescribes after a compaction, rebuilt the flow persona's own agent without
+    the flow- mark, so the next flow named the flow's agent as previous_persona. Both keep the mark,
+    and the next flow returns none; a force_reload load of another agent is a plain switch."""
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=["skill-a"]))
+    json.loads(await server.set_flow_persona("close", agent="investigative_analyst"))
+    reviewer = (await _flow("check", current_persona=ENGINEER))["persona_activation"]["persona"]
+
+    refreshed = json.loads(await server.refresh_persona_context("Also check the tests.", current_persona=reviewer))
+    restored = await _load("code_reviewer", reviewer, force_reload=True)
+    for rebuilt in (refreshed, restored):
+        assert rebuilt["status"] == "SUCCESS" and rebuilt["replaces_activation_id"] == reviewer["activation_id"]
+        assert rebuilt["persona"]["agent"] == "code_reviewer"
+        assert rebuilt["persona"]["activation_id"].startswith("flow-")
+        chained = await _flow("close", current_persona=rebuilt["persona"])
+        assert chained["persona_activation"]["status"] == "SUCCESS" and "previous_persona" not in chained
+
+    elsewhere = await _load("software_engineer", reviewer, force_reload=True)
+    assert elsewhere["status"] == "SUCCESS" and not elsewhere["persona"]["activation_id"].startswith("flow-")
+
+
+@pytest.mark.asyncio
 async def test_switching_back_to_the_flows_own_agent_replaces_the_flows_lists(switch_back):
     """#456 review: get_agent_context answers NO_CHANGE by agent name, so a code_reviewer session that
     ran a code_reviewer flow with its own skill list kept that list after switching back. From a

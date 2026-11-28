@@ -649,7 +649,8 @@ async def load_persona(
     """With ``selection`` (a flow's persona) bundles are compared by revision, not
     agent name, the new activation ID starts with ``FLOW_ACTIVATION_PREFIX``, and the choice
     does not train the shared router cache. A ``current_persona`` that is a flow's activation is
-    compared by revision as well, so loading its own agent again replaces the flow's components.
+    compared by revision as well, so loading its own agent again replaces the flow's components;
+    a refresh or a ``force_reload`` restore of it keeps the prefix.
 
     ``learn=False`` keeps the choice out of that cache as well: an agent the server picked
     without a model choice must not later be served from the cache as if a model had chosen it.
@@ -676,7 +677,11 @@ async def load_persona(
             return await with_repo_context(unchanged(current, request_id),
                                            ctx=ctx, workspace=workspace)
 
-        flow_mark = FLOW_ACTIVATION_PREFIX if selection is not None else ""
+        # A refresh or a force_reload restore of a flow's activation rebuilds the same agent and
+        # stays the flow's, so a later run_flow still returns no previous_persona for it (#456).
+        keeps_flow = ((refresh or force_reload) and current is not None and is_flow_activation(current)
+                      and current.agent == agent_name)
+        flow_mark = FLOW_ACTIVATION_PREFIX if selection is not None or keeps_flow else ""
         persona = PersonaDescriptor(
             agent=bundle.agent, activation_id=flow_mark + str(uuid.uuid4()),
             bundle_revision=bundle.bundle_revision, scope=bundle.scope,
