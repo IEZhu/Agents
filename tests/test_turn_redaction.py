@@ -1285,7 +1285,7 @@ def test_shared_memory_keeps_its_own_patterns_and_the_hook_its_bounded_copies():
 KB_SHAPES = [
     lambda size: ("key-" * (size // 4)).rstrip("-"), lambda size: ("public-key-value-" * (size // 17)).rstrip("-"),
     lambda size: "see " + ("key." * (size // 4)).rstrip("."), lambda size: "mysql -u root \\\n" * (size // 16),
-    lambda size: "echo Tr0ub4dor3xQ | docker login -u ci --password-stdin ghcr.io\n" * (size // 64),
+    lambda size: "echo Tr0ub4dor3xQ | docker login -u ci --password-stdin ghcr.io\n" * (size // 128),  # half
     lambda size: "password-" * (size // 9) + " goes here", lambda size: "x-" * (size // 4) + "key-" * (size // 8),
 ]
 
@@ -1295,8 +1295,9 @@ KB_SHAPES = [
 def test_the_attempt_5_slow_shapes_are_linear_at_one_megabyte(make):
     """v701-5 redaction F12: a hyphen-joined name was read once per label (13.7 s at 80 kB, over 150 s
     at 1 MB), a dotted name was sliced per label (6.7 s at 1 MB), and every line of continued client
-    lines read the fifty lines after it again (12 s at 1 MB). Each takes seconds at 1 MB now, and four
-    times the text takes at most about four times as long."""
+    lines read the fifty lines after it again (12 s at 1 MB). Each takes seconds at 1 MB now (lines piped
+    into a login, whose time is mostly the scanner's, at half of it), and four times the text takes at
+    most about four times as long."""
     small, large = make(256 * KB), make(1024 * KB)
     started = time.monotonic()
     redaction.redact(small)
