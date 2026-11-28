@@ -16,7 +16,9 @@
 // "workmap_layout", what the Work map tab's pure helpers compute (layers, docking, lanes, the goal's
 // connectors, categories, who acts, recorded verdicts, the critical path, level badges and words), or,
 // for "workmap", what the Work map tab summarizes in its slots, draws, opens and polls from a #workmap
-// link, and when it refits, or, for "workmap_signout", that a revoked session stops it.
+// link, and when it refits, or, for "workmap_signout", that a revoked session stops it, or, for
+// "workmap_routes", how the layout orders and places a map and how its edges run, checked by geometry
+// over synthetic boxes.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -2587,6 +2589,277 @@ if (scenario === "place") {
     context.itemPlace({ narrow, groupWidth, groupEnd: 800, versionEnd: 230, straightStart: 339 });
   await finish({ on_pane: at(461), past_corner: at(462), after_version: at(570),
                                too_wide: at(571), narrow: at(100, true) });
+}
+
+// --- workmap_routes: the layout and the edges' routes, checked by geometry ---------------------------
+// The shape of a real release map (ids, kinds and edges of the reviewers' copy at revision 80): six
+// stages first, two verifier trays, the long edges the old drawing crossed and ran through a tray.
+const RELEASE_SHAPE = {
+  nodes: [["goal", "goal"], ["triage", "stage"], ["readiness", "stage"], ["fix-701", "stage"], ["workmap-ui", "stage"],
+    ["v701-contract", "stage"], ["v701-failure", "stage"], ["vui-security", "stage"], ["vui-correctness", "stage"],
+    ["vui-ux", "stage"], ["design-meaning", "stage"], ["design-visual", "stage"], ["decide-fixes", "decision"],
+    ["review-701", "stage"], ["apply-design", "stage"], ["fixes", "stage"], ["review-workmap-ui", "stage"],
+    ["docs-refresh", "stage"], ["promotion", "stage"]].map(([id, kind]) => ({ id, kind, title: id })),
+  edges: [["fixes", "triage"], ["fixes", "decide-fixes"], ["decide-fixes", "triage"], ["docs-refresh", "fixes"],
+    ["docs-refresh", "readiness"], ["promotion", "docs-refresh"], ["review-701", "fix-701"], ["docs-refresh", "review-701"],
+    ["review-workmap-ui", "workmap-ui"], ["docs-refresh", "review-workmap-ui"], ["v701-contract", "fix-701", "verifies"],
+    ["v701-failure", "fix-701", "verifies"], ["review-701", "v701-contract"], ["review-701", "v701-failure"],
+    ["review-workmap-ui", "vui-security"], ["review-workmap-ui", "vui-correctness"], ["review-workmap-ui", "vui-ux"],
+    ["apply-design", "design-meaning"], ["apply-design", "design-visual"], ["vui-security", "apply-design", "verifies"],
+    ["vui-correctness", "apply-design", "verifies"], ["vui-ux", "apply-design", "verifies"],
+    ["review-workmap-ui", "review-701"]].map(([from, to, type = "depends_on"]) => ({ from, to, type })),
+};
+// A work map of n nodes for the layout checks, the same for a seed: stages in rounds, each following one
+// to three earlier stages (now and then one two or three rounds up, so long edges cross layers), about
+// one in seven a verifier of a stage in the round above (docked when it follows nothing else), a
+// decision now and then, two supersedes edges between stages of one round and one between rounds, and
+// the goal; titles of two lengths.
+function workmapSynth(n, seed) {
+  let state = seed >>> 0;
+  const random = () => {  // mulberry32
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = (list) => list[Math.floor(random() * list.length)];
+  const words = ["Audit", "Fix", "Review", "Plan", "Ship", "Verify", "Draft", "Merge", "Measure", "Refresh"];
+  const nodes = [{ id: "goal", kind: "goal", title: "Ship the release" }], edges = [], rounds = [];
+  const perRound = Math.max(2, Math.round(Math.sqrt(n) * 0.9));
+  for (let i = 1; i < n; i++) {
+    const round = Math.floor((i - 1) / perRound);
+    (rounds[round] = rounds[round] || []).push(`s${i}`);
+    const verifier = round > 0 && random() < 0.15;
+    const kind = !verifier && random() < 0.08 ? "decision" : "stage";
+    nodes.push({ id: `s${i}`, kind, title: `${pick(words)} ${pick(words).toLowerCase()} ${i}${random() < 0.4 ? " and the follow-up checks" : ""}` });
+    if (!round) continue;
+    if (verifier) {
+      const target = pick(rounds[round - 1]);
+      edges.push({ from: `s${i}`, to: target, type: "verifies" });
+      if (random() < 0.3 && round > 1) edges.push({ from: `s${i}`, to: pick(rounds[round - 2]), type: "depends_on" });
+      continue;
+    }
+    const count = 1 + Math.floor(random() * 3), seen = new Set();
+    for (let j = 0; j < count; j++) {
+      const back = random() < 0.2 && round > 1 ? 1 + Math.floor(random() * Math.min(3, round)) : 1;
+      const target = pick(rounds[round - back]);
+      if (seen.has(target)) continue;
+      seen.add(target);
+      edges.push({ from: `s${i}`, to: target, type: "depends_on" });
+    }
+  }
+  const last = rounds.length - 1;
+  for (const round of [Math.floor(last / 2), last]) {
+    const ids = rounds[round].filter((id) => !edges.some((edge) => edge.type === "verifies" && edge.from === id));
+    if (ids.length > 1) edges.push({ from: ids[ids.length - 1], to: ids[0], type: "supersedes" });
+  }
+  if (rounds.length > 2) edges.push({ from: pick(rounds[last]), to: pick(rounds[0]), type: "supersedes" });
+  return { nodes, edges };
+}
+// Boxes as the stylesheet draws a layout at `scale` (section 6): rows stacked with the layout's gaps
+// (14 px fixed, the rest scaled), each entry at its x, a card heightOf(id) px tall at 100 % and, under a
+// card with docked verifiers, a tray: 7 px, then a 24-px pill every 28 px. Returns workmapRoutes' geo
+// and the boxes it was made of.
+function workmapGeometry(layout, scale, heightOf) {
+  const rows = [], cards = new Map(), groups = new Map(), lanes = new Map(), trays = new Set();
+  let y = 12;
+  layout.layers.forEach((entries, k) => {
+    if (k) y += 14 + (layout.gaps[k] - 14) * scale;
+    const top = y;
+    let bottom = top;
+    for (const entry of entries) {
+      const left = 16 + entry.x * scale;
+      if (entry.lane) { lanes.set(entry.id, left); continue; }
+      const card = { l: left, t: top, r: left + entry.w * scale, b: top + heightOf(entry.id) * scale };
+      cards.set(entry.id, card);
+      let foot = card.b;
+      entry.verifiers.forEach((id, i) => {
+        const pillTop = card.b + (7 + 28 * i) * scale;
+        cards.set(id, { l: left + 36 * scale, t: pillTop, r: card.r - 6 * scale, b: pillTop + 24 * scale });
+        foot = pillTop + 31 * scale;
+      });
+      if (entry.verifiers.length) trays.add(entry.id);
+      groups.set(entry.id, { l: left, t: top, r: card.r, b: foot });
+      bottom = Math.max(bottom, foot);
+    }
+    rows.push({ t: top, b: bottom });
+    y = bottom;
+  });
+  const host = (id) => layout.docked[id] || id;
+  return { geo: { scale, rows, card: (id) => cards.get(id), group: (id) => groups.get(host(id)), lane: (id) => lanes.get(id) },
+           cards, groups, trays };
+}
+// Points along a route's steps about every px, for the checks below.
+function workmapSample(steps) {
+  const points = [];
+  let x = 0, y = 0;
+  for (const [op, ...v] of steps) {
+    if (op === "M") { [x, y] = v; points.push([x, y]); continue; }
+    if (op === "V" || op === "H") {
+      const [tx, ty] = op === "V" ? [x, v[0]] : [v[0], y];
+      const count = Math.max(1, Math.ceil(Math.hypot(tx - x, ty - y)));
+      for (let i = 1; i <= count; i++) points.push([x + (tx - x) * i / count, y + (ty - y) * i / count]);
+      [x, y] = [tx, ty];
+      continue;
+    }
+    const [x1, y1, x2, y2, x3, y3] = v;
+    const count = Math.max(8, Math.ceil(Math.hypot(x1 - x, y1 - y) + Math.hypot(x2 - x1, y2 - y1) + Math.hypot(x3 - x2, y3 - y2)));
+    for (let i = 1; i <= count; i++) {
+      const t = i / count, u = 1 - t;
+      points.push([u * u * u * x + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+                   u * u * u * y + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3]);
+    }
+    [x, y] = [x3, y3];
+  }
+  return points;
+}
+// Crossings of two polylines, pruned by their bounding boxes.
+function workmapCrossings(a, b) {
+  const bounds = (points) => points.reduce((r, [x, y]) => [Math.min(r[0], x), Math.min(r[1], y), Math.max(r[2], x), Math.max(r[3], y)],
+    [Infinity, Infinity, -Infinity, -Infinity]);
+  const [ax0, ay0, ax1, ay1] = bounds(a), [bx0, by0, bx1, by1] = bounds(b);
+  if (ax1 < bx0 || bx1 < ax0 || ay1 < by0 || by1 < ay0) return 0;
+  const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  let count = 0;
+  for (let i = 0; i + 1 < a.length; i++) {
+    const [p1, p2] = [a[i], a[i + 1]];
+    if (Math.max(p1[0], p2[0]) < bx0 || Math.min(p1[0], p2[0]) > bx1 || Math.max(p1[1], p2[1]) < by0 || Math.min(p1[1], p2[1]) > by1) continue;
+    for (let j = 0; j + 1 < b.length; j++) {
+      const [q1, q2] = [b[j], b[j + 1]];
+      if (Math.max(p1[0], p2[0]) < Math.min(q1[0], q2[0]) || Math.max(q1[0], q2[0]) < Math.min(p1[0], p2[0])) continue;
+      if (Math.max(p1[1], p2[1]) < Math.min(q1[1], q2[1]) || Math.max(q1[1], q2[1]) < Math.min(p1[1], p2[1])) continue;
+      const d1 = side(q1, q2, p1), d2 = side(q1, q2, p2), d3 = side(p1, p2, q1), d4 = side(p1, p2, q2);
+      if ((d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0)) count += 1;  // half-open: through a sample point counts once
+    }
+  }
+  return count;
+}
+// Lays a map out and routes its edges over synthetic boxes, then measures what the criteria name: the
+// layout's crossings and the drawing's (between layers, and those of the dips below a layer), points of
+// any edge inside a card, a pill or a tray (a route inside one tray is left out of its own), each end's
+// straight piece, its angle and the angle where the curve before it meets it, the angle at which any
+// curve leaves or meets the steps beside it (`smooth`), the order of the ends on
+// every side against the order of their other ends, the foot an edge from a docked verifier leaves,
+// the spacing in each layer, the width and the gaps.
+function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.charCodeAt(id.length - 1) % 3) * 20) {
+  const nodes = data.nodes.map((item) => ({ status: "planned", level: "V0", needs: "V2", risk: "routine", settled: false,
+    ready: false, attention: false, ...item }));
+  const map = { nodes, edges: data.edges, closed: false, verdicts: [] };
+  const t0 = performance.now();
+  const layout = context.workmapLayers(nodes, data.edges);
+  const ms = performance.now() - t0;
+  const { geo, cards, groups, trays } = workmapGeometry(layout, scale, heightOf);
+  const edges = context.workmapEdgeList(context.workmapView(map, layout));
+  const routes = context.workmapRoutes(edges, layout, geo);
+  const points = routes.map((route) => workmapSample(route.steps));
+  const out = { crossings: layout.crossings, drawn: 0, dips: 0, inside: [], shortest: Infinity, steepest: 0, joint: 0, smooth: 0, misordered: [],
+                closest: Infinity, foot: [], spacing: Infinity, width: layout.width, packed: 0, gaps: layout.gaps.slice(1), ms: Math.round(ms),
+                kinds: {}, routes: routes.length, edges: edges.length };
+  routes.forEach((route, i) => {
+    out.kinds[route.kind] = (out.kinds[route.kind] || 0) + 1;
+    const boxes = [...[...cards].map(([id, box]) => [id, box]), ...[...trays].map((id) => [id + "#tray", groups.get(id)])];
+    for (const [id, box] of boxes) {
+      if (route.kind === "tray" && (id === route.start + "#tray" || layout.docked[id] === route.start || id === route.start)) continue;
+      if (points[i].some(([x, y]) => x > box.l + 0.5 && x < box.r - 0.5 && y > box.t + 0.5 && y < box.b - 0.5)) out.inside.push(`${route.edge.key} in ${id}`);
+    }
+    // The straight end: the last step, from where the step before it ended, and its angle.
+    const last = route.steps.at(-1), before = route.steps.at(-2);
+    const from = before[0] === "C" ? [before[5], before[6]] : before[0] === "M" ? [before[1], before[2]] : null;
+    const end = points[i].at(-1), back = points[i].at(-4);
+    const vertical = route.kind !== "tray";
+    const length = from ? (vertical ? Math.abs(last[1] - from[1]) : Math.abs(last[1] - from[0])) : Math.abs(last[1] - (before[0] === "V" ? before[1] : 0));
+    out.shortest = Math.min(out.shortest, length);
+    const angle = Math.atan2(Math.abs(vertical ? end[0] - back[0] : end[1] - back[1]), Math.abs(vertical ? end[1] - back[1] : end[0] - back[0])) * 180 / Math.PI;
+    out.steepest = Math.max(out.steepest, angle);
+    if (before[0] === "C") {  // where the curve meets the straight end: its last control point lies on that line
+      const [, , , x2, y2, x3, y3] = before;
+      out.joint = Math.max(out.joint, Math.atan2(Math.abs(vertical ? x3 - x2 : y3 - y2), Math.abs(vertical ? y3 - y2 : x3 - x2)) * 180 / Math.PI);
+    }
+    // One smooth curve: each cubic leaves the point before it and meets the step after it along the
+    // route's line, vertical (level inside a tray), so no piece kinks where it joins the next.
+    let at = [0, 0];
+    for (const [op, ...v] of route.steps) {
+      if (op === "C") {
+        const [x1, y1, x2, y2, x3, y3] = v;
+        const off = (dx, dy) => Math.atan2(Math.abs(vertical ? dx : dy), Math.abs(vertical ? dy : dx)) * 180 / Math.PI;
+        out.smooth = Math.max(out.smooth, off(x1 - at[0], y1 - at[1]), off(x3 - x2, y3 - y2));
+        at = [x3, y3];
+      } else at = op === "M" ? v : op === "V" ? [at[0], v[0]] : [v[0], at[1]];
+    }
+    if (layout.docked[route.edge.start] && route.kind === "down") {
+      const foot = groups.get(layout.docked[route.edge.start]).b + 1;
+      if (Math.abs(route.steps[0][2] - foot) > 0.01 || route.steps[1][0] === "H") out.foot.push(route.edge.key);
+    }
+  });
+  // Every side's ends in the order of their other ends, and no two closer than a px.
+  const sides = new Map();
+  for (const route of routes) {
+    if (route.kind !== "down" && route.kind !== "up") continue;
+    const lanesAt = (i) => (route.via.length ? geo.lane(route.via.at(i)) : null);
+    const mid = (id) => (geo.group(id).l + geo.group(id).r) / 2;
+    const ends = [[route.start, route.kind === "down" ? "foot" : "top", route.ports[0][0], lanesAt(0) ?? mid(route.end)],
+                  [route.end, route.kind === "down" ? "top" : "foot", route.ports[1][0], lanesAt(-1) ?? mid(route.start)]];
+    for (const [id, where, x, other] of ends) {
+      const key = id + " " + where;
+      if (!sides.has(key)) sides.set(key, []);
+      sides.get(key).push([x, other]);
+    }
+  }
+  for (const [key, list] of sides) {
+    list.sort((p, q) => p[0] - q[0]);
+    for (let i = 0; i + 1 < list.length; i++) {
+      out.closest = Math.min(out.closest, list[i + 1][0] - list[i][0]);
+      if (list[i + 1][1] < list[i][1] - 0.01) out.misordered.push(key);
+    }
+  }
+  for (let i = 0; i < routes.length; i++) {
+    for (let j = i + 1; j < routes.length; j++) {
+      const count = workmapCrossings(points[i], points[j]);
+      if (!count) continue;
+      const between = ["down", "up"];
+      if (between.includes(routes[i].kind) && between.includes(routes[j].kind)) out.drawn += count; else out.dips += count;
+    }
+  }
+  const sep = (a, b) => (a.lane && b.lane ? 12 : a.lane || b.lane ? 16 : 20);
+  for (const entries of layout.layers) {
+    if (entries.length) out.packed = Math.max(out.packed, entries.reduce((sum, entry, i) => sum + entry.w + (i ? sep(entries[i - 1], entry) : 0), 0));
+    entries.forEach((entry, i) => {
+      out.spacing = Math.min(out.spacing, i ? entry.x - entries[i - 1].x - entries[i - 1].w - sep(entries[i - 1], entry) : entry.x);
+      if (entry.x + entry.w > layout.width) out.spacing = -1;
+    });
+  }
+  out.shortest = Math.round(out.shortest * 100) / 100;
+  out.steepest = Math.round(out.steepest * 100) / 100;
+  out.joint = Math.round(out.joint * 100) / 100;
+  out.smooth = Math.round(out.smooth * 100) / 100;
+  if (out.closest === Infinity) out.closest = null;
+  return out;
+}
+
+if (scenario === "workmap_routes") {
+  const out = { release: workmapRouteChecks(RELEASE_SHAPE), release_100: workmapRouteChecks(RELEASE_SHAPE, 1, () => 72),
+                fixture: workmapRouteChecks({ nodes: workmapNodes(), edges: WORKMAP_EDGES }) };
+  for (const n of [20, 40, 60]) out[`synth_${n}`] = workmapRouteChecks(workmapSynth(n, n));
+  // The same structure, any statuses: the layout reads ids, kinds and edges only.
+  const restless = workmapNodes().map((item, i) => ({ ...item, status: ["prepared", "validated", "needs_attention"][i % 3], settled: i % 2 === 0 }));
+  out.stable = JSON.stringify(context.workmapLayers(workmapNodes(), WORKMAP_EDGES)) === JSON.stringify(context.workmapLayers(restless, WORKMAP_EDGES));
+  // A verifier with an input besides the node it checks is a card of its own; one with none docks.
+  const extra = context.workmapLayers(["a", "b", "v", "w"].map((id) => ({ id, kind: "stage" })),
+    [{ from: "b", to: "a", type: "depends_on" }, { from: "v", to: "b", type: "verifies" }, { from: "v", to: "a", type: "depends_on" },
+     { from: "w", to: "b", type: "verifies" }]);
+  out.docking = { docked: extra.docked, layers: extra.layers.map((entries) => entries.filter((entry) => !entry.lane).map((entry) => entry.id)) };
+  // Edges that climb, that join two nodes of one layer, and that join two pills of one tray.
+  const odd = { nodes: ["a", "b", "c", "d", "e", "v1", "v2"].map((id) => ({ id, kind: "stage", title: id })), edges: [
+    { from: "b", to: "a", type: "depends_on" }, { from: "c", to: "b", type: "depends_on" }, { from: "d", to: "a", type: "depends_on" },
+    { from: "e", to: "a", type: "depends_on" }, { from: "a", to: "c", type: "contradicts" }, { from: "e", to: "d", type: "supersedes" },
+    { from: "v1", to: "b", type: "verifies" }, { from: "v2", to: "b", type: "verifies" }, { from: "v2", to: "v1", type: "supersedes" }] };
+  out.odd = workmapRouteChecks(odd);
+  // The largest map the page draws, for the time its layout takes.
+  const large = workmapSynth(400, 400), started = performance.now();
+  const laid = context.workmapLayers(large.nodes, large.edges);
+  out.large = { ms: Math.round(performance.now() - started), drawn: !laid.omitted, nodes: large.nodes.length };
+  await finish(out);
 }
 
 if (scenario === "workmap_layout") {

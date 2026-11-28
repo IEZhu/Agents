@@ -560,16 +560,40 @@ details.persona summary { cursor: pointer; }
 .wm-lg-border { flex: none; width: calc(2 * var(--f-meta)); height: var(--f-meta); border: 1px solid var(--st-attn);
   border-radius: var(--r-badge); box-shadow: 0 0 0 1px var(--st-attn); }
 
-/* 6. GRAPH — layers are flex rows, top to bottom in dependency order; CSS places every card.
-      A group is a node with the verifiers that check it docked in a tray under it. A lane is
-      an empty slot a long edge passes through. */
-.wm-layers { position: relative; display: flex; flex-direction: column; align-items: center; gap: calc(var(--s7) + var(--s2));
+/* 6. GRAPH — layers are flex rows, top to bottom in dependency order. The layout places every entry
+      across (workmapLayers): its offset from the entry before it, in px at 100 %, comes one digit per
+      attribute, data-x0 the ones to data-x4 the ten thousands, and is scaled here by the zoom, as
+      every size is. The gap above a layer (data-gap, px at 100 %) is as tall as the edges that enter
+      it need to bend: 14 px of it hold an edge's straight end at every zoom, the rest scales. A group
+      is a node with the verifiers that check it docked in a tray under it. A lane is a point a long
+      edge passes through, kept clear of every card. */
+.wm-layers { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 0;
   width: max-content; margin: 0; padding: 0; list-style: none; }
-.wm-layer { display: flex; align-items: flex-start; justify-content: center; gap: calc(var(--s6) + var(--s2)); }
+.wm-layer { display: flex; align-items: flex-start; }
+.wm-layer > * { flex: none; margin-left: calc((var(--x4, 0) * 10000 + var(--x3, 0) * 1000 + var(--x2, 0) * 100
+  + var(--x1, 0) * 10 + var(--x0, 0)) * 1px * var(--k)); }
+[data-x0="1"] { --x0: 1; } [data-x0="2"] { --x0: 2; } [data-x0="3"] { --x0: 3; } [data-x0="4"] { --x0: 4; } [data-x0="5"] { --x0: 5; }
+[data-x0="6"] { --x0: 6; } [data-x0="7"] { --x0: 7; } [data-x0="8"] { --x0: 8; } [data-x0="9"] { --x0: 9; }
+[data-x1="1"] { --x1: 1; } [data-x1="2"] { --x1: 2; } [data-x1="3"] { --x1: 3; } [data-x1="4"] { --x1: 4; } [data-x1="5"] { --x1: 5; }
+[data-x1="6"] { --x1: 6; } [data-x1="7"] { --x1: 7; } [data-x1="8"] { --x1: 8; } [data-x1="9"] { --x1: 9; }
+[data-x2="1"] { --x2: 1; } [data-x2="2"] { --x2: 2; } [data-x2="3"] { --x2: 3; } [data-x2="4"] { --x2: 4; } [data-x2="5"] { --x2: 5; }
+[data-x2="6"] { --x2: 6; } [data-x2="7"] { --x2: 7; } [data-x2="8"] { --x2: 8; } [data-x2="9"] { --x2: 9; }
+[data-x3="1"] { --x3: 1; } [data-x3="2"] { --x3: 2; } [data-x3="3"] { --x3: 3; } [data-x3="4"] { --x3: 4; } [data-x3="5"] { --x3: 5; }
+[data-x3="6"] { --x3: 6; } [data-x3="7"] { --x3: 7; } [data-x3="8"] { --x3: 8; } [data-x3="9"] { --x3: 9; }
+[data-x4="1"] { --x4: 1; } [data-x4="2"] { --x4: 2; } [data-x4="3"] { --x4: 3; } [data-x4="4"] { --x4: 4; } [data-x4="5"] { --x4: 5; }
+[data-x4="6"] { --x4: 6; } [data-x4="7"] { --x4: 7; } [data-x4="8"] { --x4: 8; } [data-x4="9"] { --x4: 9; }
+.wm-layer[data-gap="18"] { margin-top: calc(14px + 4px * var(--k)); }
+.wm-layer[data-gap="22"] { margin-top: calc(14px + 8px * var(--k)); }
+.wm-layer[data-gap="26"] { margin-top: calc(14px + 12px * var(--k)); }
+.wm-layer[data-gap="30"] { margin-top: calc(14px + 16px * var(--k)); }
+.wm-layer[data-gap="34"] { margin-top: calc(14px + 20px * var(--k)); }
+.wm-layer[data-gap="40"] { margin-top: calc(14px + 26px * var(--k)); }
+.wm-layer[data-gap="46"] { margin-top: calc(14px + 32px * var(--k)); }
+.wm-layer[data-gap="52"] { margin-top: calc(14px + 38px * var(--k)); }
 .wm-layer-cap { display: none; }
 .wm-group { --node-w: calc(232px * var(--k)); display: flex; flex-direction: column; width: var(--node-w); }
 .wm-group[data-kind="goal"] { --node-w: calc(528px * var(--k)); }
-.wm-lane { align-self: stretch; width: var(--s7); }
+.wm-lane { align-self: stretch; width: 0; }
 
 /* The card. One row of name, one row of state; the disc on the left carries the status. */
 .wm-node { --disc: calc(24px * var(--k)); --r: calc(var(--r-node) * var(--k));
@@ -959,6 +983,8 @@ details.persona summary { cursor: pointer; }
   .wm-edges, .wm-lane { display: none; }
   .wm-layers { width: auto; align-items: stretch; gap: var(--s5); }
   .wm-layer { flex-direction: column; align-items: stretch; gap: var(--s4); }
+  .wm-layer > * { margin-left: 0; }
+  .wm-layer[data-gap] { margin-top: 0; }
   .wm-layer-cap { display: block; }
   .wm-group, .wm-group[data-kind="goal"] { width: auto; }
   .wm-stage .wm-t { display: block; white-space: normal; }
@@ -6217,6 +6243,23 @@ const WM_PRESENT_KEY = "agents-core.workmap-present";  // in sessionStorage: thi
 const WM_LIST_MAX = 5;  // ids a slot or a sentence names before "and N more"
 // A map larger than this is not drawn: the layout's lanes and sweeps grow with layers times long edges.
 const WM_DRAW_MAX = { nodes: 400, lanes: 2000 };
+// Rounds of median sweeps the order may take from each first order (wmOrder), each followed by
+// transposition, and above how many entries (nodes and lanes) it starts from the given order only.
+const WM_SWEEPS = { rounds: 24, large: 600 };
+// The graph's geometry in px at 100 %, which the layout places by and section 6 of the stylesheet
+// draws. card, goal: widths. sep, sepLane, sepLanes: the space between two cards, a card and a lane,
+// two lanes of a layer. gaps: the gaps a layer may have above it (.wm-layer[data-gap]). stub: the
+// straight end of every edge. bend: the most height a curve takes to bend (wmBend). level, levels: the
+// height between staggered curves (wmZones) and how many levels a gap makes room for. snap: how far a
+// box moves onto the line of its main edge. dip: how deep an edge between two nodes of a layer runs
+// below it. pull: the most a curve's control points reach into its zone, as a share of its height.
+// clear: how far a curve keeps from a box beside it. room: how room to bend lowers a segment's weight.
+// passes, floor: rounds of reweighting toward straight edges, and the smallest run they divide by.
+// portMargin, portGap: where ends meet a side, clear of the corners and apart. cardH, pillH, trayH:
+// the heights the gaps are planned with, a card, a pill in a tray and a tray's padding.
+const WM_GEOM = { card: 232, goal: 528, sep: 20, sepLane: 16, sepLanes: 12,
+  gaps: [18, 22, 26, 30, 34, 40, 46, 52], stub: 12, bend: 48, level: 8, levels: 4, snap: 24, dip: 12,
+  pull: 0.85, clear: 8, room: 96, passes: 6, floor: 4, portMargin: 24, portGap: 28, cardH: 72, pillH: 28, trayH: 7 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 // `gen` drops an answer for a map or node that another one overtook; `listGen` does so for the list.
 const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, view: null, node: null,
@@ -6389,9 +6432,13 @@ function workmapReason(item, view, brief = false) {
 // The layout: layers top to bottom, the goal last. depends_on {from X, to Y} puts Y above X and
 // verifies {from V, to T} puts T above V; supersedes and contradicts place nothing. A layer is the
 // longest path from a node without predecessors (rounds in the payload's order, which is the text
-// view's), so a status change never moves a card. A verifier docks in a tray under its first target
-// when everything else it follows sits higher; an edge that crosses layers runs through an empty lane
-// in each; within a layer, four rounds of barycentre sweeps keep the order with the fewest crossings.
+// view's), so a status change never moves a card. A verifier docks in a tray under the node it checks
+// when that node is all it follows, and the tray is part of the node's block. Every edge that crosses
+// a layer, placing or not, runs through a lane there: a point that no card covers. Within each layer
+// the order is the one with the fewest crossings the sweeps find (wmOrder); across, every entry sits
+// where its edges run straightest, at its left edge `x` in px at 100 %, and the gap above each layer
+// is as tall as the edges that enter it need to bend (wmPlace). The layout depends on node ids, kinds
+// and edges only, so the same structure always gets the same picture.
 // With one goal and no edge into it, the nodes nothing follows lead to it by a derived connector.
 // A lane's id has an underscore, which no node id may (store.NODE_ID), so no node passes for a lane.
 // A map of more than WM_DRAW_MAX nodes or lanes is not laid out: `omitted` says how large it is.
@@ -6434,12 +6481,13 @@ function workmapLayers(nodes, edges) {
     }
     return layer;
   };
-  const first = rounds(work, (id) => pred.get(id));
+  // A verifier docks under the first node it checks when it follows nothing else: an edge into a pill
+  // would have to cross its tray. A node that checks another stays a card, so no tray holds a tray.
   const docked = new Map();  // verifier -> the card it docks under
   for (const id of work) {
     const host = checks.get(id)[0];
     if (host === undefined || isGoal.get(host) || checks.get(host).length) continue;
-    if (pred.get(id).some((other) => other !== host && !(first.get(other) < first.get(host)))) continue;
+    if (pred.get(id).some((other) => other !== host)) continue;
     docked.set(id, host);
   }
   const groupOf = (id) => docked.get(id) || id;
@@ -6460,31 +6508,37 @@ function workmapLayers(nodes, edges) {
   if (goals.length === 1 && !pred.get(goals[0]).length) {
     for (const id of work) if (!succ.get(id).length) derived.push([id, goals[0]]);
   }
-  // Flow edges between groups, as the layout sees them: [key, from group, to group].
-  const flows = [];
+  // The edges as drawn, each from the group of its start to the group of its end (workmapEdgeList):
+  // depends_on and verifies from the prerequisite, supersedes from the newer node, contradicts as
+  // stored, then the derived connectors. A docked verifier's own edge is its tray's comb.
+  const links = [];
   for (const edge of edges) {
     if (!known.has(edge.from) || !known.has(edge.to) || edge.from === edge.to) continue;
-    const key = `${edge.from}|${edge.to}|${edge.type}`;
-    if (edge.type === "depends_on") flows.push([key, groupOf(edge.to), groupOf(edge.from)]);
-    else if (edge.type === "verifies" && docked.get(edge.from) !== edge.to) flows.push([key, groupOf(edge.to), groupOf(edge.from)]);
+    if (edge.type === "verifies" && docked.get(edge.from) === edge.to) continue;
+    const flow = edge.type === "depends_on" || edge.type === "verifies";
+    const [start, end] = flow ? [edge.to, edge.from] : [edge.from, edge.to];
+    links.push([`${edge.from}|${edge.to}|${edge.type}`, groupOf(start), groupOf(end)]);
   }
-  for (const [from, to] of derived) flows.push([`${from}|${to}|derived`, groupOf(from), to]);
+  for (const [from, to] of derived) links.push([`${from}|${to}|derived`, groupOf(from), to]);
   let needed = 0;
-  for (const [, from, to] of flows) needed += Math.max(0, layerOf.get(to) - layerOf.get(from) - 1);
+  for (const [, from, to] of links) needed += Math.max(0, Math.abs(layerOf.get(to) - layerOf.get(from)) - 1);
   if (nodes.length > WM_DRAW_MAX.nodes || needed > WM_DRAW_MAX.lanes) {
-    return { layers: [], layer: {}, docked: {}, via: {}, derived, crossings: 0,
+    return { layers: [], layer: {}, docked: {}, via: {}, derived, crossings: 0, gaps: [], width: 0,
              omitted: { nodes: nodes.length, lanes: needed } };
   }
   const layers = [];
-  const put = (entry, k) => { (layers[k] = layers[k] || []).push(entry); };
+  const put = (id, k) => { (layers[k] = layers[k] || []).push(id); };
   for (const id of [...hosts, ...goals]) put(id, layerOf.get(id));
   for (let k = 0; k < layers.length; k++) layers[k] = layers[k] || [];
-  const via = {}, segments = [], order = new Map(tie), lanes = new Set();
-  for (const [key, from, to] of flows) {
-    const a = layerOf.get(from), b = layerOf.get(to);
-    if (from === to || b <= a) continue;  // a back edge: drawn, but it places nothing
+  // Lanes in every layer an edge crosses, listed in `via` in the order the edge is drawn; the
+  // segments between neighbouring layers, upper end first, are what the order and the places weigh.
+  const via = {}, segments = [], lanes = new Set(), order = new Map(tie), beside = new Set();
+  links.forEach(([key, from, to], link) => {
+    const a = layerOf.get(from), b = layerOf.get(to), step = b > a ? 1 : -1;
+    if (from !== to && a === b) beside.add(a);  // drawn below its layer, from foot to foot
+    if (from === to || a === b) return;
     const points = [from];
-    for (let k = a + 1; k < b; k++) {
+    for (let k = a + step; (b - k) * step > 0; k += step) {
       const lane = `wm_lane_${lanes.size}`;
       lanes.add(lane);
       put(lane, k);
@@ -6494,47 +6548,515 @@ function workmapLayers(nodes, edges) {
     }
     points.push(to);
     if (points.length > 2) via[key] = points.slice(1, -1);
-    for (let i = 0; i + 1 < points.length; i++) segments.push([points[i], points[i + 1]]);
-  }
-  for (const entries of layers) entries.sort((a, b) => order.get(a) - order.get(b));
-  const above = new Map(), below = new Map();
+    for (let i = 0; i + 1 < points.length; i++) {
+      const [upper, lower] = step > 0 ? [points[i], points[i + 1]] : [points[i + 1], points[i]];
+      // An edge that climbs ends with its arrowhead under the upper end of its last segment.
+      segments.push({ upper, lower, link, rising: step < 0 && i + 2 === points.length });
+    }
+  });
+  const ordered = wmOrder(layers.map((entries) => [...entries].sort((p, q) => order.get(p) - order.get(q))), segments);
+  const verifiersOf = new Map(hosts.map((id) => [id, []]));
+  for (const id of work) if (docked.has(id)) verifiersOf.get(docked.get(id)).push(id);
+  const widthOf = (id) => (lanes.has(id) ? 0 : isGoal.get(id) ? WM_GEOM.goal : WM_GEOM.card);
+  // The planned height of a group: a card, and its tray with a pill per docked verifier.
+  const heightOf = (id) => (lanes.has(id) ? 0 : WM_GEOM.cardH
+    + (verifiersOf.has(id) && verifiersOf.get(id).length ? WM_GEOM.trayH + WM_GEOM.pillH * verifiersOf.get(id).length : 0));
+  const placed = wmPlace(ordered.order, segments, widthOf, heightOf, (id) => lanes.has(id), beside);
+  return {
+    layers: ordered.order.map((entries) => entries.map((id) => (lanes.has(id) ? { id, lane: true, x: placed.x.get(id), w: 0 }
+      : { id, lane: false, verifiers: verifiersOf.get(id) || [], x: placed.x.get(id), w: widthOf(id) }))),
+    layer: Object.fromEntries([...layerOf].filter(([id]) => !lanes.has(id))),
+    docked: Object.fromEntries(docked), via, derived, crossings: ordered.crossings, gaps: placed.gaps, width: placed.width,
+  };
+}
+
+// The weighted median of sorted positions (Gansner et al.): the middle one, or between the two
+// middle ones, nearer the side whose positions lie closer together.
+function wmMedian(sorted) {
+  const m = sorted.length, mid = Math.floor(m / 2);
+  if (m % 2) return sorted[mid];
+  if (m === 2) return (sorted[0] + sorted[1]) / 2;
+  const left = sorted[mid - 1] - sorted[0], right = sorted[m - 1] - sorted[mid];
+  return left + right ? (sorted[mid - 1] * right + sorted[mid] * left) / (left + right) : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// The order within each layer that crosses the fewest segments. From each of three first orders (the
+// given one, the order a depth-first walk down from the top layer meets the entries in, and the given
+// one reversed): a pass down by the barycentre of each entry's neighbours above, then sweeps up and
+// down by the weighted median of the neighbours on the side swept from (an entry with none there keeps
+// its place), each followed by swaps of neighbours that remove crossings (transposition; every other
+// round also swaps a pair whose crossings tie, which can open a way out), until four rounds in a row
+// find no fewer. A tray is part of its node's block, so it moves with it. The order with the fewest
+// crossings wins, the earlier on a tie; nothing random, so one structure always gets one order. A map
+// of more than WM_SWEEPS.large entries starts from the given order only.
+function wmOrder(start, segments) {
+  const above = new Map(), below = new Map(), layerOf = new Map();
   const add = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
-  for (const [a, b] of segments) { add(below, a, b); add(above, b, a); }
-  const positions = () => { const at = new Map(); layers.forEach((entries) => entries.forEach((id, i) => at.set(id, i))); return at; };
-  const crossings = () => {
-    const at = positions();
-    let total = 0;
-    for (let k = 0; k + 1 < layers.length; k++) {
-      const pairs = segments.filter(([a]) => layerOf.get(a) === k).map(([a, b]) => [at.get(a), at.get(b)]);
-      for (let i = 0; i < pairs.length; i++) {
-        for (let j = i + 1; j < pairs.length; j++) if ((pairs[i][0] - pairs[j][0]) * (pairs[i][1] - pairs[j][1]) < 0) total += 1;
+  for (const { upper, lower } of segments) { add(below, upper, lower); add(above, lower, upper); }
+  start.forEach((entries, k) => entries.forEach((id) => layerOf.set(id, k)));
+  let order = [];
+  const pos = new Map();
+  const reindex = (k) => order[k].forEach((id, i) => pos.set(id, i));
+  // Crossings between layer k and k + 1: pairs of segments whose ends are in opposite orders, counted
+  // as inversions of their lower ends (a Fenwick tree over the lower layer).
+  const between = (k) => {
+    const pairs = [];
+    for (const id of order[k]) for (const other of below.get(id) || []) pairs.push([pos.get(id), pos.get(other)]);
+    pairs.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    const size = order[k + 1].length, tree = new Array(size + 1).fill(0);
+    let count = 0;
+    for (let i = pairs.length - 1; i >= 0; i--) {
+      for (let j = pairs[i][1]; j > 0; j -= j & -j) count += tree[j];
+      for (let j = pairs[i][1] + 1; j <= size; j += j & -j) tree[j] += 1;
+    }
+    return count;
+  };
+  const total = () => order.reduce((sum, entries, k) => sum + (k + 1 < order.length ? between(k) : 0), 0);
+  const sweep = (k, side, median) => {
+    const key = new Map();
+    for (const id of order[k]) {
+      const near = (side.get(id) || []).map((other) => pos.get(other)).sort((p, q) => p - q);
+      if (near.length) key.set(id, median ? wmMedian(near) : near.reduce((sum, value) => sum + value, 0) / near.length);
+    }
+    const moving = order[k].filter((id) => key.has(id)).sort((p, q) => key.get(p) - key.get(q) || pos.get(p) - pos.get(q));
+    let next = 0;
+    order[k] = order[k].map((id) => (key.has(id) ? moving[next++] : id));
+    reindex(k);
+  };
+  // Crossings among the segments of u and of v with u left of v, on both sides.
+  const cross = (u, v) => {
+    let count = 0;
+    for (const side of [above, below]) {
+      const near = side.get(v) || [];
+      for (const a of side.get(u) || []) for (const b of near) if (pos.get(a) > pos.get(b)) count += 1;
+    }
+    return count;
+  };
+  const transpose = (sideways) => {
+    for (let pass = 0, swapped = true; swapped && pass < 8; pass++) {
+      swapped = false;
+      for (const entries of order) {
+        for (let i = 0; i + 1 < entries.length; i++) {
+          const u = entries[i], v = entries[i + 1], now = cross(u, v), then = cross(v, u);
+          if (then < now || (sideways && pass === 0 && now && then === now)) {
+            entries[i] = v; entries[i + 1] = u; pos.set(v, i); pos.set(u, i + 1);
+            swapped = swapped || then < now;
+          }
+        }
       }
     }
-    return total;
   };
-  const sweep = (k, neighbours) => {
-    const at = positions();
-    const key = new Map(layers[k].map((id, i) => {
-      const near = (neighbours.get(id) || []).map((other) => at.get(other));
-      return [id, near.length ? near.reduce((sum, value) => sum + value, 0) / near.length : i];
-    }));
-    layers[k] = layers[k].map((id, i) => [id, i]).sort((x, y) => (key.get(x[0]) - key.get(y[0])) || (x[1] - y[1]))
-      .map(([id]) => id);
+  const run = (first) => {
+    order = first.map((entries) => [...entries]);
+    order.forEach((entries, k) => reindex(k));
+    for (let k = 1; k < order.length; k++) sweep(k, above, false);
+    transpose(false);
+    let best = order.map((entries) => [...entries]), fewest = total();
+    for (let round = 0, stale = 0; round < WM_SWEEPS.rounds && fewest && stale < 4; round++) {
+      if (round % 2) for (let k = 1; k < order.length; k++) sweep(k, above, true);
+      else for (let k = order.length - 2; k >= 0; k--) sweep(k, below, true);
+      transpose(round % 4 === 1);
+      const count = total();
+      if (count < fewest) { fewest = count; best = order.map((entries) => [...entries]); stale = 0; } else stale += 1;
+    }
+    return { order: best, crossings: fewest };
   };
-  let best = layers.map((entries) => [...entries]), fewest = crossings();
-  for (let round = 0; round < 4 && fewest; round++) {
-    for (let k = 1; k < layers.length; k++) sweep(k, above);
-    for (let k = layers.length - 2; k >= 0; k--) sweep(k, below);
-    const count = crossings();
-    if (count < fewest) { fewest = count; best = layers.map((entries) => [...entries]); }
+  // Depth first from the top layer, in the given order: an entry joins its layer when the walk meets it.
+  const walked = start.map(() => []), seen = new Set();
+  const visit = (id) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    walked[layerOf.get(id)].push(id);
+    for (const other of below.get(id) || []) visit(other);
+  };
+  start.forEach((entries) => entries.forEach(visit));
+  const firsts = layerOf.size > WM_SWEEPS.large ? [start] : [start, walked, start.map((entries) => [...entries].reverse())];
+  let result = null;
+  for (const first of firsts) {
+    const tried = run(first);
+    if (!result || tried.crossings < result.crossings) result = tried;
+    if (!result.crossings) break;
   }
-  const verifiersOf = (id) => work.filter((other) => docked.get(other) === id);
-  return {
-    layers: best.map((entries) => entries.map((id) => (lanes.has(id) ? { id, lane: true }
-      : { id, lane: false, verifiers: verifiersOf(id) }))),
-    layer: Object.fromEntries([...layerOf].filter(([id]) => !lanes.has(id))),
-    docked: Object.fromEntries(docked), via, derived, crossings: fewest,
+  return result;
+}
+
+// Where the ends that meet one side of a box w px wide sit, from its left edge, in the order given:
+// each as near the x of its other end (`targets`, from the same left edge) as the side allows, so an
+// edge whose other end lies above or below the box runs straight, at least portGap apart (closer only
+// on a crowded side) and clear of the rounded corners. Pool-adjacent-violators on each target less
+// its share of the gaps, then clamped into the side, which keeps the order and the spacing.
+function wmPorts(targets, w, scale = 1) {
+  const n = targets.length, margin = Math.min(WM_GEOM.portMargin * scale, w / 2);
+  const gap = n > 1 ? Math.min(WM_GEOM.portGap * scale, (w - 2 * margin) / (n - 1)) : 0;
+  const blocks = [];  // [sum, count]
+  targets.forEach((target, i) => {
+    blocks.push([target - i * gap, 1]);
+    while (blocks.length > 1 && blocks.at(-2)[0] / blocks.at(-2)[1] > blocks.at(-1)[0] / blocks.at(-1)[1]) {
+      const [sum, count] = blocks.pop();
+      blocks.at(-1)[0] += sum; blocks.at(-1)[1] += count;
+    }
+  });
+  const at = [];
+  for (const [sum, count] of blocks) {
+    const start = Math.min(w - margin - (n - 1) * gap, Math.max(margin, sum / count));
+    for (let j = 0; j < count; j++) at.push(start + at.length * gap);
+  }
+  return at;
+}
+
+// How much height a curve that runs dx px across needs to bend smoothly: most of it for a short step,
+// a fifth of the rest beyond, up to WM_GEOM.bend.
+function wmBend(dx) {
+  return dx < 1 ? 0 : Math.min(WM_GEOM.bend, 0.6 * dx, 20 + dx / 5);
+}
+
+// The places across and the gaps. Each entry's left edge x (px at 100 %) is where the segments' runs
+// across (the x of the upper port less the x of the lower one) cost least: first the weighted sum of
+// their squares, a long edge's segments weighing more (2 beside a node, 8 between two lanes, as in
+// dot) and a segment with room to bend under short boxes less; then, with the ports aimed as they will
+// be drawn, the weighted sum of the runs themselves (squares reweighted by each run, WM_GEOM.passes
+// times), which settles where most edges run straight rather than where all run a little across. A
+// layer is solved exactly with its order and spacing kept (pool-adjacent-violators on the positions
+// less their offsets), within the width of the widest layer, so placing never widens the map; sweeps
+// down and up repeat that until nothing moves. Then whole px, and a box a few px off its main line
+// snaps onto it. Then the gap above each layer: its incoming curves, grouped into zones whose spans
+// overlap (wmZones), need WM_GEOM.stub for the straight end (twice when an arrowhead points up into
+// the layer above), wmBend to bend and the height of their levels, less what a zone gets from the
+// boxes above it being shorter than that layer's tallest (planned heights); an edge between two
+// groups of the layer above dips below it. The gap is the next step of WM_GEOM.gaps at or above the
+// largest need, or the last.
+function wmPlace(order, segments, widthOf, heightOf, isLane, beside) {
+  const sep = (a, b) => (isLane(a) && isLane(b) ? WM_GEOM.sepLanes : isLane(a) || isLane(b) ? WM_GEOM.sepLane : WM_GEOM.sep);
+  const offsets = order.map((entries) => {
+    let at = 0;
+    return entries.map((id, i) => { if (i) at += widthOf(entries[i - 1]) + sep(entries[i - 1], id); return at; });
+  });
+  const packed = order.map((entries, k) => (entries.length ? offsets[k].at(-1) + widthOf(entries.at(-1)) : 0));
+  const width = Math.max(0, ...packed);
+  const x = new Map(), pos = new Map();
+  order.forEach((entries, k) => entries.forEach((id, i) => { x.set(id, (width - packed[k]) / 2 + offsets[k][i]); pos.set(id, i); }));
+  // Ports: the segments at each side of an entry in the order of their other ends, spread about the
+  // middle while the places are found (`aligned` false), then each toward its lane, or toward the
+  // middle between its box and the other, as workmapRoutes puts them.
+  const port = new Map();  // segment -> [offset at its upper end, offset at its lower end]
+  const sides = new Map();
+  const side = (key, segment, other) => { if (!sides.has(key)) sides.set(key, []); sides.get(key).push([segment, other]); };
+  segments.forEach((segment) => { side(segment.upper + "\nfoot", segment, segment.lower); side(segment.lower + "\ntop", segment, segment.upper); port.set(segment, [0, 0]); });
+  for (const list of sides.values()) list.sort((p, q) => pos.get(p[1]) - pos.get(q[1]) || p[0].link - q[0].link);
+  const spread = (aligned) => {
+    for (const [key, list] of sides) {
+      const [id, where] = key.split("\n");
+      const aim = (other) => (isLane(other) ? x.get(other) : (x.get(other) + widthOf(other) / 2 + x.get(id) + widthOf(id) / 2) / 2);
+      const at = wmPorts(list.map(([, other]) => (aligned ? aim(other) - x.get(id) : widthOf(id) / 2)), widthOf(id));
+      list.forEach(([segment], i) => { port.get(segment)[where === "foot" ? 0 : 1] = at[i]; });
+    }
   };
+  spread(false);
+  // A segment that bends under boxes shorter than its layer's tallest has that much more height to
+  // bend in (its zone bends from right under the lowest box over it, wmZones), so running across costs
+  // it less: its weight falls with that room, measured over the span it runs across now.
+  const tallest = order.map((entries) => Math.max(0, ...entries.map(heightOf)));
+  const layerAt = new Map();
+  order.forEach((entries, k) => entries.forEach((id) => layerAt.set(id, k)));
+  const terms = new Map([...x.keys()].map((id) => [id, []])), weight = new Map();
+  const across = (segment) => x.get(segment.upper) + port.get(segment)[0] - x.get(segment.lower) - port.get(segment)[1];
+  const weigh = () => {
+    for (const segment of segments) {
+      const lanes = isLane(segment.upper) + isLane(segment.lower), k = layerAt.get(segment.upper);
+      const top = x.get(segment.upper) + port.get(segment)[0], bottom = top - across(segment);
+      const lo = Math.min(top, bottom) - WM_GEOM.clear, hi = Math.max(top, bottom) + WM_GEOM.clear;
+      let over = 0;
+      for (const id of order[k]) if (!isLane(id) && x.get(id) < hi && x.get(id) + widthOf(id) > lo) over = Math.max(over, heightOf(id));
+      const room = tallest[k] - over;
+      weight.set(segment, (lanes === 2 ? 8 : lanes ? 2 : 1) * (WM_GEOM.room / (WM_GEOM.room + room)) ** 2);
+    }
+  };
+  for (const segment of segments) {
+    terms.get(segment.upper).push([segment, true]);
+    terms.get(segment.lower).push([segment, false]);
+  }
+  weigh();
+  let reweigh = () => 1;
+  const solve = (k) => {
+    const entries = order[k];
+    if (!entries.length) return 0;
+    const blocks = [];  // [weight, weight x target, count]: pools of entries that move together
+    entries.forEach((id, i) => {
+      let total = 0, sum = 0;
+      for (const [segment, upper] of terms.get(id)) {
+        const w = weight.get(segment) * reweigh(segment);
+        total += w;
+        sum += w * (upper ? x.get(id) - across(segment) : x.get(id) + across(segment));
+      }
+      if (!total) { total = 1e-9; sum = total * x.get(id); }
+      blocks.push([total, sum - total * offsets[k][i], 1]);
+      while (blocks.length > 1 && blocks.at(-2)[1] / blocks.at(-2)[0] > blocks.at(-1)[1] / blocks.at(-1)[0]) {
+        const pool = blocks.pop();
+        blocks.at(-1)[0] += pool[0]; blocks.at(-1)[1] += pool[1]; blocks.at(-1)[2] += pool[2];
+      }
+    });
+    let i = 0, moved = 0;
+    for (const [total, sum, count] of blocks) {
+      const start = Math.min(width - packed[k], Math.max(0, sum / total));
+      for (let j = 0; j < count; j++, i++) {
+        moved = Math.max(moved, Math.abs(x.get(entries[i]) - (start + offsets[k][i])));
+        x.set(entries[i], start + offsets[k][i]);
+      }
+    }
+    return moved;
+  };
+  const settle = (rounds) => {
+    for (let round = 0; round < rounds; round++) {
+      let moved = 0;
+      for (let k = 0; k < order.length; k++) moved = Math.max(moved, solve(k));
+      for (let k = order.length - 1; k >= 0; k--) moved = Math.max(moved, solve(k));
+      if (moved < 0.25) break;
+    }
+  };
+  settle(40);
+  // Then with the ports where they will be drawn (aimed, so two boxes that overlap enough meet
+  // straight however they are offset), and toward the least total run across rather than the least
+  // squares (iteratively reweighted): each segment's weight is divided by how far it runs across, so
+  // the places settle where most edges run straight and a few run far, not where every edge runs a
+  // little across into a kink.
+  for (let pass = 0; pass < WM_GEOM.passes; pass++) {
+    spread(true);
+    weigh();
+    const now = new Map(segments.map((segment) => [segment, 1 / Math.max(WM_GEOM.floor, Math.abs(across(segment)))]));
+    reweigh = (segment) => now.get(segment);
+    settle(20);
+  }
+  // Whole px, the spacing kept: the stylesheet places by whole px at 100 %.
+  order.forEach((entries, k) => {
+    const start = Math.min(width - packed[k], Math.max(0, Math.round(entries.length ? x.get(entries[0]) : 0)));
+    entries.forEach((id, i) => x.set(id, i ? Math.max(Math.round(x.get(id)), x.get(entries[i - 1]) + widthOf(entries[i - 1])
+      + sep(entries[i - 1], id)) : start));
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const room = i + 1 < entries.length ? x.get(entries[i + 1]) - sep(entries[i], entries[i + 1]) : width;
+      x.set(entries[i], Math.min(x.get(entries[i]), room - widthOf(entries[i])));
+    }
+  });
+  // Then a box a few px off the line of the entry most of its segments from above come from moves onto
+  // it, if its neighbours leave room or are lanes it can push along: a jog of a few px in a tight gap
+  // reads as a kink. Top down, so a chain once straight stays straight.
+  const fromAbove = new Map();
+  for (const segment of segments) {
+    if (!fromAbove.has(segment.lower)) fromAbove.set(segment.lower, []);
+    fromAbove.get(segment.lower).push(segment);
+  }
+  const shift = (entries, i, d) => {
+    const moves = [[i, x.get(entries[i]) + d]], way = Math.sign(d);
+    for (let j = i + way; j >= 0 && j < entries.length; j += way) {
+      const [near, at] = moves.at(-1), other = entries[j];
+      const room = way < 0 ? at - sep(other, entries[near]) - widthOf(other) : at + widthOf(entries[near]) + sep(entries[near], other);
+      if (way < 0 ? x.get(other) <= room : x.get(other) >= room) break;
+      if (!isLane(other)) return;
+      moves.push([j, room]);
+    }
+    const [end, at] = moves.at(-1);
+    if (at < 0 || at + widthOf(entries[end]) > width) return;
+    for (const [j, place] of moves) x.set(entries[j], place);
+  };
+  for (const entries of order) {
+    entries.forEach((id, i) => {
+      const above = fromAbove.get(id) || [], by = new Map();
+      for (const segment of above) by.set(segment.upper, [...(by.get(segment.upper) || []), segment]);
+      const main = [...by.values()].sort((p, q) => q.length - p.length)[0];
+      if (!main || (above.length > 1 && main.length * 2 <= above.length)) return;
+      const d = Math.round(main.reduce((sum, segment) => sum + x.get(segment.upper) + port.get(segment)[0]
+        - x.get(id) - port.get(segment)[1], 0) / main.length);
+      if (d && Math.abs(d) <= WM_GEOM.snap) shift(entries, i, d);
+    });
+  }
+  spread(true);
+  const curves = order.map(() => []);
+  for (const segment of segments) {
+    const top = x.get(segment.upper) + port.get(segment)[0], bottom = x.get(segment.lower) + port.get(segment)[1];
+    curves[layerAt.get(segment.lower)].push({ top, bottom, lo: Math.min(top, bottom), hi: Math.max(top, bottom),
+                                              dx: Math.abs(top - bottom), rising: segment.rising });
+  }
+  const gaps = order.map((entries, k) => {
+    if (!k) return 0;
+    let need = beside.has(k - 1) ? WM_GEOM.stub + 0.75 * WM_GEOM.dip + 4 : WM_GEOM.gaps[0];
+    for (const zone of wmZones(curves[k])) {
+      const under = order[k - 1].filter((id) => !isLane(id) && x.get(id) < zone.hi + WM_GEOM.clear
+        && x.get(id) + widthOf(id) > zone.lo - WM_GEOM.clear);
+      const room = tallest[k - 1] - Math.max(0, ...under.map(heightOf));
+      // An arrowhead under the layer above needs its straight end below the box it enters as well.
+      const rising = zone.curves.some((curve) => curve.rising) ? WM_GEOM.stub + 1 : 0;
+      const levels = Math.min(WM_GEOM.levels, zone.levels) - 1;
+      need = Math.max(need, WM_GEOM.stub + 2 + rising + Math.max(4, wmBend(zone.dx)) + WM_GEOM.level * levels - room);
+    }
+    return WM_GEOM.gaps.find((gap) => gap >= need - 0.5) || WM_GEOM.gaps.at(-1);
+  });
+  return { x, gaps, width };
+}
+
+// Curves grouped into zones whose spans [lo, hi] overlap (with a margin): the curves of one zone bend
+// between the same two heights. In a zone without a crossing, curves that run across the same way with
+// overlapping spans take different levels, so the middles where they run nearly flat never lie on one
+// line: going right, the one whose top end is further right runs higher; going left, the one whose top
+// end is further left. So staggered, two curves whose ends keep their order still never cross. A curve is
+// {lo, hi, dx, top, bottom}: its span, how far it runs across, the x of its upper and of its lower end;
+// it gets its `level`, and a zone its `levels` (at least 1) and `dx`, the farthest any curve runs.
+function wmZones(curves, margin = 2) {
+  const zones = [];
+  for (const curve of [...curves].sort((p, q) => p.lo - q.lo)) {
+    const zone = zones.at(-1);
+    if (zone && curve.lo <= zone.hi + margin) {
+      zone.hi = Math.max(zone.hi, curve.hi);
+      zone.dx = Math.max(zone.dx, curve.dx);
+      zone.curves.push(curve);
+    } else {
+      zones.push({ lo: curve.lo, hi: curve.hi, dx: curve.dx, curves: [curve] });
+    }
+  }
+  for (const zone of zones) {
+    zone.levels = 1;
+    for (const curve of zone.curves) curve.level = 0;
+    // Two curves whose ends are in opposite orders cross; with one profile they cross once, staggered
+    // they could weave, so a zone with a crossing keeps one profile.
+    const crossed = zone.curves.some((p, i) => zone.curves.some((q, j) => j > i && (p.top - q.top) * (p.bottom - q.bottom) < 0));
+    if (crossed) continue;
+    for (const right of [true, false]) {
+      const run = zone.curves.filter((curve) => (right ? curve.bottom - curve.top : curve.top - curve.bottom) > 0.5)
+        .sort((p, q) => (right ? q.top - p.top : p.top - q.top));
+      run.forEach((curve, i) => {
+        for (let j = 0; j < i; j++) {
+          if (run[j].lo <= curve.hi + margin && curve.lo <= run[j].hi + margin) curve.level = Math.max(curve.level, run[j].level + 1);
+        }
+        zone.levels = Math.max(zone.levels, curve.level + 1);
+      });
+    }
+  }
+  return zones;
+}
+
+// The route of every edge, from measured boxes (px in the stage). `list`: workmapEdgeList's edges;
+// `geo`: rows (each layer's band {t, b}, top to bottom), card(id) (a node's own box, a pill's too),
+// group(id) (a card with its tray), lane(id) (a lane's x) and scale (the zoom, 1 at 100 %). Boxes are
+// {l, t, r, b}. Every edge leaves and enters a box vertically: down from the foot of a group, under
+// its tray (a docked verifier's edges leave its group's foot), into the top of a card, through a lane
+// in each layer between, and the other way up for an edge that climbs; an edge between two groups of
+// one layer runs below it, foot to foot, and one inside a tray on the tray's right. The ends that share
+// a side are spread along it (wmPorts) in the order of their other ends, so no two cross at a box,
+// each aimed at its lane or at the middle between the two boxes. Between two layers the curves of one
+// zone (wmZones: curves whose spans overlap) run between the same two heights, each a cubic with
+// vertical tangents and the same pull, staggered by level where none of them cross: two such curves
+// whose ends keep their order never meet, and two whose ends swap meet once, so the drawing crosses
+// where the layer order does and nowhere else. A zone bends from right under the lowest box above it,
+// so an edge from a short card curves at once instead of falling to the foot of the layer's tallest
+// group first; nothing bends beside a box, so no curve passes through a card or a tray. Each edge ends
+// in a straight piece WM_GEOM.stub px long, so its arrowhead lies along it. Returns per edge its kind,
+// its steps (["M", x, y], ["V", y], ["H", x], ["C", x1, y1, x2, y2, x, y]) and their path data `d`.
+function workmapRoutes(list, layout, geo) {
+  const stub = WM_GEOM.stub, clear = WM_GEOM.clear * geo.scale;
+  const hostOf = (id) => layout.docked[id] || id;
+  const rowGroups = layout.layers.map((entries) => entries.filter((entry) => !entry.lane).map((entry) => entry.id));
+  const middle = (box) => (box.l + box.r) / 2;
+  const routes = list.map((edge, canon) => {
+    const start = hostOf(edge.start), end = hostOf(edge.end), a = layout.layer[start], b = layout.layer[end];
+    const kind = start === end ? "tray" : a < b ? "down" : a > b ? "up" : "beside";
+    return { edge, canon, start, end, a, b, kind, via: kind === "down" || kind === "up" ? edge.via || [] : [], ports: [] };
+  }).filter((route) => route.a !== undefined && route.b !== undefined);
+  // Ports: [x, y] of each end, spread along the side it meets; an end aims at its lane's x, or, between
+  // two boxes, at the middle between theirs, where both can meet.
+  const sides = new Map();
+  const claim = (id, where, route, end, other, lane) => {
+    const key = id + "\n" + where, own = middle(geo.group(id));
+    if (!sides.has(key)) sides.set(key, []);
+    sides.get(key).push({ route, end, other, aim: lane ? other : (own + other) / 2 });
+  };
+  for (const route of routes) {
+    const lanes = route.via.length > 0;
+    const after = lanes ? geo.lane(route.via[0]) : middle(geo.group(route.end));
+    const before = lanes ? geo.lane(route.via.at(-1)) : middle(geo.group(route.start));
+    if (route.kind === "down") { claim(route.start, "foot", route, 0, after, lanes); claim(route.end, "top", route, 1, before, lanes); }
+    if (route.kind === "up") { claim(route.start, "top", route, 0, after, lanes); claim(route.end, "foot", route, 1, before, lanes); }
+    if (route.kind === "beside") { claim(route.start, "foot", route, 0, after, false); claim(route.end, "foot", route, 1, before, false); }
+  }
+  for (const [key, ends] of sides) {
+    const [id, where] = key.split("\n"), box = where === "foot" ? geo.group(id) : geo.card(id);
+    ends.sort((p, q) => p.other - q.other || p.route.canon - q.route.canon);
+    const at = wmPorts(ends.map((item) => item.aim - box.l), box.r - box.l, geo.scale);
+    ends.forEach((item, i) => { item.route.ports[item.end] = [box.l + at[i], where === "foot" ? box.b + 1 : box.t - 1]; });
+  }
+  // The channels between layers: what crosses each (k: between row k and row k + 1), as curves.
+  const channels = new Map();
+  for (const route of routes) {
+    if (route.kind !== "down" && route.kind !== "up") continue;
+    const xs = [route.ports[0][0], ...route.via.map((id) => geo.lane(id)), route.ports[1][0]];
+    const step = route.kind === "down" ? 1 : -1;
+    route.curves = xs.slice(1).map((x, i) => {
+      const row = route.a + i * step, k = step > 0 ? row : row - 1;
+      const [top, bottom] = step > 0 ? [xs[i], x] : [x, xs[i]];
+      const curve = { k, top, bottom, lo: Math.min(top, bottom), hi: Math.max(top, bottom), dx: Math.abs(top - bottom),
+                      rising: step < 0 && i + 2 === xs.length ? route.end : null };
+      if (!channels.has(k)) channels.set(k, []);
+      channels.get(k).push(curve);
+      return curve;
+    });
+  }
+  for (const [k, curves] of channels) {
+    const upper = geo.rows[k], lower = geo.rows[k + 1];
+    if (!upper || !lower) continue;
+    for (const zone of wmZones(curves)) {
+      let y0 = upper.t;
+      for (const id of rowGroups[k]) {
+        const box = geo.group(id);
+        if (box.l < zone.hi + clear && box.r > zone.lo - clear) y0 = Math.max(y0, box.b + 1);
+      }
+      for (const curve of zone.curves) if (curve.rising) y0 = Math.max(y0, geo.group(curve.rising).b + 1 + stub);
+      // A gap planned too small for both ends gives up the straight end before it gives up a box.
+      const y1 = Math.max(lower.t - stub - 1, y0 + 2);
+      // Levels take less than half the zone's height, so a curve that ends where another starts (a lane
+      // over a lane) never runs down the same line as it: the two cross, as their order says.
+      const step = zone.levels > 1 ? Math.min(WM_GEOM.level * geo.scale, 0.4 * (y1 - y0) / (zone.levels - 1)) : 0;
+      // The pull grows with how far the zone's curves run across, so a long one bends round rather than
+      // sharp; short of the whole height, so two curves that cross still cross at an angle.
+      const h = y1 - y0 - step * (zone.levels - 1), pull = Math.min(WM_GEOM.pull, 0.5 + zone.dx / (4 * h)) * h;
+      for (const curve of zone.curves) {
+        const ya = y0 + step * curve.level;
+        Object.assign(curve, { y0, y1, ya, yb: ya + h, pull });
+      }
+    }
+  }
+  for (const route of routes) {
+    const steps = [];
+    if (route.kind === "down" || route.kind === "up") {
+      const down = route.kind === "down";
+      let y = route.ports[0][1];
+      steps.push(["M", route.ports[0][0], y]);
+      for (const curve of route.curves) {
+        const [fromX, fromY, toX, toY] = down ? [curve.top, curve.ya, curve.bottom, curve.yb] : [curve.bottom, curve.yb, curve.top, curve.ya];
+        if (Math.abs(fromY - y) > 0.05) steps.push(["V", fromY]);
+        const reach = down ? curve.pull : -curve.pull;
+        steps.push(["C", fromX, fromY + reach, toX, toY - reach, toX, toY]);
+        y = toY;
+      }
+      steps.push(["V", route.ports[1][1]]);
+    } else if (route.kind === "beside") {
+      // Below the layer, from foot to foot: down, a shallow dip, and straight up into the other foot.
+      const [[sx, sy], [ex, ey]] = route.ports, lo = Math.min(sx, ex), hi = Math.max(sx, ex);
+      let floor = Math.max(sy, ey);
+      for (const id of rowGroups[route.a]) {
+        const box = geo.group(id);
+        if (box.l < hi + clear && box.r > lo - clear) floor = Math.max(floor, box.b + 1);
+      }
+      const y = floor + stub, below = geo.rows[route.a + 1];
+      const dip = Math.max(2, Math.min(WM_GEOM.dip * geo.scale, below ? (below.t - 2 - y) / 0.75 : Infinity));
+      steps.push(["M", sx, sy], ["V", y], ["C", sx, y + dip, ex, y + dip, ex, y], ["V", ey]);
+    } else {
+      // Inside one tray: out of the start's right side, round the tray's right edge, straight into the end's.
+      const from = geo.card(route.edge.start), to = geo.card(route.edge.end), box = geo.group(route.start);
+      const sy = (from.t + from.b) / 2, ey = (to.t + to.b) / 2, out = Math.max(to.r + 1 + stub, from.r + 2, box.r + 2);
+      steps.push(["M", from.r + 1, sy], ["H", out], ["C", out + 8, sy, out + 8, ey, out, ey], ["H", to.r + 1]);
+    }
+    const r = (value) => Math.round(value * 10) / 10;
+    route.steps = steps;
+    route.d = steps.map(([op, ...values]) => op + values.map(r).join(" ")).join("");
+  }
+  return routes;
 }
 
 // The critical path, the longest remaining chain without durations (the map holds none): along
@@ -7305,24 +7827,29 @@ function renderWorkmapGraph(view) {
     const caption = isGoalLayer ? "Goal" : `Step ${index + 1} of ${steps}`;
     const row = node("li", layers, null, "wm-layer");
     row.setAttribute("aria-label", caption);
+    if (index) row.dataset.gap = String(view.layout.gaps[index]);
     node("span", row, caption, "wm-layer-cap wm-h").setAttribute("aria-hidden", "true");
+    let end = 0;  // where the entry before ends, px at 100 %
     for (const entry of entries) {
+      let placed;
       if (entry.lane) {
-        const lane = node("span", row, null, "wm-lane");
-        lane.id = entry.id;
-        lane.setAttribute("aria-hidden", "true");
-        continue;
+        placed = node("span", row, null, "wm-lane");
+        placed.id = entry.id;
+        placed.setAttribute("aria-hidden", "true");
+      } else {
+        const item = view.index.byId.get(entry.id);
+        placed = node("div", row, null, "wm-group");
+        placed.dataset.kind = item.kind;
+        placed.dataset.id = item.id;
+        placed.appendChild(workmapCard(view, item, false));
+        if (entry.verifiers.length) {
+          const tray = node("ul", placed, null, "wm-verifiers");
+          tray.setAttribute("aria-label", "Verifiers of " + item.title);
+          for (const id of entry.verifiers) node("li", tray).appendChild(workmapCard(view, view.index.byId.get(id), true));
+        }
       }
-      const item = view.index.byId.get(entry.id);
-      const group = node("div", row, null, "wm-group");
-      group.dataset.kind = item.kind;
-      group.dataset.id = item.id;
-      group.appendChild(workmapCard(view, item, false));
-      if (entry.verifiers.length) {
-        const tray = node("ul", group, null, "wm-verifiers");
-        tray.setAttribute("aria-label", "Verifiers of " + item.title);
-        for (const id of entry.verifiers) node("li", tray).appendChild(workmapCard(view, view.index.byId.get(id), true));
-      }
+      wmOffset(placed, entry.x - end);
+      end = entry.x + entry.w;
     }
   });
   // Every card's size is watched, as the canvas's is: a card that grows or shrinks between repaints
@@ -7332,6 +7859,14 @@ function renderWorkmapGraph(view) {
     wmResized.observe($("wm-canvas"));
     for (const card of wm.cards.values()) wmResized.observe(card);
   }
+}
+
+// An entry's offset from the one before it in its layer, px at 100 %, one digit per attribute (data-x0
+// the ones to data-x4 the ten thousands): the stylesheet sums them and scales the sum with the zoom,
+// so the script writes no style.
+function wmOffset(element, px) {
+  let rest = Math.max(0, Math.min(99999, Math.round(px)));
+  for (let digit = 0; rest; digit++, rest = Math.floor(rest / 10)) if (rest % 10) element.dataset["x" + digit] = String(rest % 10);
 }
 
 // One node as a card (or, docked under the node it verifies, a pill). Its state row is hidden from
@@ -7490,13 +8025,6 @@ function drawWorkmapEdges() {
              cx: left + own.width / 2, cy: top + own.height / 2 };
   };
   const cards = wm.cards;
-  const isPill = (id) => cards.get(id).classList.contains("wm-pill");
-  // A docked verifier belongs to the group of the card it docks under.
-  const hostOf = (id) => (isPill(id) && wm.view.layout.docked[id]) || id;
-  // Where an edge leaves a node: the whole group, so that it starts under the verifier tray.
-  const outBox = (id) => box(isPill(id) ? cards.get(id) : cards.get(id).parentElement);
-  const groupBox = (id) => box(cards.get(hostOf(id)).parentElement);
-  const inBox = (id) => box(cards.get(id));
   const n = (value) => Math.round(value * 10) / 10;
   const draw = (type, d, ends, marker, extra = "") => {
     const path = svgNode("path", layer, { class: ("wm-edge " + extra).trim(), d });
@@ -7522,68 +8050,14 @@ function drawWorkmapEdges() {
       }
     });
   }
-  const drawn = workmapEdgeList(wm.view).filter((edge) => cards.has(edge.start) && cards.has(edge.end)).map((edge) => {
-    const b = inBox(edge.end);
-    // `ports`: the node whose side each end is spread along. An edge from a docked verifier to a
-    // card below leaves the foot of its group, spread with the group card's own edges, instead of
-    // the pill's side, from where it would sweep back under its own tray.
-    let a = outBox(edge.start), sides, ports = [edge.start, edge.end];
-    if (isPill(edge.start) && !isPill(edge.end) && b.t >= groupBox(edge.start).b - 1) {
-      a = groupBox(edge.start);
-      ports = [hostOf(edge.start), edge.end];
-      sides = ["bottom", "top"];
-    } else if (isPill(edge.start) && isPill(edge.end)) sides = ["right", "right"];
-    else if (isPill(edge.start)) sides = ["right", b.t >= a.b ? "top" : "bottom"];
-    else if (b.t >= a.b - 1) sides = ["bottom", "top"];
-    else if (a.t >= b.b - 1) sides = ["top", "bottom"];
-    else sides = a.cx < b.cx ? ["right", "left"] : ["left", "right"];
-    // An edge that climbs leaves the card itself and arrives under the other node's tray.
-    const from = sides[0] === "top" ? inBox(edge.start) : a;
-    const to = sides[1] === "bottom" ? outBox(edge.end) : b;
-    return { edge, sides, from, to, ports };
-  });
-  // Spread the ends that share one side of one node, ordered by where their other end sits.
-  const ports = new Map();
-  const claim = (id, side, item, other) => {
-    const key = `${id}|${side}`;
-    if (!ports.has(key)) ports.set(key, []);
-    ports.get(key).push({ item, other });
-  };
-  for (const item of drawn) {
-    claim(item.ports[0], item.sides[0], item, item.to.cx);
-    claim(item.ports[1], item.sides[1], item, item.from.cx);
-  }
-  const at = (id, side, item, target) => {
-    const list = ports.get(`${id}|${side}`).sort((p, q) => p.other - q.other);
-    const share = (list.findIndex((entry) => entry.item === item) + 1) / (list.length + 1);
-    if (side === "top" || side === "bottom") return [target.l + target.w * (0.16 + 0.68 * share), side === "top" ? target.t - 1 : target.b + 1];
-    return [side === "right" ? target.r + 1 : target.l - 1, target.t + target.h * share];
-  };
-  // Control points sit straight out from the side an end is on, so a line always meets its node at a
-  // right angle and an arrowhead never lies along a border.
-  const OUT = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
-  const curve = (x1, y1, side1, x2, y2, side2) => {
-    const flat = (side) => side === "left" || side === "right";
-    const span = flat(side1) && flat(side2) ? Math.abs(x2 - x1) : Math.abs(y2 - y1);
-    const reach = flat(side1) && flat(side2) && side1 === side2 ? 18 : Math.max(18, span / 2);
-    return `C${n(x1 + OUT[side1][0] * reach)} ${n(y1 + OUT[side1][1] * reach)} `
-      + `${n(x2 + OUT[side2][0] * reach)} ${n(y2 + OUT[side2][1] * reach)} ${n(x2)} ${n(y2)}`;
-  };
-  for (const item of drawn) {
-    const [side1, side2] = item.sides;
-    const [x1, y1] = at(item.ports[0], side1, item, item.from);
-    const [x2, y2] = at(item.ports[1], side2, item, item.to);
-    let d = `M${n(x1)} ${n(y1)}`, x = x1, y = y1, side = side1;
-    // A long edge runs straight down the lane kept free for it in each layer it crosses.
-    for (const id of (side1 === "bottom" && side2 === "top" && item.edge.via) || []) {
-      const lane = document.getElementById(id);
-      if (!lane) continue;
-      const slot = box(lane);
-      d += curve(x, y, side, slot.cx, slot.t, "top") + `V${n(slot.b)}`;
-      [x, y, side] = [slot.cx, slot.b, "bottom"];
-    }
-    draw(item.edge.type, d + curve(x, y, side, x2, y2, side2), [item.edge.start, item.edge.end], item.edge.marker,
-         item.edge.path ? "is-path" : "");
+  // Every other edge as workmapRoutes lays it, from the boxes as drawn: a layer's row, a card, a group
+  // (a docked verifier's is the group it docks in) and a lane.
+  const groupOf = (id) => cards.get(wm.view.layout.docked[id] || id).parentElement;
+  const geo = { scale: wm.zoom / 100, rows: [...$("wm-layers").children].map(box), card: (id) => box(cards.get(id)),
+    group: (id) => box(groupOf(id)), lane: (id) => { const lane = document.getElementById(id); return lane ? box(lane).cx : 0; } };
+  const edges = workmapEdgeList(wm.view).filter((edge) => cards.has(edge.start) && cards.has(edge.end));
+  for (const route of workmapRoutes(edges, wm.view.layout, geo)) {
+    draw(route.edge.type, route.d, [route.edge.start, route.edge.end], route.edge.marker, route.edge.path ? "is-path" : "");
   }
   highlightWorkmap();
   updateWorkmapMore();
