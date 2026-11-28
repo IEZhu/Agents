@@ -373,6 +373,7 @@ KNOWN_FIXTURE_FILES = {
     "tests/test_schedules_probes.py": "a high-entropy git config value for the sandbox's static git config check",
     "tests/test_schedules_runner.py": "a fake private key header",
     "tests/test_schedules_scan.py": "this scan's own fixtures: a private key header",
+    "tests/test_shared_memory.py": "a fake OpenSSH private key and a fake JWT for the secret filter tests",
     "tests/test_sync_ui.py": "a fake OpenSSH private key",
     "tests/test_user_sync.py": "fake tokens, keys and an SSH public key",
     "tests/test_user_sync_github.py": "a fake gho_ token",
