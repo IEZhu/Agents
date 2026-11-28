@@ -564,11 +564,12 @@ details.persona summary { cursor: pointer; }
       across (workmapLayers): its offset from the entry before it, in px at 100 %, comes one digit per
       attribute, data-x0 the ones to data-x4 the ten thousands, and is scaled here by the zoom, as
       every size is. The gap above a layer (data-gap, px at 100 %, its tens and ones in data-g1 and
-      data-g0) is as tall as the edges that enter it need to bend: 14 px of it hold an edge's straight
-      end and a px either side, fixed above 100 % and scaled below it down to 12, the arrowhead's
-      length and those 2 px; the rest scales. data-foot keeps room under the last layer for the edges
-      that dip below it. A group is a node with the verifiers that check it docked in a tray under it.
-      A lane is a point a long edge passes through, kept clear of every card. */
+      data-g0) is as tall as the edges that enter it need to bend. Its straight end (12 px and a px
+      either side, 26 px where it holds a second straight end: data-heads="2") and the least bend (4
+      px, scaled above 100 %) hold at every zoom; the rest of it scales with the zoom. data-foot and
+      data-head keep room under the last layer and over the first for the edges that dip below the
+      one or run over the other. A group is a node with the verifiers that check it docked in a tray
+      under it. A lane is a point a long edge passes through, kept clear of every card. */
 .wm-layers { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 0;
   width: max-content; margin: 0; padding: 0; list-style: none; }
 .wm-layer { display: flex; align-items: flex-start; }
@@ -584,14 +585,17 @@ details.persona summary { cursor: pointer; }
 [data-x3="6"] { --x3: 6; } [data-x3="7"] { --x3: 7; } [data-x3="8"] { --x3: 8; } [data-x3="9"] { --x3: 9; }
 [data-x4="1"] { --x4: 1; } [data-x4="2"] { --x4: 2; } [data-x4="3"] { --x4: 3; } [data-x4="4"] { --x4: 4; } [data-x4="5"] { --x4: 5; }
 [data-x4="6"] { --x4: 6; } [data-x4="7"] { --x4: 7; } [data-x4="8"] { --x4: 8; } [data-x4="9"] { --x4: 9; }
-.wm-layer[data-gap] { margin-top: calc(clamp(12px, 14px * var(--k), 14px)
-  + (var(--g1, 0) * 10 + var(--g0, 0) - 14) * 1px * var(--k)); }
-.wm-layer[data-gap][data-heads="2"] { margin-top: calc(clamp(12px, 14px * var(--k), 14px) + 12px
-  + (var(--g1, 0) * 10 + var(--g0, 0) - 26) * 1px * var(--k)); }
-.wm-stage[data-tight] .wm-layer[data-gap] { margin-top: calc(clamp(12px, 14px * var(--k), 14px)
-  + (var(--t1, 0) * 10 + var(--t0, 0) - 14) * 1px * var(--k)); }
-.wm-stage[data-tight] .wm-layer[data-gap][data-heads="2"] { margin-top: calc(clamp(12px, 14px * var(--k), 14px) + 12px
-  + (var(--t1, 0) * 10 + var(--t0, 0) - 26) * 1px * var(--k)); }
+.wm-layer[data-gap] { margin-top: calc(14px + max(4px, 4px * var(--k))
+  + (var(--g1, 0) * 10 + var(--g0, 0) - 18) * 1px * var(--k)); }
+.wm-layer[data-gap][data-heads="2"] { margin-top: calc(26px + max(4px, 4px * var(--k))
+  + (var(--g1, 0) * 10 + var(--g0, 0) - 30) * 1px * var(--k)); }
+.wm-stage[data-tight] .wm-layer[data-gap] { margin-top: calc(14px + max(4px, 4px * var(--k))
+  + (var(--t1, 0) * 10 + var(--t0, 0) - 18) * 1px * var(--k)); }
+.wm-stage[data-tight] .wm-layer[data-gap][data-heads="2"] { margin-top: calc(26px + max(4px, 4px * var(--k))
+  + (var(--t1, 0) * 10 + var(--t0, 0) - 30) * 1px * var(--k)); }
+.wm-layer[data-head="1"] { margin-top: calc(15px + 6px * var(--k)); }
+.wm-layer[data-head="2"] { margin-top: calc(15px + 11px * var(--k)); }
+.wm-layer[data-head="3"] { margin-top: calc(15px + 16px * var(--k)); }
 [data-g0="1"] { --g0: 1; } [data-g0="2"] { --g0: 2; } [data-g0="3"] { --g0: 3; } [data-g0="4"] { --g0: 4; } [data-g0="5"] { --g0: 5; }
 [data-g0="6"] { --g0: 6; } [data-g0="7"] { --g0: 7; } [data-g0="8"] { --g0: 8; } [data-g0="9"] { --g0: 9; }
 [data-g1="1"] { --g1: 1; } [data-g1="2"] { --g1: 2; } [data-g1="3"] { --g1: 3; } [data-g1="4"] { --g1: 4; } [data-g1="5"] { --g1: 5; }
@@ -996,7 +1000,7 @@ details.persona summary { cursor: pointer; }
   .wm-layer { flex-direction: column; align-items: stretch; gap: var(--s4); }
   .wm-layer > * { margin-left: 0; }
   .wm-stage .wm-layer[data-gap], .wm-stage[data-tight] .wm-layer[data-gap], .wm-stage .wm-layer[data-gap][data-heads],
-  .wm-stage[data-tight] .wm-layer[data-gap][data-heads] { margin-top: 0; }
+  .wm-stage[data-tight] .wm-layer[data-gap][data-heads], .wm-stage .wm-layer[data-head] { margin-top: 0; }
   .wm-layer[data-foot] { margin-bottom: 0; }
   .wm-layer-cap { display: block; }
   .wm-group, .wm-group[data-kind="goal"] { width: auto; }
@@ -6258,32 +6262,36 @@ const WM_LIST_MAX = 5;  // ids a slot or a sentence names before "and N more"
 const WM_DRAW_MAX = { nodes: 400, lanes: 2000 };
 // Rounds of median sweeps the order may take from each first order (wmOrder), each followed by
 // transposition; above how many entries (nodes and lanes) it starts from the given order only; how many
-// passes of re-sorting and sifting follow the sweeps; and how many shuffled first orders a map of up to
-// `shuffled` entries adds, from `seed`.
-const WM_SWEEPS = { rounds: 24, large: 600, sifts: 4, shuffles: 8, shuffled: 200, seed: 0x2f6b9d3a };
+// passes of re-sorting and sifting follow the sweeps; how many shuffled first orders a map of up to
+// `shuffled` entries adds, from `seed`; and how many crossings a detour costs the order: an edge between
+// two entries of one layer that are not neighbours, which runs over or under the layer.
+const WM_SWEEPS = { rounds: 24, large: 600, sifts: 4, shuffles: 12, shuffled: 200, seed: 0x2f6b9d3a, detour: 2 };
 // The graph's geometry in px at 100 %, which the layout places by and section 6 of the stylesheet
 // draws. card, goal: widths. sep, sepLane, sepLanes: the space between two cards, a card and a lane,
-// two lanes of a layer; sepSide, between two neighbours an edge joins side to side; sepTray, right of
-// a group whose tray holds an edge of its own. gap: the gap above a layer (.wm-layer[data-gap]), from
-// min to max px, and budget, the px per gap that all the gaps of a map take together at most (so that
-// from 75 % up a map is no taller than with the uniform 28 px gap of the layout before, the 14 px of a
-// gap that hold a straight end staying 12 below 86 %). stub: the straight end of every edge; head: the
-// arrowhead's length, which an edge inside a tray keeps straight however little room it has. bend: the
-// most height a curve takes to bend (wmBend).
+// two lanes of a layer; sepSide, between two neighbours an edge joins side to side, and sepPill where
+// one of its ends is a pill (the edge turns between the pill's height and the card's side); sepTray,
+// right of a group whose tray holds an edge of its own. gap: the gap above a layer (.wm-layer[data-gap]),
+// from min to max px, and budget, the px per gap that all the gaps of a map take together at most unless
+// their least takes more (so that from 90 % up a map is no taller than with the uniform 28 px gap of the
+// layout before; below 100 % a gap keeps its straight end and least bend, 18 px, at every zoom). stub: the
+// straight end of every edge, 12 px at every zoom; bendLeast: the least height a curve bends in, at
+// every zoom (more above 100 %); levelLeast: the least height between two staggered levels of a zone
+// within the budget, so curves that run the same way never merge. bend: the most height a curve takes
+// to bend (wmBend).
 // level, levels: the height between staggered curves (wmZones) and how many levels a gap makes room
 // for. snap: how far a box moves onto the line of its main edge; jog: how far an end moves onto the
 // line of its other end. dip, dipLevel: how deep an edge between two groups of a layer that are not
-// neighbours runs below the straight end of its arrowhead, and how much deeper for each dip it passes
-// round. pull: the most a curve's control points reach into its zone, as a share of its height.
-// clear: how far a curve keeps from a box beside it. room: how room to bend lowers a segment's weight.
-// passes, floor: rounds of reweighting toward straight edges, and the smallest run they divide by.
-// portMargin, portGap: where ends meet a side, clear of the corners and apart. cardH, pillH, trayH:
+// neighbours runs below (or over) the straight end of its arrowhead, and how much deeper for each such
+// edge it passes round. pull: the most a curve's control points reach into its zone, as a share of its
+// height. clear: how far a curve keeps from a box beside it. room: how room to bend lowers a segment's
+// weight. passes, floor: rounds of reweighting toward straight edges, and the smallest run they divide
+// by. portMargin, portGap: where ends meet a side, clear of the corners and apart. cardH, pillH, trayH:
 // the heights the gaps are planned with, a card, a pill in a tray and a tray's padding. trayOut: how
 // far an edge inside a tray bulges round its right edge.
-const WM_GEOM = { card: 232, goal: 528, sep: 20, sepLane: 16, sepLanes: 12, sepSide: 28, sepTray: 36,
-  gap: { min: 18, max: 56, budget: 26 }, stub: 12, head: 10, bend: 48, level: 8, levels: 4, snap: 24, jog: 6,
-  dip: 6, dipLevel: 5, pull: 0.7, clear: 8, room: 96, passes: 6, floor: 4, portMargin: 24, portGap: 28,
-  cardH: 72, pillH: 28, trayH: 7, trayOut: 8 };
+const WM_GEOM = { card: 232, goal: 528, sep: 20, sepLane: 16, sepLanes: 12, sepSide: 28, sepPill: 48, sepTray: 36,
+  gap: { min: 18, max: 56, budget: 26 }, stub: 12, bendLeast: 4, levelLeast: 6, bend: 48, level: 8, levels: 4,
+  snap: 24, jog: 6, dip: 6, dipLevel: 5, pull: 0.7, clear: 8, room: 96, passes: 6, floor: 4, portMargin: 24,
+  portGap: 28, cardH: 72, pillH: 28, trayH: 7, trayOut: 8 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 // `gen` drops an answer for a map or node that another one overtook; `listGen` does so for the list.
 const wm = { shown: false, gen: 0, listGen: 0, list: null, open: null, data: null, view: null, node: null,
@@ -6453,27 +6461,69 @@ function workmapReason(item, view, brief = false) {
   return parts.join(", ") || WM_STATUS_WORD[item.status] || item.status;
 }
 
+// The edges as drawn, each from the group of its start to its end, ends in flow order: depends_on and
+// verifies from the prerequisite, supersedes from the newer node, contradicts as stored, then the
+// derived connectors; a docked verifier's own edge is its tray's comb. Edges of one type from one group
+// into one node are one trunk, drawn as one path with one arrowhead, as a tray's comb is: they leave
+// the group's foot together, where a path per edge would only repeat one bend side by side. `key` is
+// the first edge's (payload order), `keys` every edge's, `starts` their starts (the group's node
+// first, then in payload order); an edge inside one tray stays an edge of its own.
+function wmTrunks(edges, known, groupOf, derived) {
+  const trunks = new Map(), list = [];
+  const add = (key, type, start, end) => {
+    const group = groupOf(start), own = group === groupOf(end);
+    const id = own ? key : group + "\n" + end + "\n" + type;
+    let trunk = trunks.get(id);
+    if (!trunk) {
+      trunk = { key, keys: [], type, start, starts: [], end };
+      trunks.set(id, trunk);
+      list.push(trunk);
+    }
+    trunk.keys.push(key);
+    if (!trunk.starts.includes(start)) trunk.starts.push(start);
+    if (start === group) trunk.starts.sort((a, b) => (a === group ? -1 : b === group ? 1 : 0));
+    trunk.start = trunk.starts[0];
+  };
+  for (const edge of edges) {
+    if (!known(edge.from) || !known(edge.to) || edge.from === edge.to) continue;
+    if (edge.type === "verifies" && groupOf(edge.from) === edge.to) continue;
+    const flow = edge.type === "depends_on" || edge.type === "verifies";
+    const [start, end] = flow ? [edge.to, edge.from] : [edge.from, edge.to];
+    add(`${edge.from}|${edge.to}|${edge.type}`, edge.type, start, end);
+  }
+  for (const [from, to] of derived) add(`${from}|${to}|derived`, "derived", from, to);
+  return list;
+}
+
 // The layout: layers top to bottom, the goal last. depends_on {from X, to Y} puts Y above X and
 // verifies {from V, to T} puts T above V; supersedes and contradicts place nothing. A layer is the
 // longest path from a node without predecessors (rounds in the payload's order, which is the text
 // view's), so a status change never moves a card. A verifier docks in a tray under the node it checks
-// when that node is all it follows, and the tray is part of the node's block. Every edge that crosses
-// a layer, placing or not, runs through a lane there: a point that no card covers. An edge between two
-// groups of one layer joins them side to side when they are neighbours and both its ends are cards
-// (`beside` says "side"); any other runs below the layer ("dip"). Within each layer the order is the
-// one with the fewest crossings the sweeps and sifting find, those of the dips included (wmOrder);
-// across, every entry sits where its edges run straightest, at its left edge `x` in px at 100 %, with
-// the side that holds more cards first, and the gap above each layer is as tall as the edges that enter
-// it need to bend (`gaps`) or as the map's height budget allows (`tight`; `heads` 2 where it holds a
-// second straight end); `foot` is the room the last layer's dips take under it (wmPlace). The layout
-// depends on node ids, kinds and edges only, so the same structure always gets the same picture.
-// With one goal and no edge into it, the nodes nothing follows lead to it by a derived connector.
-// A lane's id has an underscore, which no node id may (store.NODE_ID), so no node passes for a lane.
-// A map of more than WM_DRAW_MAX nodes or lanes is not laid out: `omitted` says how large it is.
-function workmapLayers(nodes, edges) {
+// when that node is all it follows, and the tray is part of the node's block. Every trunk (wmTrunks)
+// that crosses a layer, placing or not, runs through a lane there: a point that no card covers. An edge
+// between two groups of one layer joins them side to side when they are neighbours (`beside` says
+// "side"), from a pill's side where an end is a pill; one between groups that are not neighbours runs
+// over the layer ("over") where nothing enters the entries between from above, and under it ("dip")
+// where something does. Within each layer the order is the one with the fewest crossings the sweeps
+// and sifting find, those of the detours included and each detour counted as WM_SWEEPS.detour
+// crossings (wmOrder); across, every entry sits where its edges run straightest, at its left edge `x`
+// in px at 100 %, and the gap above each layer is as tall as the edges that enter it need to bend
+// (`gaps`) or as the map's height budget allows (`tight`, never under `least`; `heads` 2 where it
+// holds a second straight end); `foot` and `head` are the room the dips of the last layer take under
+// it and the edges over the first layer above it (wmPlace). With one goal and no edge into it, the live
+// nodes nothing follows lead to it by a derived connector. The layout depends on node ids, kinds, which
+// nodes are set aside and edges only, so a status change keeps the picture. Given the layout of the
+// map's previous structure (`previous`), the order starts from the places the cards had there and
+// keeps them, and their side, among the orders with the fewest crossings it finds from there; a map
+// opened afresh puts the side that holds more cards first. A lane's id has an underscore, which no node
+// id may (store.NODE_ID), so no node passes for a lane; its `name` (its trunk's key and how many layers
+// below the trunk's top it lies) finds it again in the next layout. A map of more than WM_DRAW_MAX
+// nodes or lanes is not laid out: `omitted` says how large it is.
+function workmapLayers(nodes, edges, previous = null) {
   const ids = nodes.map((item) => item.id), known = new Set(ids);
   const tie = new Map(ids.map((id, index) => [id, index]));
   const isGoal = new Map(nodes.map((item) => [item.id, item.kind === "goal"]));
+  const live = new Set(nodes.filter(wmLive).map((item) => item.id));
   const pred = new Map(ids.map((id) => [id, []])), succ = new Map(ids.map((id) => [id, []]));
   const checks = new Map(ids.map((id) => [id, []]));
   for (const edge of edges) {
@@ -6531,42 +6581,32 @@ function workmapLayers(nodes, edges) {
   const layerOf = rounds(hosts, (id) => groupPred.get(id));
   const last = hosts.length ? Math.max(...layerOf.values()) + 1 : 0;
   for (const id of goals) layerOf.set(id, last);
-  // Derived connectors: one goal that nothing leads into, and the nodes nothing follows.
+  // Derived connectors: one goal that nothing leads into, and the live nodes nothing follows.
   const derived = [];
   if (goals.length === 1 && !pred.get(goals[0]).length) {
-    for (const id of work) if (!succ.get(id).length) derived.push([id, goals[0]]);
+    for (const id of work) if (!succ.get(id).length && live.has(id)) derived.push([id, goals[0]]);
   }
-  // The edges as drawn, each from the group of its start to the group of its end (workmapEdgeList):
-  // depends_on and verifies from the prerequisite, supersedes from the newer node, contradicts as
-  // stored, then the derived connectors. A docked verifier's own edge is its tray's comb.
-  const links = [];
-  for (const edge of edges) {
-    if (!known.has(edge.from) || !known.has(edge.to) || edge.from === edge.to) continue;
-    if (edge.type === "verifies" && docked.get(edge.from) === edge.to) continue;
-    const flow = edge.type === "depends_on" || edge.type === "verifies";
-    const [start, end] = flow ? [edge.to, edge.from] : [edge.from, edge.to];
-    links.push({ key: `${edge.from}|${edge.to}|${edge.type}`, from: groupOf(start), to: groupOf(end), start, end });
-  }
-  for (const [from, to] of derived) links.push({ key: `${from}|${to}|derived`, from: groupOf(from), to, start: from, end: to });
+  const links = wmTrunks(edges, (id) => known.has(id), groupOf, derived).map((trunk) => ({ key: trunk.key,
+    from: groupOf(trunk.start), to: groupOf(trunk.end), start: trunk.start, end: trunk.end, weight: trunk.keys.length }));
   let needed = 0;
   for (const { from, to } of links) needed += Math.max(0, Math.abs(layerOf.get(to) - layerOf.get(from)) - 1);
   if (nodes.length > WM_DRAW_MAX.nodes || needed > WM_DRAW_MAX.lanes) {
-    return { layers: [], layer: {}, docked: {}, via: {}, derived, crossings: 0, gaps: [], tight: [], heads: [], width: 0, foot: 0,
-             beside: {}, omitted: { nodes: nodes.length, lanes: needed } };
+    return { layers: [], layer: {}, docked: {}, via: {}, derived, crossings: 0, gaps: [], tight: [], least: [], heads: [],
+             width: 0, foot: 0, head: 0, beside: {}, omitted: { nodes: nodes.length, lanes: needed } };
   }
   const layers = [];
   const put = (id, k) => { (layers[k] = layers[k] || []).push(id); };
   for (const id of [...hosts, ...goals]) put(id, layerOf.get(id));
   for (let k = 0; k < layers.length; k++) layers[k] = layers[k] || [];
-  // Lanes in every layer an edge crosses, listed in `via` in the order the edge is drawn; the
+  // Lanes in every layer a trunk crosses, listed in `via` in the order the trunk is drawn; the
   // segments between neighbouring layers, upper end first, are what the order and the places weigh,
   // and the edges between two groups of one layer (`flats`) what the order keeps side by side.
-  const via = {}, segments = [], lanes = new Set(), order = new Map(tie), flats = [];
-  links.forEach(({ key, from, to, start, end }, link) => {
+  const via = {}, segments = [], lanes = new Set(), order = new Map(tie), flats = [], names = new Map();
+  links.forEach(({ key, from, to, start, end, weight }, link) => {
     const a = layerOf.get(from), b = layerOf.get(to), step = b > a ? 1 : -1;
     if (from === to) return;  // inside one tray
     if (a === b) {
-      flats.push({ key, from, to, cards: !docked.has(start) && !docked.has(end) });
+      flats.push({ key, from, to, pill: docked.has(start) || docked.has(end) });
       return;
     }
     const points = [from];
@@ -6576,6 +6616,7 @@ function workmapLayers(nodes, edges) {
       put(lane, k);
       order.set(lane, tie.get(from) + 0.5);
       layerOf.set(lane, k);
+      names.set(lane, `${key}#${k - Math.min(a, b)}`);
       points.push(lane);
     }
     points.push(to);
@@ -6583,45 +6624,60 @@ function workmapLayers(nodes, edges) {
     for (let i = 0; i + 1 < points.length; i++) {
       const [upper, lower] = step > 0 ? [points[i], points[i + 1]] : [points[i + 1], points[i]];
       // An edge that climbs ends with its arrowhead under the upper end of its last segment.
-      segments.push({ upper, lower, link, rising: step < 0 && i + 2 === points.length });
+      segments.push({ upper, lower, link, weight, rising: step < 0 && i + 2 === points.length });
     }
   });
-  const ordered = wmOrder(layers.map((entries) => [...entries].sort((p, q) => order.get(p) - order.get(q))), segments, flats);
+  // Where the previous layout drew each entry (the middle of its box, px at 100 %), by card id or lane name.
+  let prior = null;
+  if (previous && previous.layers && previous.layers.length && !previous.omitted) {
+    const drawn = new Map();
+    for (const entry of previous.layers.flat()) drawn.set(entry.lane ? entry.name : entry.id, entry.x + entry.w / 2);
+    prior = new Map();
+    for (const id of [...ids, ...lanes]) {
+      const at = drawn.get(lanes.has(id) ? names.get(id) : id);
+      if (at !== undefined) prior.set(id, at);
+    }
+  }
+  const ordered = wmOrder(layers.map((entries) => [...entries].sort((p, q) => order.get(p) - order.get(q))), segments, flats,
+    prior, (id) => lanes.has(id));
   const verifiersOf = new Map(hosts.map((id) => [id, []]));
   for (const id of work) if (docked.has(id)) verifiersOf.get(docked.get(id)).push(id);
   const widthOf = (id) => (lanes.has(id) ? 0 : isGoal.get(id) ? WM_GEOM.goal : WM_GEOM.card);
   // The planned height of a group: a card, and its tray with a pill per docked verifier.
   const heightOf = (id) => (lanes.has(id) ? 0 : WM_GEOM.cardH
     + (verifiersOf.has(id) && verifiersOf.get(id).length ? WM_GEOM.trayH + WM_GEOM.pillH * verifiersOf.get(id).length : 0));
-  // An edge beside joins two neighbours side to side when both its ends are cards; any other dips.
-  const at = new Map();
-  ordered.order.forEach((entries) => entries.forEach((id, i) => at.set(id, i)));
-  const beside = {}, sides = new Set();
-  for (const flat of flats) {
-    beside[flat.key] = flat.cards && Math.abs(at.get(flat.from) - at.get(flat.to)) === 1 ? "side" : "dip";
-    if (beside[flat.key] === "side") sides.add(flat.from + "\n" + flat.to).add(flat.to + "\n" + flat.from);
-  }
+  // An edge beside joins two neighbours side to side; any other runs over or under the layer, as the order decided.
+  const beside = {}, sides = new Map();
+  flats.forEach((flat, f) => {
+    beside[flat.key] = ordered.ways[f];
+    if (beside[flat.key] !== "side") return;
+    const room = flat.pill ? WM_GEOM.sepPill : WM_GEOM.sepSide;
+    for (const pair of [flat.from + "\n" + flat.to, flat.to + "\n" + flat.from]) {
+      sides.set(pair, Math.max(sides.get(pair) || 0, room));
+    }
+  });
   // Room between two entries: more between neighbours an edge joins side to side, so the line between
-  // them shows past its arrowhead, and right of a group whose tray holds an edge of its own, which
-  // runs round the tray's right edge.
+  // them shows past its arrowhead (and turns, from a pill), and right of a group whose tray holds an
+  // edge of its own, which runs round the tray's right edge.
   const trayed = new Set(links.filter(({ from, to }) => from === to).map(({ from }) => from));
   const sepOf = (a, b) => Math.max(lanes.has(a) && lanes.has(b) ? WM_GEOM.sepLanes : lanes.has(a) || lanes.has(b) ? WM_GEOM.sepLane
-    : WM_GEOM.sep, sides.has(a + "\n" + b) ? WM_GEOM.sepSide : 0, trayed.has(a) ? WM_GEOM.sepTray : 0);
+    : WM_GEOM.sep, sides.get(a + "\n" + b) || 0, trayed.has(a) ? WM_GEOM.sepTray : 0);
   const placed = wmPlace(ordered.order, segments, widthOf, heightOf, (id) => lanes.has(id), sepOf,
-    flats.filter((flat) => beside[flat.key] === "dip"));
-  // The side with more of the cards comes first: a map wider than the canvas opens at its left edge,
-  // and the picture turned round crosses and runs straight just as much.
+    flats.filter((flat) => beside[flat.key] === "dip"), flats.filter((flat) => beside[flat.key] === "over"));
+  // Opened afresh, the side with more of the cards comes first: a map wider than the canvas opens at
+  // its left edge, and the picture turned round crosses and runs straight just as much.
   const cards = ordered.order.flat().filter((id) => !lanes.has(id));
-  if (cards.reduce((sum, id) => sum + placed.x.get(id) + widthOf(id) / 2 - placed.width / 2, 0) > 0.5) {
+  if (!prior && cards.reduce((sum, id) => sum + placed.x.get(id) + widthOf(id) / 2 - placed.width / 2, 0) > 0.5) {
     for (const entries of ordered.order) entries.reverse();
     for (const [id, x] of placed.x) placed.x.set(id, placed.width - x - widthOf(id));
   }
   return {
-    layers: ordered.order.map((entries) => entries.map((id) => (lanes.has(id) ? { id, lane: true, x: placed.x.get(id), w: 0 }
+    layers: ordered.order.map((entries) => entries.map((id) => (lanes.has(id)
+      ? { id, lane: true, name: names.get(id), x: placed.x.get(id), w: 0 }
       : { id, lane: false, verifiers: verifiersOf.get(id) || [], x: placed.x.get(id), w: widthOf(id) }))),
     layer: Object.fromEntries([...layerOf].filter(([id]) => !lanes.has(id))),
     docked: Object.fromEntries(docked), via, derived, crossings: ordered.crossings, gaps: placed.gaps, tight: placed.tight,
-    heads: placed.heads, width: placed.width, foot: placed.foot, beside,
+    least: placed.least, heads: placed.heads, width: placed.width, foot: placed.foot, head: placed.head, beside,
   };
 }
 
@@ -6637,23 +6693,33 @@ function wmMedian(sorted) {
 
 // The order within each layer that crosses the fewest edges. Counted are the segments between
 // neighbouring layers whose ends lie in opposite orders and, for an edge between two entries of one
-// layer that are not neighbours (it runs below the layer), every segment that leaves an entry between
-// its ends and every other such edge whose ends interleave with its own; `spread`, the entries between
-// the ends of the edges beside, breaks a tie, so that neighbours join side to side where the crossings
-// allow. From each of three first orders (the given one, the order a depth-first walk down from the top
-// layer meets the entries in, and the given one reversed): a pass down by the barycentre of each
-// entry's neighbours above, then sweeps up and down by the weighted median of the neighbours on the
-// side swept from (an entry with none there keeps its place), each followed by swaps of neighbours that
-// remove crossings (transposition; every other round also swaps a pair whose crossings tie, which can
-// open a way out), until four rounds in a row find no fewer; then passes, while they find fewer, of
-// re-sorting each layer by its neighbours' barycentre where that crosses no more and of sifting, each
-// entry tried at every place of its layer with the others kept in order and left where it crosses
-// least. A map of up to WM_SWEEPS.shuffled entries also starts from shuffles of the given order by a
-// fixed seed. A tray is part of its node's block, so it moves with it. The order with the fewest
-// crossings wins, then the least spread, then the earlier; the shuffles' seed is fixed, so one
-// structure always gets one order. A map of more than WM_SWEEPS.large entries starts from the given
-// order only and makes one pass.
-function wmOrder(start, segments, flats = []) {
+// layer that are not neighbours (a detour), what its route crosses: over the layer when no segment
+// enters an entry between its ends from above (it then crosses nothing), else under it, where it crosses
+// every segment that leaves an entry between its ends; two detours that take one side and whose ends
+// interleave cross once. The order weighs each detour as WM_SWEEPS.detour crossings besides, so it joins
+// neighbours side to side, a chain of attempts in its order, unless that costs more; `spread`, the
+// entries between the ends of the detours, breaks a tie. From each of three first orders (the given one,
+// the order a depth-first walk down from the top layer meets the entries in, and the given one
+// reversed): a pass down by the barycentre of each entry's neighbours above, then sweeps up and down by
+// the weighted median of the neighbours on the side swept from (an entry with none there keeps its
+// place), each followed by swaps of neighbours that remove crossings (transposition; every other round
+// also swaps a pair whose crossings tie, which can open a way out), until four rounds in a row find no
+// fewer; then passes, while they find fewer, of re-sorting each layer by its neighbours' barycentre where
+// that crosses no more and of sifting, each entry tried at every place of its layer with the others kept
+// in order and left where it crosses least. A map of up to WM_SWEEPS.shuffled entries also starts from
+// shuffles of the given order by a fixed seed. A tray is part of its node's block, so it moves with it.
+// The order with the fewest crossings wins, then the least spread, then the earlier; the shuffles' seed
+// is fixed, so one structure opened afresh always gets one order. Given where the previous layout drew
+// entries (`prior`, the middle of each box by id), the order starts from those places instead (an entry
+// new there just right of the entry an edge joins it to in its layer, else under or over its
+// neighbours): sifting and swaps from there, and the sweeps from there, after a first pass down or up by
+// the barycentre. Of their results with the fewest crossings, each is taken the way round that moves
+// fewer cards and settled toward the previous places wherever that crosses no more, and the one that
+// then moves the fewest cards wins (in each layer, the cards outside the longest run that keeps its
+// previous order), then the least spread. A map of more than WM_SWEEPS.large entries starts from the
+// given order only (or the previous places) and makes one pass of each kind (two of sifting from the
+// previous places). Returns the order, its crossings and, per flat, "side", "over" or "dip".
+function wmOrder(start, segments, flats = [], prior = null, isLane = () => false) {
   const ids = start.flat(), index = new Map(ids.map((id, e) => [id, e])), n = ids.length;
   const layerOf = new Int32Array(n), pos = new Int32Array(n);
   start.forEach((entries, k) => entries.forEach((id) => { layerOf[index.get(id)] = k; }));
@@ -6663,12 +6729,12 @@ function wmOrder(start, segments, flats = []) {
     below[u].push(l);
     above[l].push(u);
   }
-  const flatsOf = start.map(() => []), flatEnd = new Uint8Array(n);
-  for (const { from, to } of flats) {
+  const flatsOf = start.map(() => []), flatEnd = new Uint8Array(n), ways = flats.map(() => "side");
+  flats.forEach(({ from, to }, f) => {
     const a = index.get(from), b = index.get(to);
-    flatsOf[layerOf[a]].push([a, b]);
+    flatsOf[layerOf[a]].push([a, b, f]);
     flatEnd[a] = flatEnd[b] = 1;
-  }
+  });
   let order = [];
   const reindex = (k) => { const list = order[k]; for (let i = 0; i < list.length; i++) pos[list[i]] = i; };
   // Crossings between layer k and k + 1: pairs of segments whose ends are in opposite orders, counted
@@ -6685,38 +6751,51 @@ function wmOrder(start, segments, flats = []) {
     }
     return count;
   };
-  // The crossings of the dips of layer k, and the spread of every edge beside there.
-  const beside = (k) => {
+  // The detours of layer k: their crossings, how many there are and their spread; `mark` records each
+  // flat's way.
+  const beside = (k, mark = false) => {
     const pairs = flatsOf[k];
-    if (!pairs.length) return [0, 0];
-    const list = order[k], prefix = new Int32Array(list.length + 1);
-    for (let i = 0; i < list.length; i++) prefix[i + 1] = prefix[i] + below[list[i]].length;
-    let count = 0, spread = 0;
-    const dips = [];
-    for (const [a, b] of pairs) {
+    if (!pairs.length) return [0, 0, 0];
+    const list = order[k], m = list.length, up = new Int32Array(m + 1), down = new Int32Array(m + 1);
+    for (let i = 0; i < m; i++) { up[i + 1] = up[i] + above[list[i]].length; down[i + 1] = down[i] + below[list[i]].length; }
+    let count = 0, detours = 0, spread = 0;
+    const overs = [], dips = [];
+    for (const [a, b, f] of pairs) {
       const p = Math.min(pos[a], pos[b]), q = Math.max(pos[a], pos[b]);
-      if (q - p < 2) continue;
-      count += prefix[q] - prefix[p + 1];
+      if (q - p < 2) { if (mark) ways[f] = "side"; continue; }
+      detours += 1;
       spread += q - p - 1;
-      dips.push([p, q]);
+      const over = up[q] === up[p + 1];
+      if (mark) ways[f] = over ? "over" : "dip";
+      if (over) overs.push([p, q]);
+      else { count += down[q] - down[p + 1]; dips.push([p, q]); }
     }
-    for (let i = 0; i < dips.length; i++) {
-      for (let j = i + 1; j < dips.length; j++) {
-        const [p1, q1] = dips[i], [p2, q2] = dips[j];
-        if ((p1 < p2 && p2 < q1 && q1 < q2) || (p2 < p1 && p1 < q2 && q2 < q1)) count += 1;
+    for (const spans of [overs, dips]) {
+      for (let i = 0; i < spans.length; i++) {
+        for (let j = i + 1; j < spans.length; j++) {
+          const [p1, q1] = spans[i], [p2, q2] = spans[j];
+          if ((p1 < p2 && p2 < q1 && q1 < q2) || (p2 < p1 && p1 < q2 && q2 < q1)) count += 1;
+        }
       }
     }
-    return [count, spread];
+    return [count, detours, spread];
   };
+  const besideCost = (k) => { const [count, detours, spread] = beside(k); return [count + WM_SWEEPS.detour * detours, spread]; };
+  // What the order weighs (crossings, detours as crossings) and the spread; and the crossings alone.
   const score = () => {
-    let count = 0, spread = 0;
+    let cost = 0, spread = 0;
     for (let k = 0; k < order.length; k++) {
-      if (k + 1 < order.length) count += between(k);
-      const [c, s] = beside(k);
-      count += c;
+      if (k + 1 < order.length) cost += between(k);
+      const [c, s] = besideCost(k);
+      cost += c;
       spread += s;
     }
-    return [count, spread];
+    return [cost, spread];
+  };
+  const crossings = () => {
+    let count = 0;
+    for (let k = 0; k < order.length; k++) count += (k + 1 < order.length ? between(k) : 0) + beside(k, true)[0];
+    return count;
   };
   const sweep = (k, side, median) => {
     const list = order[k], keyed = [];
@@ -6752,9 +6831,9 @@ function wmOrder(start, segments, flats = []) {
           const u = list[i], v = list[i + 1];
           let now = cross(u, v), then = cross(v, u), spreadNow = 0, spreadThen = 0;
           if (flat && (flatEnd[u] || flatEnd[v])) {
-            const [c0, s0] = beside(k);
+            const [c0, s0] = besideCost(k);
             swap(k, i);
-            const [c1, s1] = beside(k);
+            const [c1, s1] = besideCost(k);
             swap(k, i);
             now += c0; then += c1; spreadNow = s0; spreadThen = s1;
           }
@@ -6786,7 +6865,7 @@ function wmOrder(start, segments, flats = []) {
           if (flat) {
             order[k] = [...rest.slice(0, j), u, ...rest.slice(j)];
             reindex(k);
-            const [c, s] = beside(k);
+            const [c, s] = besideCost(k);
             count += c;
             spread = s;
           }
@@ -6804,9 +6883,9 @@ function wmOrder(start, segments, flats = []) {
   };
   const copy = () => order.map((list) => [...list]);
   const better = (count, spread, fewest, least) => count < fewest || (count === fewest && spread < least);
-  // What a change of layer k alone can change: the crossings on both its sides and its dips.
+  // What a change of layer k alone can change: the crossings on both its sides and its detours.
   const local = (k) => {
-    let [count, spread] = beside(k);
+    let [count, spread] = besideCost(k);
     if (k > 0) count += between(k - 1);
     if (k + 1 < order.length) count += between(k);
     return [count, spread];
@@ -6824,10 +6903,15 @@ function wmOrder(start, segments, flats = []) {
       }
     }
   };
-  const run = (first) => {
+  const use = (first) => {
     order = first.map((entries) => entries.map((id) => index.get(id)));
     order.forEach((_, k) => reindex(k));
-    for (let k = 1; k < order.length; k++) sweep(k, above, false);
+  };
+  const passes = n > WM_SWEEPS.large ? 1 : WM_SWEEPS.sifts;  // of re-sorting and sifting, and of settling
+  const run = (first, up = false) => {
+    use(first);
+    if (up) for (let k = order.length - 2; k >= 0; k--) sweep(k, below, false);
+    else for (let k = 1; k < order.length; k++) sweep(k, above, false);
     transpose(false);
     let best = copy(), [fewest, least] = score();
     for (let round = 0, stale = 0; round < WM_SWEEPS.rounds && (fewest || least) && stale < 4; round++) {
@@ -6839,7 +6923,7 @@ function wmOrder(start, segments, flats = []) {
     }
     order = best.map((list) => [...list]);
     order.forEach((_, k) => reindex(k));
-    for (let pass = 0; pass < (n > WM_SWEEPS.large ? 1 : WM_SWEEPS.sifts) && (fewest || least); pass++) {
+    for (let pass = 0; pass < passes && (fewest || least); pass++) {
       resort();
       sift();
       transpose(false);
@@ -6847,7 +6931,21 @@ function wmOrder(start, segments, flats = []) {
       if (!better(count, spread, fewest, least)) break;
       fewest = count; least = spread; best = copy();
     }
-    return { order: best, crossings: fewest, spread: least };
+    return { order: best, cost: fewest, spread: least };
+  };
+  // From the previous places: sifting and swaps only, which move one entry at a time and only where
+  // that crosses fewer, so what the change of structure leaves alone keeps its place.
+  const polish = (first) => {
+    use(first);
+    let [fewest, least] = score(), best = copy();
+    for (let pass = 0; pass < 2 * passes && (fewest || least); pass++) {
+      sift();
+      transpose(false);
+      const [count, spread] = score();
+      if (!better(count, spread, fewest, least)) break;
+      fewest = count; least = spread; best = copy();
+    }
+    return { order: best, cost: fewest, spread: least };
   };
   // Depth first from the top layer, in the given order: an entry joins its layer when the walk meets it.
   const walked = start.map(() => []), seen = new Set();
@@ -6871,15 +6969,113 @@ function wmOrder(start, segments, flats = []) {
     for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
     return list;
   });
+  // The previous places: each entry at the middle the previous layout drew it at; an entry that is new
+  // there just right of the entry an edge joins it to in its layer, else at the mean of its neighbours'
+  // (above first, then below, layer by layer), else after the rest.
+  const was = new Float64Array(n).fill(NaN), card = new Uint8Array(n);
+  ids.forEach((id, e) => { card[e] = isLane(id) ? 0 : 1; if (prior && prior.has(id)) was[e] = prior.get(id); });
+  const guessed = Float64Array.from(was);
+  if (prior) {
+    const fill = (e, side) => {
+      if (!Number.isNaN(guessed[e])) return;
+      const near = side[e].map((other) => guessed[other]).filter((value) => !Number.isNaN(value));
+      if (near.length) guessed[e] = near.reduce((sum, value) => sum + value, 0) / near.length;
+    };
+    for (const pairs of flatsOf) {
+      for (const [a, b] of pairs) {
+        if (Number.isNaN(guessed[a]) && !Number.isNaN(was[b])) guessed[a] = was[b] + 0.5;
+        if (Number.isNaN(guessed[b]) && !Number.isNaN(was[a])) guessed[b] = was[a] + 0.5;
+      }
+    }
+    for (const way of [above, below, above]) {
+      const down = way === above;
+      for (let k = down ? 0 : start.length - 1; k >= 0 && k < start.length; k += down ? 1 : -1) {
+        for (const id of start[k]) fill(index.get(id), way);
+      }
+    }
+  }
+  const place = (id) => (Number.isNaN(guessed[index.get(id)]) ? Infinity : guessed[index.get(id)]);
+  const before = prior && start.map((entries) => entries.map((id, i) => [place(id), i, id])
+    .sort((p, q) => p[0] - q[0] || p[1] - q[1]).map(([, , id]) => id));
+  // How many cards an order moves: in each layer, those outside the longest run (patience sorting)
+  // whose previous places keep their order.
+  const movedBy = (list) => {
+    const tails = [];
+    let count = 0;
+    for (const e of list) {
+      if (!card[e] || Number.isNaN(was[e])) continue;
+      count += 1;
+      let lo = 0, hi = tails.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < was[e]) lo = mid + 1; else hi = mid; }
+      tails[lo] = was[e];
+    }
+    return count - tails.length;
+  };
+  const moves = (layers) => layers.reduce((sum, list) => sum + movedBy(list), 0);
   const firsts = n > WM_SWEEPS.large ? [start] : [start, walked, start.map((entries) => [...entries].reverse()),
     ...Array.from({ length: n > WM_SWEEPS.shuffled ? 0 : WM_SWEEPS.shuffles }, shuffled)];
-  let result = null;
-  for (const first of firsts) {
-    const tried = run(first);
-    if (!result || better(tried.crossings, tried.spread, result.crossings, result.spread)) result = tried;
-    if (!result.crossings && !result.spread) break;
+  // Toward the previous places where that crosses no more: each card that has one, in turn, tried at
+  // every place of its layer and left where it crosses least, then where it leaves the fewest pairs of
+  // cards in the opposite order to their previous places, then where it was.
+  const settle = () => {
+    for (let pass = 0, moved = true; moved && pass < passes; pass++) {
+      moved = false;
+      for (let k = 0; k < order.length; k++) {
+        if (order[k].length < 2) continue;
+        const flat = flatsOf[k].length > 0;
+        for (const u of [...order[k]]) {
+          if (!card[u] || Number.isNaN(was[u])) continue;
+          const from = pos[u], rest = order[k].filter((e) => e !== u), m = rest.length;
+          let here = 0, wrong = 0;
+          for (let t = 0; t < m; t++) { here += cross(u, rest[t]); if (card[rest[t]] && was[rest[t]] < was[u]) wrong += 1; }
+          let best = from, fewest = Infinity, least = Infinity;
+          for (let j = 0; j <= m; j++) {
+            let count = here;
+            if (flat) {
+              order[k] = [...rest.slice(0, j), u, ...rest.slice(j)];
+              reindex(k);
+              count += besideCost(k)[0];
+            }
+            if (count < fewest || (count === fewest && (wrong < least || (wrong === least && j === from)))) {
+              best = j; fewest = count; least = wrong;
+            }
+            if (j < m) {
+              const w = rest[j];
+              here += cross(w, u) - cross(u, w);
+              if (card[w] && !Number.isNaN(was[w])) wrong += was[w] > was[u] ? 1 : -1;
+            }
+          }
+          order[k] = [...rest.slice(0, best), u, ...rest.slice(best)];
+          reindex(k);
+          moved = moved || best !== from;
+        }
+      }
+    }
+  };
+  // The results from the previous places, or else from every first order until one crosses nothing.
+  const tried = before ? [polish(before), run(before), run(before, true)] : [];
+  for (const first of before ? [] : firsts) {
+    if (tried.some((one) => !one.cost && !one.spread)) break;
+    tried.push(run(first));
   }
-  return { order: result.order.map((list) => list.map((e) => ids[e])), crossings: result.crossings };
+  const fewest = Math.min(...tried.map((one) => one.cost));
+  let result = null;
+  for (const one of tried) {
+    if (one.cost > fewest) continue;
+    if (prior) {
+      const turned = one.order.map((list) => [...list].reverse());
+      use((moves(turned) < moves(one.order) ? turned : one.order).map((list) => list.map((e) => ids[e])));
+      settle();
+      [one.cost, one.spread] = score();
+      one.order = copy();
+      one.moved = moves(one.order);
+      if (one.cost > fewest) continue;
+    }
+    if (!result || (prior && one.moved !== result.moved ? one.moved < result.moved : one.spread < result.spread)) result = one;
+  }
+  order = result.order.map((list) => [...list]);
+  order.forEach((_, k) => reindex(k));
+  return { order: order.map((list) => list.map((e) => ids[e])), crossings: crossings(), ways };
 }
 
 // Where the ends that meet one side of a box w px wide sit, from its left edge, in the order given:
@@ -6915,25 +7111,28 @@ function wmBend(dx) {
 // The places across and the gaps. Each entry's left edge x (px at 100 %) is where the segments' runs
 // across (the x of the upper port less the x of the lower one) cost least: first the weighted sum of
 // their squares, a long edge's segments weighing more (2 beside a node, 8 between two lanes, as in
-// dot) and a segment with room to bend under short boxes less; then, with the ports aimed as they will
-// be drawn, the weighted sum of the runs themselves (squares reweighted by each run, WM_GEOM.passes
-// times), which settles where most edges run straight rather than where all run a little across. A
-// layer is solved exactly with its order and spacing kept (pool-adjacent-violators on the positions
-// less their offsets, `sepOf` apart), within the width of the widest layer, so placing never widens the
-// map; sweeps down and up repeat that until nothing moves. Then whole px, and a box a few px off its
-// main line snaps onto it. Ports are aimed at the lane they run to, or at the middle between the two
+// dot), a trunk's times its edges, and a segment with room to bend under short boxes less; then, with
+// the ports aimed as they will be drawn, the weighted sum of the runs themselves (squares reweighted by
+// each run, WM_GEOM.passes times), which settles where most edges run straight rather than where all
+// run a little across. A layer is solved exactly with its order and spacing kept (pool-adjacent-
+// violators on the positions less their offsets, `sepOf` apart), within the width of the widest layer,
+// so placing never widens the map; sweeps down and up repeat that until nothing moves. Then whole px,
+// and a box a few px off its main line snaps onto it. Ports are aimed at the lane they run to, or at the middle between the two
 // boxes, then each foot at the top it runs to and that top back at it, so the edges between two boxes
 // run straight side by side where both sides have room. Then the gap above each layer: its incoming
 // curves, grouped into zones whose spans overlap (wmZones), need WM_GEOM.stub for the straight end
 // (twice when an arrowhead points up into the layer above), wmBend to bend and the height of their
 // levels, less what a zone gets from the boxes above it being shorter than that layer's tallest
-// (planned heights), and a zone under a dip of the layer above bends below the dip (`dips`, the edges
-// beside that run below their layer, each deeper than those it spans or crosses). These are the gaps
-// the edges want; within the height budget (`tight`) the gaps together take at most WM_GEOM.gap.budget
-// px each: while they would take more, the tallest give way first, down to the straight end and a 4-px
-// bend. Each is a whole px from gap.min to gap.max; `heads` is 2 for a gap that holds an arrowhead
-// pointing up, a second straight end, and `foot` how many levels the dips of the last layer take below it.
-function wmPlace(order, segments, widthOf, heightOf, isLane, sepOf, dips = []) {
+// (planned heights); a zone under a dip of the layer above bends below the dip (`dips`, the edges
+// beside that run below their layer, each deeper than those it spans or crosses), and one over an
+// edge that runs over the layer below (`overs`) bends above it. These are the gaps the edges want;
+// within the height budget (`tight`) the gaps together take at most WM_GEOM.gap.budget px each: while
+// they would take more, the tallest give way first, down to their `least`: the straight end, a bend of
+// WM_GEOM.bendLeast and WM_GEOM.levelLeast for each level above the first. Each is a whole px from
+// gap.min to gap.max; `heads` is 2 for a gap that holds an arrowhead pointing up, a second straight end,
+// and `foot` and `head` how many levels the dips of the last layer take below it and the edges over the
+// first layer above it.
+function wmPlace(order, segments, widthOf, heightOf, isLane, sepOf, dips = [], overs = []) {
   const ids = order.flat(), index = new Map(ids.map((id, e) => [id, e])), n = ids.length, layers = order.length;
   const rows = order.map((entries) => entries.map((id) => index.get(id)));
   const lane = new Uint8Array(n), w = new Float64Array(n), h = new Float64Array(n);
@@ -6994,7 +7193,10 @@ function wmPlace(order, segments, widthOf, heightOf, isLane, sepOf, dips = []) {
     return most;
   };
   const base = new Float64Array(count), weight = new Float64Array(count), reweigh = new Float64Array(count).fill(1);
-  for (let s = 0; s < count; s++) { const lanes = lane[su[s]] + lane[sl[s]]; base[s] = lanes === 2 ? 8 : lanes ? 2 : 1; }
+  for (let s = 0; s < count; s++) {
+    const lanes = lane[su[s]] + lane[sl[s]];
+    base[s] = (lanes === 2 ? 8 : lanes ? 2 : 1) * (segments[s].weight || 1);
+  }
   const across = (s) => x[su[s]] + pu[s] - x[sl[s]] - pl[s];
   const weigh = () => {
     for (let s = 0; s < count; s++) {
@@ -7130,37 +7332,51 @@ function wmPlace(order, segments, widthOf, heightOf, isLane, sepOf, dips = []) {
     curves[layerOf[sl[s]]].push({ top: upper, bottom: lower, lo: Math.min(upper, lower), hi: Math.max(upper, lower),
                                   dx: Math.abs(upper - lower), rising: segments[s].rising });
   }
-  // The dips of each layer: their spans between the facing ends of the two feet, and their levels,
-  // each deeper than every dip it spans or crosses that is narrower (wmDips).
-  const dipsOf = rows.map(() => []);
-  for (const { from, to } of dips) {
-    const a = index.get(from), b = index.get(to), [l, r] = x[a] < x[b] ? [a, b] : [b, a];
-    dipsOf[layerOf[a]].push({ lo: x[l] + w[l] - WM_GEOM.portMargin, hi: x[r] + WM_GEOM.portMargin });
-  }
-  dipsOf.forEach(wmDips);
+  // The dips and the edges over each layer: their spans between the facing ends of the two feet or
+  // tops, and their levels, each deeper (or higher) than every one it spans or crosses that is narrower
+  // (wmDips).
+  const spans = (list) => {
+    const of = rows.map(() => []);
+    for (const { from, to } of list) {
+      const a = index.get(from), b = index.get(to), [l, r] = x[a] < x[b] ? [a, b] : [b, a];
+      of[layerOf[a]].push({ lo: x[l] + w[l] - WM_GEOM.portMargin, hi: x[r] + WM_GEOM.portMargin });
+    }
+    of.forEach(wmDips);
+    return of;
+  };
+  const dipsOf = spans(dips), oversOf = spans(overs);
   // How far below the top of layer k a dip runs: under the lowest box it passes, the straight end of
   // its arrowhead, its depth and a px.
   const dipFloor = (k, dip) => over(k, dip.lo - WM_GEOM.clear, dip.hi + WM_GEOM.clear) + WM_GEOM.stub
     + WM_GEOM.dip + WM_GEOM.dipLevel * dip.level + 3;
+  // How far above the top of layer k an edge over it runs at its highest, past the straight end of its
+  // arrowhead: its height and a clearance the curves of the gap above end their bends over.
+  const band = (top) => WM_GEOM.dip + WM_GEOM.dipLevel * top.level + 4;
   const want = rows.map(() => 0), least = rows.map(() => 0), heads = rows.map(() => 0);
   for (let k = 1; k < layers; k++) {
     let need = WM_GEOM.gap.min, floor = WM_GEOM.gap.min;
     // A gap that holds an arrowhead pointing up, a dip's or a climbing edge's, holds two straight ends.
     heads[k] = dipsOf[k - 1].length || curves[k].some((curve) => curve.rising) ? 2 : 1;
     for (const dip of dipsOf[k - 1]) need = floor = Math.max(need, dipFloor(k - 1, dip) - tallest[k - 1] + 2);
+    for (const top of oversOf[k]) need = floor = Math.max(need, WM_GEOM.stub + 2 + band(top));
     for (const zone of wmZones(curves[k])) {
-      let start = over(k - 1, zone.lo - WM_GEOM.clear, zone.hi + WM_GEOM.clear);
+      let start = over(k - 1, zone.lo - WM_GEOM.clear, zone.hi + WM_GEOM.clear), end = 0;
       for (const dip of dipsOf[k - 1]) {
         if (dip.lo < zone.hi + WM_GEOM.clear && zone.lo < dip.hi + WM_GEOM.clear) start = Math.max(start, dipFloor(k - 1, dip));
       }
+      for (const top of oversOf[k]) {
+        if (top.lo < zone.hi + WM_GEOM.clear && zone.lo < top.hi + WM_GEOM.clear) end = Math.max(end, band(top));
+      }
       // An arrowhead under the layer above needs its straight end below the box it enters as well.
-      const fixed = start - tallest[k - 1] + WM_GEOM.stub + 2 + (zone.curves.some((curve) => curve.rising) ? WM_GEOM.stub + 1 : 0);
-      const levels = Math.min(WM_GEOM.levels, zone.levels) - 1;
-      need = Math.max(need, fixed + Math.max(4, wmBend(zone.dx)) + WM_GEOM.level * levels);
-      floor = Math.max(floor, fixed + 4);
+      const fixed = start - tallest[k - 1] + WM_GEOM.stub + 2 + end
+        + (zone.curves.some((curve) => curve.rising) ? WM_GEOM.stub + 1 : 0);
+      const levels = zone.levels - 1;
+      need = Math.max(need, fixed + Math.max(WM_GEOM.bendLeast, wmBend(zone.dx))
+        + WM_GEOM.level * Math.min(WM_GEOM.levels - 1, levels));
+      floor = Math.max(floor, fixed + WM_GEOM.bendLeast + WM_GEOM.levelLeast * levels);
     }
-    want[k] = Math.min(WM_GEOM.gap.max, Math.ceil(need - 0.25));
-    least[k] = Math.min(want[k], Math.ceil(floor - 0.25));
+    least[k] = Math.min(WM_GEOM.gap.max, Math.ceil(floor - 0.25));
+    want[k] = Math.max(least[k], Math.min(WM_GEOM.gap.max, Math.ceil(need - 0.25)));
   }
   // The gaps within the budget (`tight`): the largest give way to a common cap until they fit, none
   // below its least. `gaps` are those the edges want, which the page draws where they fit as well.
@@ -7172,9 +7388,9 @@ function wmPlace(order, segments, widthOf, heightOf, isLane, sepOf, dips = []) {
     while (cap > WM_GEOM.gap.min && capped(cap).reduce((sum, gap) => sum + gap, 0) > budget) cap -= 1;
     tight = capped(cap);
   }
-  const lastDips = layers ? dipsOf[layers - 1] : [];
-  return { x: new Map(ids.map((id, e) => [id, x[e]])), gaps: want, tight, heads, width,
-           foot: lastDips.length ? Math.min(3, 1 + Math.max(...lastDips.map((dip) => dip.level))) : 0 };
+  const room = (list) => (list.length ? Math.min(3, 1 + Math.max(...list.map((dip) => dip.level))) : 0);
+  return { x: new Map(ids.map((id, e) => [id, x[e]])), gaps: want, tight, least, heads, width,
+           foot: room(layers ? dipsOf[layers - 1] : []), head: room(layers ? oversOf[0] : []) };
 }
 
 // The levels of the dips below one layer (spans {lo, hi}): narrowest first, each one level deeper than
@@ -7231,39 +7447,47 @@ function wmLevels(zone, margin = 2) {
   return zone;
 }
 
-// The route of every edge, from measured boxes (px in the stage). `list`: workmapEdgeList's edges; `geo`:
-// rows (each layer's band {t, b}, top to bottom), card(id) (a node's own box, a pill's too), group(id) (a
-// card with its tray), lane(id) (a lane's x), next(id) (the x where the entry right of a group begins, or
-// null) and scale (the zoom, 1 at 100 %). Boxes are {l, t, r, b}. Every edge between layers leaves and
-// enters a box vertically: down from the foot of a group, under its tray (a docked verifier's edges leave
-// its group's foot), into the top of a card, through a lane in each layer between, and the other way up
-// for an edge that climbs. The ends that share a side are spread along it (wmPorts) in the order of their
-// other ends, so no two cross at a box: first each aimed at its lane or at the middle between the two
-// boxes, then each foot at the top it runs to and each top back at that foot, so the edges between two
-// boxes run straight side by side where both sides have room; an end a few px off its other end's line
-// then moves onto it where its side has room. Between two layers the curves of one zone (wmZones: curves
-// whose spans overlap) run between the same two heights, each a cubic with vertical tangents and the same
-// pull, staggered by level, so the drawing crosses where the layer order does and nowhere else. A zone
-// bends from right under the lowest box above it, so an edge from a short card curves at once instead of
-// falling to the foot of the layer's tallest group first; nothing bends beside a box, so no curve passes
-// through a card or a tray. Each edge ends in a straight piece WM_GEOM.stub px long, so its arrowhead
-// lies along it (shorter only in a gap planned too low for it). An edge between two neighbouring cards of
-// one layer runs side to side between them (layout.beside "side"), where nothing else runs; any other
-// edge between two groups of one layer dips below it, from the facing end of one foot to the facing end
-// of the other, in a band of its own under the feet that the curves of that gap bend below: it crosses
-// what leaves a group between its ends, as the order counts. An edge inside one tray runs out of the
-// start's right side, round the tray's right edge and into the end's, its reach and bulge scaled with the
-// zoom and kept short of the next entry. Returns per edge its kind, its steps (["M", x, y], ["V", y],
-// ["H", x], ["C", x1, y1, x2, y2, x, y]) and their path data `d`.
+// The route of every edge, from measured boxes (px in the stage). `list`: workmapEdgeList's edges (a
+// trunk is one); `geo`: rows (each layer's band {t, b}, top to bottom), card(id) (a node's own box, a
+// pill's too), group(id) (a card with its tray), lane(id) (a lane's x), next(id) (the x where the entry
+// right of a group begins, or null) and scale (the zoom, 1 at 100 %). Boxes are {l, t, r, b}. Every edge
+// between layers leaves and enters a box vertically: down from the foot of a group, under its tray (a
+// docked verifier's edges leave its group's foot), into the top of a card, through a lane in each layer
+// between, and the other way up for an edge that climbs. The ends that share a side are spread along it
+// (wmPorts) in the order of their other ends, so no two cross at a box: first each aimed at its lane or
+// at the middle between the two boxes, then each foot at the top it runs to and each top back at that
+// foot, so the edges between two boxes run straight side by side where both sides have room; an end a
+// few px off its other end's line then moves onto it where its side has room. Between two layers the
+// curves of one zone (wmZones: curves whose spans overlap) run between the same two heights, each a
+// cubic with vertical tangents and the same pull, staggered by level, so the drawing crosses where the
+// layer order does and nowhere else. A zone bends from right under the lowest box above it, so an edge
+// from a short card curves at once instead of falling to the foot of the layer's tallest group first;
+// nothing bends beside a box, so no curve passes through a card or a tray. Each edge ends in a straight
+// piece WM_GEOM.stub px long at every zoom, so its arrowhead lies along it (shorter only in a gap planned
+// too low for it, which the gaps' least never is). An edge between two neighbours of one layer runs side
+// to side between them (layout.beside "side"), where nothing else runs: level between two cards, and
+// from a pill out of its tray's side at the pill's height (the right side of the pill, or the tray's
+// left edge past its comb) and on, turning in the room between, into the side of the other box, ending
+// level. An edge between two groups of one layer that are not neighbours runs over the layer ("over")
+// when nothing enters the entries between from above: up from the end of one top that faces the other,
+// a shallow arch at its level, and down into the other top, in a band of its own above the tops that the
+// curves of that gap end their bends over; any other dips below the layer ("dip"), from the facing end
+// of one foot to the facing end of the other, in a band of its own under the feet that the curves of
+// that gap bend below, crossing what leaves a group between its ends, as the order counts. An edge
+// inside one tray runs out of the start's right side, round the tray's right edge and into the end's,
+// its reach and bulge scaled with the zoom and kept short of the next entry, the reach never under the
+// straight end. Returns per edge its kind, its steps (["M", x, y], ["V", y], ["H", x], ["C", x1, y1, x2,
+// y2, x, y]) and their path data `d`.
 function workmapRoutes(list, layout, geo) {
-  const scale = geo.scale, stub = WM_GEOM.stub, head = WM_GEOM.head + 1, clear = WM_GEOM.clear * scale;
+  const scale = geo.scale, stub = WM_GEOM.stub, clear = WM_GEOM.clear * scale;
   const hostOf = (id) => layout.docked[id] || id;
   const rowGroups = layout.layers.map((entries) => entries.filter((entry) => !entry.lane).map((entry) => entry.id));
   const middle = (box) => (box.l + box.r) / 2;
   const beside = layout.beside || {};
   const routes = list.map((edge, canon) => {
     const start = hostOf(edge.start), end = hostOf(edge.end), a = layout.layer[start], b = layout.layer[end];
-    const kind = start === end ? "tray" : a < b ? "down" : a > b ? "up" : beside[edge.key] === "side" ? "side" : "dip";
+    const way = beside[edge.key] === "side" || beside[edge.key] === "over" ? beside[edge.key] : "dip";
+    const kind = start === end ? "tray" : a < b ? "down" : a > b ? "up" : way;
     return { edge, canon, start, end, a, b, kind, via: kind === "down" || kind === "up" ? edge.via || [] : [], ports: [] };
   }).filter((route) => route.a !== undefined && route.b !== undefined);
   // Ports: [x, y] of each end, spread along the side it meets.
@@ -7281,12 +7505,12 @@ function workmapRoutes(list, layout, geo) {
       claim(route.start, first, route, 0, after, lanes ? after : (from + after) / 2);
       claim(route.end, second, route, 1, before, lanes ? before : (to + before) / 2);
     }
-    if (route.kind === "dip") {
-      // At the end of each foot that faces the other, past every edge that leaves it down; of two dips
-      // there, the narrower nearer the end, so the wider passes round it.
-      const right = to > from, span = Math.abs(to - from), far = 1e5;
-      claim(route.start, "foot", route, 0, right ? far - span : span - far, right ? from + far : from - far);
-      claim(route.end, "foot", route, 1, right ? span - far : far - span, right ? to - far : to + far);
+    if (route.kind === "dip" || route.kind === "over") {
+      // At the end of each foot (or top) that faces the other, past every edge that leaves (or enters)
+      // it there; of two such edges, the narrower nearer the end, so the wider passes round it.
+      const where = route.kind === "dip" ? "foot" : "top", right = to > from, span = Math.abs(to - from), far = 1e5;
+      claim(route.start, where, route, 0, right ? far - span : span - far, right ? from + far : from - far);
+      claim(route.end, where, route, 1, right ? span - far : far - span, right ? to - far : to + far);
     }
   }
   const lists = [...sides].map(([key, ends]) => {
@@ -7296,7 +7520,7 @@ function workmapRoutes(list, layout, geo) {
   });
   const partner = (item) => {
     const route = item.route, lanes = route.via.length > 0;
-    if (route.kind === "dip") return item.aim;
+    if (route.kind === "dip" || route.kind === "over") return item.aim;
     if (lanes) return geo.lane(item.end ? route.via.at(-1) : route.via[0]);
     return route.ports[1 - item.end][0];
   };
@@ -7325,15 +7549,16 @@ function workmapRoutes(list, layout, geo) {
       port[0] = target;
     });
   }
-  // The dips below each layer: their spans, levels (wmDips) and how far down each runs; the curves
-  // of the gap under a dip bend below it.
-  const dipsOf = layout.layers.map(() => []);
+  // The dips below each layer and the edges over it: their spans, levels (wmDips) and how far each
+  // runs from its layer; the curves of the gap under a dip bend below it, those of the gap over an edge
+  // that runs over a layer end their bends above it.
+  const dipsOf = layout.layers.map(() => []), oversOf = layout.layers.map(() => []);
   for (const route of routes) {
-    if (route.kind !== "dip") continue;
+    if (route.kind !== "dip" && route.kind !== "over") continue;
     const [[sx], [ex]] = route.ports;
     route.lo = Math.min(sx, ex);
     route.hi = Math.max(sx, ex);
-    dipsOf[route.a].push(route);
+    (route.kind === "dip" ? dipsOf : oversOf)[route.a].push(route);
   }
   for (const [k, dips] of dipsOf.entries()) {
     wmDips(dips);
@@ -7346,6 +7571,14 @@ function workmapRoutes(list, layout, geo) {
       dip.y = floor + stub;
       dip.depth = (WM_GEOM.dip + WM_GEOM.dipLevel * dip.level) * scale;
       dip.under = dip.y + dip.depth + 3 * scale;
+    }
+  }
+  for (const [k, overs] of oversOf.entries()) {
+    wmDips(overs);
+    for (const top of overs) {
+      top.y = geo.rows[k].t - 1 - stub;
+      top.depth = (WM_GEOM.dip + WM_GEOM.dipLevel * top.level) * scale;
+      top.under = top.y - top.depth - 4 * scale;
     }
   }
   // The channels between layers: what crosses each (k: between row k and row k + 1), as curves.
@@ -7364,19 +7597,22 @@ function workmapRoutes(list, layout, geo) {
       return curve;
     });
   }
+  let zones = 0;  // each curve's zone, numbered
   for (const [k, curves] of channels) {
     const upper = geo.rows[k], lower = geo.rows[k + 1];
     if (!upper || !lower) continue;
     for (const zone of wmZones(curves)) {
-      let y0 = upper.t;
+      zones += 1;
+      let y0 = upper.t, y1 = lower.t - 1 - stub;
       for (const id of rowGroups[k]) {
         const box = geo.group(id);
         if (box.l < zone.hi + clear && box.r > zone.lo - clear) y0 = Math.max(y0, box.b + 1);
       }
       for (const dip of dipsOf[k]) if (dip.lo < zone.hi + clear && zone.lo < dip.hi + clear) y0 = Math.max(y0, dip.under);
+      for (const top of oversOf[k + 1]) if (top.lo < zone.hi + clear && zone.lo < top.hi + clear) y1 = Math.min(y1, top.under);
       for (const curve of zone.curves) if (curve.rising) y0 = Math.max(y0, geo.group(curve.rising).b + 1 + stub);
       // A gap planned too small for both gives up the straight end before it gives up a box.
-      const y1 = Math.max(lower.t - 1 - stub, y0 + 2);
+      y1 = Math.max(y1, y0 + 2);
       // Levels take less than half the zone's height, so a curve that ends where another starts (a lane
       // over a lane) never runs down the same line as it: the two cross, as their order says.
       const step = zone.levels > 1 ? Math.min(WM_GEOM.level * scale, 0.4 * (y1 - y0) / (zone.levels - 1)) : 0;
@@ -7385,22 +7621,44 @@ function workmapRoutes(list, layout, geo) {
       const h = y1 - y0 - step * (zone.levels - 1), pull = Math.min(WM_GEOM.pull, 0.5 + zone.dx / (4 * h)) * h;
       for (const curve of zone.curves) {
         const ya = y0 + step * curve.level;
-        Object.assign(curve, { y0, y1, ya, yb: ya + h, pull });
+        Object.assign(curve, { y0, y1, ya, yb: ya + h, pull, zone: zones });
       }
     }
   }
-  // Edges side to side: those between the same two cards spread over the height both have.
+  // Edges side to side: between two neighbours, each end on the side of its own box. Level between two
+  // cards, spread over the height both sides have; from or to a pill at the pill's height, and on the
+  // card as near that height as its straight side allows, below the level edges, higher pills higher,
+  // so none cross.
   const pairs = new Map();
   for (const route of routes) {
     if (route.kind !== "side") continue;
+    route.from = geo.card(route.edge.start);
+    route.to = geo.card(route.edge.end);
+    route.pills = [layout.docked[route.edge.start] !== undefined, layout.docked[route.edge.end] !== undefined];
     const key = [route.start, route.end].sort().join("\n");
     if (!pairs.has(key)) pairs.set(key, []);
     pairs.get(key).push(route);
   }
+  const inset = Math.max(4, WM_GEOM.portMargin * scale / 2), mid = (box) => (box.t + box.b) / 2;
+  const pillAt = (route) => mid(route.pills[0] ? route.from : route.to);
   for (const group of pairs.values()) {
-    const [first] = group, a = geo.card(first.start), b = geo.card(first.end);
-    const t = Math.max(a.t, b.t), bottom = Math.min(a.b, b.b);
-    group.forEach((route, i) => { route.y = t + (bottom - t) * (i + 1) / (group.length + 1); });
+    const level = group.filter((route) => !route.pills[0] && !route.pills[1]);
+    const turning = group.filter((route) => route.pills[0] || route.pills[1])
+      .sort((p, q) => pillAt(p) - pillAt(q) || p.canon - q.canon);
+    let taken = -Infinity;
+    if (level.length) {
+      const [first] = level, t = Math.max(first.from.t, first.to.t), bottom = Math.min(first.from.b, first.to.b);
+      level.forEach((route, i) => { const y = t + (bottom - t) * (i + 1) / (level.length + 1); route.ys = [y, y]; });
+      taken = level.at(-1).ys[0];
+    }
+    turning.forEach((route, i) => {
+      route.ys = [route.from, route.to].map((box, end) => {
+        if (route.pills[end]) return mid(box);
+        const high = Math.max(box.t + inset, taken + inset), low = box.b - inset;
+        const step = turning.length > 1 ? Math.min(WM_GEOM.level * scale, Math.max(0, low - high) / (turning.length - 1)) : 0;
+        return Math.max(high, Math.min(pillAt(route), low - step * (turning.length - 1 - i)));
+      });
+    });
   }
   for (const route of routes) {
     const steps = [];
@@ -7418,16 +7676,31 @@ function workmapRoutes(list, layout, geo) {
       }
       steps.push(["V", route.ports[1][1]]);
     } else if (route.kind === "side") {
-      const from = geo.card(route.edge.start), to = geo.card(route.edge.end), right = middle(to) > middle(from);
-      steps.push(["M", right ? from.r + 1 : from.l - 1, route.y], ["H", right ? to.l - 1 : to.r + 1]);
+      // Out of the side of the start's box (a pill's through its tray's right edge, or from the tray's
+      // left edge past its comb), level; turning in the room between where the two heights differ, and
+      // level for the straight end into the other box's side.
+      const right = middle(geo.group(route.end)) > middle(geo.group(route.start));
+      const x = (box, end) => (right === !end ? box.r + 1
+        : route.pills[end] ? geo.group(end ? route.end : route.start).l - 1 : box.l - 1);
+      const [sx, ex] = [x(route.from, 0), x(route.to, 1)], [sy, ey] = route.ys, way = right ? 1 : -1;
+      steps.push(["M", sx, sy]);
+      if (Math.abs(ey - sy) > 0.5) {
+        const a = sx + way * Math.min(2 * scale, Math.abs(ex - sx) / 8), b = ex - way * stub, reach = (b - a) / 2;
+        steps.push(["H", a], ["C", a + reach, sy, b - reach, ey, b, ey]);
+      }
+      steps.push(["H", ex]);
     } else if (route.kind === "dip") {
       // Down from the one foot, a shallow dip at its level, and straight up into the other foot.
       const [[sx, sy], [ex, ey]] = route.ports, reach = route.depth / 0.75;
       steps.push(["M", sx, sy], ["V", route.y], ["C", sx, route.y + reach, ex, route.y + reach, ex, route.y], ["V", ey]);
+    } else if (route.kind === "over") {
+      // Up from the one top, a shallow arch at its level, and straight down into the other top.
+      const [[sx, sy], [ex, ey]] = route.ports, reach = route.depth / 0.75;
+      steps.push(["M", sx, sy], ["V", route.y], ["C", sx, route.y - reach, ex, route.y - reach, ex, route.y], ["V", ey]);
     } else {
       // Inside one tray: out of the start's right side, round the tray's right edge, straight into the
       // end's; the reach past the end (the straight end's 12 px, more above 100 %) and the bulge scale
-      // with the zoom, and both give way, the bulge first and the reach no shorter than the arrowhead,
+      // with the zoom, and both give way, the bulge first and the reach never under the straight end,
       // before the edge gets near the next entry.
       const from = geo.card(route.edge.start), to = geo.card(route.edge.end), box = geo.group(route.start);
       const sy = (from.t + from.b) / 2, ey = (to.t + to.b) / 2, next = geo.next ? geo.next(route.start) : null;
@@ -7435,7 +7708,7 @@ function workmapRoutes(list, layout, geo) {
       let out = Math.max(to.r + 1 + stub * Math.max(1, scale), from.r + 2 * scale, box.r + 2 * scale);
       let bulge = WM_GEOM.trayOut * scale;
       if (out + 0.75 * bulge > limit) {
-        out = Math.max(to.r + 1 + head, Math.min(out, limit - 0.75 * 2 * scale));
+        out = Math.max(to.r + 1 + stub, Math.min(out, limit - 0.75 * 2 * scale));
         bulge = Math.max(2 * scale, Math.min(bulge, (limit - out) / 0.75));
       }
       steps.push(["M", from.r + 1, sy], ["H", out], ["C", out + bulge, sy, out + bulge, ey, out, ey], ["H", to.r + 1]);
@@ -7996,9 +8269,10 @@ async function pollWorkmap() {
   if (wm.node) await loadWorkmapNode(wm.node);
 }
 
-// The structure the layout depends on: node ids and edges. Statuses repaint in place.
+// The structure the layout depends on: node ids, kinds, which nodes are set aside (no derived connector
+// leaves one) and edges. Other statuses repaint in place.
 function workmapStructure(data) {
-  return JSON.stringify([data.nodes.map((item) => [item.id, item.kind]),
+  return JSON.stringify([data.nodes.map((item) => [item.id, item.kind, wmLive(item)]),
     data.edges.map((edge) => [edge.from, edge.to, edge.type]).sort()]);
 }
 
@@ -8006,7 +8280,10 @@ function applyWorkmap(data) {
   const before = wm.data;
   const structure = workmapStructure(data);
   const relaid = !wm.view || structure !== wm.structure;
-  const layout = relaid ? workmapLayers(data.nodes, data.edges) : wm.view.layout;
+  // A change of structure on the map on screen starts from the layout it replaces, so the cards keep
+  // their places and side where the crossings allow; another map is laid out afresh.
+  const previous = relaid && wm.view && before && before.task_id === data.task_id ? wm.view.layout : null;
+  const layout = relaid ? workmapLayers(data.nodes, data.edges, previous) : wm.view.layout;
   if (before && before.task_id === data.task_id) {
     // A changed status or level, and a node that was not there, get the ring.
     const was = new Map(before.nodes.map((item) => [item.id, item.status + item.level]));
@@ -8216,6 +8493,7 @@ function renderWorkmapGraph(view) {
     const row = node("li", layers, null, "wm-layer");
     row.setAttribute("aria-label", caption);
     if (index) wmGap(row, view.layout.gaps[index], view.layout.tight[index], view.layout.heads[index]);
+    else if (view.layout.head) row.dataset.head = String(view.layout.head);
     if (index === count - 1 && view.layout.foot) row.dataset.foot = String(view.layout.foot);
     node("span", row, caption, "wm-layer-cap wm-h").setAttribute("aria-hidden", "true");
     let end = 0;  // where the entry before ends, px at 100 %
@@ -8380,27 +8658,21 @@ function workmapCard(view, item, pill) {
 
 // --- edges ----------------------------------------------------------------------------------------
 
-// The edges to draw, ends in flow order: depends_on from the prerequisite to its dependant, with a
-// filled head when the prerequisite is settled and a hollow one while it still holds the dependant
-// back; verifies from the target to a verifier that is not docked under it; supersedes from the newer
-// node to the one it replaces; contradicts as stored; the goal's derived connectors from live nodes.
+// The edges to draw, as the layout's trunks (wmTrunks), ends in flow order: depends_on from the
+// prerequisite to its dependant, with a filled head when every prerequisite of the trunk is settled
+// and a hollow one while one still holds the dependant back; verifies from the target to a verifier
+// that is not docked under it; supersedes from the newer node to the one it replaces; contradicts as
+// stored; the goal's derived connectors, which the layout makes from live nodes only. A trunk is on
+// the critical path when one of its edges is.
 function workmapEdgeList(view) {
-  const index = view.index, layout = view.layout, list = [];
-  for (const edge of view.data.edges) {
-    if (!index.byId.has(edge.from) || !index.byId.has(edge.to) || edge.from === edge.to) continue;
-    const key = `${edge.from}|${edge.to}|${edge.type}`;
-    if (edge.type === "verifies" && layout.docked[edge.from] === edge.to) continue;  // drawn as its tray's comb
-    const flow = edge.type === "depends_on" || edge.type === "verifies";
-    const [start, end] = flow ? [edge.to, edge.from] : [edge.from, edge.to];
-    const marker = edge.type === "depends_on" ? (index.byId.get(edge.to).settled ? "depends_on" : "depends_on-open") : edge.type;
-    list.push({ key, type: edge.type, start, end, marker, via: layout.via[key] || [], path: view.chain.edges.has(key) });
-  }
-  for (const [start, end] of layout.derived) {
-    if (!wmLive(index.byId.get(start))) continue;
-    const key = `${start}|${end}|derived`;
-    list.push({ key, type: "derived", start, end, marker: null, via: layout.via[key] || [], path: view.chain.edges.has(key) });
-  }
-  return list;
+  const index = view.index, layout = view.layout;
+  return wmTrunks(view.data.edges, (id) => index.byId.has(id), (id) => layout.docked[id] || id, layout.derived).map((trunk) => {
+    const settled = trunk.starts.every((id) => index.byId.get(id).settled);
+    const marker = trunk.type === "depends_on" ? (settled ? "depends_on" : "depends_on-open")
+      : trunk.type === "derived" ? null : trunk.type;
+    return { key: trunk.key, keys: trunk.keys, type: trunk.type, start: trunk.start, starts: trunk.starts, end: trunk.end, marker,
+             via: layout.via[trunk.key] || [], path: trunk.keys.some((key) => view.chain.edges.has(key)) };
+  });
 }
 
 // One frame later: fit when asked to (`refit`) and only then, then draw the edges from the boxes.
@@ -8461,9 +8733,9 @@ function drawWorkmapEdges() {
   const geo = { scale: wm.zoom / 100, rows: [...$("wm-layers").children].map(box), card: (id) => box(cards.get(id)),
     group: (id) => box(groupOf(id)), lane: (id) => { const lane = document.getElementById(id); return lane ? box(lane).cx : 0; },
     next: (id) => { const after = groupOf(id).nextElementSibling; return after ? box(after).l : null; } };
-  const edges = workmapEdgeList(wm.view).filter((edge) => cards.has(edge.start) && cards.has(edge.end));
+  const edges = workmapEdgeList(wm.view).filter((edge) => edge.starts.every((id) => cards.has(id)) && cards.has(edge.end));
   for (const route of workmapRoutes(edges, wm.view.layout, geo)) {
-    draw(route.edge.type, route.d, [route.edge.start, route.edge.end], route.edge.marker, route.edge.path ? "is-path" : "");
+    draw(route.edge.type, route.d, [...route.edge.starts, route.edge.end], route.edge.marker, route.edge.path ? "is-path" : "");
   }
   highlightWorkmap();
   updateWorkmapMore();

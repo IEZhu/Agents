@@ -2658,17 +2658,18 @@ function workmapSynth(n, seed) {
   return { nodes, edges };
 }
 // Boxes as the stylesheet draws a layout at `scale` (section 6): rows stacked with the layout's gaps,
-// those within the height budget (`tight`) or those its edges want (14 px of each, 26 where it holds a
-// second straight end, fixed above 100 % and scaled below it down to 2 px less; the rest scaled), each
-// entry at its x, a card heightOf(id) px tall at 100 % and, under a card with docked verifiers, a tray:
-// 7 px, then a 24-px pill every 28 px, and room under the last layer for its dips. Returns
-// workmapRoutes' geo, the boxes it was made of and the height drawn.
+// those within the height budget (`tight`), those its edges want, or (`tight` "least") every gap at its
+// least: 14 px of each, 26 where it holds a second straight end, fixed, 4 more for the least bend
+// (scaled above 100 %), the rest scaled. Each entry at its x, a card heightOf(id) px tall at 100 % and,
+// under a card with docked verifiers, a tray: 7 px, then a 24-px pill every 28 px, and room over the
+// first layer and under the last for the edges over and under them. Returns workmapRoutes' geo, the
+// boxes it was made of and the height drawn.
 function workmapGeometry(layout, scale, heightOf, tight = true) {
   const rows = [], cards = new Map(), groups = new Map(), lanes = new Map(), trays = new Set(), next = new Map();
-  let y = 12;
+  let y = 12 + (layout.head ? 15 + (6 + 5 * (layout.head - 1)) * scale : 0);
   layout.layers.forEach((entries, k) => {
-    const gap = (tight ? layout.tight : layout.gaps)[k], two = layout.heads[k] === 2;
-    if (k) y += Math.min(14, Math.max(12, 14 * scale)) + (two ? 12 : 0) + (gap - (two ? 26 : 14)) * scale;
+    const gap = (tight === "least" ? layout.least : tight ? layout.tight : layout.gaps)[k], two = layout.heads[k] === 2;
+    if (k) y += (two ? 26 : 14) + Math.max(4, 4 * scale) + (gap - (two ? 30 : 18)) * scale;
     const top = y;
     let bottom = top;
     for (const [i, entry] of entries.entries()) {
@@ -2762,14 +2763,18 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
   const points = routes.map((route) => workmapSample(route.steps));
   const out = { crossings: layout.crossings, drawn: 0, dips: 0, inside: [], shortest: Infinity, steepest: 0, joint: 0, smooth: 0, misordered: [],
                 closest: Infinity, foot: [], spacing: Infinity, width: layout.width, packed: 0, gaps: layout.gaps.slice(1),
-                tight: layout.tight.slice(1), heads: layout.heads.slice(1), foot_room: layout.foot, height: Math.round(height),
-                ms: Math.round(ms), kinds: {}, routes: routes.length, edges: edges.length, jogs: 0, bent: 0 };
+                tight: layout.tight.slice(1), least: layout.least.slice(1), heads: layout.heads.slice(1),
+                foot_room: layout.foot, head_room: layout.head, height: Math.round(height),
+                ms: Math.round(ms), kinds: {}, routes: routes.length, edges: edges.length, jogs: 0, bent: 0, level_step: Infinity,
+                turn: null, above: 0, tray_run: 0 };
   const jog = vm.runInContext("WM_GEOM.jog", context) * scale;
   routes.forEach((route, i) => {
     out.kinds[route.kind] = (out.kinds[route.kind] || 0) + 1;
     const boxes = [...[...cards].map(([id, box]) => [id, box]), ...[...trays].map((id) => [id + "#tray", groups.get(id)])];
     for (const [id, box] of boxes) {
       if (route.kind === "tray" && (id === route.start + "#tray" || layout.docked[id] === route.start || id === route.start)) continue;
+      // An edge side to side from a pill leaves through its own tray's edge.
+      if (route.kind === "side" && route.pills.some((pill, end) => pill && id === (end ? route.end : route.start) + "#tray")) continue;
       if (points[i].some(([x, y]) => x > box.l + 0.5 && x < box.r - 0.5 && y > box.t + 0.5 && y < box.b - 0.5)) out.inside.push(`${route.edge.key} in ${id}`);
     }
     // The straight end: the last step, from where the step before it ended, and its angle.
@@ -2846,18 +2851,51 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
       }
     }
   }
+  // The height between two levels of a zone, where curves that run the same way are staggered.
+  const zones = new Map();
+  for (const route of routes) for (const curve of route.curves || []) zones.set(curve.zone, [...(zones.get(curve.zone) || []), curve]);
+  for (const curves of zones.values()) {
+    const levels = [...new Set(curves.map((curve) => curve.ya))].sort((a, b) => a - b);
+    for (let i = 1; i < levels.length; i++) out.level_step = Math.min(out.level_step, levels[i] - levels[i - 1]);
+  }
+  out.level_step = out.level_step === Infinity ? null : Math.round(out.level_step * 100) / 100;
   out.below = Math.max(0, Math.round(Math.max(...points.flat().map(([, y]) => y)) - (height - 12)));
+  out.above = Math.max(0, Math.round(12 - Math.min(...points.flat().map(([, y]) => y))));
+  // How far an edge side to side runs inside its own pill's tray (px at 100 %): the tray's right padding,
+  // never its left side, where the comb is.
+  routes.forEach((route, i) => {
+    if (route.kind !== "side") return;
+    route.pills.forEach((pill, end) => {
+      if (!pill) return;
+      const box = groups.get(end ? route.end : route.start), inside = points[i].filter(([x, y]) => x > box.l && x < box.r && y > box.t && y < box.b);
+      if (inside.length) out.tray_run = Math.max(out.tray_run, Math.round((Math.max(...inside.map(([x]) => x)) - Math.min(...inside.map(([x]) => x))) / scale * 10) / 10);
+    });
+  });
+  // The room an edge side to side from a pill turns in: the width of its curve, from the level piece
+  // it leaves.
+  for (const route of routes) {
+    route.steps.forEach(([op, ...v], i) => {
+      if (route.kind !== "side" || op !== "C") return;
+      const width = Math.abs(v[4] - route.steps[i - 1][1]);
+      out.turn = out.turn === null ? width : Math.min(out.turn, width);
+    });
+  }
   // How far right of the middle the cards lie on average (px at 100 %): the side with more comes first.
   const boxes = layout.layers.flat().filter((entry) => !entry.lane);
   out.lean = Math.round(boxes.reduce((sum, entry) => sum + entry.x + entry.w / 2 - layout.width / 2, 0) / (boxes.length || 1) * 10) / 10;
   // The room between two entries as the layout keeps it: more between neighbours joined side to side
   // and right of a group whose tray holds an edge of its own.
-  const host = (id) => layout.docked[id] || id, joined = new Set(), trayed = new Set();
+  // and between neighbours joined from a pill, where the edge turns; right of a group whose tray holds
+  // an edge of its own.
+  const host = (id) => layout.docked[id] || id, joined = new Map(), trayed = new Set();
   for (const route of routes) {
-    if (route.kind === "side") joined.add(route.start + "\n" + route.end).add(route.end + "\n" + route.start);
+    const room = route.pills && (route.pills[0] || route.pills[1]) ? 48 : 28;
+    for (const pair of [route.start + "\n" + route.end, route.end + "\n" + route.start]) {
+      if (route.kind === "side") joined.set(pair, Math.max(joined.get(pair) || 0, room));
+    }
     if (route.kind === "tray") trayed.add(host(route.start));
   }
-  const sep = (a, b) => Math.max(a.lane && b.lane ? 12 : a.lane || b.lane ? 16 : 20, joined.has(a.id + "\n" + b.id) ? 28 : 0, trayed.has(a.id) ? 36 : 0);
+  const sep = (a, b) => Math.max(a.lane && b.lane ? 12 : a.lane || b.lane ? 16 : 20, joined.get(a.id + "\n" + b.id) || 0, trayed.has(a.id) ? 36 : 0);
   for (const entries of layout.layers) {
     if (entries.length) out.packed = Math.max(out.packed, entries.reduce((sum, entry, i) => sum + entry.w + (i ? sep(entries[i - 1], entry) : 0), 0));
     entries.forEach((entry, i) => {
@@ -2916,6 +2954,51 @@ const WORKMAP_TRAY = workmapShape("goal:g r:s m:s a:s n:s v1:s v2:s v3:s",
 // Three goals joined in a ring by edges between them: one runs below the last layer, in the room the
 // layout keeps under it.
 const WORKMAP_GOALS = workmapShape("g1:g g2:g g3:g s:s t:s", "g1>s g2>s g3>t g1^g2 g2!g3 g3^g1");
+// The release map as it stood at revision 217 (ids, kinds and edges): the shape the owner watches, which
+// the stability checks grow by one node at a time.
+const WORKMAP_LIVE = workmapShape("goal:g triage:s readiness:s decide-fixes:d fixes:s docs-refresh:s promotion:s fix-701:s review-701:s "
+  + "workmap-ui:s review-workmap-ui:s v701-contract:s v701-failure:s vui-security:s vui-correctness:s vui-ux:s design-meaning:s "
+  + "design-visual:s apply-design:s edge-routing:s v701-4-redaction:s v701-4-regression:s v-edge-routing:s fix-701-5:s edge-routing-2:s "
+  + "v701-5-redaction:s v701-5-regression:s v-edge-routing-2:s fix-628:s fix-722:s fix-456:s fix-754:s fix-592-440:s fix-scan-test:s "
+  + "docs-delta:s fix-701-6:s sync-setup:s v-fix-456:s edge-routing-3:s v-docs-delta:s v-fix-592-440:s v-fix-628:s v-fix-722:s",
+  "fixes>triage fixes>decide-fixes decide-fixes>triage docs-refresh>fixes docs-refresh>readiness promotion>docs-refresh review-701>fix-701 "
+  + "docs-refresh>review-701 review-workmap-ui>workmap-ui docs-refresh>review-workmap-ui v701-contract~fix-701 v701-failure~fix-701 "
+  + "review-701>v701-contract review-701>v701-failure review-workmap-ui>vui-security review-workmap-ui>vui-correctness review-workmap-ui>vui-ux "
+  + "apply-design>design-meaning apply-design>design-visual vui-security~apply-design vui-correctness~apply-design vui-ux~apply-design "
+  + "review-workmap-ui>review-701 review-workmap-ui>edge-routing v701-4-redaction~fix-701 v701-4-regression~fix-701 review-701>v701-4-redaction "
+  + "review-701>v701-4-regression v-edge-routing~edge-routing review-workmap-ui>v-edge-routing fix-701-5^fix-701 review-701>fix-701-5 "
+  + "edge-routing-2^edge-routing review-workmap-ui>edge-routing-2 v701-5-redaction~fix-701-5 v701-5-regression~fix-701-5 "
+  + "review-701>v701-5-redaction review-701>v701-5-regression v-edge-routing-2~edge-routing-2 review-workmap-ui>v-edge-routing-2 "
+  + "fix-628>decide-fixes fix-722>decide-fixes fix-456>decide-fixes fix-754>decide-fixes fix-592-440>decide-fixes fix-scan-test>decide-fixes "
+  + "fixes>fix-628 fixes>fix-722 fixes>fix-456 fixes>fix-754 fixes>fix-592-440 fixes>fix-scan-test docs-refresh>docs-delta "
+  + "fix-701-6^fix-701-5 review-701>fix-701-6 v-fix-456~fix-456 fixes>v-fix-456 edge-routing-3^edge-routing-2 review-workmap-ui>edge-routing-3 "
+  + "v-docs-delta~docs-delta docs-refresh>v-docs-delta v-fix-592-440~fix-592-440 fixes>v-fix-592-440 v-fix-628~fix-628 fixes>v-fix-628 "
+  + "v-fix-722~fix-722 fixes>v-fix-722");
+// The second verification's map of attempts (its ids): two chains of three attempts in one layer, an
+// edge between two neighbours each way, a docked verifier's edge to the card beside its group, a
+// contradiction across the layer, and two nodes set aside (copy-v1 superseded, subject-a refuted).
+const WORKMAP_ATTEMPTS = workmapShape("goal:g brief:s audience:s copy-v1:s copy-v2:s copy-v3:s subject-a:s subject-b:s timing:s legal-note:s "
+  + "tone-check:s legal-check:s review-copy:s ab-subject:s send-plan:s launch:s launch-rv:s launch-2:s launch-3:s readout:d",
+  "copy-v1>brief copy-v2>brief copy-v3>brief copy-v2^copy-v1 copy-v3^copy-v2 subject-a>audience subject-b>audience subject-b!subject-a "
+  + "timing>brief timing>audience legal-note>audience legal-note!copy-v1 tone-check~copy-v2 tone-check!copy-v3 legal-check~legal-note "
+  + "review-copy>copy-v3 review-copy>tone-check ab-subject>subject-a ab-subject>subject-b send-plan>timing send-plan>copy-v3 launch>review-copy "
+  + "launch>ab-subject launch>send-plan launch>legal-note launch>legal-check launch-rv~launch launch-2>ab-subject launch-2>send-plan "
+  + "launch-2^launch launch-3>send-plan launch-3>review-copy launch-3^launch-2 readout>launch-3 readout>launch-rv");
+WORKMAP_ATTEMPTS.nodes.forEach((item) => { item.status = { "copy-v1": "superseded", "subject-a": "refuted" }[item.id] || "planned"; });
+// Docked verifiers whose edges go to the cards beside their group, one on the left and two on the right:
+// they leave the pill's side, past the tray's comb on the left, and the two into one card do not cross.
+const WORKMAP_PILL = workmapShape("goal:g p:s a:s b:s c:s v1:s v2:s v3:s",
+  "a>p b>p c>p v1~b v2~b v3~b v1!a v2^c v3!c goal>a goal>b goal>c");
+// Three nodes of the top layer in a ring of edges: the one between two that are not neighbours runs
+// over the layer, where nothing enters from above, in the room kept over it.
+const WORKMAP_OVER = workmapShape("goal:g x:s y:s z:s p:s q:s", "x^y y!z z^x p>x p>y q>y q>z goal>p goal>q");
+// Three goals in a ring, the middle one with nothing entering it: the edge between the other two runs
+// over the last layer, past the curves into their tops, which end their bends above it.
+const WORKMAP_GOALS_OVER = workmapShape("g1:g g2:g g3:g s:s t:s", "g1>s g3>t g1^g2 g2!g3 g3^g1");
+// A review card that takes five edges from a tray (a node and its four verifiers) that is not above it:
+// one trunk, one arrowhead.
+const WORKMAP_FAR = workmapShape("goal:g a:s b:s c:s d:s h:s v1:s v2:s v3:s v4:s x:s y:s z:s r:s s:s",
+  "h>a v1~h v2~h v3~h v4~h x>b y>c z>d r>h r>v1 r>v2 r>v3 r>v4 r>x r>y r>z s>a goal>r goal>s");
 // A tall map: twelve rounds of a fan out and back in, every gap wanting to bend far.
 const WORKMAP_TALL = (() => {
   const nodes = ["goal:g"], edges = [];
@@ -2961,6 +3044,61 @@ if (scenario === "workmap_routes") {
   });
   out.comb = workmapRouteChecks(WORKMAP_COMB, 1.25, () => 72, { between: ["h", "t"] });
   out.comb_wide = workmapRouteChecks(WORKMAP_COMB, 1, () => 72, { tight: false, between: ["h", "t"] });
+  for (const scale of [0.5, 0.8, 1, 1.25, 1.6]) {
+    out[`attempts_${scale * 100}`] = workmapRouteChecks(WORKMAP_ATTEMPTS, scale);
+    out[`pill_${scale * 100}`] = workmapRouteChecks(WORKMAP_PILL, scale, () => 72);
+    out[`over_${scale * 100}`] = workmapRouteChecks(WORKMAP_OVER, scale, () => 72);
+    out[`far_${scale * 100}`] = workmapRouteChecks(WORKMAP_FAR, scale, () => 72, { between: ["h", "r"] });
+    out[`goals_over_${scale * 100}`] = workmapRouteChecks(WORKMAP_GOALS_OVER, scale, () => 72);
+  }
+  // Every map at 50 % with every gap at its least: the straight ends and the least bend still hold.
+  for (const [name, shape, height] of [["release", RELEASE_SHAPE], ["fixture", { nodes: workmapNodes(), edges: WORKMAP_EDGES }],
+    ["synth_40", workmapSynth(40, 40)], ["synth_60", workmapSynth(60, 60)], ["beside", WORKMAP_BESIDE], ["tray", WORKMAP_TRAY, () => 72],
+    ["goals", WORKMAP_GOALS, () => 72], ["attempts", WORKMAP_ATTEMPTS], ["pill", WORKMAP_PILL, () => 72], ["over", WORKMAP_OVER, () => 72],
+    ["live", WORKMAP_LIVE], ["tall", WORKMAP_TALL, () => 72], ["goals_over", WORKMAP_GOALS_OVER, () => 72]]) {
+    out[`${name}_least`] = workmapRouteChecks(shape, 0.5, height, { tight: "least" });
+  }
+  // The trunks into the review card: h is settled and its verifiers are not, so the head of the trunk
+  // from its tray is hollow; with the first layer settled too, the critical path runs through a
+  // verifier's edge, not the trunk's first, and the trunk is drawn on it.
+  const farNodes = WORKMAP_FAR.nodes.map((item) => ({ status: "planned", level: "V0", needs: "V2", risk: "routine", ready: false,
+    attention: false, settled: false, ...item,
+    ...(["h", "a", "b", "c", "d"].includes(item.id) ? { status: "validated", level: "V2", settled: true } : {}) }));
+  const far = context.workmapLayers(farNodes, WORKMAP_FAR.edges);
+  const farList = context.workmapEdgeList(context.workmapView({ nodes: farNodes, edges: WORKMAP_FAR.edges, closed: false, verdicts: [] }, far));
+  out.trunks = farList.filter((edge) => edge.end === "r").map((edge) => ({ start: edge.start, starts: edge.starts, keys: edge.keys.length,
+    marker: edge.marker, path: edge.path }));
+  // One node added to the live structure, laid out from the layout before it: the other rows keep their
+  // order, no card moves more than one place, and it crosses no more than the same map opened afresh.
+  const grow = (added, edges) => {
+    const base = WORKMAP_LIVE.nodes.map((item) => ({ status: "planned", ...item })), before = context.workmapLayers(base, WORKMAP_LIVE.edges);
+    const nodes = [...base, ...added.map((id) => ({ id, kind: "stage", title: id, status: "planned" }))];
+    const after = context.workmapLayers(nodes, [...WORKMAP_LIVE.edges, ...edges], before), fresh = context.workmapLayers(nodes, [...WORKMAP_LIVE.edges, ...edges]);
+    const rows = (layout) => layout.layers.map((entries) => entries.filter((entry) => !entry.lane).map((entry) => entry.id));
+    const at = new Map();
+    rows(after).forEach((row, k) => row.forEach((id, i) => at.set(id, [k, i])));
+    let reordered = 0, slot = 0, lean = 0;
+    rows(before).forEach((row, k) => {
+      const kept = row.filter((id) => at.has(id) && at.get(id)[0] === k), now = rows(after)[k].filter((id) => kept.includes(id));
+      if (now.join() !== kept.join() && !added.some((id) => rows(after)[k].includes(id))) reordered += 1;
+      row.forEach((id, i) => { if (at.has(id) && at.get(id)[0] === k) slot = Math.max(slot, Math.abs(at.get(id)[1] - i)); });
+    });
+    const mid = (layout) => new Map(layout.layers.flat().filter((entry) => !entry.lane).map((entry) => [entry.id, entry.x + entry.w / 2]));
+    const [x0, x1] = [mid(before), mid(after)];
+    for (const [id, x] of x0) lean += Math.sign(x1.get(id) - x1.get(rows(after)[0][0])) === Math.sign(x - x0.get(rows(before)[0][0])) ? 0 : 1;
+    return { reordered, slot, crossings: after.crossings, fresh: fresh.crossings, turned: lean };
+  };
+  out.grow = {
+    attempt: grow(["fix-701-7"], [{ from: "fix-701-7", to: "fix-701-6", type: "supersedes" }, { from: "review-701", to: "fix-701-7", type: "depends_on" }]),
+    verified: grow(["fix-701-7", "v701-7-a", "v701-7-b"], [{ from: "fix-701-7", to: "fix-701-6", type: "supersedes" },
+      { from: "review-701", to: "fix-701-7", type: "depends_on" }, { from: "v701-7-a", to: "fix-701-7", type: "verifies" },
+      { from: "review-701", to: "v701-7-a", type: "depends_on" }, { from: "v701-7-b", to: "fix-701-7", type: "verifies" },
+      { from: "review-701", to: "v701-7-b", type: "depends_on" }]),
+    verifier: grow(["v701-6-a"], [{ from: "v701-6-a", to: "fix-701-6", type: "verifies" }, { from: "review-701", to: "v701-6-a", type: "depends_on" }]),
+    routing: grow(["edge-routing-4"], [{ from: "edge-routing-4", to: "edge-routing-3", type: "supersedes" },
+      { from: "review-workmap-ui", to: "edge-routing-4", type: "depends_on" }]),
+    stage: grow(["release-notes"], [{ from: "release-notes", to: "docs-refresh", type: "depends_on" }]),
+  };
   // The order on the verification's maps, and the height budget on a tall one: the gaps within it, and
   // the height drawn at 50, 100 and 160 % against the layout before (28 px a gap, scaled).
   out.orders = Object.fromEntries(Object.entries(WORKMAP_ORDERS).map(([name, [shape, fewest]]) => {
@@ -2970,13 +3108,22 @@ if (scenario === "workmap_routes") {
   }));
   const tall = context.workmapLayers(WORKMAP_TALL.nodes, WORKMAP_TALL.edges);
   out.tall = { layers: tall.layers.length, tight: tall.tight.slice(1).reduce((sum, gap) => sum + gap, 0),
+               least: tall.least.slice(1).reduce((sum, gap) => sum + gap, 0),
                wanted: tall.gaps.slice(1).reduce((sum, gap) => sum + gap, 0),
                budget: vm.runInContext("WM_GEOM.gap.budget", context) * (tall.layers.length - 1),
                drawn: [0.5, 1, 1.6].map((scale) => [workmapGeometry(tall, scale, () => 72).height,
                                                    12 + 12 + tall.layers.length * 72 * scale + (tall.layers.length - 1) * 28 * scale]) };
-  // The same structure, any statuses: the layout reads ids, kinds and edges only.
-  const restless = workmapNodes().map((item, i) => ({ ...item, status: ["prepared", "validated", "needs_attention"][i % 3], settled: i % 2 === 0 }));
+  // The same structure, any statuses but set aside: the layout reads ids, kinds, which nodes are set aside
+  // and edges only. A node set aside sends no derived connector to the goal, and changes the structure.
+  const aside = (item) => ["refuted", "superseded"].includes(item.status);
+  const restless = workmapNodes().map((item, i) => (aside(item) ? item
+    : { ...item, status: ["prepared", "validated", "needs_attention"][i % 3], settled: i % 2 === 0 }));
   out.stable = JSON.stringify(context.workmapLayers(workmapNodes(), WORKMAP_EDGES)) === JSON.stringify(context.workmapLayers(restless, WORKMAP_EDGES));
+  const awake = workmapNodes().map((item) => (aside(item) ? { ...item, status: "planned" } : item));
+  out.aside = { derived: context.workmapLayers(workmapNodes(), WORKMAP_EDGES).derived.map(([id]) => id),
+                awake: context.workmapLayers(awake, WORKMAP_EDGES).derived.map(([id]) => id),
+                structure: vm.runInContext("workmapStructure", context)({ nodes: workmapNodes(), edges: WORKMAP_EDGES })
+                  !== vm.runInContext("workmapStructure", context)({ nodes: awake, edges: WORKMAP_EDGES }) };
   // A verifier with an input besides the node it checks is a card of its own; one with none docks.
   const extra = context.workmapLayers(["a", "b", "v", "w"].map((id) => ({ id, kind: "stage" })),
     [{ from: "b", to: "a", type: "depends_on" }, { from: "v", to: "b", type: "verifies" }, { from: "v", to: "a", type: "depends_on" },

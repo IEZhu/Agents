@@ -1873,14 +1873,16 @@ def test_the_work_map_lays_out_top_down_with_the_goal_last(workmap_layout):
     assert workmap_layout["layers"] == [["build", "old", "triage"], ["audit", "decide", "fix", "port"], ["docs"], ["goal"]]
     # A long edge passes an empty lane in each layer it crosses, so it never runs through a card; so does
     # an edge that places nothing, such as docs superseding old two layers up.
-    assert workmap_layout["via"]["docs|build|depends_on"] == 1 and workmap_layout["lanes"] == [0, 4, 5, 0]
+    assert workmap_layout["via"]["docs|build|depends_on"] == 1 and workmap_layout["lanes"] == [0, 3, 4, 0]
     assert workmap_layout["via"]["docs|old|supersedes"] == 1
-    # The goal stores no edge: every node nothing follows leads to it by a derived connector.
+    # The goal stores no edge: every live node nothing follows leads to it by a derived connector; old is
+    # set aside, so no connector leaves it and no lane is laid for one (the page never drew it).
     assert workmap_layout["derived"] == [["check-fix", "goal"], ["triage-check", "goal"], ["audit", "goal"], ["docs", "goal"],
-                                         ["old", "goal"], ["port", "goal"]]
+                                         ["port", "goal"]]
     assert workmap_layout["cycle"] == [["p", "r"]]  # a damaged map with a cycle still draws every node
     assert workmap_layout["empty"] == {"layers": [], "layer": {}, "docked": {}, "via": {}, "derived": [], "crossings": 0,
-                                       "gaps": [], "tight": [], "heads": [], "width": 0, "foot": 0, "beside": {}}
+                                       "gaps": [], "tight": [], "least": [], "heads": [], "width": 0, "foot": 0,
+                                       "head": 0, "beside": {}}
 
 
 def test_a_lane_is_never_a_node_and_a_map_too_large_is_not_laid_out(workmap_layout):
@@ -1908,10 +1910,18 @@ def workmap_routes():
 # that climbs, one between two nodes of a layer and one between two pills of a tray; three alternatives
 # joined side to side and a ring of three nodes of one layer, of which one edge runs below the layer, at
 # 50, 80, 100, 125 and 160 %; a tray of four verifiers feeding one card; a tray whose verifiers hold
-# edges of their own between two neighbours, and three goals in a ring of edges, at the same zooms.
+# edges of their own between two neighbours, and three goals in a ring of edges, at the same zooms; the
+# second verification's map of attempts, docked verifiers with edges to the cards beside their group, a
+# ring of three nodes in the top layer, a card fed by a tray that is not above it, and three goals in a
+# ring with nothing entering the middle one, at the same zooms; and thirteen maps at 50 % with every gap
+# at its least (`_least`), the live release map among them.
 ZOOMS = [50, 80, 100, 125, 160]
+LEAST_MAPS = [f"{name}_least" for name in ("release", "fixture", "synth_40", "synth_60", "beside", "tray", "goals", "attempts", "pill",
+                                           "over", "live", "tall", "goals_over")]
 ROUTED_MAPS = (["release", "release_100", "release_wide", "fixture", "synth_20", "synth_40", "synth_60", "odd", "comb", "comb_wide"]
-               + [f"{name}_{zoom}" for name in ("alt", "beside", "tray", "goals") for zoom in ZOOMS])
+               + [f"{name}_{zoom}" for name in ("alt", "beside", "tray", "goals", "attempts", "pill", "over", "far", "goals_over")
+                  for zoom in ZOOMS]
+               + LEAST_MAPS)
 
 
 def test_the_release_map_is_drawn_without_a_crossing(workmap_routes):
@@ -2010,21 +2020,27 @@ def test_every_edge_is_one_smooth_curve_through_its_lanes(workmap_routes):
 
 
 def test_every_arrow_ends_in_a_straight_vertical_piece(workmap_routes):
-    # The last step of every edge is straight for at least 12 px from 100 % up, vertical (an edge inside
+    # The last step of every edge is straight for at least 12 px at every zoom, vertical (an edge inside
     # one tray or side to side ends level with the box it enters), so the arrowhead lies along the line:
-    # its angle and the angle where the curve meets the straight piece stay within 3 degrees. Below 100 %
-    # the straight end of a gap within the budget may shorten; here it keeps the arrowhead's 10 px and a px.
+    # its angle and the angle where the curve meets the straight piece stay within 3 degrees, so no turn
+    # lies within the last 12 px. That holds at 50 % with every gap at its least, where a gap keeps its
+    # straight end, a px either side and the least bend apart from what scales.
     for name in ROUTED_MAPS:
         result = workmap_routes[name]
-        least = 11 if name.endswith(("_50", "_80")) else 12
-        assert result["shortest"] >= least and result["steepest"] <= 3 and result["joint"] <= 3, name
+        assert result["shortest"] >= 12 and result["steepest"] <= 3 and result["joint"] <= 3, name
+    assert all(workmap_routes[name]["shortest"] >= 12 for name in LEAST_MAPS)
 
 
 def test_ends_are_spread_along_a_side_in_the_order_of_their_other_ends(workmap_routes):
     # Incoming ends spread along a card's top and outgoing ones along its group's foot, in the horizontal
     # order of the nodes or lanes at their other ends, so no two cross at the card; distinct arrowheads.
+    # Ends sit WM_GEOM.portGap (28 px) apart where a side has room, scaled with the zoom (14 px at 50 %),
+    # closer only on a crowded side: at 50 % the live map's review card takes nine, 12 px apart, still the
+    # arrowhead's 10 px and a px either side.
     for name in ROUTED_MAPS:
-        assert workmap_routes[name]["misordered"] == [] and workmap_routes[name]["closest"] >= 20, name
+        closest = workmap_routes[name]["closest"]  # none where no side holds two ends
+        least = 12 if name.endswith(("_50", "_least")) else 20
+        assert workmap_routes[name]["misordered"] == [] and (closest is None or closest >= least), name
 
 
 def test_edges_between_two_boxes_run_straight_side_by_side(workmap_routes):
@@ -2053,16 +2069,19 @@ def test_the_layout_places_within_the_widest_layer_with_gaps_the_stylesheet_draw
         result = workmap_routes[name]
         assert result["spacing"] >= 0 and result["width"] == result["packed"], name  # placing never widens the map
         assert all(low <= gap <= high for gap in result["gaps"] + result["tight"]), name
-        assert all(tight <= gap for tight, gap in zip(result["tight"], result["gaps"])), name
-    # Each gap's tens and ones have a rule for the gaps the edges want and for those within the budget;
-    # 14 px of a gap, 26 where it holds a second straight end, are fixed above 100 % and scale below it
-    # down to 2 px less, the arrowhead's length and a px either side; and every digit of an entry's
-    # offset has its rule. The widths the layout places by are the stylesheet's.
-    fixed = "clamp(12px, 14px * var(--k), 14px)"
+        assert all(least <= tight <= gap for least, tight, gap in zip(result["least"], result["tight"], result["gaps"])), name
+    # Each gap's tens and ones have a rule for the gaps the edges want and for those within the budget.
+    # The straight end's 12 px and a px either side (26 where the gap holds a second straight end) stay
+    # fixed at every zoom, and so do the least bend's 4 px below 100 % (they scale above it); the rest
+    # scales. Every digit of an entry's offset has its rule. The widths the layout places by are the
+    # stylesheet's.
     for digits, prefix in (("g", ".wm-layer[data-gap]"), ("t", ".wm-stage[data-tight] .wm-layer[data-gap]")):
-        assert f"{prefix} {{ margin-top: calc({fixed}\n  + (var(--{digits}1, 0) * 10 + var(--{digits}0, 0) - 14) * 1px * var(--k)); }}" in style
-        assert (f'{prefix}[data-heads="2"] {{ margin-top: calc({fixed} + 12px\n'
-                f"  + (var(--{digits}1, 0) * 10 + var(--{digits}0, 0) - 26) * 1px * var(--k)); }}") in style
+        assert (f"{prefix} {{ margin-top: calc(14px + max(4px, 4px * var(--k))\n"
+                f"  + (var(--{digits}1, 0) * 10 + var(--{digits}0, 0) - 18) * 1px * var(--k)); }}") in style
+        assert (f'{prefix}[data-heads="2"] {{ margin-top: calc(26px + max(4px, 4px * var(--k))\n'
+                f"  + (var(--{digits}1, 0) * 10 + var(--{digits}0, 0) - 30) * 1px * var(--k)); }}") in style
+    for level in (1, 2, 3):  # room over the first layer for the edges over it, as under the last for dips
+        assert f'.wm-layer[data-head="{level}"] {{ margin-top: calc(15px + {1 + 5 * level}px * var(--k)); }}' in style
         for digit in range(1, 10):
             assert f'[data-{digits}0="{digit}"] {{ --{digits}0: {digit}; }}' in style
         for digit in range(1, high // 10 + 1):
@@ -2075,22 +2094,105 @@ def test_the_layout_places_within_the_widest_layer_with_gaps_the_stylesheet_draw
 
 
 def test_the_gaps_keep_a_tall_map_within_the_height_of_the_layout_before(workmap_routes):
-    # Twelve rounds of a fan out and back in, every gap wanting to bend far: the gaps within the budget
-    # take at most 26 px each together. The layout before gave every gap 28 px, scaled; here 14 px of a
-    # gap stay fixed above 100 % and 12 below 86 %, so the map is no taller than it was from 75 % up
-    # (12 + 12 x 0.75 = 28 x 0.75) and shorter above 100 %; below 75 % each gap is a few px taller, the
-    # straight ends keeping the arrowheads' 10 px and a px either side. Fit uses the gaps the edges want
-    # only where the map shows whole with them too.
+    # The gaps within the budget take at most 26 px each together, unless their least takes more: the
+    # straight end, a px either side, the least bend and 6 px for each level of curves that run the same
+    # way, so they never merge. Twelve rounds of a fan out and back in stack four such levels in every
+    # gap: there every gap is at its least, and the map is taller than with the uniform 28 px of the
+    # layout before by that excess, scaled; a map whose least fits keeps within the budget. Below 100 %
+    # a gap keeps its first 18 px (straight end and least bend) at every zoom, so at 50 % a gap at the
+    # budget's 26 px is 22 px tall where the layout before had 14. Fit uses the gaps the edges want only
+    # where the map shows whole with them too.
     tall = workmap_routes["tall"]
-    assert tall["layers"] == 13 and tall["tight"] <= tall["budget"] == 26 * 12 < tall["wanted"]
+    assert tall["layers"] == 13 and tall["budget"] == 26 * 12 < tall["least"] == tall["tight"] < tall["wanted"]
+    excess, gaps = tall["least"] - tall["budget"], tall["layers"] - 1
     (low, before_low), (at_100, before_100), (high, before_high) = tall["drawn"]
-    assert at_100 <= before_100 and high <= before_high
-    assert low <= before_low + 4 * (tall["layers"] - 1)  # at 50 %: 12 + 6 px a gap where the layout before had 14
+    assert at_100 <= before_100 + excess and high <= before_high + 1.6 * excess
+    assert low <= before_low + (22 - 14) * gaps + 0.5 * excess
+    for name in ROUTED_MAPS:
+        result = workmap_routes[name]
+        assert sum(result["tight"]) <= max(26 * len(result["tight"]), sum(result["least"])), name
+
+
+def test_the_edges_of_one_group_into_one_card_are_one_trunk(workmap_routes):
+    # A review card that waits for a node and its four docked verifiers, under none of them: the five edges
+    # leave the tray's foot as one trunk with one arrowhead, hollow while one of them still holds the card
+    # back (the node is settled, its verifiers are not), instead of five bends side by side; the trunk
+    # names every start, so hovering a pill lights it, and it is on the critical path when any of its
+    # edges is (here a verifier's, not the node's).
+    assert workmap_routes["trunks"][0] == {"start": "h", "starts": ["h", "v1", "v2", "v3", "v4"], "keys": 5,
+                                           "marker": "depends_on-open", "path": True}
+    assert all(trunk["keys"] == 1 for trunk in workmap_routes["trunks"][1:])
+    # The trunk weighs as its five edges where the card is placed, so the card sits under the tray and the
+    # trunk runs straight down.
+    for zoom in ZOOMS:
+        far = workmap_routes[f"far_{zoom}"]
+        assert far["kinds"] == {"down": 11} and far["bent"] == 0 and far["drawn"] == far["crossings"] == 0, zoom
+    # The tray of four into one card: one trunk where there were five edges.
+    assert workmap_routes["comb"]["kinds"] == {"down": 3}
+
+
+def test_a_chain_of_attempts_and_a_docked_verifier_join_their_neighbours_side_to_side(workmap_routes):
+    # The second verification's map of attempts: a detour (an edge between two of a layer that are not
+    # neighbours) counts as two crossings in the order, so both chains of three attempts keep their order
+    # and every one of the seven edges between nodes of one layer joins neighbours side to side, the
+    # docked verifier's from its pill, at no more crossings than the order allowed before (9).
+    for zoom in ZOOMS:
+        attempts = workmap_routes[f"attempts_{zoom}"]
+        assert attempts["kinds"] == {"down": 26, "side": 7} and attempts["drawn"] == attempts["crossings"] == 9, zoom
+        # Docked verifiers with edges to the cards on either side of their group, two into one: side to
+        # side from the pill, out of its own tray only, turning in the room kept between the groups (at
+        # least 8 px wide at 50 %), the two into one card not crossing, the straight end level and 12 px
+        # long at every zoom.
+        pill = workmap_routes[f"pill_{zoom}"]
+        assert pill["kinds"] == {"down": 6, "side": 3} and pill["inside"] == [] and pill["shortest"] >= 12, zoom
+        assert pill["drawn"] == pill["crossings"] == 0 and pill["turn"] >= 8, zoom
+        assert pill["tray_run"] <= 7, zoom  # the tray's right padding only: none runs across its comb
+
+
+def test_an_edge_between_two_that_are_not_neighbours_runs_over_the_layer_where_nothing_enters(workmap_routes):
+    # Three nodes of the top layer in a ring: the edge between the two that are not neighbours runs over
+    # the layer, where it crosses nothing, with its arrowhead down, in the room kept over the first layer;
+    # a ring under a node runs under its layer instead, crossing the edges down, as the order counts.
+    for zoom in ZOOMS:
+        over = workmap_routes[f"over_{zoom}"]
+        assert over["kinds"] == {"side": 2, "over": 1, "down": 6} and over["head_room"] == 1, zoom
+        assert over["drawn"] == over["crossings"] == 0 and over["inside"] == [] and over["below"] == over["above"] == 0, zoom
+        assert workmap_routes[f"beside_{zoom}"]["kinds"]["dip"] == 1, zoom
+        # Three goals in a ring, nothing entering the middle one: over the last layer, past the curves into
+        # the other two, which end their bends above it.
+        goals = workmap_routes[f"goals_over_{zoom}"]
+        assert goals["kinds"] == {"down": 2, "side": 2, "over": 1} and goals["drawn"] == goals["crossings"] == 0, zoom
+
+
+def test_one_added_node_keeps_the_other_rows_their_order_and_their_side(workmap_routes):
+    # The live release map grown by one node of each kind it grows by (a further attempt, one with two
+    # verifiers, a verifier, an attempt on another line, a stage after the docs), laid out from the
+    # layout before it: every other row keeps its order, no card moves more than one place, none comes
+    # out on the other side, and the map crosses no more than the same map opened afresh.
+    for kind, grown in workmap_routes["grow"].items():
+        assert grown["reordered"] == 0 and grown["slot"] <= 1 and grown["turned"] == 0, kind
+        assert grown["crossings"] <= grown["fresh"], kind
+
+
+def test_curves_that_run_the_same_way_keep_six_px_a_level(workmap_routes):
+    # A zone of curves that run the same way gets at least WM_GEOM.levelLeast (6 px) of height for each
+    # level above the first, within the budget too, so at 50 % with every gap at its least two such
+    # curves still lie more than 1.5 px apart where they run nearly level; zones of more levels than a
+    # gap of 56 px holds (the 60-node map) are the limit.
+    for name in LEAST_MAPS:
+        step = workmap_routes[name]["level_step"]
+        assert step is None or step >= 1.5 or name == "synth_60_least", name
+    for name in ("release_100", "attempts_100", "far_100"):
+        assert workmap_routes[name]["level_step"] is None or workmap_routes[name]["level_step"] >= 0.4 * 6, name
 
 
 def test_the_layout_reads_structure_only_and_lays_out_the_largest_map_in_time(workmap_routes):
-    # Statuses change on every poll; the layout, read from ids, kinds and edges only, does not.
+    # Statuses change on every poll; the layout, read from ids, kinds, which nodes are set aside and edges
+    # only, does not. A node set aside sends no derived connector to the goal (none is drawn from it, so
+    # none is laid out), so setting one aside is a change of structure and lays the map out again.
     assert workmap_routes["stable"] is True
+    aside = workmap_routes["aside"]
+    assert "old" not in aside["derived"] and "old" in aside["awake"] and aside["structure"] is True
     assert workmap_routes["large"]["drawn"] and workmap_routes["large"]["nodes"] == 400
     assert workmap_routes["large"]["ms"] < 1000  # about 180 ms here; a few times that catches a regression
 
