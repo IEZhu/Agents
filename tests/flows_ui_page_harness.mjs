@@ -2859,6 +2859,24 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
     for (let i = 1; i < levels.length; i++) out.level_step = Math.min(out.level_step, levels[i] - levels[i - 1]);
   }
   out.level_step = out.level_step === Infinity ? null : Math.round(out.level_step * 100) / 100;
+  // Edges over a layer (px on the page): how far each arch keeps under the row above (`arch_room`), and
+  // how far the curves of the gap above that pass over it keep above its highest point (`over_clear`).
+  out.arch_room = null;
+  out.over_clear = null;
+  const least = (value, now) => (now === null ? value : Math.min(now, value));
+  routes.forEach((top, i) => {
+    if (top.kind !== "over") return;
+    const peak = Math.min(...points[i].map(([, y]) => y));
+    if (top.a > 0) out.arch_room = least(Math.round((peak - geo.rows[top.a - 1].b) * 100) / 100, out.arch_room);
+    routes.forEach((route, j) => {
+      if (!(route.curves || []).some((curve) => curve.k === top.a - 1 && curve.lo < top.hi && top.lo < curve.hi)) return;
+      const over = points[j].filter(([x]) => x > top.lo + 1 && x < top.hi - 1);
+      if (over.length) out.over_clear = least(Math.round((peak - Math.max(...over.map(([, y]) => y))) * 100) / 100, out.over_clear);
+    });
+  });
+  // The most levels of a zone in each gap, in the order of the gaps.
+  out.levels = layout.layers.slice(1).map(() => 1);
+  for (const curves of zones.values()) out.levels[curves[0].k] = Math.max(out.levels[curves[0].k], 1 + Math.max(...curves.map((curve) => curve.level)));
   out.below = Math.max(0, Math.round(Math.max(...points.flat().map(([, y]) => y)) - (height - 12)));
   out.above = Math.max(0, Math.round(12 - Math.min(...points.flat().map(([, y]) => y))));
   // How far an edge side to side runs inside its own pill's tray (px at 100 %): the tray's right padding,
@@ -2918,10 +2936,16 @@ function workmapShape(nodes, edges) {
   return { nodes: nodes.split(" ").map((item) => { const [id, kind] = item.split(":"); return { id, kind: kinds[kind], title: id }; }),
            edges: edges.split(" ").map((item) => { const [, from, type, to] = /^([^>~^!]+)([>~^!])(.+)$/.exec(item); return { from, to, type: types[type] }; }) };
 }
-// The structures of three of the verification's maps (ids replaced, order kept): a wide fan-in and
-// fan-out, a plan as sessions write them, and seven verifier trays. Their fewest crossings: 17 and 2
-// (exact, by dynamic programming over the permutations of neighbouring layers) and 6 (the best of 300
-// random restarts of barycentre sweeps and sifting).
+// A map with the nodes named set aside (superseded).
+function workmapAside(shape, ...ids) {
+  return { ...shape, nodes: shape.nodes.map((item) => (ids.includes(item.id) ? { ...item, status: "superseded" } : item)) };
+}
+// The structures of four of the verification's maps (ids replaced, order kept): a wide fan-in and
+// fan-out, a plan as sessions write them, seven verifier trays and a plan of nineteen nodes, one of them
+// superseded. Their fewest
+// crossings: 17 and 2 (exact, by dynamic programming over the permutations of neighbouring layers), 6
+// (the best of 300 random restarts of barycentre sweeps and sifting) and 1 (what twelve shuffled first
+// orders find; eight stop at 2).
 const WORKMAP_ORDERS = {
   fan: [workmapShape("f0:g f1:s f2:s f3:s f4:s f5:s f6:s f7:s f8:s f9:s f10:s f11:s f12:s f13:s f14:s f15:s f16:s f17:s f18:s f19:s f20:s f21:s f22:d",
     "f3>f1 f4>f1 f5>f1 f6>f1 f7>f1 f8>f1 f9>f1 f10>f1 f11>f1 f3>f2 f7>f2 f11>f2 f12>f3 f12>f4 f12>f5 f12>f6 f12>f7 f12>f8 f12>f9 f12>f10 "
@@ -2934,6 +2958,9 @@ const WORKMAP_ORDERS = {
     + "t22:s t23:s t24:s t25:s t26:s t27:s",
     "t3~t1 t4~t1 t5~t2 t18>t1 t6~t18 t7~t18 t8~t18 t19>t1 t19>t2 t9~t19 t20>t2 t22>t18 t22>t19 t10~t22 t11~t22 t12~t22 t13~t22 t23>t19 "
     + "t23>t20 t14~t23 t15~t23 t21~t18 t21>t2 t16~t19 t16~t20 t24~t22 t24>t23 t25>t22 t25>t10 t26>t22 t26>t23 t26>t14 t27>t25 t27>t26 t17~t27"), 6],
+  plan: [workmapAside(workmapShape("p0:g p1:s p2:q p3:d p4:s p5:s p6:s p7:s p8:s p9:s p10:s p11:s p12:s p13:s p14:s p15:s p16:d p17:s p18:s",
+    "p2>p1 p3>p2 p4>p3 p5~p4 p6~p4 p7>p3 p8>p3 p8^p7 p9~p8 p6!p7 p10>p1 p11>p1 p12>p4 "
+    + "p12>p8 p12>p10 p12>p11 p12>p6 p13~p12 p14>p12 p15>p1 p16>p10 p17>p14 p17>p13 p18>p14 p18>p15 p18>p16"), "p7"), 1],
 };
 // Alternatives as a session records them: three options after one brief, the second supersedes the
 // first, the third contradicts the second, one decision reads all three and a cost model the second.
@@ -2995,10 +3022,34 @@ const WORKMAP_OVER = workmapShape("goal:g x:s y:s z:s p:s q:s", "x^y y!z z^x p>x
 // Three goals in a ring, the middle one with nothing entering it: the edge between the other two runs
 // over the last layer, past the curves into their tops, which end their bends above it.
 const WORKMAP_GOALS_OVER = workmapShape("g1:g g2:g g3:g s:s t:s", "g1>s g3>t g1^g2 g2!g3 g3^g1");
+// Three goals in a ring, the middle one with nothing entering it, and the first waiting for three nodes,
+// wider together than it is: the edge between the outer two runs over the last layer, and the curve
+// from the node that overhangs the middle goal passes over the arch, ending its bend above it.
+const WORKMAP_OVER_PAST = workmapShape("g1:g g2:g g3:g s:s u:s v:s w:s t:s", "g1>s g1>u g1>v g1>w g3>t g1^g2 g2!g3 g3^g1");
 // A review card that takes five edges from a tray (a node and its four verifiers) that is not above it:
 // one trunk, one arrowhead.
 const WORKMAP_FAR = workmapShape("goal:g a:s b:s c:s d:s h:s v1:s v2:s v3:s v4:s x:s y:s z:s r:s s:s",
   "h>a v1~h v2~h v3~h v4~h x>b y>c z>d r>h r>v1 r>v2 r>v3 r>v4 r>x r>y r>z s>a goal>r goal>s");
+// The second verification's release map of thirty-six nodes: three attempts at a fix with their verifiers,
+// a design applied and verified, three attempts at routing, a review board and the release after them.
+const WORKMAP_RELEASE36 = workmapShape("goal:g triage:s readiness:s decide-fixes:d fixes:s fix-sync:s vs-contract:s vs-failure:s vs-redaction:s "
+  + "vs-regression:s fix-sync-2:s vs2-redaction:s vs2-regression:s fix-sync-3:s vs3-redaction:s "
+  + "vs3-regression:s review-sync:s board:s design-meaning:s design-visual:s apply-design:s vb-security:s "
+  + "vb-correctness:s vb-ux:s routing:s v-routing:s routing-2:s v-routing-2:s routing-3:s v-routing-3:s "
+  + "review-board:s perf-budget:s v-perf:s changelog:s docs-refresh:s promotion:s",
+  "decide-fixes>triage fixes>triage fixes>decide-fixes vs-contract~fix-sync vs-failure~fix-sync "
+  + "vs-redaction~fix-sync vs-regression~fix-sync fix-sync-2^fix-sync vs2-redaction~fix-sync-2 "
+  + "vs2-regression~fix-sync-2 fix-sync-3^fix-sync-2 vs3-redaction~fix-sync-3 vs3-regression~fix-sync-3 "
+  + "review-sync>fix-sync review-sync>vs-contract review-sync>vs-failure review-sync>vs-redaction "
+  + "review-sync>vs-regression review-sync>fix-sync-2 review-sync>vs2-redaction review-sync>vs2-regression "
+  + "review-sync>fix-sync-3 review-sync>vs3-redaction review-sync>vs3-regression apply-design>design-meaning "
+  + "apply-design>design-visual vb-security~apply-design vb-correctness~apply-design vb-ux~apply-design "
+  + "v-routing~routing routing-2^routing v-routing-2~routing-2 routing-3^routing-2 v-routing-3~routing-3 "
+  + "review-board>board review-board>vb-security review-board>vb-correctness review-board>vb-ux "
+  + "review-board>review-sync review-board>routing review-board>v-routing review-board>routing-2 "
+  + "review-board>v-routing-2 review-board>routing-3 review-board>v-routing-3 v-perf~perf-budget "
+  + "changelog>fixes changelog>review-board changelog>perf-budget docs-refresh>fixes docs-refresh>readiness "
+  + "docs-refresh>review-sync docs-refresh>review-board promotion>docs-refresh promotion>changelog");
 // A tall map: twelve rounds of a fan out and back in, every gap wanting to bend far.
 const WORKMAP_TALL = (() => {
   const nodes = ["goal:g"], edges = [];
@@ -3050,12 +3101,14 @@ if (scenario === "workmap_routes") {
     out[`over_${scale * 100}`] = workmapRouteChecks(WORKMAP_OVER, scale, () => 72);
     out[`far_${scale * 100}`] = workmapRouteChecks(WORKMAP_FAR, scale, () => 72, { between: ["h", "r"] });
     out[`goals_over_${scale * 100}`] = workmapRouteChecks(WORKMAP_GOALS_OVER, scale, () => 72);
+    out[`over_past_${scale * 100}`] = workmapRouteChecks(WORKMAP_OVER_PAST, scale, () => 72);
   }
   // Every map at 50 % with every gap at its least: the straight ends and the least bend still hold.
   for (const [name, shape, height] of [["release", RELEASE_SHAPE], ["fixture", { nodes: workmapNodes(), edges: WORKMAP_EDGES }],
     ["synth_40", workmapSynth(40, 40)], ["synth_60", workmapSynth(60, 60)], ["beside", WORKMAP_BESIDE], ["tray", WORKMAP_TRAY, () => 72],
     ["goals", WORKMAP_GOALS, () => 72], ["attempts", WORKMAP_ATTEMPTS], ["pill", WORKMAP_PILL, () => 72], ["over", WORKMAP_OVER, () => 72],
-    ["live", WORKMAP_LIVE], ["tall", WORKMAP_TALL, () => 72], ["goals_over", WORKMAP_GOALS_OVER, () => 72]]) {
+    ["live", WORKMAP_LIVE], ["tall", WORKMAP_TALL, () => 72], ["goals_over", WORKMAP_GOALS_OVER, () => 72],
+    ["over_past", WORKMAP_OVER_PAST, () => 72]]) {
     out[`${name}_least`] = workmapRouteChecks(shape, 0.5, height, { tight: "least" });
   }
   // The trunks into the review card: h is settled and its verifiers are not, so the head of the trunk
@@ -3068,36 +3121,64 @@ if (scenario === "workmap_routes") {
   const farList = context.workmapEdgeList(context.workmapView({ nodes: farNodes, edges: WORKMAP_FAR.edges, closed: false, verdicts: [] }, far));
   out.trunks = farList.filter((edge) => edge.end === "r").map((edge) => ({ start: edge.start, starts: edge.starts, keys: edge.keys.length,
     marker: edge.marker, path: edge.path }));
-  // One node added to the live structure, laid out from the layout before it: the other rows keep their
-  // order, no card moves more than one place, and it crosses no more than the same map opened afresh.
-  const grow = (added, edges) => {
-    const base = WORKMAP_LIVE.nodes.map((item) => ({ status: "planned", ...item })), before = context.workmapLayers(base, WORKMAP_LIVE.edges);
+  // One node added to a map, laid out from the layout before it, against the same map opened afresh: rows
+  // other than the new node's whose order changed, the largest move of a card by places, how many cards
+  // left the longest run that keeps their order in each row, the share of pairs of cards in a row that
+  // swapped (1 turned round), and the crossings.
+  const grow = (shape, added, edges) => {
+    const base = shape.nodes.map((item) => ({ status: "planned", ...item })), before = context.workmapLayers(base, shape.edges);
     const nodes = [...base, ...added.map((id) => ({ id, kind: "stage", title: id, status: "planned" }))];
-    const after = context.workmapLayers(nodes, [...WORKMAP_LIVE.edges, ...edges], before), fresh = context.workmapLayers(nodes, [...WORKMAP_LIVE.edges, ...edges]);
+    const after = context.workmapLayers(nodes, [...shape.edges, ...edges], before), fresh = context.workmapLayers(nodes, [...shape.edges, ...edges]);
     const rows = (layout) => layout.layers.map((entries) => entries.filter((entry) => !entry.lane).map((entry) => entry.id));
     const at = new Map();
     rows(after).forEach((row, k) => row.forEach((id, i) => at.set(id, [k, i])));
-    let reordered = 0, slot = 0, lean = 0;
+    let reordered = 0, slot = 0, moved = 0, swapped = 0, pairs = 0;
     rows(before).forEach((row, k) => {
       const kept = row.filter((id) => at.has(id) && at.get(id)[0] === k), now = rows(after)[k].filter((id) => kept.includes(id));
       if (now.join() !== kept.join() && !added.some((id) => rows(after)[k].includes(id))) reordered += 1;
       row.forEach((id, i) => { if (at.has(id) && at.get(id)[0] === k) slot = Math.max(slot, Math.abs(at.get(id)[1] - i)); });
+      const places = kept.map((id) => at.get(id)[1]), tails = [];
+      for (const place of places) {
+        let lo = 0, hi = tails.length;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < place) lo = mid + 1; else hi = mid; }
+        tails[lo] = place;
+      }
+      moved += places.length - tails.length;
+      for (let i = 0; i < places.length; i++) for (let j = i + 1; j < places.length; j++) { pairs += 1; swapped += places[i] > places[j] ? 1 : 0; }
     });
-    const mid = (layout) => new Map(layout.layers.flat().filter((entry) => !entry.lane).map((entry) => [entry.id, entry.x + entry.w / 2]));
-    const [x0, x1] = [mid(before), mid(after)];
-    for (const [id, x] of x0) lean += Math.sign(x1.get(id) - x1.get(rows(after)[0][0])) === Math.sign(x - x0.get(rows(before)[0][0])) ? 0 : 1;
-    return { reordered, slot, crossings: after.crossings, fresh: fresh.crossings, turned: lean };
+    return { reordered, slot, moved, turned: Math.round(swapped / (pairs || 1) * 100) / 100, crossings: after.crossings, fresh: fresh.crossings };
   };
+  // A further attempt after a node: it supersedes the node and the node's dependants wait for it too.
+  const attempt = (shape, id, older) => [[id], [{ from: id, to: older, type: "supersedes" },
+    ...shape.edges.filter((edge) => edge.to === older && edge.type === "depends_on").map((edge) => ({ from: edge.from, to: id, type: "depends_on" }))]];
   out.grow = {
-    attempt: grow(["fix-701-7"], [{ from: "fix-701-7", to: "fix-701-6", type: "supersedes" }, { from: "review-701", to: "fix-701-7", type: "depends_on" }]),
-    verified: grow(["fix-701-7", "v701-7-a", "v701-7-b"], [{ from: "fix-701-7", to: "fix-701-6", type: "supersedes" },
+    attempt: grow(WORKMAP_LIVE, ["fix-701-7"], [{ from: "fix-701-7", to: "fix-701-6", type: "supersedes" }, { from: "review-701", to: "fix-701-7", type: "depends_on" }]),
+    verified: grow(WORKMAP_LIVE, ["fix-701-7", "v701-7-a", "v701-7-b"], [{ from: "fix-701-7", to: "fix-701-6", type: "supersedes" },
       { from: "review-701", to: "fix-701-7", type: "depends_on" }, { from: "v701-7-a", to: "fix-701-7", type: "verifies" },
       { from: "review-701", to: "v701-7-a", type: "depends_on" }, { from: "v701-7-b", to: "fix-701-7", type: "verifies" },
       { from: "review-701", to: "v701-7-b", type: "depends_on" }]),
-    verifier: grow(["v701-6-a"], [{ from: "v701-6-a", to: "fix-701-6", type: "verifies" }, { from: "review-701", to: "v701-6-a", type: "depends_on" }]),
-    routing: grow(["edge-routing-4"], [{ from: "edge-routing-4", to: "edge-routing-3", type: "supersedes" },
+    verifier: grow(WORKMAP_LIVE, ["v701-6-a"], [{ from: "v701-6-a", to: "fix-701-6", type: "verifies" }, { from: "review-701", to: "v701-6-a", type: "depends_on" }]),
+    routing: grow(WORKMAP_LIVE, ["edge-routing-4"], [{ from: "edge-routing-4", to: "edge-routing-3", type: "supersedes" },
       { from: "review-workmap-ui", to: "edge-routing-4", type: "depends_on" }]),
-    stage: grow(["release-notes"], [{ from: "release-notes", to: "docs-refresh", type: "depends_on" }]),
+    stage: grow(WORKMAP_LIVE, ["release-notes"], [{ from: "release-notes", to: "docs-refresh", type: "depends_on" }]),
+    // Cases each step of the search from the previous places decides: the sweeps from there and the move
+    // count among equal crossings (a further decision), the new node guessed beside the node it supersedes
+    // (a further audit), sweeps as well as sifting (a verifier of the first card), the side kept (a
+    // verifier of a node set aside), the way round that moves fewer (a further launch) and settling toward
+    // the previous places (a further review).
+    decision: grow(WORKMAP_LIVE, ...attempt(WORKMAP_LIVE, "zz-decide", "decide-fixes")),
+    audit: grow(WORKMAP_LIVE, ...attempt(WORKMAP_LIVE, "zz-readiness", "readiness")),
+    triage: grow(WORKMAP_LIVE, ["zz-check"], [{ from: "zz-check", to: "triage", type: "verifies" }]),
+    aside: grow(WORKMAP_ATTEMPTS, ["zz-check"], [{ from: "zz-check", to: "subject-a", type: "verifies" }]),
+    launch: grow(WORKMAP_ATTEMPTS, ...attempt(WORKMAP_ATTEMPTS, "zz-launch", "launch")),
+    review: grow(WORKMAP_ATTEMPTS, ...attempt(WORKMAP_ATTEMPTS, "zz-review", "review-copy")),
+    // An order from another first order counts only where it moves no more cards: it takes the fewer
+    // crossings after a further launch, and not the one that would move six cards for one crossing less
+    // after a verifier of the #701 review.
+    launch3: grow(WORKMAP_ATTEMPTS, ...attempt(WORKMAP_ATTEMPTS, "zz-launch", "launch-3")),
+    review701: grow(WORKMAP_LIVE, ["zz-check"], [{ from: "zz-check", to: "review-701", type: "verifies" }]),
+    design: grow(WORKMAP_RELEASE36, ...attempt(WORKMAP_RELEASE36, "zz-added", "apply-design")),
+    readiness: grow(WORKMAP_RELEASE36, ...attempt(WORKMAP_RELEASE36, "zz-added", "readiness")),
   };
   // The order on the verification's maps, and the height budget on a tall one: the gaps within it, and
   // the height drawn at 50, 100 and 160 % against the layout before (28 px a gap, scaled).

@@ -1917,9 +1917,10 @@ def workmap_routes():
 # at its least (`_least`), the live release map among them.
 ZOOMS = [50, 80, 100, 125, 160]
 LEAST_MAPS = [f"{name}_least" for name in ("release", "fixture", "synth_40", "synth_60", "beside", "tray", "goals", "attempts", "pill",
-                                           "over", "live", "tall", "goals_over")]
+                                           "over", "live", "tall", "goals_over", "over_past")]
 ROUTED_MAPS = (["release", "release_100", "release_wide", "fixture", "synth_20", "synth_40", "synth_60", "odd", "comb", "comb_wide"]
-               + [f"{name}_{zoom}" for name in ("alt", "beside", "tray", "goals", "attempts", "pill", "over", "far", "goals_over")
+               + [f"{name}_{zoom}" for name in ("alt", "beside", "tray", "goals", "attempts", "pill", "over", "far", "goals_over",
+                                                "over_past")
                   for zoom in ZOOMS]
                + LEAST_MAPS)
 
@@ -1939,13 +1940,15 @@ def test_the_order_crosses_fewer_edges_than_the_previous_layout(workmap_routes):
 
 
 def test_the_order_reaches_the_fewest_crossings_the_verification_found(workmap_routes):
-    # The structures of three of the verification's maps: the exact minimum on the fan and the plan (by
-    # dynamic programming over the permutations of neighbouring layers), and on the trays the best of
-    # 300 random restarts; the median sweeps alone stopped at 19, 3 and 10. A layer re-sorted by its
+    # The structures of four of the verification's maps: the exact minimum on the fan and the plan (by
+    # dynamic programming over the permutations of neighbouring layers), on the trays the best of 300
+    # random restarts; the median sweeps alone stopped at 19, 3 and 10. A layer re-sorted by its
     # neighbours where that crosses no more, sifting, and shuffled first orders get there.
     orders = workmap_routes["orders"]
     assert orders["fan"]["crossings"] == orders["fan"]["fewest"] == 17 and orders["mixed"]["crossings"] == orders["mixed"]["fewest"] == 2
     assert orders["trays"]["crossings"] <= orders["trays"]["fewest"] == 6
+    # The plan of nineteen nodes: twelve shuffled first orders find one crossing, eight stop at two.
+    assert orders["plan"]["crossings"] <= orders["plan"]["fewest"] == 1
 
 
 def test_the_drawing_crosses_exactly_where_the_order_does(workmap_routes):
@@ -2122,8 +2125,7 @@ def test_the_edges_of_one_group_into_one_card_are_one_trunk(workmap_routes):
     assert workmap_routes["trunks"][0] == {"start": "h", "starts": ["h", "v1", "v2", "v3", "v4"], "keys": 5,
                                            "marker": "depends_on-open", "path": True}
     assert all(trunk["keys"] == 1 for trunk in workmap_routes["trunks"][1:])
-    # The trunk weighs as its five edges where the card is placed, so the card sits under the tray and the
-    # trunk runs straight down.
+    # Placed as the one line it is drawn as, the trunk runs straight down: the card sits under the tray.
     for zoom in ZOOMS:
         far = workmap_routes[f"far_{zoom}"]
         assert far["kinds"] == {"down": 11} and far["bent"] == 0 and far["drawn"] == far["crossings"] == 0, zoom
@@ -2162,16 +2164,43 @@ def test_an_edge_between_two_that_are_not_neighbours_runs_over_the_layer_where_n
         # the other two, which end their bends above it.
         goals = workmap_routes[f"goals_over_{zoom}"]
         assert goals["kinds"] == {"down": 2, "side": 2, "over": 1} and goals["drawn"] == goals["crossings"] == 0, zoom
+        # The gap over the layer holds the arch: its straight end, its height and a clearance, so the arch
+        # stays 4 px and more under the row above at every zoom.
+        assert goals["arch_room"] >= 4, zoom
+        # Four nodes, wider together than the goal they feed: the curve from the one over the middle goal
+        # passes over the arch's end, in a gap planned for both, and ends its bend 3 px and more above
+        # the arch's highest point, so the two never touch.
+        past = workmap_routes[f"over_past_{zoom}"]
+        assert past["kinds"] == {"down": 5, "side": 2, "over": 1} and past["drawn"] == past["crossings"] == 0, zoom
+        assert past["over_clear"] >= 3 and past["arch_room"] >= 4, zoom
 
 
 def test_one_added_node_keeps_the_other_rows_their_order_and_their_side(workmap_routes):
-    # The live release map grown by one node of each kind it grows by (a further attempt, one with two
-    # verifiers, a verifier, an attempt on another line, a stage after the docs), laid out from the
-    # layout before it: every other row keeps its order, no card moves more than one place, none comes
-    # out on the other side, and the map crosses no more than the same map opened afresh.
-    for kind, grown in workmap_routes["grow"].items():
-        assert grown["reordered"] == 0 and grown["slot"] <= 1 and grown["turned"] == 0, kind
+    # Maps grown by one node of each kind they grow by (on the live map a further attempt, one with two
+    # verifiers, a verifier, an attempt on another line, a stage after the docs; further attempts and
+    # verifiers on the map of attempts and on the release map of thirty-six nodes), laid out from the
+    # layout before them: every other row keeps its order, no card moves more than one place, none
+    # leaves the order of the others (`moved`) or turns round with them (`turned`), and the map crosses
+    # no more than the same map opened afresh. Each step of the search from the previous places decides
+    # one of them: the sweeps from there, upward as well as downward, and the fewest cards moved among
+    # equal crossings (a further decision); a new node guessed beside the node it supersedes (a further
+    # audit, a further readiness); the side kept (a verifier of a node set aside, a further launch); the
+    # orders from the other first orders, where they move no more cards (a launch on another line); and
+    # each order settled toward the previous places, the way round that moves fewer (a further design).
+    grow = workmap_routes["grow"]
+    for kind, grown in grow.items():
+        assert grown["slot"] <= 1, kind
+        if kind in ("review", "design", "review701"):
+            continue
+        assert grown["reordered"] == grown["moved"] == grown["turned"] == 0, kind
         assert grown["crossings"] <= grown["fresh"], kind
+    # A further review on the map of attempts moves one card one place, at the crossings opened afresh.
+    assert grow["review"]["moved"] == 1 and grow["review"]["crossings"] <= grow["review"]["fresh"]
+    # Where moving no card costs one crossing more than the map opened afresh, no card moves: a further
+    # design, and a verifier of the #701 review, which another first order draws without the crossing by
+    # moving six cards.
+    for kind in ("design", "review701"):
+        assert grow[kind]["moved"] == 0 and grow[kind]["crossings"] == grow[kind]["fresh"] + 1, kind
 
 
 def test_curves_that_run_the_same_way_keep_six_px_a_level(workmap_routes):
@@ -2182,8 +2211,13 @@ def test_curves_that_run_the_same_way_keep_six_px_a_level(workmap_routes):
     for name in LEAST_MAPS:
         step = workmap_routes[name]["level_step"]
         assert step is None or step >= 1.5 or name == "synth_60_least", name
-    for name in ("release_100", "attempts_100", "far_100"):
+    # Those zones take the whole gap of 56 px.
+    assert 56 in workmap_routes["synth_60_least"]["least"]
+    for name in ("release_100", "attempts_100", "far_100", *(f"over_past_{zoom}" for zoom in ZOOMS)):
         assert workmap_routes[name]["level_step"] is None or workmap_routes[name]["level_step"] >= 0.4 * 6, name
+    # A gap wants WM_GEOM.level (8 px) for every level of its zones, however many: the first gap of the
+    # live map, under short cards, holds a zone of seven levels and wants 26 px (counting four, 22).
+    assert workmap_routes["live_least"]["levels"][0] == 7 and workmap_routes["live_least"]["gaps"][0] == 26
 
 
 def test_the_layout_reads_structure_only_and_lays_out_the_largest_map_in_time(workmap_routes):
