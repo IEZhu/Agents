@@ -1242,6 +1242,8 @@ def test_lines_below_a_label_that_hold_no_value_stay(text):
     masked, clean = redaction.redact(text)
     lines = text.split("\n")
     assert clean and masked.count("\n") == text.count("\n"), masked
+    if len(lines) == 1:
+        assert masked == text, masked  # a paragraph is one line: it stays whole
     kept = [line for line in lines[1:] if line in masked.split("\n")]
     assert len(kept) >= len(lines[1:]) - 1, masked
 
@@ -1258,9 +1260,9 @@ def test_the_line_rule_reads_a_turns_lines_once(monkeypatch):
 
 def test_a_code_block_under_a_label_loses_its_quoted_literals():
     """The value a block of code holds is a literal: def get_password(): return "V" still masks it."""
-    text, secrets = fill('def get_password():\n    return "{v}"\n\nprint(get_password())', 22100)
+    text = 'def get_password():\n    return "' + human(4) + '"\n\nprint(get_password())'
     masked, clean = redaction.redact(text)
-    assert clean and secrets[0] not in masked and masked.endswith("\n\nprint(get_password())"), masked
+    assert clean and human(4) not in masked and masked.endswith("\n\nprint(get_password())"), masked
 
 
 @pytest.mark.parametrize("name,counts", [
