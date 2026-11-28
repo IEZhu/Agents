@@ -324,8 +324,9 @@ journal is a file in the project that may be committed; check its ignore rules a
 `turn not logged (journal_busy)`; it never exits 2, which would keep the turn going. A Stop event
 has 25 seconds in all, for the transcript wait, the redaction and the journal lock (ten seconds at
 most), and the command ends itself with exit 1 at 28 seconds, or at 29 seconds with a traceback
-when one long computation holds the interpreter lock (Python's `faulthandler` watchdog), so the
-registration's `timeout` of 30 seconds below is a minimum: with less, Claude Code may cancel the
+when one long computation holds the interpreter lock (Python's `faulthandler` watchdog, which needs
+a standard error with a file descriptor: without one the 28-second timer alone bounds the run), so
+the registration's `timeout` of 30 seconds below is a minimum: with less, Claude Code may cancel the
 hook and discard its output, and the turn is lost without a word. It reads the transcript line by
 line, so memory follows the turn and not the file, up to 1 GiB, and a larger transcript is such a
 failure too. A turn whose prompt row is still missing after two seconds of reading again is a

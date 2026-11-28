@@ -755,13 +755,21 @@ def _watchdog(seconds: float, hard_seconds: float | None = None) -> threading.Ti
 
     The timer is a Python thread, which cannot run while one long computation holds the interpreter
     lock; ``faulthandler``'s watchdog thread needs no lock and ends the process at ``hard_seconds``,
-    printing where it was (#701 review)."""
+    printing where it was (#701 review). It needs a standard error with a file descriptor: without
+    one (closed, or a stream without a descriptor in an embedding caller) the timer thread alone
+    keeps the bound and the hook still runs (#701 review: the command failed on every event)."""
     def expire():
-        sys.stderr.write("agents-core turn log: turn not logged (the hook ran out of time)\n")
-        sys.stderr.flush()
+        try:
+            sys.stderr.write("agents-core turn log: turn not logged (the hook ran out of time)\n")
+            sys.stderr.flush()
+        except (AttributeError, OSError, ValueError):
+            pass  # no standard error to say it on: the exit code still does
         os._exit(1)
     if hard_seconds is not None:
-        faulthandler.dump_traceback_later(hard_seconds, exit=True)
+        try:
+            faulthandler.dump_traceback_later(hard_seconds, exit=True)
+        except (AttributeError, OSError, RuntimeError, ValueError):  # io.UnsupportedOperation is both
+            pass
     timer = threading.Timer(seconds, expire)
     timer.daemon = True
     timer.start()
@@ -785,7 +793,7 @@ def main(argv=None, *, watchdog: bool = False) -> int:
     finally:
         if timer is not None:
             timer.cancel()
-            faulthandler.cancel_dump_traceback_later()
+            faulthandler.cancel_dump_traceback_later()  # a no-op when none was armed
 
 
 def _main(argv, deadline: float) -> int:
@@ -810,9 +818,20 @@ def _main(argv, deadline: float) -> int:
     try:
         record_turn(payload, interactive, deadline)
     except Exception as error:  # noqa: BLE001 - reported to the client, never raised into it
-        print(f"agents-core turn log: {_report(error)}", file=sys.stderr)
+        _say(f"agents-core turn log: {_report(error)}")
         return 1
     return 0
+
+
+def _say(text: str) -> None:
+    """``text`` on standard error when the process has one; print(file=None) would put it on stdout,
+    where only the notice belongs."""
+    if sys.stderr is None:
+        return
+    try:
+        print(text, file=sys.stderr)
+    except (OSError, ValueError):
+        pass
 
 
 if __name__ == "__main__":

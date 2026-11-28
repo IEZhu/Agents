@@ -2011,3 +2011,42 @@ def test_the_hooks_agent_pattern_is_the_descriptor_schemas():
         assert bool(hook.AGENT_NAME.fullmatch(name)) is bool(re.fullmatch(schema, name)), name
 
 
+HOOK_RUNNER = ("import sys, io; {stream}; from src.memory import turn_log_hook as hook; "
+               "sys.exit(hook.main(['--interactive'], watchdog=True))")
+
+
+@pytest.mark.parametrize("stream", ["sys.stderr = None", "sys.stderr = io.StringIO()"])
+def test_the_hook_runs_without_a_usable_standard_error(project, stream):
+    """v701-4 regression: arming the hard watchdog raised without a standard error that has a file
+    descriptor, so the command exited 1 on every event and logged nothing."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("AGENTS_TURN_LOG_HOOK", "AGENTS_CLIENT_PROFILE")}
+    env["LANGFUSE_TRACING_ENABLED"] = "false"
+    command = [sys.executable, "-c", HOOK_RUNNER.format(stream=stream)]
+    notice = subprocess.run(command, input=json.dumps(prompt_event(project)).encode(), cwd=ROOT, env=env,
+                            capture_output=True, timeout=120)
+    assert notice.returncode == 0, notice.stderr
+    assert json.loads(notice.stdout)["hookSpecificOutput"]["additionalContext"] == protocol_text.turn_log_notice()
+    stop = subprocess.run(command, input=json.dumps(stop_event(project, prompt_id="prompt-2")).encode(), cwd=ROOT,
+                          env=env, capture_output=True, timeout=120)
+    assert (stop.returncode, stop.stdout) == (0, b""), stop.stderr
+    [entry] = entries(project)
+    assert entry.intent == PROMPT
+
+
+@pytest.mark.skipif(os.name != "posix", reason="closes the child's descriptor 2 before it starts")
+def test_the_hook_command_runs_with_standard_error_closed(project):
+    """The verifier's reproduction: the command with 2>&- exited 1 in 0.12 s and wrote nothing."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("AGENTS_TURN_LOG_HOOK", "AGENTS_CLIENT_PROFILE")}
+    env["LANGFUSE_TRACING_ENABLED"] = "false"
+    command = [sys.executable, "-m", "src.memory.turn_log_hook", "--interactive"]
+    stop = subprocess.run(command, input=json.dumps(stop_event(project, prompt_id="prompt-2")).encode(), cwd=ROOT,
+                          env=env, stdout=subprocess.PIPE, timeout=120, preexec_fn=lambda: os.close(2))
+    assert (stop.returncode, stop.stdout) == (0, b"")
+    [entry] = entries(project)
+    assert entry.intent == PROMPT
+    # A Stop that cannot be logged exits 1 and puts nothing on stdout, where only the notice belongs.
+    failed = subprocess.run(command, input=json.dumps(stop_event(project, transcript="relative.jsonl")).encode(),
+                            cwd=ROOT, env=env, stdout=subprocess.PIPE, timeout=120, preexec_fn=lambda: os.close(2))
+    assert (failed.returncode, failed.stdout) == (1, b"")
