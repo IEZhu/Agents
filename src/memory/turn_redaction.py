@@ -1196,6 +1196,11 @@ def _unescaped(line: str, quote: str, end: int) -> int:
     return count
 
 
+# A single quote that closes a value: none inside a word ("It's", #701 review: two lines of prose
+# went between a label's quote and the next apostrophe).
+_SINGLE_CLOSE = re.compile(r"'(?![^\W_])")
+
+
 def _quote_close(text: str, at: int, quote: str, limit: int) -> int | None:
     """The index of the quote closing a value that opens at ``at`` with ``quote``, searched up to
     ``limit``: escaped quotes close escaped, triple quotes with three, and a backslash escapes the
@@ -1208,16 +1213,18 @@ def _quote_close(text: str, at: int, quote: str, limit: int) -> int | None:
         return None if close < 0 else close
     index = at + 1
     while True:
-        close = text.find(quote, index, limit)
+        if quote == "'":
+            found = _SINGLE_CLOSE.search(text, index, limit)
+            close = -1 if found is None else found.start()
+        else:
+            close = text.find(quote, index, limit)
         if close < 0:
             return None
         # A backslash escapes the next character: a quote after an odd run of them is the value's own.
         escapes = close
         while escapes > at + 1 and text[escapes - 1] == "\\":
             escapes -= 1
-        # An apostrophe inside a word closes no single quote ("It's", #701 review: two lines of
-        # prose went between a label's quote and the next one).
-        if (close - escapes) % 2 or quote == "'" and text[close + 1:close + 2].isalnum():
+        if (close - escapes) % 2:
             index = close + 1
             continue
         return close
