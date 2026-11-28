@@ -129,6 +129,16 @@ CREATE INDEX participants_repository ON participants(repository_id);
 """ + MAILBOX_SCHEMA + NOTIFICATIONS_SCHEMA
 
 
+#: The liveness window of each participant's latest work unit (#628). It stays
+#: out of the participant body, which every snapshot returns through a closed
+#: schema: a new key there would fail a client that listed the tools before an
+#: update, and an older coordinator reading this journal. Older code never
+#: reads this table, so it carries no schema version: a downgrade keeps the
+#: journal readable and only falls back to the plain heartbeat deadline.
+WINDOWS_TABLE = """CREATE TABLE IF NOT EXISTS participant_windows (
+    participant_id TEXT PRIMARY KEY REFERENCES participants(id), checkpoint_due REAL NOT NULL)"""
+
+
 class Store:
     def __init__(self, directory, *, timeout=1.0):
         self.directory = Path(directory)
@@ -187,6 +197,7 @@ class Store:
                     if db.in_transaction:
                         db.rollback()
                     raise
+            db.execute(WINDOWS_TABLE)
         if os.name != "nt":
             self.path.chmod(0o600)
 

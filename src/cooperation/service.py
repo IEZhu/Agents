@@ -36,7 +36,7 @@ def _task(participant):
     return participant["task_id"] + "/" + participant["attempt_id"]
 
 
-def _lapsed_allowance(holder, claim, now):
+def _lapsed_allowance(holder, claim, now, windows):
     """Whether a quarantined external-allowance claim no longer excludes others.
 
     Silence never transfers ownership of a file, because the dead holder's edits
@@ -46,7 +46,7 @@ def _lapsed_allowance(holder, claim, now):
     live heartbeat still excludes: that holder may have just spent the budget.
     """
     return (claim["resource"]["resource_type"] == EXTERNAL_QUOTA and claim["quarantined"]
-            and _lapsed_holder(holder, now))
+            and _lapsed_holder(holder, now, windows))
 
 
 def _published_next_free(holder, resource_key):
@@ -61,30 +61,32 @@ def _published_next_free(holder, resource_key):
     return max(published) if published else None
 
 
-def _live_until(participant):
+def _live_until(participant, windows):
     """The time after which a participant that has not called again is suspected.
 
     Silence is tolerated for ``HEARTBEAT_DEADLINE_SECONDS`` after the last
     successful call, and at least until the ``checkpoint_due`` of the work unit
-    the participant last acquired or was handed: ``acquire`` advertises that
-    time, so a checkpoint, release or next acquire before it is never refused
-    for silence (#628). Releasing early keeps that time, so finishing sooner
-    never shortens liveness; recovery ends the unit and clears it. The unit's
-    window is its ``max_interval_seconds``, at most 300 seconds after the call
-    that set it, so a participant that stops calling is suspected by then or
-    120 seconds after its last call, whichever is later.
+    the participant last acquired or was handed, which ``windows`` maps from
+    its participant ID: ``acquire`` advertises that time, so a checkpoint,
+    release or next acquire before it is never refused for silence (#628).
+    Releasing early keeps that time, so finishing sooner never shortens
+    liveness; recovery ends the unit and clears it. A unit's window is its
+    ``max_interval_seconds``, at most 300 seconds, counted from the
+    participant's own call (the acquire, or for a handoff its last call before
+    it), so a participant that stops calling is suspected at most 300 seconds
+    after its last successful call and never sooner than 120.
     """
     deadline = participant["last_seen"] + HEARTBEAT_DEADLINE_SECONDS
-    due = participant.get("checkpoint_due")
+    due = windows.get(participant["participant_id"])
     return deadline if due is None else max(deadline, due)
 
 
-def _lapsed_holder(holder, now):
+def _lapsed_holder(holder, now, windows):
     """Whether this holder has gone quiet past its liveness deadline."""
-    return now > _live_until(holder)
+    return now > _live_until(holder, windows)
 
 
-def _stale_assignment(holder, resource, agreement, now):
+def _stale_assignment(holder, resource, agreement, now, windows):
     """Whether an agreement's allowance assignment still excludes other sessions.
 
     The same rule as for its claim, in the places that read an agreement's
@@ -101,7 +103,7 @@ def _stale_assignment(holder, resource, agreement, now):
     """
     if resource["resource_type"] != EXTERNAL_QUOTA or holder is None:
         return False
-    if _lapsed_holder(holder, now):
+    if _lapsed_holder(holder, now, windows):
         return True
     bound = next((binding["generation"] for binding in agreement["task_bindings"]
                   if binding["participant_id"] == resource["owner"]), None)
@@ -207,6 +209,20 @@ class CooperationService:
     def _save_participant(self, db, participant):
         db.execute("UPDATE participants SET body=? WHERE id=?", (canonical(participant), participant["participant_id"]))
 
+    @staticmethod
+    def _windows(db, repo):
+        """Each participant's work-unit window in ``repo``, kept out of its body (see store.WINDOWS_TABLE)."""
+        return dict(db.execute("SELECT w.participant_id, w.checkpoint_due FROM participant_windows w "
+                               "JOIN participants p ON p.id = w.participant_id WHERE p.repository_id=?", (repo,)).fetchall())
+
+    @staticmethod
+    def _set_window(db, participant, due):
+        if due is None:
+            db.execute("DELETE FROM participant_windows WHERE participant_id=?", (participant["participant_id"],))
+        else:
+            db.execute("INSERT INTO participant_windows VALUES (?,?) ON CONFLICT(participant_id) "
+                       "DO UPDATE SET checkpoint_due=excluded.checkpoint_due", (participant["participant_id"], due))
+
     def _authenticate(self, db, repository, participant_id, capability, *, allow_terminal=False):
         row = db.execute("SELECT verifier FROM participants WHERE id=? AND repository_id=?", (participant_id, repository)).fetchone()
         if not row or not hmac.compare_digest(row[0], hashlib.sha256(capability.encode()).hexdigest()):
@@ -256,10 +272,14 @@ class CooperationService:
         if not self._is_live(participant):
             # Whose liveness failed and why: the participant may be a peer bound
             # by an agreement, and only its reason tells a lapsed heartbeat from
-            # a restart or a cycle without another read (#628).
-            raise CooperationError("stale_generation", "Explicit execution/checkpoint reconciliation required",
-                                   generation=participant["generation"], service_epoch=self.epoch,
-                                   participant_id=participant["participant_id"], reason=participant.get("reason"))
+            # a restart or a cycle without another read (#628). The reason goes
+            # in the message, because a new field would break clients holding
+            # the closed error schema they listed before an update.
+            message = "Explicit execution/checkpoint reconciliation required"
+            if participant.get("reason"):
+                message += f": participant suspected ({participant['reason']}); recover restores it"
+            raise CooperationError("stale_generation", message, generation=participant["generation"],
+                                   service_epoch=self.epoch, participant_id=participant["participant_id"])
 
     def _suspect(self, db, participant, reason):
         changed = participant["status"] != "suspect" or participant.get("reason") != reason
@@ -296,8 +316,9 @@ class CooperationService:
                    (repo, event["agreement_id"], canonical(event), now))
 
     def _reconcile(self, db, repo, now):
+        windows = self._windows(db, repo)
         for participant in bodies(db, "participants", repo):
-            if participant["status"] == "active" and now > _live_until(participant):
+            if participant["status"] == "active" and now > _live_until(participant, windows):
                 self._suspect(db, participant, "heartbeat_overdue")
                 self._reconciliation_event(db, participant, "heartbeat_overdue", now)
         for agreement in bodies(db, "agreements", repo):
@@ -603,13 +624,14 @@ class CooperationService:
 
     def _claim_conflicts(self, db, repo, participant, resources, now):
         holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
+        windows = self._windows(db, repo)
         for claim in bodies(db, "claims", repo):
             if claim["participant_id"] == participant["participant_id"]:
                 continue
             if not any(resources_conflict(resource, claim["resource"]) for resource in resources):
                 continue
             holder = holders[claim["participant_id"]]
-            if _lapsed_allowance(holder, claim, now):
+            if _lapsed_allowance(holder, claim, now, windows):
                 continue
             details = {"claim_ids": [claim["claim_id"]], "owner": claim["participant_id"]}
             if claim["resource"]["resource_type"] != EXTERNAL_QUOTA:
@@ -811,6 +833,7 @@ class CooperationService:
             self._check_bindings(db, subject, agreement,
                                  {binding["participant_id"]: binding for binding in agreement["task_bindings"]}, "commit")
             holders ={held["participant_id"]: held for held in bodies(db, "participants", repo)}
+            windows = self._windows(db, repo)
             for resource in agreement["terms"]["resources"]:
                 owner = self._participant(db, repo, resource["owner"])
                 if agreement["pattern"] == "handoff":
@@ -824,7 +847,7 @@ class CooperationService:
                         # The same exception as the acquire and agreement paths:
                         # a lapsed holder's allowance claim excludes nobody, or
                         # one crash would shut handoff coordination for it too.
-                        if _lapsed_allowance(holders[claim["participant_id"]], claim, now):
+                        if _lapsed_allowance(holders[claim["participant_id"]], claim, now, windows):
                             continue
                         raise CooperationError("claim_conflict")
                 else:
@@ -835,7 +858,7 @@ class CooperationService:
                 for resource in agreement["terms"]["resources"]:
                     competing = [prior for prior in other["terms"]["resources"]
                                  if resource["owner"] != prior["owner"] and resources_conflict(resource, prior)
-                                 and not _stale_assignment(holders.get(prior["owner"]), prior, other, now)]
+                                 and not _stale_assignment(holders.get(prior["owner"]), prior, other, now, windows)]
                     if competing:
                         raise CooperationError("claim_conflict", "Competing committed agreement")
             # A party that has gone quiet since consenting leaves the agreement
@@ -890,6 +913,7 @@ class CooperationService:
                 raise CooperationError("scope_denied")
             self._validate_terms(db, subject, agreement, stage="execute")
         holders = {held["participant_id"]: held for held in bodies(db, "participants", repo)}
+        windows = self._windows(db, repo)
         for other in bodies(db, "agreements", repo):
             if other["state"] in ("committed", "active", "checkpointed", "suspended"):
                 for owned in other["terms"]["resources"]:
@@ -902,7 +926,7 @@ class CooperationService:
                     # nobody, exactly as its claim stops excluding in
                     # _claim_conflicts: otherwise one crash under an agreement
                     # would freeze that reviewer for every other session.
-                    if _stale_assignment(holders.get(owned["owner"]), owned, other, now):
+                    if _stale_assignment(holders.get(owned["owner"]), owned, other, now, windows):
                         continue
                     raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
         self._claim_conflicts(db, repo, subject, resources, now)
@@ -915,7 +939,8 @@ class CooperationService:
                      "acquired_at": now, "checkpoint_due": due}
             db.execute("INSERT INTO claims VALUES (?,?,?,?)", (claim["claim_id"], repo, subject["participant_id"], canonical(claim)))
             claims.append(claim)
-        subject.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None, checkpoint_due=due)
+        subject.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None)
+        self._set_window(db, subject, due)
         if agreement:
             agreement.update(state="active", revision=revision)
             self._save_agreement(db, repo, agreement)
@@ -1065,15 +1090,18 @@ class CooperationService:
         owned = [r for r in agreement["terms"]["resources"] if r["owner"] == new["participant_id"]]
         if any(not self._within(c["resource"], owned) for c in claims):
             raise CooperationError("scope_denied")
-        due = now + agreement["terms"]["checkpoint"]["max_interval_seconds"]
+        # The new owner makes no call here, so its window counts from its own
+        # last call, not from the handoff: a new owner that went silent after
+        # acknowledging is suspected, and its allowance freed, as soon as it
+        # would be after an acquire of its own.
+        due = min(now, new["last_seen"]) + agreement["terms"]["checkpoint"]["max_interval_seconds"]
         for claim in claims:
             claim.update(participant_id=new["participant_id"], generation=new["generation"], revision=revision,
                          agreement_id=agreement["agreement_id"], acquired_at=now, checkpoint_due=due)
             db.execute("UPDATE claims SET participant_id=?,body=? WHERE id=?", (new["participant_id"], canonical(claim), claim["claim_id"]))
         subject.update(running=False, ready_since=None, intent=[])
-        # The new owner makes no call here, so the handed unit's window is what
-        # keeps it live until its first checkpoint.
-        new.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None, checkpoint_due=due)
+        new.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None)
+        self._set_window(db, new, due)
         self._save_participant(db, new)
         agreement.update(state="active", revision=revision)
         self._save_agreement(db, repo, agreement)
@@ -1134,8 +1162,8 @@ class CooperationService:
         for claim in claims:
             db.execute("DELETE FROM claims WHERE id=?", (claim["claim_id"],))
         subject.update(generation=subject["generation"] + 1, service_epoch=self.epoch, status="active",
-                       reason=None, running=False, ready_since=None, eligible_wait_seconds=0, intent=[], checkpoint=None,
-                       checkpoint_due=None)
+                       reason=None, running=False, ready_since=None, eligible_wait_seconds=0, intent=[], checkpoint=None)
+        self._set_window(db, subject, None)
         return {"released": [c["claim_id"] for c in claims], "reconciled": True,
                 "guidance": "Recovery leaves earlier consent behind: acknowledge a still-proposed agreement again; a committed one needs a fresh agreement before conflicting work"}
 
