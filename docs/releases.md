@@ -69,8 +69,9 @@ This is the one description of the release procedure; the README links it.
    normal tooling, and rerun the relevant checks. Pending-feature banners and
    branch-pinned examples must be updated against integrated source before they
    become released instructions. The dated
-   [pre-promotion record](records/documentation-audit-2026-10-25.md#before-the-promotion)
-   lists the dependencies and checks of the coming promotion.
+   [pre-promotion record](records/documentation-audit-2026-11-26.md#before-the-promotion)
+   lists the dependencies and checks of the coming promotion, and its status line
+   names the `dev` revision each pass of its review covered.
 4. Open one `dev` into `main` PR, or update the existing promotion PR. Describe
    the complete range since the last release, its validation, and the issue
    closing references required above. If documentation or another prerequisite
