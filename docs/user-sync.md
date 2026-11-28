@@ -615,23 +615,24 @@ version, nothing conflicts, and the preview is an upload, not a join. The scope 
 what goes up:
 
 - When every file version the commits add or change is one a cycle would commit from the working
-  tree (on a path that syncs here and not under `.history/`, a regular file of at most 5 MiB, with
-  no hit of the secret scanner), they go up with their history: the remote branch moves to them,
-  or to the cycle's commit on top of them when the working tree holds more. The mass-deletion
-  guard applies as to any deletion.
-- Otherwise the cycle pushes nothing and stops with `confirmation_needed`, naming the commits and
-  each file that keeps them here, with its reason: `never`, `excluded`, `local`, `pending`,
-  `not_regular`, `size`, `secret` or `invalid_mcp_record`. The preview lists the same under
-  `local_commits`. Confirming it uploads only the files that sync, on top of the remote head; the
-  commits stay on this machine under `refs/agents-core/local-commits/<commit>`, and the files that
-  do not sync stay in the working tree.
+  tree (on a path that syncs here and not under `.history/`, a regular file of at most 5 MiB that
+  the secret scanner lets through), they go up with their history: the remote branch moves to
+  them, or to the cycle's commit on top of them when the working tree holds more. The
+  mass-deletion guard applies as to any deletion.
+- Otherwise the cycle pushes nothing and stops with `confirmation_needed`. Its message counts the
+  commits and names the first files that keep them here, each with its reason: `never`,
+  `excluded`, `local`, `pending`, `not_regular`, `size`, `secret` or `invalid_mcp_record`; the
+  preview lists every one under `local_commits`. Confirming it uploads only the files that sync, on
+  top of the remote head; the commits stay on this machine under
+  `refs/agents-core/local-commits/<commit>`, and the files that do not sync stay in the working
+  tree.
 
 When the remote moved on meanwhile (another machine pushed), the histories have diverged. The
 cycle stops with `confirmation_needed` and a message that names the commits made outside sync, and
 its preview is the join it was before, without a common base. Whenever the branch leaves behind
 commits that neither the remote head nor the one integrated last contains, as a confirmed join
-does, `refs/agents-core/local-commits/<commit>` keeps them. Commits a remote head held are not
-kept: a rewritten remote may have meant to drop them.
+does, `refs/agents-core/local-commits/<commit>` keeps them. Commits that one of those two remote
+heads holds are not kept: a rewritten remote may have meant to drop them.
 
 ## Conflicts
 
