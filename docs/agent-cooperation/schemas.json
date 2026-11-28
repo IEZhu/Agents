@@ -4759,6 +4759,21 @@
           "default": null,
           "title": "Participant Id"
         },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+          "title": "Reason"
+        },
         "resource_key": {
           "anyOf": [
             {
@@ -4950,6 +4965,21 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
             },
             "resource_key": {
               "anyOf": [
@@ -6249,6 +6279,21 @@
               "default": null,
               "title": "Participant Id"
             },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
+            },
             "resource_key": {
               "anyOf": [
                 {
@@ -7147,6 +7192,20 @@
                 }
               ],
               "default": null
+            },
+            "checkpoint_due": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "checkpoint_due of the work unit this generation last acquired or was handed. The participant is suspected only after both this time and 120 seconds after last_seen have passed; releasing early keeps it and recover clears it.",
+              "title": "Checkpoint Due"
             },
             "terminal_at": {
               "anyOf": [
@@ -9655,6 +9714,21 @@
               "default": null,
               "title": "Participant Id"
             },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
+            },
             "resource_key": {
               "anyOf": [
                 {
@@ -11569,6 +11643,21 @@
               "default": null,
               "title": "Participant Id"
             },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
+            },
             "resource_key": {
               "anyOf": [
                 {
@@ -11942,6 +12031,21 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
             },
             "resource_key": {
               "anyOf": [
@@ -12397,6 +12501,21 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
             },
             "resource_key": {
               "anyOf": [
@@ -13074,6 +13193,21 @@
               "default": null,
               "title": "Participant Id"
             },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
+            },
             "resource_key": {
               "anyOf": [
                 {
@@ -13455,6 +13589,21 @@
               ],
               "default": null,
               "title": "Participant Id"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "With stale_generation for a participant that is not live: why participant_id was suspected, for example heartbeat_overdue or coordinator_restart. recover is what restores it.",
+              "title": "Reason"
             },
             "resource_key": {
               "anyOf": [

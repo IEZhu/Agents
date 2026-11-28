@@ -172,9 +172,11 @@ class AgreementTerms(StrictModel):
     checkpoint: CheckpointSpec
     completion_conditions: Annotated[list[Text], Field(min_length=1, max_length=MAX_ITEMS)]
     # A peer that acts only at its turn boundaries answers minutes or hours
-    # later, past the 120-second heartbeat deadline, so the window has to span
-    # a turn gap. A pending proposal reserves nothing, and the proposer can
-    # cancel it; the bound still lets an unanswered one expire.
+    # later, past its heartbeat deadline (120 seconds after its last call, or
+    # its work unit's checkpoint_due at most 300 seconds after the acquire),
+    # so the window has to span a turn gap. A pending proposal reserves
+    # nothing, and the proposer can cancel it; the bound still lets an
+    # unanswered one expire.
     acknowledgement_timeout_seconds: int = Field(
         default=ACKNOWLEDGEMENT_TIMEOUT_SECONDS, ge=1, le=MAX_ACKNOWLEDGEMENT_TIMEOUT_SECONDS,
         description="Seconds every required participant has to acknowledge; cover the peer's gap between turns.")
@@ -600,6 +602,10 @@ class ErrorResponse(StrictModel):
     claim_ids: IDList = Field(default_factory=list)
     owner: Identifier | None = None
     participant_id: Identifier | None = None
+    reason: Text | None = Field(
+        default=None,
+        description="With stale_generation for a participant that is not live: why participant_id was suspected, "
+                    "for example heartbeat_overdue or coordinator_restart. recover is what restores it.")
     resource_key: Text | None = None
     next_free_at: Timestamp | None = None
 
@@ -656,6 +662,11 @@ class Participant(StrictModel):
     external_quota: Annotated[list[ExternalQuotaObservation], Field(max_length=MAX_ITEMS)] = Field(default_factory=list)
     reason: Text | None = None
     checkpoint_spec: CheckpointSpec | None = None
+    checkpoint_due: Timestamp | None = Field(
+        default=None,
+        description="checkpoint_due of the work unit this generation last acquired or was handed. The participant "
+                    "is suspected only after both this time and 120 seconds after last_seen have passed; releasing "
+                    "early keeps it and recover clears it.")
     terminal_at: Timestamp | None = None
 
 

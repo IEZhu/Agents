@@ -470,12 +470,14 @@ Register those keys in the scope passed to `cooperation_register`, then:
    reviewers, and treat that reviewer as unavailable for this round if the
    recorded time has not passed. Do not wait on another session's claim in a
    loop.
-4. **Heartbeat while you hold it.** A claim whose holder goes quiet past the
-   120-second soft-stale threshold stops excluding other sessions, and so does
-   an allowance an agreement assigned to a session that went quiet, so a
-   crashed session cannot freeze a reviewer for everyone. The reverse also holds: let
-   the claim lapse while still alive and another session may spend the budget
-   you were waiting on.
+4. **Heartbeat while you hold it.** A claim whose holder goes quiet stops
+   excluding other sessions once its `checkpoint_due` has passed and 120
+   seconds have passed since the holder's last successful call, and so does an
+   allowance an agreement assigned to a session that went quiet, so a crashed
+   session cannot freeze a reviewer for everyone. Until that due time the
+   holder needs no heartbeat; past it, call at least every 120 seconds. The
+   reverse also holds: let the claim lapse while still alive and another
+   session may spend the budget you were waiting on.
 5. **Publish and release when the round ends.** Release each reviewer's claim,
    after a release-ready `checkpoint`, as soon as that reviewer's part of the
    round is settled: its explicit request was answered, accepted or refused,

@@ -15,7 +15,8 @@ from .quota import ACCESS as EXTERNAL_QUOTA_ACCESS, RESOURCE_TYPE as EXTERNAL_QU
 from .store import AdministrationLock, CooperationError, Store, bodies, canonical
 from src.daemon.state import private_dir
 
-#: Soft-stale liveness threshold; a participant quiet for longer is suspected.
+#: Soft-stale liveness threshold after a participant's last successful call;
+#: the work unit it acquired can extend it, see ``_live_until``.
 HEARTBEAT_DEADLINE_SECONDS = 120
 #: A client reads an allowance response's own time, whose clock is not this
 #: coordinator's. Skew is tolerated; a date beyond it is refused, because a
@@ -60,9 +61,27 @@ def _published_next_free(holder, resource_key):
     return max(published) if published else None
 
 
+def _live_until(participant):
+    """The time after which a participant that has not called again is suspected.
+
+    Silence is tolerated for ``HEARTBEAT_DEADLINE_SECONDS`` after the last
+    successful call, and at least until the ``checkpoint_due`` of the work unit
+    the participant last acquired or was handed: ``acquire`` advertises that
+    time, so a checkpoint, release or next acquire before it is never refused
+    for silence (#628). Releasing early keeps that time, so finishing sooner
+    never shortens liveness; recovery ends the unit and clears it. The unit's
+    window is its ``max_interval_seconds``, at most 300 seconds after the call
+    that set it, so a participant that stops calling is suspected by then or
+    120 seconds after its last call, whichever is later.
+    """
+    deadline = participant["last_seen"] + HEARTBEAT_DEADLINE_SECONDS
+    due = participant.get("checkpoint_due")
+    return deadline if due is None else max(deadline, due)
+
+
 def _lapsed_holder(holder, now):
-    """Whether this holder has gone quiet past the heartbeat deadline."""
-    return now - holder["last_seen"] > HEARTBEAT_DEADLINE_SECONDS
+    """Whether this holder has gone quiet past its liveness deadline."""
+    return now > _live_until(holder)
 
 
 def _stale_assignment(holder, resource, agreement, now):
@@ -235,8 +254,12 @@ class CooperationService:
 
     def _live(self, participant):
         if not self._is_live(participant):
+            # Whose liveness failed and why: the participant may be a peer bound
+            # by an agreement, and only its reason tells a lapsed heartbeat from
+            # a restart or a cycle without another read (#628).
             raise CooperationError("stale_generation", "Explicit execution/checkpoint reconciliation required",
-                                   generation=participant["generation"], service_epoch=self.epoch)
+                                   generation=participant["generation"], service_epoch=self.epoch,
+                                   participant_id=participant["participant_id"], reason=participant.get("reason"))
 
     def _suspect(self, db, participant, reason):
         changed = participant["status"] != "suspect" or participant.get("reason") != reason
@@ -274,7 +297,7 @@ class CooperationService:
 
     def _reconcile(self, db, repo, now):
         for participant in bodies(db, "participants", repo):
-            if participant["status"] == "active" and now - participant["last_seen"] > HEARTBEAT_DEADLINE_SECONDS:
+            if participant["status"] == "active" and now > _live_until(participant):
                 self._suspect(db, participant, "heartbeat_overdue")
                 self._reconciliation_event(db, participant, "heartbeat_overdue", now)
         for agreement in bodies(db, "agreements", repo):
@@ -883,15 +906,16 @@ class CooperationService:
                         continue
                     raise CooperationError("claim_conflict", "Resource assigned by a committed agreement")
         self._claim_conflicts(db, repo, subject, resources, now)
+        due = now + action["checkpoint"]["max_interval_seconds"]
         claims = []
         for resource in resources:
             claim = {"claim_id": str(uuid.uuid4()), "repository_id": repo, "participant_id": subject["participant_id"],
                      "generation": subject["generation"], "agreement_id": action["agreement_id"], "revision": revision,
                      "resource": resource, "work_unit_id": action["work_unit_id"], "quarantined": False,
-                     "acquired_at": now, "checkpoint_due": now + action["checkpoint"]["max_interval_seconds"]}
+                     "acquired_at": now, "checkpoint_due": due}
             db.execute("INSERT INTO claims VALUES (?,?,?,?)", (claim["claim_id"], repo, subject["participant_id"], canonical(claim)))
             claims.append(claim)
-        subject.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None)
+        subject.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None, checkpoint_due=due)
         if agreement:
             agreement.update(state="active", revision=revision)
             self._save_agreement(db, repo, agreement)
@@ -1041,13 +1065,15 @@ class CooperationService:
         owned = [r for r in agreement["terms"]["resources"] if r["owner"] == new["participant_id"]]
         if any(not self._within(c["resource"], owned) for c in claims):
             raise CooperationError("scope_denied")
+        due = now + agreement["terms"]["checkpoint"]["max_interval_seconds"]
         for claim in claims:
             claim.update(participant_id=new["participant_id"], generation=new["generation"], revision=revision,
-                         agreement_id=agreement["agreement_id"], acquired_at=now,
-                         checkpoint_due=now + agreement["terms"]["checkpoint"]["max_interval_seconds"])
+                         agreement_id=agreement["agreement_id"], acquired_at=now, checkpoint_due=due)
             db.execute("UPDATE claims SET participant_id=?,body=? WHERE id=?", (new["participant_id"], canonical(claim), claim["claim_id"]))
         subject.update(running=False, ready_since=None, intent=[])
-        new.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None)
+        # The new owner makes no call here, so the handed unit's window is what
+        # keeps it live until its first checkpoint.
+        new.update(running=True, ready_since=None, eligible_wait_seconds=0, checkpoint=None, checkpoint_due=due)
         self._save_participant(db, new)
         agreement.update(state="active", revision=revision)
         self._save_agreement(db, repo, agreement)
@@ -1108,7 +1134,8 @@ class CooperationService:
         for claim in claims:
             db.execute("DELETE FROM claims WHERE id=?", (claim["claim_id"],))
         subject.update(generation=subject["generation"] + 1, service_epoch=self.epoch, status="active",
-                       reason=None, running=False, ready_since=None, eligible_wait_seconds=0, intent=[], checkpoint=None)
+                       reason=None, running=False, ready_since=None, eligible_wait_seconds=0, intent=[], checkpoint=None,
+                       checkpoint_due=None)
         return {"released": [c["claim_id"] for c in claims], "reconciled": True,
                 "guidance": "Recovery leaves earlier consent behind: acknowledge a still-proposed agreement again; a committed one needs a fresh agreement before conflicting work"}
 
