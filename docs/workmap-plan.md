@@ -430,29 +430,36 @@ model tokens; the page calls no model.
   that costs more: between two cards the edge runs straight across, and from a docked
   verifier it leaves its pill's side (the left edge of the tray, past its comb, where the
   card lies left), turning in the room kept between the two into the card's side. A
-  detour runs over the layer, its arrowhead down into the other top, where nothing
-  enters the nodes between from above (the first layer keeps room over it for that),
-  and otherwise dips below the layer, past the edges down from the nodes between, which
-  it crosses and the order counts. Across, each node sits where most of its edges run
-  straight (least total run across, a trunk weighing as its edges, within the widest
-  layer's width, so placing never widens the map). Opened afresh the side of the map that
-  holds more cards comes first, since a map wider than the canvas opens at its left
-  edge. A change of structure on the map on screen is laid out from the layout it
-  replaces: the order starts from the places the cards had there (a new node beside the
-  node it joins in its layer, else under or over its neighbours) and sifts, swaps and
-  sweeps from there only; of the orders with the fewest crossings it finds, the one that
-  moves the fewest cards wins, each taken the way round that moves fewer, every card
-  moved back toward its place wherever that crosses no more, and the side is never
-  chosen again. Grown by one node of each kind it grows by (a further attempt, one with
-  two verifiers, a verifier, an attempt on another line, a stage after the docs), the
-  release map keeps its other rows in their order, no card moves more than one place and
-  it crosses no more than opened afresh; a stage added after `fix-701` on its copy of
+  detour runs over the layer, its arrowhead down into the other top, where nothing enters
+  the nodes between from above (the gap over the layer holds it, and the first layer
+  keeps room over it for that), and otherwise dips below the layer, past the edges down
+  from the nodes between, which it crosses and the order counts. Across, each node sits
+  where most of its edges run straight (least total run across, a trunk counting as the
+  one line it is drawn as, within the widest layer's width, so placing never widens the
+  map; weighing a trunk as its edges bent 52 of the trunks on 27 maps, as one line 44).
+  Opened afresh the side of the map that holds more cards comes first, since a map wider
+  than the canvas opens at its left edge. A change of structure on the map on screen is
+  laid out from the layout it replaces: the order starts from the places the cards had
+  there (a new node beside the node it joins in its layer, else under or over its
+  neighbours) and sifts, swaps and sweeps from there, downward and upward; each order it
+  finds is taken the way round that moves fewer cards, every card moved back toward its
+  place wherever that crosses no more, and of those with the fewest crossings the one
+  that moves the fewest cards wins. Where that order still crosses or moves a card, the
+  orders from the payload's and the shuffled first orders, settled the same way, count as
+  well, but only those that move no more cards. The side is never chosen again. Grown by
+  one node of each kind it grows by (a further attempt, one with two verifiers, a
+  verifier, an attempt on another line, a stage after the docs), the release map keeps
+  its other rows in their order, no card moves more than one place and it crosses no more
+  than opened afresh; a verifier of the #701 review, and a further design on a release
+  map of 36 nodes, keep every card in place at one crossing more than afresh, where
+  another first order would move six cards; a stage added after `fix-701` on its copy of
   revision 149, which turned the previous version of this layout round (28 of 28 cards
-  moved, up to 2,021 px), moves 11 of 28 cards by at most 125 px. The price is that a
-  change may cross more than the same map opened afresh: of 411 single additions to
-  eight maps 111 did, 1,845 crossings against 1,675 in all; reloading the page lays the
-  map out afresh. The gap
-  above a layer is as tall as the edges entering it need to bend. Within the height
+  moved, up to 2,021 px), moves 11 of 28 cards by at most 98 px. The price is that a
+  change may cross more than the same map opened afresh: of 411 single additions to eight
+  maps 93 did, 1,808 crossings against 1,675 in all; reloading the page lays the map out
+  afresh. The gap
+  above a layer is as tall as the edges entering it need to bend, 8 px more for each
+  level of curves that run the same way above the first. Within the height
   budget the gaps take 26 px each together, the tallest giving way first down to their
   least: the straight end (12 px and a px either side), a bend of 4 px and 6 px for
   each level of curves that run the same way above the first, so two of them never lie
@@ -482,7 +489,8 @@ model tokens; the page calls no model.
   maps of up to 46 nodes. Every edge ends in a straight piece 12 px long at every zoom, so
   its arrowhead lies along it with no turn within it: vertical, or level side to side and
   between two pills of a tray (round the tray's right edge, its reach and bulge scaled
-  with the zoom and short of the next card, the reach never under the straight end).
+  with the zoom; the 36 px kept right of a tray keep the next card clear of both at
+  every zoom from 50 %).
   Only a gap planned lower than its least, which the budget never sets, would shorten
   one. With one goal and no edge into it, a dotted connector marked derived leads to it
   from the live nodes nothing follows. The edges
