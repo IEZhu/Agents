@@ -326,15 +326,18 @@ def activate(controller, journal, channel=None):
     come back from the journal's backup, so the old code restarts on its own indexes
     instead of rebuilding them. A build with a Python environment points ``.venv`` at
     it last; the journal's ``environment`` names what it replaced, which every
-    rollback restores. Returns ``UPDATED`` for an activated update.
+    rollback restores. Returns ``UPDATED`` for an activated update. The outcome it
+    records in the installation names the service as its writer, so ``channel show``
+    does not report it as a stdio server's update (#440).
     """
-    from src import self_update
+    from src import self_update, update_channel
     status = self_update.ActivationStatus
     channel = channel or channel_settings(controller)
     planned = {"environment_plan": journal["environment"]} if journal.get("environment") else {}
     result = self_update.activate_prepared_update(controller.config["installation"], channel.branch,
                                                   embedding_model=controller.config["model"],
-                                                  policy=channel.policy, **planned)
+                                                  policy=channel.policy, by=update_channel.WRITER_SERVICE,
+                                                  **planned)
     if result == status.ACTIVATE_ROLLBACK_FAILED:
         raise RuntimeError("File updater rollback failed")
     if result in (status.ACTIVATE_MERGE_FAILED, status.ACTIVATE_MOVE_FAILED, status.ACTIVATE_ENVIRONMENT_FAILED):

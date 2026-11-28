@@ -66,7 +66,8 @@ from typing import Optional
 from src import environments, executables
 from src.daemon.update_dependencies import NONE as DEPENDENCIES_UNCHANGED, classify as classify_dependencies
 from src.startup import UPDATE_JOURNAL
-from src.update_channel import Policy, drops_commits, in_use_reason, plausible_branch, policy_for, worktree_on
+from src.update_channel import (WRITER_STDIO, Policy, drops_commits, in_use_reason, plausible_branch, policy_for,
+                               worktree_on)
 
 from src.engine.config import (
     INSTALL_ROOT,
@@ -442,13 +443,20 @@ def _manifest_git(repo_root: str, timeout: int):
 
 # --- State + throttle persistence --------------------------------------------
 
-def _write_state(status: str, old_sha: str, new_sha: str, branch: Optional[str] = None) -> None:
-    """Atomically persist the latest update outcome to ``STATE_FILE``; *branch* names a switch's target."""
+def _write_state(status: str, old_sha: str, new_sha: str, branch: Optional[str] = None,
+                 by: str = WRITER_STDIO) -> None:
+    """Atomically persist the latest update outcome to ``STATE_FILE``; *branch* names a switch's target.
+
+    *by* records the writer (``update_channel.WRITER_STDIO`` or ``WRITER_SERVICE``): the shared
+    service's transaction activates through this module too, and ``channel show`` must not report
+    its update as a stdio server's (#440).
+    """
     payload = {
         "status": status,
         "old_sha": old_sha,
         "new_sha": new_sha,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "by": by,
     }
     if branch:
         payload["branch"] = branch
@@ -1501,6 +1509,7 @@ def activate_prepared_update(
     embedding_model: str = EMBEDDING_MODEL,
     policy=FROM_ENVIRONMENT,
     environment_plan=None,
+    by: str = WRITER_STDIO,
 ) -> str:
     """Phase A: activate a prepared update via a fast local ff-merge + file move.
 
@@ -1517,7 +1526,9 @@ def activate_prepared_update(
     (`src.environments.switch`); the recovery journal records what it replaces, and
     every rollback restores it. *environment_plan* is that record when the caller
     journaled it already (the shared service). After success, environments other
-    than the new and the previous one are removed.
+    than the new and the previous one are removed. *by* is the writer the recorded
+    outcome names (:func:`_write_state`): a stdio server by default, the service's
+    transaction passes ``WRITER_SERVICE``.
     Pure of threading/locking. Returns an :class:`ActivationStatus` value.
     """
     marker = _read_prepared_marker()
@@ -1662,7 +1673,7 @@ def activate_prepared_update(
             return _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo, marker)
 
     _discard_staging(repo_root, git_timeout)
-    _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha, branch if switched else None)
+    _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha, branch if switched else None, by=by)
     _finish_update(repo_root)
     if plan:
         _prune_environments(repo_root, plan)

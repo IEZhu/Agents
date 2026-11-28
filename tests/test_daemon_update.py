@@ -285,7 +285,7 @@ def test_failed_merge_keeps_the_old_code_and_restarts(installation, monkeypatch)
 def test_activation_that_cannot_restore_the_tree_is_rolled_back(installation, monkeypatch):
     controller, root, old, target = installation
 
-    def stuck(repo_root, branch=None, *, git_timeout=None, embedding_model=None, policy=None):
+    def stuck(repo_root, branch=None, *, git_timeout=None, embedding_model=None, policy=None, by=None):
         git(root, "merge", "--ff-only", target)
         (root / "data/skills_store.npz").write_text("torn")
         return self_update.ActivationStatus.ACTIVATE_ROLLBACK_FAILED
@@ -1432,3 +1432,62 @@ def test_a_bridge_package_change_is_refused_before_build_or_stop(venv_installati
     with pytest.raises(RuntimeError, match="bridge"):
         offline_update(controller)
     assert controller.running and controller.stops == 0 and env.builder.calls == []
+
+
+# --- channel show after a service update (#440) ------------------------------------------------
+
+# What a scheduled run of the service left in its state directory, and what an updater records in the
+# installation (`self_update._write_state`): the same activation, as the issue observed it.
+SERVICE_RUN = {"time": "2026-10-15T17:49:40+00:00", "head": "d503b39", "target": "b76968b", "state": "UPDATED"}
+
+
+def activation(by=None):
+    record = {"status": "ACTIVATED", "old_sha": "d503b39", "new_sha": "b76968b", "ts": "2026-10-15T17:49:26+0000"}
+    return record if by is None else {**record, "by": by}
+
+
+def last_update(installation, *, service=None, recorded=None, state=True):
+    """``channel show``'s last updates after the service's scheduled run left *service* and an updater *recorded*."""
+    from src import update_channel
+    controller, root, *_ = installation
+    if service is not None:
+        (controller.directory / "auto-update.json").write_text(json.dumps(service))
+    if recorded is not None:
+        (root / "data" / ".last_update.json").write_text(json.dumps(recorded))
+    shown = update_channel.show(root, state_dir=controller.directory if state else None, network=False)
+    return shown["last_update"]
+
+
+def test_show_lists_the_services_own_activation_once_as_the_services(installation):
+    """The scheduled run's `UPDATED` and the transaction's `ACTIVATED` are one update, not a service one and a stdio one."""
+    assert last_update(installation, service=SERVICE_RUN, recorded=activation("service")) == {
+        "service": SERVICE_RUN, "stdio": None}
+
+
+def test_show_lists_a_stdio_servers_activation_as_stdio_and_identifiable(installation):
+    assert last_update(installation, recorded=activation("stdio")) == {
+        "service": None, "stdio": activation("stdio")}
+
+
+def test_show_lists_the_service_and_a_later_stdio_activation_each_once(installation):
+    assert last_update(installation, service=SERVICE_RUN, recorded=activation("stdio")) == {
+        "service": SERVICE_RUN, "stdio": activation("stdio")}
+
+
+def test_show_keeps_a_record_from_before_the_writer_was_recorded_under_stdio(installation):
+    """Nothing says who wrote it: it stays where it was listed, until the next activation names its writer."""
+    assert last_update(installation, recorded=activation()) == {"service": None, "stdio": activation()}
+
+
+def test_show_without_the_service_does_not_call_its_activation_a_stdio_update(installation):
+    assert last_update(installation, recorded=activation("service"), state=False) == {"stdio": None}
+
+
+def test_a_service_update_is_not_shown_as_a_stdio_update(installation):
+    """End to end: the transaction's own record names the service, and `channel show` leaves it out of `stdio`."""
+    from src import update_channel
+    controller, root, old, target = installation
+    assert offline_update(controller)["state"] == "UPDATED"
+    recorded = json.loads((root / "data" / ".last_update.json").read_text())
+    assert (recorded["by"], recorded["old_sha"], recorded["new_sha"]) == ("service", old, target)
+    assert update_channel.show(root, state_dir=controller.directory, network=False)["last_update"]["stdio"] is None

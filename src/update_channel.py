@@ -65,6 +65,9 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 # which an updater reads right after its own fetch.
 NO_WRITE_FETCH_HEAD = (2, 29)
 SOURCE_ENVIRONMENT, SOURCE_FILE, SOURCE_DEFAULT = "environment", ".env", "default"
+# Who recorded ``data/.last_update.json`` (``self_update._write_state``, key ``by``): a stdio server's
+# updater, or the shared service's transaction, which runs the same activation code (#440).
+WRITER_STDIO, WRITER_SERVICE = "stdio", "service"
 
 
 class ChannelError(RuntimeError):
@@ -385,7 +388,13 @@ def summary(root, environ=None) -> dict:
 
 def show(root, *, environ=None, state_dir=None, network=True) -> dict:
     """Everything ``channel show`` prints: the setting and its source, the checkout, HEAD, the remote tip
-    (with *network*) and the last update results of the service (*state_dir*) and of the stdio updater."""
+    (with *network*) and the last update results: ``service`` is the latest scheduled run of the service
+    (*state_dir*), ``stdio`` the last update a stdio server's updater recorded in the installation.
+
+    The service's transaction records its activation in that file too, marked ``"by": "service"``
+    (``self_update._write_state``); it is the service's, not a second, stdio update, so ``stdio`` leaves
+    it out (#440). A record from before ``by`` existed has no writer and stays under ``stdio``.
+    """
     root = Path(root)
     settings = read(root, environ)
     current = checked_out(root)
@@ -404,7 +413,9 @@ def show(root, *, environ=None, state_dir=None, network=True) -> dict:
     last = {}
     if state_dir is not None:
         last["service"] = _read_json(Path(state_dir) / "auto-update.json")
-    last["stdio"] = _read_json(root / "data" / ".last_update.json")
+    recorded = _read_json(root / "data" / ".last_update.json")
+    by_service = isinstance(recorded, dict) and recorded.get("by") == WRITER_SERVICE
+    last["stdio"] = None if by_service else recorded
     result["last_update"] = last
     return result
 

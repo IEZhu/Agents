@@ -1762,7 +1762,8 @@ exported in its shell.
 
 `.venv/bin/python -m src.daemon channel show` prints the configured branch and
 its source, the checked-out branch, HEAD, the remote tip and the last update
-results; `channel set <branch> [--allow-downgrade]` saves another branch under
+results (`last_update`: [which entry is whose](install.md#update-channel));
+`channel set <branch> [--allow-downgrade]` saves another branch under
 `control.lock`, and the overview's Updates section of the [flow editor](#overview-and-statistics) saves
 `main` or `dev` through the same function (`PUT /ui/api/updates`, with the
 session, `X-Agents-UI`, same-origin and revision checks of the other UI writes).
