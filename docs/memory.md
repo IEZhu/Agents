@@ -228,37 +228,79 @@ sometimes lost from the journal. Before anything is written, the hook masks
 ([turn_redaction.py](../src/memory/turn_redaction.py)):
 
 - **the rest of every line after a word that names a secret**, separators and symbols included,
-  whatever the value looks like. The words are `password`, `passwd`, `passphrase`, `secret`,
-  `token`, `credential(s)`, `creds`, `apikey` and the pairs `api key`, `access key`,
-  `private key`, `signing key`, `encryption key` and `master key`, any word ending in `password`,
-  `passwd`, `passphrase`, `secret` or `token` (`PGPASSWORD`, `clientSecret`), and the Russian
-  `пароль`, `токен` and `секрет` in every form; in any case, in camelCase, snake_case,
-  kebab-case or dotted names, after `$`, `@`, `%`, `-`, `--` or `-D`, in quotes or escaped quotes,
-  in XML elements, subscripts and calls (`DB_PASSWORD=`, `$authToken =`, `-Dapi.key=`,
-  `config["password"] =`, `define('DB_PASSWORD',`, `<password>`, `\"token\":`, `Пароль от базы:`).
-  Words common in prose name a secret only in such a name or form, or before `=`, `:`, `->` or a
-  quoted value: `key`, `keys`, `pass`, `pwd`, `pw`, `passcode`, `auth`, `authorization`,
-  `cookie`, `bearer`, `oauth`, `otp`, `hmac`, `dsn`, `mnemonic`, `ключ`, `session id`,
-  `connection string`, `seed phrase` and `recovery phrase`, and joined names in capitals that end in
-  `KEY` or `PASS` (`MASTERKEY`, `SSHPASS`); `pin`, `salt`, `seed`, `session`, `sig`, `signature`
-  and `private` only as the last word before `=`; `login(`, `signin(` and `authenticate(` before
-  their arguments. The password options of common clients count the same way: `mysql -p` and its
-  siblings, `docker login -p`, `sqlcmd -P`, `redis-cli -a`, `curl -u`, `--user` and
-  `--proxy-user`, `sshpass -p`, `http -a`, `ldapsearch -w`, `smbclient -U`, `7z -p`, `zip -P`,
-  `openssl -k`, `mongosh -p`, and what follows `::add-mask::`;
+  whatever the value looks like, punctuation alone after a separator too. The words are
+  `password`, `passwd`, `passphrase`, `secret`, `token`, `credential(s)`, `creds`, `apikey`, `pswd`,
+  `assword` (an expect script's prompt) and the pairs `api key`, `access key`, `private key`,
+  `signing key`, `encryption key`, `master key`, `seed phrase`, `recovery phrase` and `identified by`,
+  any word ending in `password`, `passwd`, `passphrase`, `secret` or `token` (`PGPASSWORD`,
+  `clientSecret`), and the Russian `пароль`, `токен`, `секрет` in every form, `креды` and `пороль`;
+  in any case, in camelCase, snake_case, kebab-case or dotted names, after `$`, `@`, `%`, `-`, `--`
+  or `-D`, in quotes or escaped quotes, in XML elements, subscripts and calls (`DB_PASSWORD=`,
+  `$authToken =`, `-Dapi.key=`, `config["password"] =`, `define('DB_PASSWORD',`, `<password>`,
+  `\"token\":`, `Пароль от базы:`), and as the start of a value glued by a hyphen or a dot
+  (`token-V`). Words common in prose name a secret in such a name or form, before `=`, `:`, `->`,
+  a quoted value or a pair's quoted value, as a table cell before a value, before a call in a
+  dotted name ending in one (`req.SetBasicAuth(`, `crypto.createHmac(`, `hmac.New(`), and in a
+  sentence when a token shaped like a value (a digit, a symbol, a random run) follows within three
+  words with no sentence ending between ("the key is V", "pwd V", "ключ от апи: V", "* pass — V"):
+  `key`, `keys`, `pass`, `pwd`, `pw`, `passcode`, `psk`, `auth`, `authtok`, `authorization`,
+  `cookie`, `bearer`, `oauth`, `otp`, `hmac`, `dsn`, `mnemonic`, `ключ`, `пасс`, `session id` and
+  `connection string`, and any word of one case glued to `pass`, `passwd`, `pw`, `pwd`, `psk`,
+  `key`, `auth`, `authtok`, `secret`, `token` or `sessionid` (`dbpass`, `rootpw`, `DBPWD`,
+  `masterauth`, `requirepass`, `privkey`, `JSESSIONID`; not `bypass`, `compass` or `monkey`), and a
+  last `Pw` after a case change (`adminPw`). `pin` and `salt` count before `=`, `:` or a quoted value
+  and before a value in a sentence ("the PIN is 4821"); `seed`, `session`, `sig`, `signature` and
+  `private` only as the last word before `=`; `login(`, `signin(` and `authenticate(` before their
+  arguments. A last `name`, `path`, `file`, `type`, `mode` or a time word makes a name a property;
+  `id`, `header(s)`, `command`, `cmd` and `param(s)` do only when the value is a path, a number or
+  one plain word (`VAULT_SECRET_ID=<uuid>` and `AUTH_HEADER="Basic …"` are masked,
+  `api_key_header = "X-API-Key"` stays). The password options of clients count the same way: a
+  password option after a user option on the same line (`-p`, `-P`, `-w`, `/p:` after `-u`, `-U`,
+  `--user` or `/u:`: `podman login -u U -p V`, `xfreerdp /u:U /p:V`), the value after a user
+  option's user (`lftp -u U,V`, `etcdctl --user U:V`; not a `uid:gid` pair), and the options of
+  known clients without a user option beside them: `mysql -p` and its siblings, `docker login -p`,
+  `sqlcmd -P`, `redis-cli -a`, `curl -u`, `--user` and `--proxy-user`, `sshpass -p`, `http -a`,
+  `ldapsearch -w`, `smbclient -U`, `7z -p`, `zip -P`, `openssl -k`, `mongosh -p`, `ssh-keygen -N`
+  and `-P`, `unrar -p`, and what follows `::add-mask::`;
 - **the value a label line leaves below it**: the lines indented under `password: |`,
-  `secret:`, `- name: DB_PASSWORD` or `variable "db_password" {`, the next line after a label
-  alone on its line (`Password`) or a quoted field name (`name="password"`), the rows under a
-  table's header that names a secret (`username,password`, `| user | password |`), and a quoted
-  value to the line it closes on;
+  `secret:`, `- name: DB_PASSWORD` or `variable "db_password" {`; below a bare label (`Password`)
+  or a line that ends in a colon after a word naming a secret ("The password for the server:",
+  "Логин и пароль:"), the next non-blank line and those after it that read as a value (one token, a
+  code span, a list item, a pair, or four tokens at most with one shaped like a value), up to a
+  blank line or eight lines; below a sentence or a heading that ends in such a word without a colon
+  ("Try logging in with the password", "### Admin password"), one such line; a fenced block first
+  below a label, whose content goes and whose fences stay (forty lines at most); the next line after
+  a quoted field name (`name="password"`); a heredoc's body after a line that names a secret
+  (`chpasswd <<EOF`); the lines a masked line continues with trailing backslashes, and a client's
+  option on such a continuation line (`mysql -u root \` then `-pV`); the value field within two
+  lines of a name field that names a secret, in JSON, YAML or XML (`"key": "db_pass",` then
+  `"value": "V"`, `<name>…Password</name>` then `<value>V</value>`, `- value: V` above `name:
+  DB_PASSWORD`); and the rows under a table's header that names a secret in one of its cells, in
+  any delimited form: a pipe table with or without outer pipes, comma, semicolon or tab separated
+  values, headers in emphasis or quotes (`| User | Password | Notes |`, `user, password, role`). A
+  YAML or INI sibling key below an empty key (`password:` then `username: admin`) is no value of
+  it, and a key block below a label is the key block rule's;
+- **a quoted value** that opens after a label's separator, a blank or a client's option (`"`, `'`,
+  `` ` ``, escaped quotes, `"""` and `'''`), to the end of the line it closes on, within twelve
+  lines; a quote of a kind that stands an odd number of times before the separator closes the
+  label's own string or code span and opens nothing (``Set `password:` in``, `print("password:",
+  pw)`), a single quote opens a value only with one after it on its line, and without a close the
+  label's line alone goes;
+- **a value written before its label** (the owner's call on the final verification's ninth
+  finding): one piped by `echo` or `printf` into a command that reads a password on its standard
+  input (`--password-stdin`, `chpasswd`, `passwd --stdin`, `sudo -S`, `kinit`), and a token shaped
+  like a value right before `as`, `into` or `for` with a word naming a secret within four words
+  ("use V as the password", "I typed V into the password field");
 - token formats, keeping their prefix (`ghp_***`, `sk-proj-<secret>`): GitHub, GitLab, Anthropic,
   OpenAI, OpenRouter, Slack (`xoxb-`, `xoxp-`, `xapp-` and webhook URLs), Discord bot tokens and
   webhooks, Google, Stripe, SendGrid, Twilio `SK` keys, Telegram bot tokens, Hugging Face and npm
   tokens, DigitalOcean, Postman, New Relic and Airtable tokens, AWS `AKIA` and `ASIA` key ids, JWTs
-  and Bearer values; the body of a private key block, PGP ones included, between its armour lines,
-  a body whose BEGIN line is missing, and key material printed as hex pairs (`openssl -text`);
+  and Bearer values; the body of a private key block, PGP ones included, between its armour lines
+  (the scanner then masks the BEGIN line, and the END line stays), a body whose BEGIN line is
+  missing, and key material printed as hex pairs (`openssl -text`);
   credentials in URLs and DSNs (`redis://:PASSWORD@`, a password holding an at sign,
-  `//user:PASSWORD@`, `user:PASSWORD@tcp(db)`) and pgpass lines;
+  `//user:PASSWORD@`, `user:PASSWORD@tcp(db)`), a token of 20 characters or more in a URL's user
+  position (`https://<token>@github.com`), and pgpass lines;
 - random-looking strings without a label: runs of 20 or more letters, digits, `_` and `-`, or of
   base64 with `+` or `/`, that look random rather than like a name, every 43-character run that is
   not a plain snake_case, SCREAMING_CASE or kebab-case name, hexadecimal runs of 32 digits or of
@@ -279,38 +321,64 @@ sometimes lost from the journal. Before anything is written, the hook masks
 
 A word used as an ordinary word in a sentence keeps its line when the rule can tell that nothing
 after it is a value: the word stands alone, not quoted and not joined to other characters, and the
-rest of the line is two or more ordinary words with sentence punctuation only, none of them a verb
-that introduces a value (`is`, `was`, `are`, `equals`, `set`, `это`, and `to` after `set`,
-`change` or `reset`): "the key point is", "auth flow works", "Reset your password from the
-account settings page." In doubt the line is masked. Every rule works line by line or on a bounded
-window, so the scan stays linear in the text's length.
+rest of the line is two or more ordinary words with sentence punctuation only, the first in lower
+case, none of them a verb that introduces a value (`is`, `was`, `are`, `equals`, `set`, `это`,
+`to` after `set`, `change` or `reset`, and `be` unless a modal or an auxiliary verb stands before
+it), a chain of hyphenated words or a run of letters no word is made of (five consonants in a row,
+or a pair such as `qx`): "the key point is", "auth flow works", "Reset your password from the
+account settings page.", "The seed phrase must be written down on paper." In doubt the line is
+masked. Every rule works line by line or on a bounded window: a match that masks to its line's
+end is read once per line, lookaheads and quoted values are bounded, no pattern restarts inside a
+run, and a line's tokens are read once for all its words. This is measured, not proven: of the
+attempt 4 verification's 63 hostile and large inputs of up to 1 MB, the ten that took 5 to over
+120 s take 1.2 to 3.4 s on the machine they were measured on, and the longest of all takes 4.3 s,
+an ordinary 1 MB text of JSON lines (3.6 s before attempt 5, whose new forms add checks per line).
 
 A text the scanner cannot clean, too large, with too many hits, or not in the time left before the
 hook's deadline, is not written: the field holds a placeholder and the entry's metadata
 `redaction` names it.
 
-Some text that is no secret is masked. Measured at attempt 4 of #701: of the final verification's
-79 benign strings 40 change, mostly a line of code or Markdown after a secret's name
-(`self.token = token`, `**Key:** Enter`, `Auth: OAuth 2.0`, `def sign(key: KeyType, ...)`),
-header lines named for a key (`Idempotency-Key:`, `Sec-WebSocket-Key:`), and ids that look random
-(an MD5, a dashless UUID, a KSUID, an ssh key's body); of 60 sentences of everyday engineering
-prose 6 lose their tail, each a word that names a secret before `is` ("The token budget for this
-model is generous."). Placeholders and expressions after a label go too (`password=<your
-password>`, `api_key=os.environ["KEY"]`). Anthropic API ids (`toolu_01…`, `msg_01…`, `req_01…`,
+Some text that is no secret is masked: about two lines in three of code that use a word of the
+rule, and one in five of English prose that does. Measured at attempt 5 of #701, before and after
+its change: of the final verification's 79 benign strings 40 change both times, mostly a line of
+code or Markdown after a secret's name (`self.token = token`, `**Key:** Enter`, `Auth: OAuth 2.0`,
+`def sign(key: KeyType, ...)`), header lines named for a key (`Idempotency-Key:`,
+`Sec-WebSocket-Key:`), and ids that look random (an MD5, a dashless UUID, a KSUID, an ssh key's
+body); of the attempt 4 verification's 128 benign lines 49 change both times (English prose 6 of
+30, Russian prose 2 of 20, code 22 of 35, shell and config 10 of 23, docs and Markdown 9 of 20),
+and as one text no line break is lost any more (8 were) and 52 lines change (55 did); of 60
+sentences of everyday engineering prose 6 lose their tail both times, each a word that names a
+secret before `is` ("The token budget for this model is generous."). Placeholders and expressions
+after a label go too (`password=<your password>`, `api_key=os.environ["KEY"]`), and so do the lines
+below a label line that read as a value. Anthropic API ids (`toolu_01…`, `msg_01…`, `req_01…`,
 `session_01…`), GitHub node ids, a Google document's id in its link, subresource integrity
 digests, the payload of a `data:` URI, a W3C `traceparent`, UUIDs, commit names, SHA-256 digests
 and paths stay.
+
+What reaches the journal, measured the same way: of the attempt 4 verification's fresh corpus of
+305 secret-bearing items, 191 were masked, none in part and 114 written whole before this change,
+and 280, none and 25 after it, all 25 with nothing naming the value before it (a positional
+argument); of a corpus of 220 secret-bearing texts written for attempt 5 before its rules changed,
+and never tuned against, 190, none and 30 before, 213, none and 7 after; the final verification's
+141 shapes stay at 140 masked (the Ethereum key below passes). Both corpora are adversarial, so
+their shares are no field rates.
 
 Deterministic redaction cannot catch everything, and these shapes still pass:
 
 - free-form personal details, such as a name, an address, a diagnosis or an account written out
   in prose: they are not detected at all;
-- a secret with no word that names one before it on its line, in a short or plain shape: a short
-  or dictionary-word password in prose ("I typed hunter2 into the form"), a passphrase of words,
-  a value written before its label ("hunter2 is my password"), or one passed to a call by position
-  (`connect("db", "admin", "...")`);
-- a value of plain lowercase words after a word that names a secret, inside a sentence of ordinary
-  words with no verb that introduces it ("the token sunshine expires tonight");
+- a secret with no word that names one on its line, in a short or plain shape: a short or
+  dictionary-word password in prose, a value only its position names, passed to a call
+  (`connect("db", "admin", "...")`, `jwt.encode(payload, "...")`) or a command (`rabbitmqctl add_user
+  app ...`, `net use Z: \\host\share /user:svc ...`), and a value written before its label in other
+  words than the forms above ("hunter2 is my password");
+- a value after a prose-common word that a clause stands between ("I rotated the key; the new one
+  is V", "pw for the router: V"), or after one ending a dotted name with nothing but a blank before
+  the value (`nmcli connection modify office wifi-sec.psk V`), and a field named by a single letter
+  (`WIFI:T:WPA;S:Office;P:V;;`) or an option outside both lists (`psql -W V`);
+- a value of plain lowercase words, or of letters that read like a word, after a word that names a
+  secret, inside a sentence of ordinary words with no verb that introduces it ("the token sunshine
+  expires tonight"; a random run of ten letters passes like this about one time in four);
 - hexadecimal without a label of 40, 56, 64, 96 or 128 digits, which is the form of a commit name
   or a digest (a 64-digit Ethereum key after `0x` has a transaction id's form), and of fewer than
   32 digits;

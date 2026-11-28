@@ -8,9 +8,12 @@ detectors find, round after round, and says whether a last scan found nothing mo
   word in an identifier or a label (``DB_PASSWORD``, ``"token"``, ``$authToken``, ``-Dapi.key``,
   ``api key:``, ``пароль``) or by a client's password option (``mysql -p``, ``curl -u``), loses
   everything after that word to the end of the line, separators and symbols included. A value
-  that a label line leaves for the lines below (a YAML block, a table's header) goes with them.
-  A word used as an ordinary word in a sentence keeps its line when the rule can tell nothing
-  after it is a value; in doubt the line is masked.
+  that a label line leaves for the lines below goes with them, whatever the form (a YAML block, a
+  sentence or heading ending in the label, a fenced block, a heredoc, a continuation line, a
+  name-value pair, a table's header in any delimited form), and so does a value written before
+  its label in the forms the owner chose (#701 review, attempt 5). A word used as an ordinary word
+  in a sentence keeps its line when the rule can tell nothing after it is a value; in doubt the
+  line is masked.
 - Formats: the schedule records' token formats (``records.SECRET_PATTERNS``) and
   ``EXTRA_SECRET_PATTERNS``, keeping a token's prefix; the bodies of private key blocks, PGP ones
   included (the scanner then masks a block's BEGIN line, and its END line stays), and key bodies
