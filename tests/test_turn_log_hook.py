@@ -2198,3 +2198,43 @@ def test_a_write_under_a_withdrawn_key_that_removes_a_leftover_copy_records_it(t
     assert recorder.calls[0] == ("deleting", first["entry_id"], first["timestamp"])  # before the journal changes
     heading = f"## {first['timestamp']} | {first['entry_id']}"
     assert heading not in (tmp_path / "history" / "2026-10.md").read_text(encoding="utf-8")
+
+
+# --- The second verification of attempt 5 (#701 review, v701-5 regression) -----------------------------
+
+
+def test_the_soft_watchdog_ends_the_command_without_a_standard_error():
+    """The mutation run's survivor: without the guard around its message, the timer thread died on a
+    missing standard error and never ended the process."""
+    probe = ("import sys, time; sys.stderr = None; from src.memory import turn_log_hook as hook; "
+             "hook._watchdog(0.3); time.sleep(30)")
+    result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, capture_output=True, timeout=25,
+                            env={**os.environ, "LANGFUSE_TRACING_ENABLED": "false"})
+    assert result.returncode == 1 and result.stdout == b""
+
+
+def test_the_hard_watchdog_ends_a_locked_computation_without_a_standard_error():
+    """v701-5 regression: with descriptor 2 closed the hard watchdog was not armed, and a computation
+    holding the interpreter lock ran past every bound; it writes to os.devnull now."""
+    probe = ("import os, re, sys; os.close(2); sys.stderr = None; from src.memory import turn_log_hook as hook; "
+             "hook._watchdog(30, 0.5); re.match(r'(a|aa)+$', 'a' * 80 + 'b')")
+    started = time.monotonic()
+    result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, capture_output=True, timeout=120,
+                            env={**os.environ, "LANGFUSE_TRACING_ENABLED": "false"})
+    assert result.returncode == 1 and result.stdout == b""
+    assert time.monotonic() - started < 30
+
+
+@pytest.mark.parametrize("stream", ["closed", "raising"])
+def test_the_reason_is_never_raised_for_a_broken_standard_error(monkeypatch, stream):
+    """The mutation run's survivor: printing the reason without its try raised for a closed stream."""
+    import io
+
+    class Raising(io.StringIO):
+        def write(self, text):
+            raise OSError(5, "Input/output error")
+    broken = io.StringIO() if stream == "closed" else Raising()
+    if stream == "closed":
+        broken.close()
+    monkeypatch.setattr(sys, "stderr", broken)
+    hook._say("agents-core turn log: turn not logged (journal_busy)")  # does not raise

@@ -764,6 +764,34 @@ def _report(error: BaseException) -> str:
     return f"turn not logged ({_reason(error)})"
 
 
+_HARD_WATCHDOG_FILE = None  # the os.devnull the hard watchdog writes to when stderr has no descriptor
+
+
+def _arm_hard_watchdog(seconds: float) -> None:
+    """``faulthandler.dump_traceback_later`` on standard error, else on ``os.devnull``."""
+    global _HARD_WATCHDOG_FILE
+    try:
+        faulthandler.dump_traceback_later(seconds, exit=True)
+        return
+    except (AttributeError, OSError, RuntimeError, ValueError):  # io.UnsupportedOperation is both
+        pass
+    try:
+        _HARD_WATCHDOG_FILE = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115 - open for the run
+        faulthandler.dump_traceback_later(seconds, exit=True, file=_HARD_WATCHDOG_FILE)
+    except (OSError, RuntimeError, ValueError):
+        _close_hard_watchdog_file()
+
+
+def _close_hard_watchdog_file() -> None:
+    global _HARD_WATCHDOG_FILE
+    if _HARD_WATCHDOG_FILE is not None:
+        try:
+            _HARD_WATCHDOG_FILE.close()
+        except OSError:
+            pass
+        _HARD_WATCHDOG_FILE = None
+
+
 def _watchdog(seconds: float, hard_seconds: float | None = None) -> threading.Timer:
     """End the command with exit 1 and a reason once ``seconds`` pass, before the client's own
     timeout cancels it and discards its output (#701 review). Every journal change is one atomic
@@ -771,9 +799,10 @@ def _watchdog(seconds: float, hard_seconds: float | None = None) -> threading.Ti
 
     The timer is a Python thread, which cannot run while one long computation holds the interpreter
     lock; ``faulthandler``'s watchdog thread needs no lock and ends the process at ``hard_seconds``,
-    printing where it was (#701 review). It needs a standard error with a file descriptor: without
-    one (closed, or a stream without a descriptor in an embedding caller) the timer thread alone
-    keeps the bound and the hook still runs (#701 review: the command failed on every event)."""
+    printing where it was (#701 review). It writes to a file descriptor: without a standard error
+    that has one (closed, or a stream without a descriptor in an embedding caller) it writes to
+    ``os.devnull``, kept open for the run, so the hard bound holds there too and the hook still runs
+    (#701 reviews: the command failed on every event, then ran past its bound under the lock)."""
     def expire():
         try:
             sys.stderr.write("agents-core turn log: turn not logged (the hook ran out of time)\n")
@@ -782,10 +811,7 @@ def _watchdog(seconds: float, hard_seconds: float | None = None) -> threading.Ti
             pass  # no standard error to say it on: the exit code still does
         os._exit(1)
     if hard_seconds is not None:
-        try:
-            faulthandler.dump_traceback_later(hard_seconds, exit=True)
-        except (AttributeError, OSError, RuntimeError, ValueError):  # io.UnsupportedOperation is both
-            pass
+        _arm_hard_watchdog(hard_seconds)
     timer = threading.Timer(seconds, expire)
     timer.daemon = True
     timer.start()
@@ -810,6 +836,7 @@ def main(argv=None, *, watchdog: bool = False) -> int:
         if timer is not None:
             timer.cancel()
             faulthandler.cancel_dump_traceback_later()  # a no-op when none was armed
+            _close_hard_watchdog_file()
 
 
 def _main(argv, deadline: float) -> int:
