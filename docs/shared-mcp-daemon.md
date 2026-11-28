@@ -1569,6 +1569,26 @@ the Python dependencies gets an environment of its own inside the same
 transaction. Clients may stay connected (see [Drain and connected
 clients](#drain-and-connected-clients)).
 
+`update` and `recover` act on the service whose state directory they find: the one
+`--state` or `AGENTS_SERVICE_DIR` names, else the one of the checkout whose code runs
+them (`python -m src.daemon` imports `src` from the working directory). A directory
+without a `service.json` that names an installation, such as a checkout that is not the
+installation, ends as `{"state": "not_installed", "error": ...}` with exit code 1. The
+error names the directory it looked in and the command to run from the installation, and
+nothing is created there, no run lease and no lock. When the directory holds the journal of
+an interrupted update (`transaction.json`, `maintenance.json`), as `uninstall` leaves it, the
+error names those files too: only a service can recover them, so install the service again
+and run `recover`. Nothing is cleared.
+
+They also run only from the installation's own tree. The updater keeps its record and its
+prepared build in the `data/` of the tree whose code runs it, so a checkout that is not the
+installation, pointed at the installed service with `--state`, would update the installation
+and leave the update in its own `data/`. That ends as `{"state": "refused", "error": ...}`
+with exit code 1, before a lease is taken or anything starts, as `serve` refuses a service
+configuration for another source. Run `python -m src.daemon update` in the installation's own
+directory with its `.venv` interpreter, adding `--state <dir>` when the service was installed
+with one.
+
 The manual and scheduled controllers use the same dependency gate
 (`src/daemon/update_dependencies.py`), as does the standalone stdio updater. A
 `pyproject.toml` change may update metadata or package data and declare a new
@@ -1754,7 +1774,8 @@ exported in its shell.
 
 `.venv/bin/python -m src.daemon channel show` prints the configured branch and
 its source, the checked-out branch, HEAD, the remote tip and the last update
-results; `channel set <branch> [--allow-downgrade]` saves another branch under
+results (`last_update`: [which entry is whose](install.md#update-channel));
+`channel set <branch> [--allow-downgrade]` saves another branch under
 `control.lock`, and the overview's Updates section of the [flow editor](#overview-and-statistics) saves
 `main` or `dev` through the same function (`PUT /ui/api/updates`, with the
 session, `X-Agents-UI`, same-origin and revision checks of the other UI writes).

@@ -10,7 +10,7 @@ from src import executables
 from src.daemon import control
 from src.daemon.control import stop_scheduled_sync as real_stop_scheduled_sync  # before conftest's recorder
 from src.daemon.clients import ClientMigration
-from src.daemon.state import read_json
+from src.daemon.state import read_json, write_json
 from src.engine.embedding_prompts import COMPLETE, local_copy, pinned_revision
 from src.model_migration import DEFAULT_MODEL, GENERATION
 
@@ -283,11 +283,14 @@ def test_stop_scheduled_sync_never_raises(monkeypatch):
 @pytest.mark.parametrize("command", ["update", "recover"])
 def test_a_manual_update_never_replaces_the_code_under_an_autodev_run(tmp_path, monkeypatch, capsys, command):
     """#338: `update` and `recover` hold the run lease for the whole transaction, as the auto-update does."""
+    from src import runtime_paths
     from src.daemon import update
     from src.schedules import lease
     state, held = tmp_path / "state", []
+    # `update` and `recover` need a service, installed in the tree whose code runs them (#592)
+    write_json(state / "service.json", {"installation": str(runtime_paths.runtime_root())})
 
-    def transaction(controller):
+    def transaction(controller, **options):  # `update` also passes the precheck of its tree (#592)
         held.append(lease.held(controller.directory))
         return {"state": "UPDATED"}
     monkeypatch.setattr(update, "offline_update" if command == "update" else "recover", transaction)

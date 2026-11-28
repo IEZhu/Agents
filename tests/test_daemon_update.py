@@ -10,7 +10,8 @@ import pytest
 
 from src import self_update
 from src.daemon.state import write_json, read_json
-from src.daemon.update import offline_update, recover
+from src.daemon.update import (NotInstalled, WrongSource, offline_update, recover, require_installation_source,
+                               require_service)
 from src.daemon.update import prepare_reindex as real_prepare_reindex
 from src.daemon.bootstrap import assert_service_safe
 from src.file_lock import file_lock
@@ -285,7 +286,7 @@ def test_failed_merge_keeps_the_old_code_and_restarts(installation, monkeypatch)
 def test_activation_that_cannot_restore_the_tree_is_rolled_back(installation, monkeypatch):
     controller, root, old, target = installation
 
-    def stuck(repo_root, branch=None, *, git_timeout=None, embedding_model=None, policy=None):
+    def stuck(repo_root, branch=None, *, git_timeout=None, embedding_model=None, policy=None, by=None):
         git(root, "merge", "--ff-only", target)
         (root / "data/skills_store.npz").write_text("torn")
         return self_update.ActivationStatus.ACTIVATE_ROLLBACK_FAILED
@@ -446,6 +447,145 @@ def test_service_uninstalled_during_the_build_is_left_alone(installation, monkey
     with pytest.raises(RuntimeError, match="not installed"):
         offline_update(controller)
     assert controller.stops == 0 and git(root, "rev-parse", "HEAD") == old
+
+
+def test_update_in_a_directory_without_a_service_is_refused_not_a_key_error(installation):
+    """#592: the command said `KeyError: 'installation'`; a directory nobody installed is named instead."""
+    controller, root, old, target = installation
+    (controller.directory / "service.json").unlink()
+    controller.config = {}  # as `Controller` finds the state directory of a checkout that is not installed
+    with pytest.raises(NotInstalled, match="not installed") as refused:
+        offline_update(controller)
+    assert str(controller.directory) in str(refused.value) and "--state" in str(refused.value)
+    assert controller.stops == controller.builds == 0 and git(root, "rev-parse", "HEAD") == old
+
+
+@pytest.mark.parametrize("config", [{}, None, {"port": 8765}, {"installation": ""}])
+def test_a_configuration_that_names_no_installation_is_no_service(tmp_path, config):
+    with pytest.raises(NotInstalled, match="has no service.json that names an installation") as refused:
+        require_service(SimpleNamespace(config=config, directory=tmp_path), "recover")
+    assert str(tmp_path) in str(refused.value) and "python -m src.daemon recover" in str(refused.value)
+    assert "adding --state <dir> when the service was installed with one" in str(refused.value)
+
+
+def test_a_configuration_that_names_an_installation_is_a_service(tmp_path):
+    assert require_service(SimpleNamespace(config={"installation": str(tmp_path)}, directory=tmp_path)) is None
+
+
+@pytest.mark.parametrize("explicit_state", [True, False])
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_update_and_recover_without_a_service_refuse_and_create_nothing(tmp_path, monkeypatch, capsys,
+                                                                        command, explicit_state):
+    """#592: a checkout that is not the installation got `KeyError: 'installation'` and a state directory.
+
+    The command now says which directory has no service and what to run, exits 1 and creates nothing:
+    no run lease, no lock, whether the directory came from ``--state`` or from the checkout (here
+    ``AGENTS_SERVICE_DIR``, which `state_dir` honors first).
+    """
+    from src.daemon import control, update
+
+    def transaction(controller):
+        raise AssertionError("a directory without a service has no transaction to run")
+    monkeypatch.setattr(update, "offline_update", transaction)
+    monkeypatch.setattr(update, "recover", transaction)
+    state = tmp_path / "nobody-installed-here"
+    if not explicit_state:
+        monkeypatch.setenv("AGENTS_SERVICE_DIR", str(state))
+    assert control.main(["--state", str(state), command] if explicit_state else [command]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "not_installed"
+    assert str(state.resolve() if not explicit_state else state) in refused["error"]
+    assert f"python -m src.daemon {command}" in refused["error"] and "--state" in refused["error"]
+    assert "interrupted update" not in refused["error"]  # nothing is left in the directory
+    assert not state.exists()
+
+
+@pytest.mark.parametrize("left", [("transaction.json",), ("maintenance.json",), ("transaction.json", "maintenance.json")])
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_the_refusal_names_the_journal_an_interrupted_update_left(tmp_path, capsys, command, left):
+    """#592: `uninstall` after an interrupted update leaves the journal and no service.json. `recover` cleared a
+    before-mutation journal there; it now refuses, and says what is left and what to do instead of only refusing."""
+    from src.daemon import control
+    state = tmp_path / "state"
+    state.mkdir()
+    for name in left:
+        (state / name).write_text(json.dumps({"phase": "draining", "was_running": False}))
+    assert control.main(["--state", str(state), command]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "not_installed"
+    assert f"It also holds {' and '.join(left)}, left by an interrupted update" in refused["error"]
+    assert "install the service again, then run `python -m src.daemon recover`" in refused["error"]
+    assert sorted(path.name for path in state.iterdir()) == sorted(left)  # nothing was cleared, nothing created
+
+
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_update_and_recover_run_only_from_the_installations_own_tree(installation, monkeypatch, capsys, command):
+    """#592: a checkout that is not the installation, pointed at the installed service with --state, updated
+    the installation and left the update in its own data/, where the installation's `channel show` finds none."""
+    from src import runtime_paths
+    from src.daemon import control
+    controller, root, old, target = installation
+    monkeypatch.setattr(control, "Controller", lambda directory=None: controller)
+    argv = ["--state", str(controller.directory), command]
+    assert control.main(argv) == 1  # from the checkout these tests run in, which is not the installation
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "refused"
+    assert str(runtime_paths.runtime_root()) in refused["error"] and str(root) in refused["error"]
+    assert f"python -m src.daemon {command}" in refused["error"]
+    assert f"--state {controller.directory}" in refused["error"]
+    assert git(root, "rev-parse", "HEAD") == old and controller.builds == controller.stops == 0
+    assert not (controller.directory / "schedules").exists()  # no lease was taken either
+    # the same service, run from its own tree
+    monkeypatch.setattr(runtime_paths, "_RUNTIME_ROOT", root.resolve())
+    assert control.main(argv) == 0
+    done = json.loads(capsys.readouterr().out)
+    assert done["state"] == ("UPDATED" if command == "update" else "no_transaction")
+    assert git(root, "rev-parse", "HEAD") == (target if command == "update" else old)
+
+
+def test_a_service_installed_elsewhere_after_the_check_is_not_updated_from_this_tree(installation, monkeypatch,
+                                                                                    capsys, tmp_path):
+    """#592 review: `main()` checks the tree before the lease, and the update rereads service.json under the
+    control lock. A service installed in another tree in between is refused there, before anything is built."""
+    from contextlib import contextmanager
+    from src import runtime_paths
+    from src.daemon import control
+    from src.schedules import lease as run_lease
+    controller, root, old, target = installation
+    monkeypatch.setattr(control, "Controller", lambda directory=None: controller)
+    monkeypatch.setattr(runtime_paths, "_RUNTIME_ROOT", root.resolve())  # the check before the lease passes
+    elsewhere = tmp_path / "elsewhere"; elsewhere.mkdir()
+    hold = run_lease.hold
+
+    @contextmanager
+    def reinstalled_meanwhile(*args, **kwargs):
+        write_json(controller.directory / "service.json", {**controller.config, "installation": str(elsewhere)})
+        with hold(*args, **kwargs) as held:
+            yield held
+
+    monkeypatch.setattr(run_lease, "hold", reinstalled_meanwhile)
+    assert control.main(["--state", str(controller.directory), "update"]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "refused" and f"installed in {elsewhere}" in refused["error"]
+    assert git(root, "rev-parse", "HEAD") == old and controller.builds == controller.stops == 0
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_the_installations_own_tree_is_accepted_however_it_is_spelled(tmp_path):
+    from src import runtime_paths
+    running = runtime_paths.runtime_root()
+    for spelled in (running, running / "src" / ".."):
+        assert require_installation_source(SimpleNamespace(config={"installation": str(spelled)},
+                                                           directory=tmp_path)) is None
+
+
+@pytest.mark.parametrize("other", ["a directory", "a path that is not there"])
+def test_another_tree_is_refused_naming_both_and_the_command(tmp_path, other):
+    installed = tmp_path if other == "a directory" else tmp_path / "gone"
+    with pytest.raises(WrongSource, match="installed in") as refused:
+        require_installation_source(SimpleNamespace(config={"installation": str(installed)},
+                                                    directory=tmp_path / "state"), "recover")
+    assert str(installed) in str(refused.value) and "python -m src.daemon recover" in str(refused.value)
 
 
 def test_build_for_an_older_target_is_rebuilt_for_the_new_one(installation):
@@ -1383,3 +1523,110 @@ def test_a_bridge_package_change_is_refused_before_build_or_stop(venv_installati
     with pytest.raises(RuntimeError, match="bridge"):
         offline_update(controller)
     assert controller.running and controller.stops == 0 and env.builder.calls == []
+
+
+# --- channel show after a service update (#440) ------------------------------------------------
+
+# What a scheduled run of the service left in its state directory, and what an updater records in the
+# installation (`self_update._write_state`): the same activation, as the issue observed it.
+SERVICE_RUN = {"time": "2026-10-15T17:49:40+00:00", "head": "d503b39", "target": "b76968b", "state": "UPDATED"}
+# Runs that do not report the update `activation()` records: a later check, another target, another start,
+# or no commits at all.
+OTHER_RUNS = [{**SERVICE_RUN, "state": "up_to_date"}, {**SERVICE_RUN, "target": "e5f6a7b"},
+              {**SERVICE_RUN, "head": "a1b2c3d"}, {"state": "UPDATED"}]
+
+
+def activation(by=None, old="d503b39", new="b76968b"):
+    record = {"status": "ACTIVATED", "old_sha": old, "new_sha": new, "ts": "2026-10-15T17:49:26+0000"}
+    return record if by is None else {**record, "by": by}
+
+
+def last_update(installation, *, service=None, recorded=None, state=True):
+    """``channel show``'s last updates after the service's scheduled run left *service* and an updater *recorded*."""
+    from src import update_channel
+    controller, root, *_ = installation
+    if service is not None:
+        (controller.directory / "auto-update.json").write_text(json.dumps(service))
+    if recorded is not None:
+        (root / "data" / ".last_update.json").write_text(json.dumps(recorded))
+    shown = update_channel.show(root, state_dir=controller.directory if state else None, network=False)
+    return shown["last_update"]
+
+
+def test_show_lists_the_services_own_activation_once_as_the_services(installation):
+    """The scheduled run's `UPDATED` and the transaction's `ACTIVATED` are one update, not a service one and a stdio one."""
+    assert last_update(installation, service=SERVICE_RUN, recorded=activation("service")) == {
+        "service": SERVICE_RUN, "stdio": None}
+
+
+def test_show_lists_a_stdio_servers_activation_as_stdio_and_identifiable(installation):
+    assert last_update(installation, recorded=activation("stdio")) == {
+        "service": None, "stdio": activation("stdio")}
+
+
+def test_show_lists_the_service_and_a_later_stdio_activation_each_once(installation):
+    later = activation("stdio", old="b76968b", new="c0ffee1")
+    assert last_update(installation, service=SERVICE_RUN, recorded=later) == {"service": SERVICE_RUN, "stdio": later}
+
+
+def test_show_does_not_overrule_a_recorded_stdio_writer_with_a_run(installation):
+    assert last_update(installation, service=SERVICE_RUN, recorded=activation("stdio")) == {
+        "service": SERVICE_RUN, "stdio": activation("stdio")}
+
+
+def test_show_keeps_a_manual_service_update_visible_under_activation(installation):
+    """A manual `update` writes no scheduled-run result; its record is all `channel show` has of it."""
+    assert last_update(installation, recorded=activation("service")) == {
+        "service": None, "stdio": None, "activation": activation("service")}
+
+
+def test_show_keeps_the_services_activation_visible_after_a_run_that_found_nothing_to_do(installation):
+    later = {"time": "2026-10-15T18:04:40+00:00", "state": "up_to_date", "head": "b76968b"}
+    assert last_update(installation, service=later, recorded=activation("service")) == {
+        "service": later, "stdio": None, "activation": activation("service")}
+
+
+def test_show_without_the_service_lists_its_activation_under_activation_not_stdio(installation):
+    assert last_update(installation, recorded=activation("service"), state=False) == {
+        "stdio": None, "activation": activation("service")}
+
+
+@pytest.mark.parametrize("run", OTHER_RUNS)
+def test_a_run_for_another_update_does_not_report_the_services_activation(installation, run):
+    assert last_update(installation, service=run, recorded=activation("service")) == {
+        "service": run, "stdio": None, "activation": activation("service")}
+
+
+def test_show_keeps_a_record_from_before_the_writer_was_recorded_under_stdio(installation):
+    """Nothing says who wrote it: it stays where it was listed, until the next activation names its writer."""
+    assert last_update(installation, recorded=activation()) == {"service": None, "stdio": activation()}
+
+
+def test_show_lists_a_record_from_before_the_writer_was_recorded_once_when_the_run_reports_it(installation):
+    """The update that brings `by` is activated by the code before it: its record names no writer, and the
+    scheduled run reports the same two commits. A stdio server never updates an installation a service serves."""
+    assert last_update(installation, service=SERVICE_RUN, recorded=activation()) == {
+        "service": SERVICE_RUN, "stdio": None}
+
+
+@pytest.mark.parametrize("run", OTHER_RUNS)
+def test_a_run_for_another_update_leaves_a_record_without_a_writer_under_stdio(installation, run):
+    assert last_update(installation, service=run, recorded=activation()) == {"service": run, "stdio": activation()}
+
+
+def test_a_record_without_commits_is_never_reported_by_a_run(installation):
+    record = {"status": "ACTIVATED", "ts": "2026-10-15T17:49:26+0000"}
+    assert last_update(installation, service={"state": "UPDATED"}, recorded=record) == {
+        "service": {"state": "UPDATED"}, "stdio": record}
+
+
+def test_a_manual_service_update_is_listed_as_the_services_and_not_as_a_stdio_update(installation):
+    """End to end: the transaction's own record names the service, and `channel show` lists it under
+    `activation`, not `stdio`."""
+    from src import update_channel
+    controller, root, old, target = installation
+    assert offline_update(controller)["state"] == "UPDATED"
+    recorded = json.loads((root / "data" / ".last_update.json").read_text())
+    assert (recorded["by"], recorded["old_sha"], recorded["new_sha"]) == ("service", old, target)
+    assert update_channel.show(root, state_dir=controller.directory, network=False)["last_update"] == {
+        "service": None, "stdio": None, "activation": recorded}

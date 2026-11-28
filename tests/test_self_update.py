@@ -400,6 +400,15 @@ def test_state_roundtrip(tmp_path, monkeypatch):
     self_update.log_last_update()
 
 
+def test_the_state_file_names_who_wrote_it(tmp_path, monkeypatch):
+    """#440: the service's transaction activates through this module too; its record must tell it from a stdio server's."""
+    monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / ".last_update.json"))
+    self_update._write_state(UpdateStatus.UPDATED, "a" * 40, "b" * 40)
+    assert json.loads(Path(self_update.STATE_FILE).read_text())["by"] == "stdio"
+    self_update._write_state(ActivationStatus.ACTIVATED, "a" * 40, "b" * 40, by="service")
+    assert json.loads(Path(self_update.STATE_FILE).read_text())["by"] == "service"
+
+
 def test_log_last_update_missing_file_is_silent(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / "does-not-exist.json"))
     self_update.log_last_update()  # no exception
@@ -647,6 +656,17 @@ def _prepare(repos, env):
         str(repos.local), "origin", "main",
         reindex_fn=env.builder, staging_parent=env.parent,
     )
+
+
+@pytest.mark.parametrize("passed, recorded", [({}, "stdio"), ({"by": "service"}, "service")])
+def test_activation_records_its_writer(repos, phase_a_env, passed, recorded):
+    """A stdio server's start activates as the default writer; the service's transaction passes itself (#440)."""
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    status = self_update.activate_prepared_update(str(repos.local), "main",
+                                                  embedding_model=self_update.EMBEDDING_MODEL, **passed)
+    assert status == ActivationStatus.ACTIVATED
+    assert json.loads(Path(self_update.STATE_FILE).read_text())["by"] == recorded
 
 
 def test_activate_happy_path(repos, phase_a_env):

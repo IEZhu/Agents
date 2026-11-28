@@ -326,15 +326,18 @@ def activate(controller, journal, channel=None):
     come back from the journal's backup, so the old code restarts on its own indexes
     instead of rebuilding them. A build with a Python environment points ``.venv`` at
     it last; the journal's ``environment`` names what it replaced, which every
-    rollback restores. Returns ``UPDATED`` for an activated update.
+    rollback restores. Returns ``UPDATED`` for an activated update. The outcome it
+    records in the installation names the service as its writer, so ``channel show``
+    does not report it as a stdio server's update (#440).
     """
-    from src import self_update
+    from src import self_update, update_channel
     status = self_update.ActivationStatus
     channel = channel or channel_settings(controller)
     planned = {"environment_plan": journal["environment"]} if journal.get("environment") else {}
     result = self_update.activate_prepared_update(controller.config["installation"], channel.branch,
                                                   embedding_model=controller.config["model"],
-                                                  policy=channel.policy, **planned)
+                                                  policy=channel.policy, by=update_channel.WRITER_SERVICE,
+                                                  **planned)
     if result == status.ACTIVATE_ROLLBACK_FAILED:
         raise RuntimeError("File updater rollback failed")
     if result in (status.ACTIVATE_MERGE_FAILED, status.ACTIVATE_MOVE_FAILED, status.ACTIVATE_ENVIRONMENT_FAILED):
@@ -350,13 +353,68 @@ PREPARE_FAILED = ("PREPARE_ENVIRONMENT_FAILED", "SKIPPED_DEPENDENCIES", "PREPARE
 BUILD_CONFIG = ("installation", "runtime_root", "python", "git", "path", "model", "model_cache", "model_artifact", "model_path")
 
 
+class NotInstalled(RuntimeError):
+    """The state directory holds no service for ``update`` or ``recover`` to act on (#592)."""
+
+
+def require_service(controller, command="update"):
+    """Refuse a controller whose ``service.json`` is missing or names no installation.
+
+    ``python -m src.daemon`` finds its state directory from ``--state``, ``AGENTS_SERVICE_DIR``
+    or the checkout whose code runs it, so a command typed in another checkout meets an empty
+    one. Check it first, before a lease, a lock or a key lookup: nothing is created there.
+    """
+    if (controller.config or {}).get("installation"):
+        return
+    message = (
+        f"Service is not installed: {controller.directory} has no service.json that names an "
+        "installation. The state directory comes from --state, AGENTS_SERVICE_DIR or the checkout "
+        f"whose code runs the command: run `python -m src.daemon {command}` in the installation's own "
+        "directory with its .venv interpreter, adding --state <dir> when the service was installed with one")
+    # `uninstall` after an interrupted update leaves the journal behind, and only a service can recover it.
+    left = [name for name in ("transaction.json", "maintenance.json") if (Path(controller.directory) / name).exists()]
+    if left:
+        message += (f". It also holds {' and '.join(left)}, left by an interrupted update: install the "
+                    "service again, then run `python -m src.daemon recover`")
+    raise NotInstalled(message)
+
+
+class WrongSource(RuntimeError):
+    """``update`` or ``recover`` runs the code of a tree that is not the service's installation (#592)."""
+
+
+def require_installation_source(controller, command="update"):
+    """Refuse ``update`` and ``recover`` run from another tree than the service's installation.
+
+    The updater keeps its record of the last update, its prepared build and its staging worktrees in
+    the ``data/`` of the tree whose code runs it (`src.engine.config`). A checkout that is not the
+    installation, pointed at the installed service with ``--state``, would update the installation
+    and leave the update in its own ``data/``, where the installation's ``channel show`` does not
+    find it. `bootstrap.serve` refuses the same mismatch (`runtime_paths.configure_runtime_paths`).
+    Call it after `require_service`, and before a lease or a lock; for ``update``, also as the
+    `offline_update` precheck, because the update rereads ``service.json`` under the control lock and
+    a service installed elsewhere in between must not be updated from this tree.
+    """
+    from src import runtime_paths
+    installation, running = Path(controller.config["installation"]), runtime_paths.runtime_root()
+    try:
+        if installation.samefile(running):
+            return
+    except OSError:
+        pass  # an installation that is not there is not this tree either
+    raise WrongSource(
+        f"This command runs the code in {running}, but the service in {controller.directory} is installed "
+        f"in {installation}. The updater keeps its record and its prepared build in the data/ of the tree "
+        f"it runs from, so run `python -m src.daemon {command}` in {installation} with its .venv "
+        f"interpreter, adding --state {controller.directory} when the service was installed with one")
+
+
 def load_service(controller):
     """Under the control lock: refuse an unfinished transaction or a removed service."""
     if (controller.directory / "transaction.json").exists():
         raise RuntimeError("An unfinished transaction requires recover")
     controller.config = read_json(controller.directory / "service.json")
-    if not controller.config:
-        raise RuntimeError("Service is not installed")
+    require_service(controller)
     executables.configure(controller.config)
 
 
@@ -430,11 +488,11 @@ def _offline_update(controller, expected_target, precheck, notes):
     branch out, and a failed probation returns to the previous branch and stores. A
     downgrade needs the confirmation `channel set <branch> --allow-downgrade` recorded.
     """
-    root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
         # Under the lock, so `uninstall` or another controller command cannot change
         # service.json while the model downloads; the service keeps serving meanwhile.
         load_service(controller)
+        root = Path(controller.config["installation"])  # only once a service is known to exist (#592)
         if reason := runtime_source_refusal(controller.config):
             raise RuntimeError(reason)
         # Before the controller takes the service's environment: an exported value

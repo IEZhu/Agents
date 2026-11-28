@@ -338,11 +338,15 @@ def test_adopting_sync_state_is_a_windows_concern_only(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("command", [["update"], ["auto-update", "run"]])
 def test_updates_run_on_windows(windows, monkeypatch, capsys, command):
+    from src import runtime_paths
     from src.daemon import update
     controller, _fake = windows
-    (controller.directory / "service.json").write_text(json.dumps(controller.config))
+    # `update` runs only from the tree the service is installed in (#592)
+    installed = {**controller.config, "installation": str(runtime_paths.runtime_root())}
+    (controller.directory / "service.json").write_text(json.dumps(installed))
     calls = []
-    monkeypatch.setattr(update, "offline_update", lambda current: calls.append("update") or {"state": "UP_TO_DATE"})
+    monkeypatch.setattr(update, "offline_update",
+                        lambda current, **options: calls.append("update") or {"state": "UP_TO_DATE"})
     monkeypatch.setattr(autoupdate, "run", lambda current: calls.append("run") or {"state": "up_to_date"})
     assert control.main(["--state", str(controller.directory), *command]) == 0
     assert calls == [command[-1]] and "state" in json.loads(capsys.readouterr().out)
