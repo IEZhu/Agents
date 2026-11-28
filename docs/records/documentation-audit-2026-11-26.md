@@ -213,7 +213,7 @@ resolving to the worktree:
   between one session's journal actions that the cooperation protocol gives.
 - The second delta's tests ran on macOS with Python 3.13. CI pins Python 3.11 in most
   workflows, adds 3.10 and 3.14 in the Windows installer workflow and 3.13 on Windows in
-  Workspace bindings, and leaves the release and issue-agent workflows on the runner's
-  own Python. It runs on Linux, Windows and macOS, among others the new macOS workflow
-  and the seven-job User sync matrix (one Linux job, four Windows shards, two macOS
-  shards). None of those was executed here.
+  Workspace bindings, and leaves the release, issue-agent and vulnerability scan
+  workflows on the runner's own Python. It runs on Linux, Windows and macOS, among
+  others the new macOS workflow and the seven-job User sync matrix (one Linux job, four
+  Windows shards, two macOS shards). None of those was executed here.
