@@ -1501,10 +1501,14 @@ def test_a_bridge_package_change_is_refused_before_build_or_stop(venv_installati
 # What a scheduled run of the service left in its state directory, and what an updater records in the
 # installation (`self_update._write_state`): the same activation, as the issue observed it.
 SERVICE_RUN = {"time": "2026-10-15T17:49:40+00:00", "head": "d503b39", "target": "b76968b", "state": "UPDATED"}
+# Runs that do not report the update `activation()` records: a later check, another target, another start,
+# or no commits at all.
+OTHER_RUNS = [{**SERVICE_RUN, "state": "up_to_date"}, {**SERVICE_RUN, "target": "e5f6a7b"},
+              {**SERVICE_RUN, "head": "a1b2c3d"}, {"state": "UPDATED"}]
 
 
-def activation(by=None):
-    record = {"status": "ACTIVATED", "old_sha": "d503b39", "new_sha": "b76968b", "ts": "2026-10-15T17:49:26+0000"}
+def activation(by=None, old="d503b39", new="b76968b"):
+    record = {"status": "ACTIVATED", "old_sha": old, "new_sha": new, "ts": "2026-10-15T17:49:26+0000"}
     return record if by is None else {**record, "by": by}
 
 
@@ -1532,8 +1536,36 @@ def test_show_lists_a_stdio_servers_activation_as_stdio_and_identifiable(install
 
 
 def test_show_lists_the_service_and_a_later_stdio_activation_each_once(installation):
+    later = activation("stdio", old="b76968b", new="c0ffee1")
+    assert last_update(installation, service=SERVICE_RUN, recorded=later) == {"service": SERVICE_RUN, "stdio": later}
+
+
+def test_show_does_not_overrule_a_recorded_stdio_writer_with_a_run(installation):
     assert last_update(installation, service=SERVICE_RUN, recorded=activation("stdio")) == {
         "service": SERVICE_RUN, "stdio": activation("stdio")}
+
+
+def test_show_keeps_a_manual_service_update_visible_under_activation(installation):
+    """A manual `update` writes no scheduled-run result; its record is all `channel show` has of it."""
+    assert last_update(installation, recorded=activation("service")) == {
+        "service": None, "stdio": None, "activation": activation("service")}
+
+
+def test_show_keeps_the_services_activation_visible_after_a_run_that_found_nothing_to_do(installation):
+    later = {"time": "2026-10-15T18:04:40+00:00", "state": "up_to_date", "head": "b76968b"}
+    assert last_update(installation, service=later, recorded=activation("service")) == {
+        "service": later, "stdio": None, "activation": activation("service")}
+
+
+def test_show_without_the_service_lists_its_activation_under_activation_not_stdio(installation):
+    assert last_update(installation, recorded=activation("service"), state=False) == {
+        "stdio": None, "activation": activation("service")}
+
+
+@pytest.mark.parametrize("run", OTHER_RUNS)
+def test_a_run_for_another_update_does_not_report_the_services_activation(installation, run):
+    assert last_update(installation, service=run, recorded=activation("service")) == {
+        "service": run, "stdio": None, "activation": activation("service")}
 
 
 def test_show_keeps_a_record_from_before_the_writer_was_recorded_under_stdio(installation):
@@ -1541,15 +1573,31 @@ def test_show_keeps_a_record_from_before_the_writer_was_recorded_under_stdio(ins
     assert last_update(installation, recorded=activation()) == {"service": None, "stdio": activation()}
 
 
-def test_show_without_the_service_does_not_call_its_activation_a_stdio_update(installation):
-    assert last_update(installation, recorded=activation("service"), state=False) == {"stdio": None}
+def test_show_lists_a_record_from_before_the_writer_was_recorded_once_when_the_run_reports_it(installation):
+    """The update that brings `by` is activated by the code before it: its record names no writer, and the
+    scheduled run reports the same two commits. A stdio server never updates an installation a service serves."""
+    assert last_update(installation, service=SERVICE_RUN, recorded=activation()) == {
+        "service": SERVICE_RUN, "stdio": None}
 
 
-def test_a_service_update_is_not_shown_as_a_stdio_update(installation):
-    """End to end: the transaction's own record names the service, and `channel show` leaves it out of `stdio`."""
+@pytest.mark.parametrize("run", OTHER_RUNS)
+def test_a_run_for_another_update_leaves_a_record_without_a_writer_under_stdio(installation, run):
+    assert last_update(installation, service=run, recorded=activation()) == {"service": run, "stdio": activation()}
+
+
+def test_a_record_without_commits_is_never_reported_by_a_run(installation):
+    record = {"status": "ACTIVATED", "ts": "2026-10-15T17:49:26+0000"}
+    assert last_update(installation, service={"state": "UPDATED"}, recorded=record) == {
+        "service": {"state": "UPDATED"}, "stdio": record}
+
+
+def test_a_manual_service_update_is_listed_as_the_services_and_not_as_a_stdio_update(installation):
+    """End to end: the transaction's own record names the service, and `channel show` lists it under
+    `activation`, not `stdio`."""
     from src import update_channel
     controller, root, old, target = installation
     assert offline_update(controller)["state"] == "UPDATED"
     recorded = json.loads((root / "data" / ".last_update.json").read_text())
     assert (recorded["by"], recorded["old_sha"], recorded["new_sha"]) == ("service", old, target)
-    assert update_channel.show(root, state_dir=controller.directory, network=False)["last_update"]["stdio"] is None
+    assert update_channel.show(root, state_dir=controller.directory, network=False)["last_update"] == {
+        "service": None, "stdio": None, "activation": recorded}

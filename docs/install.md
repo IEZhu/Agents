@@ -548,10 +548,14 @@ does the same. `channel show` ends with `last_update`: `service` is the latest s
 run of the shared service (`auto-update.json` in its state directory) and `stdio` the last
 update a stdio server's updater recorded in the installation (`data/.last_update.json`,
 `"by": "stdio"`). The service's own activation is recorded in that file too, as
-`"by": "service"`, and `stdio` leaves it out: it is the service's update, shown under
-`service` when a scheduled run made it, and a manual `update` prints its own result. A
-record from before the writer was recorded has no `by` and stays under `stdio` until the
-next update replaces it. The web UI's overview (the version in its header) has an
+`"by": "service"`, and `stdio` leaves it out: it is the service's update, listed once. It
+stays under `service` when a scheduled run reports it (that run's head and target are the
+record's old and new commit); otherwise it appears under `activation`, which is present only
+then, so a manual `update`, which writes no scheduled-run result, and the activation that a
+later run found nothing to add to stay visible. A record from before the writer was
+recorded has no `by`: it is the service's when the scheduled run reports the same update,
+as the update that brings `by` leaves it, and stays under `stdio` otherwise, until the next
+update replaces it. The web UI's overview (the version in its header) has an
 Updates section that shows the version, the setting and the checked-out branch,
 the scheduled updates and their last run, and saves `main` or `dev`. The CLI
 accepts any branch the remote has, with a warning: feature branches get
