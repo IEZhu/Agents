@@ -170,7 +170,12 @@ writer: the prompt that opened the turn as intent (`[image]` or `[no text]` for 
 text), `Agent: <agent>` and the persona attribution line as action, and the final answer without
 a time line as outcome, taken from the hook input's `last_assistant_message`, else from the
 transcript (`[no text answer]` for a turn that delivered none). The persona is the descriptor of
-the last `SUCCESS` or `NO_CHANGE` in the transcript, a `run_flow` activation included; the agent
+the last `SUCCESS` or `NO_CHANGE` in the transcript, a `run_flow` activation included, of a server
+registered as `Agents-Core` or `Agents-Core-Desktop` in any letter case, also as a plugin's server
+(`plugin_<plugin>_Agents-Core`); another server's tool of the same name does not attribute the
+turn. The model's own `log_interaction` call counts under any server name (`Agents_Core`, as the
+evaluation runner registers it, or a name of your own), so a turn it logged, or kept out with
+`journal=false`, is never written by the hook as well. The agent
 is the one the delivered footer names, and the descriptor is reported against it: `mismatch`
 when the footer names another agent, `unverified` with `missing=footer` when the answer has no
 footer, `unverified` and the footer's agent without a descriptor, and `unattributed` without

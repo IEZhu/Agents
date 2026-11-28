@@ -122,10 +122,11 @@ def activation_rows(tool_id="t1", status="SUCCESS", tool="route_and_load", argum
                     {"status": status, "persona": persona or PERSONA})}]}}]
 
 
-def log_rows(history, tool_id="l1", arguments=None, result=True):
-    """A log_interaction call and, with ``result``, its result carrying ``history``."""
+def log_rows(history, tool_id="l1", arguments=None, result=True, server="Agents-Core"):
+    """A log_interaction call of the server registered as ``server`` and, with ``result``, its result
+    carrying ``history``."""
     call = {"type": "assistant", "message": {"id": "a" + tool_id, "content": [
-        {"type": "tool_use", "id": tool_id, "name": "mcp__Agents-Core__log_interaction", "input": arguments or {}}]}}
+        {"type": "tool_use", "id": tool_id, "name": f"mcp__{server}__log_interaction", "input": arguments or {}}]}}
     answer = {"type": "user", "message": {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(
             {"result": json.dumps({"timestamp": "2026.11.27 10:00:00", "history": history})})}]}}
@@ -1939,3 +1940,45 @@ def test_the_persona_line_is_cleaned_as_the_turns_text_is(project, tmp_path):
                      interactive=True)
     [entry] = entries(project)
     assert secret not in entry.action and entry.action.startswith("Agent: software_engineer")
+
+
+# --- The verifications of attempt 4 (#701 review, attempt 5) --------------------------------------
+
+
+@pytest.mark.parametrize("server", ["Agents-Core", "Agents_Core", "my-tools", "plugin_x_Memory"])
+def test_a_turn_the_model_logged_under_any_server_name_gets_no_second_entry(project, tmp_path, server):
+    """v701-4 regression: under a registration not called Agents-Core the hook missed the model's own
+    log_interaction call and wrote the turn a second time."""
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        opener("p1", "question"), *activation_rows(), *log_rows({"status": "recorded"}, server=server),
+        answer_row("Answer.\n\n" + FOOTER)])
+    result = hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)
+    assert result == {"status": "skipped", "reason": "logged_by_model", "withdrawn": False}
+    assert not (project / "history.md").exists()
+
+
+@pytest.mark.parametrize("server", ["Agents-Core", "Agents_Core", "my-tools", "plugin_x_Memory"])
+def test_a_turn_kept_out_with_journal_false_under_any_server_name_is_not_written(project, tmp_path, server):
+    """v701-4 regression: a journal=false turn under another registration was written with its prompt
+    and answer."""
+    private = "my medical history, please do not record this"
+    transcript = rows_file(tmp_path / "t.jsonl", [
+        opener("p1", private), *activation_rows(),
+        *log_rows({"status": "withheld", "state": "not_written"}, arguments={"journal": False}, server=server),
+        answer_row("Kept out.")])
+    result = hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message="Kept out."),
+                              interactive=True)
+    assert result == {"status": "skipped", "reason": "not_journaled", "withdrawn": False}
+    assert not (project / "history.md").exists()
+
+
+@pytest.mark.parametrize("tool_name", ["mcp__Agents_Core__route_and_load", "mcp__my-tools__run_flow"])
+def test_another_servers_persona_and_flow_results_still_do_not_attribute_the_turn(project, tmp_path, tool_name):
+    """The server rule stays for the persona tools and run_flow: only log_interaction left it."""
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *persona_rows(tool_name, PERSONA),
+                                                  answer_row("Done.", "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message="Done."), interactive=True)
+    [entry] = entries(project)
+    assert entry.action.startswith("Agent: unattributed"), entry.action
+
+

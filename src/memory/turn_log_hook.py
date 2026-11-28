@@ -25,7 +25,9 @@ as intent (``[image]`` or ``[no text]`` for a prompt without text), ``Agent: <ag
 persona attribution line as action, and the last text the turn delivered, without a time line, as
 outcome. The persona is the descriptor of the last ``SUCCESS`` or ``NO_CHANGE`` of
 ``route_and_load``, ``get_agent_context`` or ``refresh_persona_context``, or the
-``persona_activation`` of ``run_flow``, of an Agents-Core server in the transcript; it is held
+``persona_activation`` of ``run_flow``, of an Agents-Core server in the transcript (registered as
+``Agents-Core`` or ``Agents-Core-Desktop``, also inside a plugin; ``log_interaction`` counts under
+any server name); it is held
 against the footer the answer ends with, so another agent there gives ``mismatch`` and no footer
 ``unverified``. Only a canonical agent name counts, the footer's and the descriptor's: any other
 text in that place never reaches the entry, and the persona line is cleaned like the turn's text.
@@ -102,7 +104,8 @@ WRITE_RESERVE_SECONDS = 1.0
 NOTICE_EVENT, STOP_EVENT = "UserPromptSubmit", "Stop"
 PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
 # The names Agents-Core's server is registered under (scripts/session_readiness.py): another server's
-# tool of the same name is not read (#701 review). A plugin's server is plugin_<plugin>_<server>.
+# persona tool or run_flow of the same name is not read (#701 review). A plugin's server is
+# plugin_<plugin>_<server>. log_interaction counts under any server name (``_persona_tool``).
 SERVER_NAMES = ("agents-core", "agents-core-desktop")
 # run_flow returns a flow persona's activation nested under persona_activation (#734 review).
 FLOW_TOOL = "run_flow"
@@ -253,15 +256,25 @@ def _tool_payload(block: dict) -> dict | None:
 
 
 def _persona_tool(name) -> str | None:
-    """The Agents-Core tool the hook reads a result of: a persona tool, run_flow or log_interaction,
-    of an Agents-Core server under any of its registrations; never another server's (#701 review)."""
+    """The tool the hook reads a result of: a persona tool or run_flow of an Agents-Core server under
+    any of its registrations, never another server's, and log_interaction under any server name.
+
+    A persona result of another server's tool of the same name must not attribute the turn (#701
+    review). log_interaction is read whatever the server is called (``Agents_Core`` in the
+    evaluation runner, a name of the user's own choosing), as before that check: a foreign tool of
+    that name can only make the hook leave the turn to the model, while missing the model's own call
+    wrote a second entry or a turn the model kept out with ``journal=false`` (#701 review)."""
     if not isinstance(name, str) or not name.startswith("mcp__"):
         return None
     server, separator, tool = name[len("mcp__"):].rpartition("__")
-    server = server.lower()
-    if not separator or not (server in SERVER_NAMES or any(server.endswith("_" + known) for known in SERVER_NAMES)):
+    if not separator:
         return None
-    return tool if tool in PERSONA_TOOLS or tool in (FLOW_TOOL, LOG_TOOL) else None
+    if tool == LOG_TOOL:
+        return tool
+    server = server.lower()
+    if not (server in SERVER_NAMES or any(server.endswith("_" + known) for known in SERVER_NAMES)):
+        return None
+    return tool if tool in PERSONA_TOOLS or tool == FLOW_TOOL else None
 
 
 def _action(success: tuple[str, dict] | None) -> str:
