@@ -266,6 +266,38 @@ def test_invalid_mailbox_response_cannot_leak_message_or_capability(model, caplo
     assert "private-message-do-not-log" not in json.dumps(response) + caplog.text
 
 
+@pytest.mark.asyncio
+async def test_liveness_window_results_validate_against_the_listed_schemas(tmp_path):
+    """The window and the refusal that names its cause add no key to the closed listed objects (#628).
+
+    A client validates each result against the output schema it listed at session start, and a
+    key the schema does not name fails every result that carries it, also a default null.
+    """
+    from tests.test_cooperation_service import WINDOW, Harness, _release
+
+    listed = {tool.name: tool.outputSchema for tool in await server.mcp.list_tools() if tool.name in NAMES}
+    h = Harness(tmp_path)
+    try:
+        holder = h.register("holder")
+        h.register("never-acquired")
+        start = h.now
+        results = [("cooperation_apply", server.ApplyResponse, h.acquire(holder))]
+        assert h.checkpoint(holder)["status"] == "ok"
+        assert _release(h, holder)["status"] == "ok"
+        results.append(("cooperation_read", server.ReadResponse, h.read()))
+        h.now = start + WINDOW + 1
+        refused = h.apply(holder, {"kind": "heartbeat"})
+        assert (refused["error"], refused["participant_id"]) == ("stale_generation", holder["participant_id"])
+        results += [("cooperation_apply", server.ApplyResponse, refused),
+                    ("cooperation_read", server.ReadResponse, h.read())]
+        for name, model, result in results:
+            structured = server._cooperation_result(model, result).model_dump(mode="json", by_alias=True)
+            assert structured.get("error") != "store_unavailable", structured
+            jsonschema.validate(structured, listed[name])
+    finally:
+        h.service.close()
+
+
 def test_invalid_internal_response_cannot_expose_capability(caplog):
     answer = server._cooperation_result(server.RegisterResponse, {
         "protocol": PROTOCOL, "status": "ok", "capability": "private-capability-do-not-log",

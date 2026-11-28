@@ -10,7 +10,7 @@ import pytest
 from src.cooperation import mailbox
 from src.cooperation.models import PROTOCOL, SendResponse, ReceiveResponse, AckResponse
 from src.cooperation.models import parse_send, parse_receive, parse_ack
-from tests.test_cooperation_service import Harness
+from tests.test_cooperation_service import WINDOW, Harness
 
 
 @pytest.fixture
@@ -215,7 +215,8 @@ def test_model_authored_mail_keeps_a_corresponding_participant_live(h):
     a, b = h.register("a"), h.register("b")
     assert h.acquire(a)["status"] == "ok"
     before = h.read()
-    h.now += 121
+    # Past the claim's own window too, so only the mail can be what keeps a live.
+    h.now += WINDOW + 1
     sent = send(h, a, b)["message"]
     assert ack(h, b, sent)["status"] == "ok"
     snapshot = h.read()
@@ -232,7 +233,7 @@ def test_model_authored_mail_keeps_a_corresponding_participant_live(h):
 def test_mail_never_clears_an_established_suspicion_or_quarantine(h):
     a, b = h.register("a"), h.register("b")
     assert h.acquire(a)["status"] == "ok"
-    h.now += 121
+    h.now += WINDOW + 1
     assert h.read()["claims"][0]["quarantined"]
     sent = send(h, a, b)["message"]
     assert ack(h, b, sent)["status"] == "ok"

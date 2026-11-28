@@ -172,9 +172,10 @@ class AgreementTerms(StrictModel):
     checkpoint: CheckpointSpec
     completion_conditions: Annotated[list[Text], Field(min_length=1, max_length=MAX_ITEMS)]
     # A peer that acts only at its turn boundaries answers minutes or hours
-    # later, past the 120-second heartbeat deadline, so the window has to span
-    # a turn gap. A pending proposal reserves nothing, and the proposer can
-    # cancel it; the bound still lets an unanswered one expire.
+    # later, past its heartbeat deadline (at most 300 seconds after its last
+    # call, when a work unit's window keeps it live that long), so the window
+    # has to span a turn gap. A pending proposal reserves nothing, and the
+    # proposer can cancel it; the bound still lets an unanswered one expire.
     acknowledgement_timeout_seconds: int = Field(
         default=ACKNOWLEDGEMENT_TIMEOUT_SECONDS, ge=1, le=MAX_ACKNOWLEDGEMENT_TIMEOUT_SECONDS,
         description="Seconds every required participant has to acknowledge; cover the peer's gap between turns.")

@@ -13,9 +13,16 @@ import pytest
 from src.cooperation.admin import cleanup
 from src.cooperation.identity import CooperationIdentity
 from src.cooperation import quota
-from src.cooperation.models import PROTOCOL, ApplyResponse, ReadResponse, parse_apply, parse_read, parse_register
+from src.cooperation.models import (PROTOCOL, ApplyResponse, Participant, ReadResponse, parse_apply, parse_read,
+                                    parse_register)
 from src.cooperation.service import CooperationService, _published_next_free
 from src.cooperation.store import CooperationError, Store, canonical
+
+#: The default and largest checkpoint interval: a holder that makes no further
+#: call stays live this long after its acquire.
+WINDOW = 300.0
+#: Minutes of a peer's heartbeats that outlast a silent holder's window.
+PAST_WINDOW_MINUTES = int(WINDOW // 60) + 1
 
 
 def resource(key="file.py", kind="physical_file", access="write"):
@@ -159,7 +166,7 @@ def test_counterproposal_generation_and_deadline_c03_c18_c27(h):
 def test_stale_restart_recovery_keeps_quarantine_c06_c07_c27(h):
     a = h.register("a")
     assert h.acquire(a)["status"] == "ok"
-    h.now += 121
+    h.now += WINDOW + 1
     b = h.register("b")
     assert h.read()["claims"][0]["quarantined"]
     assert h.acquire(b)["error"] == "claim_conflict"
@@ -1001,7 +1008,7 @@ def test_heartbeat_expiry_frees_an_allowance_without_freeing_a_file(h):
     allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
     dead, live = h.register("dead", scope=[allowance, file]), h.register("live", scope=[allowance, file])
     assert h.acquire(dead, allowance, file)["status"] == "ok"
-    for _ in range(3):
+    for _ in range(PAST_WINDOW_MINUTES):
         h.now += 60
         assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
     quarantined = {c["resource"]["resource_key"]: c["quarantined"] for c in h.read()["claims"]}
@@ -1101,7 +1108,7 @@ def test_a_lapsed_allowance_frees_an_agreement_assignment(h):
     h.ack(dead, agreement)
     assert h.ack(live, agreement)["agreement"]["state"] == "committed"
     assert h.acquire(dead, allowance, file, agreement_id="agreement")["status"] == "ok"
-    for _ in range(3):
+    for _ in range(PAST_WINDOW_MINUTES):
         h.now += 60
         assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
     # The assignment outlives the holder's heartbeat, so the allowance has to
@@ -1214,7 +1221,7 @@ def test_a_lapsed_allowance_does_not_block_a_handoff_commit(h):
     assert h.acquire(dead, allowance, file)["status"] == "ok"
     old, new = h.register("old", scope=scope), h.register("new", scope=scope)
     assert h.checkpoint(old, name="cp")["status"] == "ok"
-    for _ in range(3):
+    for _ in range(PAST_WINDOW_MINUTES):
         h.now += 60
         for live in (old, new):
             assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
@@ -1274,7 +1281,7 @@ def test_a_recovered_holder_does_not_block_the_session_that_took_its_allowance(h
     assert h.ack(peer, held)["agreement"]["state"] == "committed"
     assert h.acquire(dead, allowance, agreement_id="agreement")["status"] == "ok"
     taker, witness = h.register("taker", scope=[allowance]), h.register("witness", scope=[allowance])
-    for _ in range(3):
+    for _ in range(PAST_WINDOW_MINUTES):
         h.now += 60
         for live in (peer, taker, witness):
             assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
@@ -1427,3 +1434,391 @@ def test_two_recovered_consenters_can_each_renew_their_consent(h):
     committed = h.ack(last, proposed)
     assert committed["agreement"]["state"] == "committed", committed
     assert set(_bindings(committed["agreement"]).values()) == {2}
+
+
+# acquire advertises checkpoint_due, max_interval_seconds after the call, and a
+# caller plans its work unit against that time. Liveness used to be a fixed 120
+# seconds after the last successful call, so a holder that checkpointed or
+# released two to five minutes after its acquire, inside the advertised window,
+# was already suspect and was refused with stale_generation until it recovered
+# (#628).
+@pytest.mark.parametrize(("checkpoint_at", "release_at"), [(150.0, 150.0), (0.0, 290.0), (220.0, 290.0)])
+def test_a_holder_checkpoints_and_releases_inside_the_advertised_window(h, checkpoint_at, release_at):
+    holder = h.register("holder")
+    start = h.now
+    claim = h.acquire(holder)["claims"][0]
+    assert claim["checkpoint_due"] == start + WINDOW
+    h.now = start + checkpoint_at
+    # Another session's read reconciles the journal first, as on a busy checkout.
+    assert h.read()["claims"][0]["quarantined"] is False
+    checkpoint = h.checkpoint(holder)
+    assert checkpoint["status"] == "ok", checkpoint
+    h.now = start + release_at
+    assert h.read()["claims"][0]["quarantined"] is False
+    released = _release(h, holder)
+    assert released["status"] == "ok", released
+    assert _participant(h, holder)["status"] == "active"
+
+
+def test_releasing_early_does_not_shorten_the_window(h):
+    holder = h.register("holder")
+    start = h.now
+    assert h.acquire(holder)["status"] == "ok"
+    assert h.checkpoint(holder)["status"] == "ok"
+    assert _release(h, holder)["status"] == "ok"
+    # Past 120 seconds after the release, still inside the released unit's window:
+    # finishing sooner must not cost the participant the next acquire.
+    h.now = start + 200
+    acquired = h.acquire(holder, resource("next.py"))
+    assert acquired["status"] == "ok", acquired
+
+
+def test_past_its_window_a_holder_keeps_the_heartbeat_cadence(h):
+    holder = h.register("holder")
+    start = h.now
+    assert h.acquire(holder)["status"] == "ok"
+    h.now = start + 250
+    assert h.apply(holder, {"kind": "heartbeat"})["status"] == "ok"
+    # Past checkpoint_due a call within 120 seconds of the last one still keeps
+    # the holder live, and the heartbeat says that the checkpoint is overdue.
+    h.now = start + 250 + 120
+    late = h.apply(holder, {"kind": "heartbeat"})
+    assert late["status"] == "ok", late
+    assert late["checkpoint_required"]
+    # A heartbeat does not renew the whole window: 121 quiet seconds are too many.
+    h.now += 121
+    assert h.apply(holder, {"kind": "heartbeat"})["error"] == "stale_generation"
+
+
+def test_a_window_shorter_than_the_heartbeat_deadline_keeps_the_deadline(h):
+    holder = h.register("holder")
+    start = h.now
+    claim = h.acquire(holder, checkpoint={"trigger": "unit done", "max_interval_seconds": 60})["claims"][0]
+    assert claim["checkpoint_due"] == start + 60
+    h.now = start + 120
+    assert h.apply(holder, {"kind": "heartbeat"})["status"] == "ok"
+    h.now += 121
+    assert h.apply(holder, {"kind": "heartbeat"})["error"] == "stale_generation"
+
+
+def test_a_holder_that_stops_calling_is_suspected_when_its_window_closes(h):
+    allowance, file = _allowance(UNKNOWN_REVIEWER), resource("src/a.py")
+    dead, live = h.register("dead", scope=[allowance, file]), h.register("live", scope=[allowance, file])
+    due = h.acquire(dead, allowance, file)["claims"][0]["checkpoint_due"]
+    while h.now + 60 < due:
+        h.now += 60
+        assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    h.now = due
+    assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    # Up to its checkpoint_due a silent holder may still be at work, so even
+    # its allowance keeps excluding.
+    assert _participant(h, dead)["status"] == "active"
+    assert h.acquire(live, allowance)["error"] == "claim_conflict"
+    h.now = due + 1
+    assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+    suspect = _participant(h, dead)
+    assert (suspect["status"], suspect["reason"]) == ("suspect", "heartbeat_overdue")
+    assert all(claim["quarantined"] for claim in h.read()["claims"])
+    # From here on exactly as before: the file claim holds, the allowance frees.
+    assert h.acquire(live, file)["error"] == "claim_conflict"
+    assert h.acquire(live, allowance)["status"] == "ok"
+    # The refusal names whose liveness lapsed and why, not only the generation.
+    refused = h.checkpoint(dead)
+    assert _suspected(refused, dead), refused
+
+
+def test_a_quarantined_allowance_excludes_until_its_holders_window_closes(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder, other = h.register("holder", scope=[allowance]), h.register("other", scope=[allowance])
+    start = h.now
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    assert h.apply(holder, {"kind": "cancel", "reason": "stop this round"})["cancel_pending"] is True
+    # Quarantined at once, yet the holder may still be finishing the round it
+    # declared: its allowance excludes for as long as that window is open,
+    # its last second included.
+    for at in (100.0, 200.0, WINDOW):
+        h.now = start + at
+        assert h.apply(other, {"kind": "heartbeat"})["status"] == "ok"
+        assert h.acquire(other, allowance)["error"] == "claim_conflict"
+    h.now = start + WINDOW + 1
+    assert h.acquire(other, allowance)["status"] == "ok"
+
+
+def test_recovery_ends_the_work_units_window(h):
+    holder = h.register("holder")
+    start = h.now
+    assert h.acquire(holder)["status"] == "ok"
+    h.service.close()
+    h.service.start()
+    assert h.recover(holder)["status"] == "ok"
+    # Recovery deletes the row: the generation check would ignore it as well,
+    # but the table keeps no window that no generation can use.
+    with h.service.store.transaction(write=False) as db:
+        assert db.execute("SELECT COUNT(*) FROM participant_windows WHERE participant_id=?",
+                          (holder["participant_id"],)).fetchone()[0] == 0
+    # The recovered generation holds nothing and never acquired: the released
+    # unit's due time cannot keep it live.
+    h.now = start + 121
+    refused = h.apply(holder, {"kind": "heartbeat"})
+    assert _suspected(refused, holder), refused
+
+
+def test_a_handoff_gives_the_new_owner_the_handed_units_window(h):
+    old, new = h.register("old"), h.register("new")
+    start = h.now
+    claims = h.acquire(old)["claims"]
+    proposal = h.apply(old, h.proposal([old, new], owner=new, pattern="handoff"))["agreement"]
+    h.ack(old, proposal)
+    assert h.checkpoint(old)["status"] == "ok"
+    assert h.ack(new, proposal, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+    h.now = start + 100
+    transferred = h.apply(old, _handoff(old, new, claims))
+    assert transferred["status"] == "ok", transferred
+    # The window counts from the new owner's own last call, its acknowledgement,
+    # and is still open 200 seconds after the handoff.
+    assert {claim["checkpoint_due"] for claim in transferred["claims"]} == {start + WINDOW}
+    h.now = start + WINDOW
+    checkpoint = h.checkpoint(new, name="taken-over")
+    assert checkpoint["status"] == "ok", checkpoint
+
+
+@pytest.mark.parametrize(("handoff_at", "own_unit"), [(100.0, False), (120.0, False), (WINDOW, True)])
+def test_a_handed_window_counts_from_the_new_owners_own_last_call(h, handoff_at, own_unit):
+    # A handoff used to arm the new owner's window from the handoff itself, so a
+    # new owner that went silent after acknowledging kept the allowance until
+    # 401, 421 or, with a released unit of its own, 601 seconds after that call.
+    allowance, own = _allowance(UNKNOWN_REVIEWER), resource("own.py")
+    old, new = h.register("old", scope=[allowance]), h.register("new", scope=[allowance, own])
+    peer = h.register("peer", scope=[allowance])
+    start = h.now
+    if own_unit:
+        assert h.acquire(new, own)["status"] == "ok"
+        assert h.checkpoint(new, name="own")["status"] == "ok"
+        assert _release(h, new)["status"] == "ok"
+    claims = h.acquire(old, allowance)["claims"]
+    proposal = h.apply(old, h.proposal([old, new], owner=new, pattern="handoff",
+                                       resources=[{**allowance, "owner": new["participant_id"]}]))["agreement"]
+    h.ack(old, proposal)
+    assert h.checkpoint(old)["status"] == "ok"
+    # The new owner's acknowledgement is its last call.
+    assert h.ack(new, proposal, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+    for at in sorted({100.0, handoff_at, 200.0, WINDOW}):
+        h.now = start + at
+        assert h.apply(peer, {"kind": "heartbeat"})["status"] == "ok"
+        if at == handoff_at:
+            transferred = h.apply(old, _handoff(old, new, claims))
+            assert transferred["status"] == "ok", transferred
+    assert h.acquire(peer, allowance)["error"] == "claim_conflict"
+    h.now = start + WINDOW + 1
+    assert h.apply(peer, {"kind": "heartbeat"})["status"] == "ok"
+    taken = h.acquire(peer, allowance)
+    assert taken["status"] == "ok", taken
+
+
+@pytest.mark.parametrize("handoff_at", [100.0, 200.0])
+def test_a_shorter_handed_interval_keeps_the_new_owners_own_window(h, handoff_at):
+    # The handed window used to replace the new owner's own: with its own unit
+    # released at 0 and a 60 second agreement interval, a handoff at 200 left it
+    # suspect a second later, and one at 100 cut its deadline to 120.
+    own, file = resource("own.py"), resource("file.py")
+    old, new = h.register("old", scope=[file]), h.register("new", scope=[file, own])
+    start = h.now
+    assert h.acquire(new, own)["status"] == "ok"
+    assert h.checkpoint(new, name="own")["status"] == "ok"
+    assert _release(h, new)["status"] == "ok"
+    claims = h.acquire(old, file)["claims"]
+    proposal = h.apply(old, h.proposal([old, new], owner=new, pattern="handoff",
+                                       resources=[{**file, "owner": new["participant_id"]}],
+                                       checkpoint={"trigger": "unit done", "max_interval_seconds": 60}))["agreement"]
+    h.ack(old, proposal)
+    assert h.checkpoint(old)["status"] == "ok"
+    assert h.ack(new, proposal, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+    h.now = start + handoff_at
+    transferred = h.apply(old, _handoff(old, new, claims))
+    assert transferred["status"] == "ok", transferred
+    assert {claim["checkpoint_due"] for claim in transferred["claims"]} == {start + 60}
+    h.now = start + 250
+    taken = h.checkpoint(new, name="taken-over")
+    assert taken["status"] == "ok", taken
+
+
+def test_a_handoff_commit_waits_for_a_quarantined_holders_window(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    holder = h.register("holder", scope=[allowance])
+    old, new = h.register("old", scope=[allowance]), h.register("new", scope=[allowance])
+    start = h.now
+    assert h.acquire(holder, allowance)["status"] == "ok"
+    # Quarantined at once by its cancel, yet still inside the window it declared.
+    assert h.apply(holder, {"kind": "cancel", "reason": "stop this round"})["cancel_pending"] is True
+    assert h.checkpoint(old, name="cp")["status"] == "ok"
+    proposal = h.apply(old, h.proposal([old, new], owner=old, pattern="handoff",
+                                       resources=[{**allowance, "owner": old["participant_id"]}]))["agreement"]
+    h.ack(old, proposal)
+    for at in (100.0, 200.0, WINDOW, WINDOW + 1):
+        h.now = start + at
+        for live in (old, new):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+        acknowledged = h.ack(new, proposal, accepted_checkpoint="cp")
+        if at <= WINDOW:
+            assert acknowledged["error"] == "claim_conflict", acknowledged
+    assert acknowledged["agreement"]["state"] == "committed", acknowledged
+
+
+def test_a_commit_waits_for_a_quiet_competing_owners_window(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    owner, peer = h.register("owner", scope=[allowance]), h.register("peer", scope=[allowance])
+    fresh_a, fresh_b = h.register("fresh-a", scope=[allowance]), h.register("fresh-b", scope=[allowance])
+    start = h.now
+    held = h.apply(owner, h.proposal([owner, peer], resources=[{**allowance, "owner": owner["participant_id"]}]))
+    h.ack(owner, held["agreement"])
+    assert h.ack(peer, held["agreement"])["agreement"]["state"] == "committed"
+    # The owner works through its agreement, releases early and goes quiet.
+    assert h.acquire(owner, allowance, agreement_id="agreement")["status"] == "ok"
+    assert h.checkpoint(owner)["status"] == "ok"
+    assert _release(h, owner)["status"] == "ok"
+    proposal = h.apply(fresh_a, h.proposal([fresh_a, fresh_b], name="fresh",
+                                           resources=[{**allowance, "owner": fresh_a["participant_id"]}]))["agreement"]
+    h.ack(fresh_a, proposal)
+    for at in (100.0, 200.0, WINDOW, WINDOW + 1):
+        h.now = start + at
+        for live in (fresh_a, fresh_b):
+            assert h.apply(live, {"kind": "heartbeat"})["status"] == "ok"
+        acknowledged = h.ack(fresh_b, proposal)
+        if at <= WINDOW:
+            assert (acknowledged["error"], acknowledged["message"]) == (
+                "claim_conflict", "Competing committed agreement"), acknowledged
+    assert acknowledged["agreement"]["state"] == "committed", acknowledged
+
+
+def test_a_window_from_an_earlier_generation_is_ignored(h):
+    # An older coordinator recovers a participant without deleting its window
+    # row, so after an upgrade that row must not keep the next generation live.
+    holder = h.register("holder")
+    start = h.now
+    assert h.acquire(holder)["status"] == "ok"
+    with h.service.store.transaction() as db:
+        db.execute("DELETE FROM claims WHERE participant_id=?", (holder["participant_id"],))
+        body = json.loads(db.execute("SELECT body FROM participants WHERE id=?", (holder["participant_id"],)).fetchone()[0])
+        body.update(generation=2, running=False)
+        db.execute("UPDATE participants SET body=? WHERE id=?", (canonical(body), holder["participant_id"]))
+    h.now = start + 121
+    assert _participant(h, holder)["status"] == "suspect"
+
+
+@pytest.mark.parametrize("table", [True, False], ids=["with-window-table", "journal-before-the-table"])
+def test_owner_cleanup_removes_the_window(h, table):
+    a = h.register("a")
+    claims = h.acquire(a)["claims"]
+    h.service.close()
+    if not table:
+        with sqlite3.connect(h.service.store.path) as db:
+            db.execute("DROP TABLE participant_windows")
+    args = dict(repository_id=h.identity.repository_id, participant_id=a["participant_id"], expected_generation=1,
+                claims=[{"claim_id": c["claim_id"], "expected_revision": c["revision"]} for c in claims], execution_pid=999999,
+                checkpoint_id=None, inspection="inspected dirty checkout", reason="lost capability", owner_authorized=True,
+                stopped_probe=lambda pid: True)
+    assert cleanup(h.directory, **args)["released"] == [claims[0]["claim_id"]]
+    with h.service.store.transaction(write=False) as db:
+        names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert ("participant_windows" in names) is table
+        if table:
+            assert db.execute("SELECT COUNT(*) FROM participant_windows").fetchone()[0] == 0
+    h.service.start()
+
+
+def test_a_shorter_next_unit_replaces_the_window(h):
+    holder = h.register("holder")
+    start = h.now
+    assert h.acquire(holder)["status"] == "ok"
+    assert h.checkpoint(holder)["status"] == "ok"
+    assert _release(h, holder)["status"] == "ok"
+    h.now = start + 10
+    short = h.acquire(holder, resource("next.py"), checkpoint={"trigger": "short unit", "max_interval_seconds": 60})
+    assert short["status"] == "ok", short
+    # The new unit's window and the deadline after its acquire count, not the
+    # longer window of the unit released before it.
+    h.now = start + 10 + 121
+    assert _suspected(h.apply(holder, {"kind": "heartbeat"}), holder)
+
+
+def test_a_late_checkpoint_does_not_renew_the_window(h):
+    holder = h.register("holder")
+    start = h.now
+    assert h.acquire(holder)["status"] == "ok"
+    h.now = start + 299
+    assert h.checkpoint(holder, release_ready=False)["status"] == "ok"
+    # Past the unit's checkpoint_due only the deadline after that checkpoint counts.
+    h.now = start + 299 + 120
+    assert _participant(h, holder)["status"] == "active"
+    h.now += 1
+    assert _participant(h, holder)["status"] == "suspect"
+
+
+def test_an_assigned_allowance_of_a_quiet_owner_excludes_until_its_window_closes(h):
+    allowance = _allowance(UNKNOWN_REVIEWER)
+    owner, peer = h.register("owner", scope=[allowance]), h.register("peer", scope=[allowance])
+    taker = h.register("taker", scope=[allowance])
+    start = h.now
+    agreement = h.apply(owner, h.proposal([owner, peer], resources=[{**allowance, "owner": owner["participant_id"]}]))
+    h.ack(owner, agreement["agreement"])
+    assert h.ack(peer, agreement["agreement"])["agreement"]["state"] == "committed"
+    # The owner works through the agreement, releases early and goes quiet: only
+    # the assignment, not a claim, can exclude the taker now.
+    assert h.acquire(owner, allowance, agreement_id="agreement")["status"] == "ok"
+    assert h.checkpoint(owner)["status"] == "ok"
+    assert _release(h, owner)["status"] == "ok"
+    for at in (100.0, 200.0, WINDOW):
+        h.now = start + at
+        assert h.apply(taker, {"kind": "heartbeat"})["status"] == "ok"
+        refused = h.acquire(taker, allowance)
+        assert (refused["error"], refused["message"]) == ("claim_conflict", "Resource assigned by a committed agreement"), refused
+    h.now = start + WINDOW + 1
+    assert h.apply(taker, {"kind": "heartbeat"})["status"] == "ok"
+    assert h.acquire(taker, allowance)["status"] == "ok"
+
+
+def test_the_window_stays_out_of_the_projected_participant_body(h):
+    # Snapshots return stored participant bodies through a closed schema that
+    # clients cache when they list the tools and that older coordinators
+    # enforce on the same journal, so every stored key must stay a field of it.
+    old, new = h.register("old"), h.register("new")
+    claims = h.acquire(old)["claims"]
+    proposal = h.apply(old, h.proposal([old, new], owner=new, pattern="handoff"))["agreement"]
+    h.ack(old, proposal)
+    assert h.checkpoint(old)["status"] == "ok"
+    assert h.ack(new, proposal, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+    assert h.apply(old, _handoff(old, new, claims))["status"] == "ok"
+    assert h.checkpoint(new, name="taken-over")["status"] == "ok"
+    assert _release(h, new)["status"] == "ok"
+    with h.service.store.transaction(write=False) as db:
+        stored = [json.loads(row[0]) for row in db.execute("SELECT body FROM participants")]
+        windows = dict(db.execute("SELECT participant_id, checkpoint_due FROM participant_windows").fetchall())
+    assert all(set(body) <= set(Participant.model_fields) for body in stored)
+    assert set(windows) == {old["participant_id"], new["participant_id"]}
+
+
+def test_a_journal_from_before_the_window_table_gains_it_on_start(h):
+    holder = h.register("holder")
+    h.service.close()
+    with sqlite3.connect(h.service.store.path) as db:
+        db.execute("DROP TABLE participant_windows")
+    h.service.start()
+    with h.service.store.transaction(write=False) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert h.recover(holder)["status"] == "ok"
+    assert h.acquire(holder)["status"] == "ok"
+    h.now += 200
+    assert h.apply(holder, {"kind": "heartbeat"})["status"] == "ok"
+
+
+def _handoff(old, new, claims, agreement="agreement"):
+    return {"kind": "handoff", "claims": [{"claim_id": c["claim_id"], "expected_revision": c["revision"]} for c in claims],
+            "old_owner": old["participant_id"], "new_owner": new["participant_id"],
+            "old_generation": old["generation"], "new_generation": new["generation"],
+            "checkpoint_id": "cp", "agreement_id": agreement}
+
+
+def _suspected(refused, actor, reason="heartbeat_overdue"):
+    """A stale_generation that names the participant and, in its message, why it was suspected."""
+    return ((refused.get("error"), refused.get("participant_id")) == ("stale_generation", actor["participant_id"])
+            and f"({reason})" in refused.get("message", ""))
