@@ -11,10 +11,11 @@ detectors find, round after round, and says whether a last scan found nothing mo
   that a label line leaves for the lines below goes with them, whatever the form (a YAML block, a
   sentence or heading ending in the label, a command's output after a prompt, a lone value after a
   label line that holds none, a fenced block, a heredoc, a continuation line, a name-value pair or
-  element pair, a table's header in any delimited or aligned form, a database client's table), and
-  so does a value written before its label in the forms the owner chose (#701 reviews, attempts 5
-  and 6). A word used as an ordinary word in a sentence keeps its line when the rule can tell
-  nothing after it is a value; in doubt the line is masked. No fence line is masked, and a block of
+  element pair, a table's header in any delimited, aligned or box-drawing form, a database client's
+  table), and so does a value written before its label in the forms the owner chose (#701 reviews,
+  attempts 5 to 7). A wallet's seed phrase goes by its shape where a line names one. A word used as
+  an ordinary word in a sentence keeps its line when the rule can tell nothing after it is a value;
+  in doubt the line is masked. No fence line is masked, and a block of
   code under a line naming a secret keeps its lines but its quoted literals.
 - Formats: the schedule records' token formats (``records.SECRET_PATTERNS``) and
   ``EXTRA_SECRET_PATTERNS``, keeping a token's prefix; the bodies of private key blocks, PGP ones
@@ -62,13 +63,19 @@ SCAN_SECONDS_PER_CHARACTER_AND_SECRET = 2.5e-7
 # "assword", which expect scripts match a prompt by.
 STRONG_WORDS = frozenset({
     "password", "passwd", "passphrase", "secret", "token", "credential", "credentials", "creds", "apikey",
-    "accesskey", "secretkey", "privatekey", "authtoken", "pswd", "assword", "kennwort", "contraseña", "contrasena"})
+    "accesskey", "secretkey", "privatekey", "authtoken", "pswd", "assword", "kennwort", "contraseña", "contrasena",
+    "paswrd"})
 STRONG_ENDINGS = ("password", "passwd", "passphrase", "secret", "token")
 # Russian stems: пароль, токен, секрет in every form, and the transliterated password (пассворд).
 STRONG_STEMS = ("парол", "токен", "секрет", "пассворд", "пасворд")
-# Russian words without a stem of their own: кред- begins кредит too, and пороль is a common misspelling.
+# Russian words without a stem of their own: кред- begins кредит too, and пороль is a common misspelling;
+# доступы, plural, is the everyday word for a login and its password (доступ alone is access).
 STRONG_RUSSIAN = frozenset({"креды", "кредов", "кредам", "кредами", "кредах", "кредс", "пороль", "пороля",
-                            "поролем", "поролю"})
+                            "поролем", "поролю", "доступы", "доступов", "доступам", "доступами", "доступах"})
+# Misspellings that swap two letters of these words (toekn, sercet, api_kye): one letter replaced or left
+# out is another word as often as not (taken, toke), so only a swap counts (#701 review).
+SWAPPED = {target: frozenset(target[:index] + target[index + 1] + target[index] + target[index + 2:]
+                             for index in range(len(target) - 1)) - {target} for target in ("token", "secret", "key")}
 # Plurals of strong words, common in prose ("Passwords are hashed"): alone at the end of a heading, a
 # bare label line, a block or a table's column they name a secret as their singular does (#701 review:
 # "## Passwords" and a column "Tokens" left every value below them).
@@ -77,6 +84,11 @@ STRONG_PLURALS = frozenset({"passwords", "secrets", "tokens", "passphrases", "pa
 # review: "seed phrase amber anchor basil ..." was written whole).
 WORD_VALUES = frozenset({("seed", "phrase"), ("recovery", "phrase"), ("mnemonic",), ("passphrase",),
                          ("сид", "фраза"), ("кодовая", "фраза"), ("кодовое", "слово")})
+# Other names of a wallet's seed phrase (#701 review: Recovery seed, Backup phrase, Seed words and Wallet
+# words left it whole): labels like the pairs above, but a sentence of ordinary words after them keeps
+# its line, so prose about them stays; the phrase's own words go by their shape (``_seed_spans``).
+SEED_PAIRS = frozenset({("recovery", "seed"), ("backup", "phrase"), ("seed", "words"), ("mnemonic", "words"),
+                        ("wallet", "words"), ("recovery", "words")})
 # A word of one case that begins with a strong word goes on with a value's name (tokenstr, secretval,
 # PASSWORDVALUE), unless the rest is one of these endings of an everyday word (tokenize, secretary).
 EVERYDAY_TAILS = frozenset({
@@ -90,8 +102,10 @@ EVERYDAY_TAILS = frozenset({
 WEAK_WORDS = frozenset({
     "key", "keys", "apikeys", "pass", "pwd", "pw", "passcode", "auth", "authtok", "authorization", "cookie",
     "cookies", "passwords", "secrets", "tokens", "passphrases", "passwds", "otp", "hmac", "bearer", "oauth", "dsn",
-    "mnemonic", "sessionid", "capability", "psk", "psw", "passw", "parol", "пасс", "кей"})
-WEAK_STEMS = ("ключ",)
+    "mnemonic", "sessionid", "capability", "psk", "psw", "passw", "parol", "пасс", "кей", "учётка", "учетка",
+    "учётки", "учетки", "учётку", "учетку", "учёткой", "учеткой"})
+# ключ (a key) in every form, and мнемоника, a mnemonic (its phrase goes by its shape, ``_seed_spans``).
+WEAK_STEMS = ("ключ", "мнемони")
 # A word of letters in any case glued to one of these endings names a secret as well (dbpass, rootpw,
 # bindpw, DBPWD, masterauth, requirepass, privkey, wpapsk, authtok, JSESSIONID, PHPSESSID), unless it
 # is an everyday word that happens to end so.
@@ -115,20 +129,31 @@ FACTORY_NAMES = frozenset({"new", "create"})
 # Two words that name a secret together, side by side in a name or a blank apart.
 STRONG_PAIRS = frozenset({("api", "key"), ("access", "key"), ("private", "key"), ("signing", "key"),
                           ("encryption", "key"), ("master", "key"), ("seed", "phrase"), ("recovery", "phrase"),
-                          ("identified", "by")})
+                          ("identified", "by")}) | SEED_PAIRS
 # Codes that open an account or a door: a code alone is no secret (an exit code, a status code).
 WEAK_PAIRS = frozenset({("session", "id"), ("connection", "string"), ("recovery", "code"), ("recovery", "codes"),
                         ("backup", "code"), ("backup", "codes"), ("access", "code"), ("activation", "code"),
                         ("verification", "code"), ("security", "answer"), ("door", "code"), ("gate", "code"),
                         ("alarm", "code"), ("unlock", "code")})
 # Russian pairs, by the first word's form and the second word's stem: код доступа, пин-код, сид-фраза,
-# кодовое слово, кодовая фраза in their cases (#701 review: the owner writes Russian).
+# кодовое слово, кодовая фраза in their cases (#701 review: the owner writes Russian); a wallet's
+# фраза восстановления, слова восстановления, резервная and ключевая фраза, and учётные данные, the
+# standard term for credentials (#701 review: written whole after these). The weak ones name a secret
+# as a prose-common word does: ключ API, ключ доступа and (данные) для входа.
+_PHRASE_FORMS = frozenset({"фраза", "фразы", "фразу", "фразой", "фразе"})
+_KEY_FORMS = frozenset({"ключ", "ключа", "ключу", "ключом", "ключе", "ключи", "ключей", "ключам", "ключами"})
 RUSSIAN_PAIRS = ((frozenset({"код", "кода", "коду", "кодом"}), "доступ"), (frozenset({"пин", "pin"}), "код"),
                  (frozenset({"сид", "seed"}), "фраз"),
                  (frozenset({"кодовое", "кодового", "кодовому", "кодовым", "кодовом"}), "слов"),
                  (frozenset({"кодовая", "кодовой", "кодовую"}), "фраз"),
                  (frozenset({"секретное", "секретного", "секретному", "секретным", "секретном"}), "слов"),
-                 (frozenset({"секретная", "секретной", "секретную"}), "фраз"))
+                 (frozenset({"секретная", "секретной", "секретную"}), "фраз"),
+                 (_PHRASE_FORMS, "восстановлен"), (frozenset({"слова", "слов", "словам", "словами"}), "восстановлен"),
+                 (frozenset({"резервная", "резервной", "резервную"}), "фраз"),
+                 (frozenset({"ключевая", "ключевой", "ключевую"}), "фраз"),
+                 (frozenset({"учётные", "учетные", "учётных", "учетных", "учётными", "учетными", "учётным", "учетным"}),
+                  "данн"))
+RUSSIAN_WEAK_PAIRS = ((_KEY_FORMS, "api"), (_KEY_FORMS, "доступ"), (frozenset({"для"}), "вход"))
 # A last word that makes the name a secret's property, not the secret: SSH_KEY_NAME, AUTH_MODE,
 # TOKEN_TYPE, PASSWORD_FILE, ACCESS_TOKEN_EXPIRE_MINUTES.
 PROPERTY_WORDS = frozenset({
@@ -190,16 +215,28 @@ _NAME_WORDS = re.compile(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-
                          r"|(?<=[A-Za-z])(?=[0-9])|(?<=[0-9])(?=[A-Za-z])")
 
 # --- How the line rule reads a line -----------------------------------------------------------------
-_LETTERS = "A-Za-zЀ-ӿ"
+# Latin letters of Latin-1 and Latin Extended (contraseña, #701 review) and Cyrillic ones.
+_LETTERS = "A-Za-zÀ-ÖØ-öø-ɏЀ-ӿ"
 # A name: letters, digits and _, joined by - or . between them (DB_PASSWORD, api-key, spring.datasource).
 _IDENT = re.compile(rf"[0-9{_LETTERS}_]+(?:[-.][0-9{_LETTERS}_]+)*")
 _LETTER_RUN = re.compile(rf"[{_LETTERS}]+")
 _CAMEL = re.compile(r"(?<=[a-zа-џ])(?=[A-ZЀ-Я])|(?<=[A-ZЀ-Я])(?=[A-ZЀ-Я][a-zа-џ])")
-# A line without one of these holds no word of the rule and is skipped at once.
+# Words typed in the other keyboard layout, QWERTY for ЙЦУКЕН and back: gfhjkm is пароль, njrty токен,
+# зфыыцщкв password (#701 review: a common slip of a Russian typist).
+_QWERTY, _JCUKEN = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`", "йцукенгшщзхъфывапролджэячсмитьбюё"
+_TO_RUSSIAN, _TO_LATIN = str.maketrans(_QWERTY, _JCUKEN), str.maketrans(_JCUKEN, _QWERTY)
+# A line without one of these holds no word of the rule and is skipped at once: the words, their stems,
+# the swapped spellings and the slips of the keyboard layout.
 _HINT = re.compile(r"(?i)pass|pw|key|token|secret|auth|cred|cookie|dsn|otp|hmac|bearer|mnemonic|session|sessid|"
                    r"connection|seed|recovery|private|salt|pin|sig|capab|log[io]n|signin|api|access|encryption|"
                    r"master|psk|pswd|psw|identified|assword|p\w{0,3}word|p/w|kennw|contrase|parol|code|answer|"
-                   r"парол|порол|токен|ключ|секрет|кред|пасс|пасвор|кей|код|пин|сид")
+                   r"phrase|wallet|kye|pasw|gfhjk|njrty|ctrhtn|gfcdjhl|gfccdjhl|"
+                   + "|".join(sorted(word for words in SWAPPED.values() for word in words)) + r"|"
+                   r"парол|порол|токен|ключ|секрет|кред|пасс|пасвор|кей|код|пин|сид|фраз|восстанов|мнемони|"
+                   r"доступ|учётн|учетн|учётк|учетк|вход|зфыы|ещлут|ыускуе")
+# A word that mixes Latin letters into a Cyrillic one (Пaроль, тoкен) or Cyrillic into a Latin one, which
+# no hint above may match: read on lines that are not ASCII.
+_MIXED_SCRIPT = re.compile(r"[A-Za-z][Ѐ-ӿ]|[Ѐ-ӿ][A-Za-z]")
 _PLAIN_KEBAB = re.compile(rf"[a-zа-џ]+(?:-[a-zа-џ]+)+")
 # "p/w" is pw written with a slash; the names a line is read for see it as one word.
 _PW_SLASH = re.compile(r"(?<![\w/])[pP]/[wW](?![\w/])")
@@ -267,6 +304,8 @@ TABLE_ROWS = 1000
 CONTINUATION_LINES = 50
 PAIR_LINES = 2
 OBJECT_LINES = 8
+# How many tokens of a sentence after a property word are read for a value (the password store has V).
+PROPERTY_TOKENS = 12
 _FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 # A fence line at any indentation, with at most an info word: never masked (#701 review: a closing
 # fence masked below a label made the rest of the answer code, and a block under a list item lost both).
@@ -323,6 +362,7 @@ _VALUE_FIELD = re.compile(
 # whatever its tag (a property list's <key> and <string>, HTML's <dt> and <dd>, <th> and <td>).
 _ELEMENT = re.compile(r"[ \t]*<(?P<tag>[A-Za-z][\w:.-]{0,31})(?:[ \t][^<>\r\n]{0,256})?>(?P<text>[^<\r\n]{1,1024})"
                       r"</(?P=tag)>[ \t]*")
+_XML_COMMENT = re.compile(r"[ \t]*<!--[^\r\n]{0,256}?-->[ \t]*")
 # A value piped into a command that reads a password on its standard input.
 PIPED_VALUE = re.compile(r"(?<![\w-])(?:echo|printf)(?:[ \t]+-[neE]{1,3})*[ \t]+(?P<value>[^|;&\r\n]{1,512}?)[ \t]*"
                          r"\|(?P<rest>[^|;&\r\n]{0,512})")
@@ -553,11 +593,10 @@ def _leading_strong(lower: str) -> bool:
     return False
 
 
-def _password_typo(lower: str) -> bool:
-    """A misspelling of password one edit away: a letter left out, doubled, swapped with the next one
-    or replaced (pasword, passsword, passowrd, passwrod, pssword, passwort; #701 review)."""
-    target = "password"
-    if not 7 <= len(lower) <= 9 or lower[0] not in "pa" or lower in (target, "passwords") or not lower.isascii():
+def _one_edit(lower: str, target: str) -> bool:
+    """Whether ``lower`` is ``target`` misspelt by one edit: a letter left out, doubled, swapped with the
+    next one or replaced."""
+    if lower == target:
         return False
     if len(lower) == len(target):
         diff = [index for index in range(len(target)) if lower[index] != target[index]]
@@ -569,9 +608,30 @@ def _password_typo(lower: str) -> bool:
     return any(longer[:index] + longer[index + 1:] == shorter for index in range(len(longer)))
 
 
+def _password_typo(lower: str) -> bool:
+    """A misspelling of password one edit away: a letter left out, doubled, swapped with the next one
+    or replaced (pasword, passsword, passowrd, passwrod, pssword, passwort; #701 review), and of
+    passphrase (passprase)."""
+    if not lower.isascii() or lower[:1] not in ("p", "a"):
+        return False
+    return (7 <= len(lower) <= 9 and lower != "passwords" and _one_edit(lower, "password")
+            or 9 <= len(lower) <= 11 and lower != "passphrases" and _one_edit(lower, "passphrase"))
+
+
 # Cyrillic letters that look like Latin ones: a word that mixes both scripts is read in Latin, so a
-# label typed with one of them still names a secret (pаssword with a Cyrillic а, #701 review).
+# label typed with one of them still names a secret (pаssword with a Cyrillic а, #701 review), and a
+# word that stays Cyrillic is read with its Latin lookalikes made Cyrillic (Пaроль with a Latin a).
 _LATIN_LOOKALIKES = str.maketrans("аеорсухіјАВЕКМНОРСТУХ", "aeopcyxijABEKMHOPCTYX")
+_CYRILLIC_LOOKALIKES = str.maketrans("aeopcyxABEKMHOPCTYX", "аеорсухАВЕКМНОРСТУХ")
+
+
+def _slipped(lower: str) -> bool:
+    """Whether a word is пароль, токен or секрет typed in the QWERTY layout (gfhjkm, njrty), or password,
+    token or secret typed in the ЙЦУКЕН one (зфыыцщкв), in any form."""
+    if lower.isascii():
+        return lower.translate(_TO_RUSSIAN).startswith(STRONG_STEMS)
+    latin = lower.translate(_TO_LATIN)
+    return latin.isascii() and latin.isalpha() and (latin in STRONG_WORDS or latin.endswith(STRONG_ENDINGS))
 
 
 def _word_class(word: str) -> str | None:
@@ -579,6 +639,10 @@ def _word_class(word: str) -> str | None:
         latin = word.translate(_LATIN_LOOKALIKES)
         if latin.isascii():
             word = latin
+        else:
+            cyrillic = word.translate(_CYRILLIC_LOOKALIKES)
+            if not any("a" <= character.lower() <= "z" for character in cyrillic):
+                word = cyrillic
     lower = word.lower()
     # A glued ending or a leading strong word counts in a word of one case or a capitalised one
     # (dbpass, DBPWD, Requirepass, tokenstr); camelCase is split at its case changes instead
@@ -586,9 +650,11 @@ def _word_class(word: str) -> str | None:
     one_case = word.islower() or word.isupper() or word[:1].isupper() and word[1:].islower()
     if (lower in STRONG_WORDS or lower in STRONG_RUSSIAN or lower.startswith(STRONG_STEMS)
             or len(lower) > 5 and lower.endswith(STRONG_ENDINGS) or _password_typo(lower)
+            or lower in SWAPPED["token"] or lower in SWAPPED["secret"] or _slipped(lower)
             or one_case and _leading_strong(lower)):
         return STRONG
-    if lower in WEAK_WORDS or lower.startswith(WEAK_STEMS) or one_case and _joined_weak(lower):
+    if (lower in WEAK_WORDS or lower in SWAPPED["key"] or lower.startswith(WEAK_STEMS)
+            or one_case and _joined_weak(lower)):
         return WEAK
     if lower in EQUALS_WORDS:
         return EQUALS
@@ -619,11 +685,16 @@ def _words(name: str, offset: int) -> list[tuple[int, int, str]]:
 
 
 PAIR_FIRSTS = frozenset(first for first, _ in STRONG_PAIRS | WEAK_PAIRS) | frozenset(
-    word for firsts, _ in RUSSIAN_PAIRS for word in firsts)
+    word for firsts, _ in RUSSIAN_PAIRS + RUSSIAN_WEAK_PAIRS for word in firsts)
 
 
 # The first words of pairs that hold no hint of their own: a name ending in one is read for its pair.
 _PAIR_ONLY_FIRSTS = tuple(sorted(word for word in PAIR_FIRSTS if not _HINT.search(word)))
+
+
+def _hinted(text: str) -> bool:
+    """Whether ``text`` may hold a word of the rule: one of its hints, or a word that mixes scripts."""
+    return _HINT.search(text) is not None or not text.isascii() and _MIXED_SCRIPT.search(text) is not None
 
 
 def _pair_kind(first: str, second: str) -> str | None:
@@ -635,13 +706,16 @@ def _pair_kind(first: str, second: str) -> str | None:
         return WEAK
     if any(first in firsts and second.startswith(stem) for firsts, stem in RUSSIAN_PAIRS):
         return STRONG
+    if any(first in firsts and second.startswith(stem) for firsts, stem in RUSSIAN_WEAK_PAIRS):
+        return WEAK
     return None
 
 
 def _word_value(label: tuple[str, ...]) -> bool:
     """Whether a label's value is words by nature (a seed phrase, a mnemonic, a passphrase, a code
     phrase), so no sentence of ordinary words after it exempts the line (#701 review)."""
-    return label in WORD_VALUES or len(label) == 2 and label[1].startswith(("фраз", "слов"))
+    return label in WORD_VALUES or len(label) == 2 and label[1].startswith(("фраз", "слов")) and label[0].startswith(
+        ("сид", "seed", "кодов", "секретн"))
 
 
 @functools.lru_cache(maxsize=16384)
@@ -962,7 +1036,7 @@ def _trigger(line: str, prose=None, view: str | None = None,
     from (#701 review: an element named secret in the turn hid its value as the mask's text did)."""
     names = line if view is None else view
     if hinted is None:
-        hinted = _HINT.search(names) is not None  # a caller that read the line already says so
+        hinted = _hinted(names)  # a caller that read the line already says so
     found = _word_trigger(line, prose, names) if hinted and not _ARMOUR_LINE.fullmatch(line) else None
     option = _option_trigger(line)
     if option is not None and (found is None or option < found[0]):
@@ -1007,14 +1081,25 @@ def _property_follows(prose: "_Prose", index: int) -> bool:
     """Whether the word after a strong word in a sentence makes it a property, as the last word of a
     name does (the password policy, the token type, as PASSWORD_POLICY and TOKEN_TYPE): a property
     word with no separator after it. ``id``, ``header``, ``command`` and ``param`` carry a secret as
-    often as not, so they never do (#701 review: a word of the rule early in a paragraph took it)."""
+    often as not, so they never do (#701 review: a word of the rule early in a paragraph took it), and
+    a token shaped like a value later in the same sentence, within ``PROPERTY_TOKENS`` tokens, is the
+    secret's own ("The password store has V as the root entry", #701 review)."""
     if not prose.ready:
         prose._read()
     first = bisect_left(prose.starts, index)
     if first >= len(prose.texts) or first and prose.ends[first - 1] > index:
         return False
     word = prose.texts[first].rstrip(".,;!?)")
-    return word.islower() and word in PROPERTY_WORDS and word not in VALUE_PROPERTY_WORDS
+    if not (word.islower() and word in PROPERTY_WORDS and word not in VALUE_PROPERTY_WORDS):
+        return False
+    if prose.texts[first].endswith((".", "!", "?")):
+        return True
+    for token in prose.texts[first + 1:first + 1 + PROPERTY_TOKENS]:
+        if _value_like(token):
+            return False
+        if token.rstrip("\"')*`").endswith((".", "!", "?")):
+            break
+    return True
 
 
 def _word_trigger(line: str, prose=None, names: str | None = None) -> tuple[int, str | None, int] | None:
@@ -1025,6 +1110,7 @@ def _word_trigger(line: str, prose=None, names: str | None = None) -> tuple[int,
     # Read once per line, not per word (#701 review: slicing the line per word was quadratic).
     stripped_line = line.strip().rstrip(":=").strip()
     delimiters = {mark for mark in ",;\t|" if mark in line}
+    colon_line = None  # whether the line ends in a colon, read once when a plural asks
     # The last character that can be a value: a label after it has nothing to mask on this line.
     last_value = len(line) - 1
     while last_value >= 0 and line[last_value] in _NO_VALUE:
@@ -1032,7 +1118,7 @@ def _word_trigger(line: str, prose=None, names: str | None = None) -> tuple[int,
     below = None  # a strong word a few words of a sentence follow: its value may stand on the next line
     for name in _IDENT.finditer(names):
         text = name.group()
-        if not _HINT.search(text) and not (len(text) <= 64 and text.lower().endswith(_PAIR_ONLY_FIRSTS)):
+        if not _hinted(text) and not (len(text) <= 64 and text.lower().endswith(_PAIR_ONLY_FIRSTS)):
             continue  # no word of the rule, and no first word of a pair a blank away (backup codes)
         start, end = name.span()
         _words_, words, _labels_, random_run, _pairable, plain, dotted_name, tail = _name_info(text)
@@ -1060,8 +1146,14 @@ def _word_trigger(line: str, prose=None, names: str | None = None) -> tuple[int,
             joined = (start, label_name_end) != (label_start, label_end) and not plain
             separator = _separator_after(line, label_name_end)
             last = label_end == label_name_end
-            if kind == WEAK and label[0] in STRONG_PLURALS and label_name_end > last_value:
-                kind = STRONG  # "## Passwords", "Tokens", "tokens {": a plural alone names its values
+            if kind == WEAK and label[0] in STRONG_PLURALS:
+                alone = not dotted_name and (start, label_name_end) == (label_start, label_end)  # not self.tokens
+                if alone and label_name_end <= last_value and colon_line is None:
+                    colon_line = _ends_with_colon(line)
+                if label_name_end > last_value or alone and colon_line:
+                    # "## Passwords", "Tokens", "tokens {", "The passwords for the demo:": a plural alone,
+                    # or in a line that ends in a colon, names its values
+                    kind = STRONG
             if kind == EQUALS:
                 hit = last and (separator == "=" or label[0] in COLON_WORDS and (
                     separator in (":", "quote", "pair") or not (joined or quoted or sigil) and separator is None
@@ -1085,6 +1177,10 @@ def _word_trigger(line: str, prose=None, names: str | None = None) -> tuple[int,
                             hit = any(_value_like(token) for token in cell.split()[:1])
                         else:
                             hit = prose.value_follows(label_name_end)
+                    if not hit and _remark_label(line, label_name_end):
+                        # GitHub recovery codes (keep them offline):, Basic auth pair: the remark is no
+                        # value, and the value stands below.
+                        return len(line), "label", label_end
             else:
                 in_prose = not (joined or quoted or sigil or separator in ("=", ":", "quote", "pair", "call"))
                 if in_prose and _property_follows(prose, label_name_end):
@@ -1133,6 +1229,26 @@ def _set_off(line: str, start: int, end: int) -> bool:
     """Whether a word stands between separators of a name or its ends (db_pw, ADMIN_PW, x-pw)."""
     before, after = line[start - 1:start], line[end:end + 1]
     return not (before.isalnum() or after.isalnum())
+
+
+# What may stand between a prose-common label and the colon that ends its line and still leave the value
+# below it: a remark in brackets, or one word naming what holds the value (GitHub recovery codes (keep
+# them offline):, Basic auth pair:; #701 review). Other words (Key features:) make it no label.
+REMARK_NOUNS = frozenset({"pair", "pairs", "value", "values", "string", "strings", "data", "details", "info",
+                          "пара", "значение", "данные"})
+_BRACKETED_REMARK = re.compile(r"[ \t]*\([^()\r\n]{1,48}\)[ \t*_`\"'»)\]]*[:：][ \t]*")
+_NOUN_REMARK = re.compile(rf"[ \t]+(?P<noun>[{_LETTERS}]{{1,32}})[ \t*_`\"'»)\]]*[:：][ \t]*")
+
+
+def _remark_label(line: str, at: int) -> bool:
+    """Whether a prose-common label at ``at`` ends its line with a remark and a colon (see
+    ``REMARK_NOUNS``); read only when at most 64 characters follow it."""
+    if len(line) - at > 64:
+        return False
+    if _BRACKETED_REMARK.fullmatch(line, at):
+        return True
+    noun = _NOUN_REMARK.fullmatch(line, at)
+    return noun is not None and noun.group("noun").lower() in REMARK_NOUNS
 
 
 def _indent(text: str) -> int:
@@ -1239,17 +1355,46 @@ def _lines(text: str) -> list[tuple[int, int]]:
     return lines
 
 
+def _continues(row: str) -> bool:
+    """Whether a line goes on on the next one: it ends in a backslash that is no Windows path's last
+    separator (``C:\\Users\\deploy\\.ssh\\``, ``%APPDATA%\\gh\\``) and no escaped backslash, since prose
+    ends a sentence with a path (#701 review: the next line of the answer went)."""
+    stripped = row.rstrip(" \t")
+    if not stripped.endswith("\\"):
+        return False
+    start = max(stripped.rfind(" "), stripped.rfind("\t")) + 1
+    return stripped.find("\\", start, len(stripped) - 1) < 0
+
+
 def _continued(text: str, lines, index: int) -> int:
     """The last line of the command or value that line ``index`` continues with trailing backslashes."""
     last = index
     while last + 1 < len(lines) and last - index < CONTINUATION_LINES and \
-            text[lines[last][0]:lines[last][1]].rstrip(" \t").endswith("\\"):
+            _continues(text[lines[last][0]:lines[last][1]]):
         last += 1
     return last
 
 
 def _ends_with_colon(line: str) -> bool:
     return line.rstrip(" \t*_`\"'»)]").endswith((":", "："))
+
+
+# What may follow a label to the end of its line and still leave its value below: up to four plain words,
+# then dashes, arrows or equals signs, a remark in brackets, an emoji or a hand pointing down, or "is",
+# "are" or "here" last (DB password —, Password →, Password (prod), Here's the password you need ->,
+# Password is, your token here 👇; #701 review).
+_POINTER_MARK = (r"[ \t]*(?:[-—–―=:>→⇒⟶➜➡⬇↓]+|\([^()\r\n]{1,32}\)"
+                 r"|[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF][\ufe0f\U0001F3FB-\U0001F3FF]*)")
+_TAIL_WORD = rf"[ \t]+[{_LETTERS}]+(?:['’][{_LETTERS}]+)?"
+_POINTER_TAIL = re.compile(rf"[*_`\"'»)\]]*(?:{_TAIL_WORD}){{0,4}}(?:{_POINTER_MARK})+[ \t]*"
+                           rf"|[*_`\"'»)\]]*(?:{_TAIL_WORD}){{0,3}}[ \t]+(?i:is|are|here|вот|здесь)"
+                           rf"(?:{_POINTER_MARK})*[ \t]*")
+
+
+def _points_below(line: str, label_end: int) -> bool:
+    """Whether what follows a label to the end of its line only points below (``_POINTER_TAIL``); read
+    only when at most 80 characters follow it."""
+    return len(line) - label_end <= 80 and _POINTER_TAIL.fullmatch(line, label_end) is not None
 
 
 def _ends_with_label(line: str, label_end: int) -> bool:
@@ -1277,9 +1422,10 @@ def _code_header(line: str) -> bool:
 
 def _value_shaped(row: str) -> bool:
     """Whether a line below a label line reads as its value rather than as prose: one token, a code
-    span, a pair, or four tokens at most with one shaped like a value; a list item only when its
-    text does (#701 review: the steps under "To rotate the token:" went); never a fence, nor a line
-    of punctuation alone."""
+    span, a pair, or four tokens at most with one shaped like a value; a list item when its text
+    does, or when any token of it is shaped like a value, whatever its length (``- admin / V — for
+    the web panel``), so the steps under "To rotate the token:" stay (#701 reviews: the steps went,
+    then the narrowing let credential bullets through); never a fence, nor a line of punctuation alone."""
     if _is_fence(row) or not any(character.isalnum() for character in row):
         return False
     marker = _LIST_MARKER.match(row)
@@ -1289,7 +1435,20 @@ def _value_shaped(row: str) -> bool:
         return False
     if len(tokens) == 1 or item.lstrip().startswith("`") or _KEY_LINE.match(item):
         return True
+    if marker is not None:
+        return any(_value_like(token) and not _step_token(token) for token in tokens)
     return len(tokens) <= 4 and any(_value_like(token) for token in tokens)
+
+
+# What a step of a list holds that is shaped like a value and is none: a URL, a path from the root, home
+# or here, a file name with its extension or a directory, a version or a number (1. The client sends
+# the refresh token to `/oauth/token`.).
+_STEP_TOKEN = re.compile(r"(?:[a-z][a-z0-9+.-]{0,20}://|~?\.{0,2}/)\S*"
+                         r"|[\w.-]+(?:/[\w.-]+)*(?:\.[A-Za-z][A-Za-z0-9]{0,7}|/)|v?\d+(?:[.,:]\d+)*")
+
+
+def _step_token(token: str) -> bool:
+    return _STEP_TOKEN.fullmatch(token.strip("`'\"()[]{}.,;:!?*")) is not None
 
 
 def _lone_value(row: str) -> bool:
@@ -1341,41 +1500,95 @@ def _indented(text: str, lines, index: int, below: int, label: str) -> tuple[lis
     return spans, index + 1 if code else below
 
 
-def _fence_openers(text: str, lines) -> frozenset:
-    """The indices of the lines that open a fenced block: a fence line of the open block's character,
-    at least as long and with no info string, closes it (CommonMark). A closing fence below a label
-    inside a block opens nothing (#701 review: the paragraph after a block was masked as its content)."""
+def _opening_fence(text: str, start: int, end: int) -> re.Match | None:
+    """The fence match of a line that can open a fenced block: a run of backticks with a backtick after
+    it on its line opens none, since a backtick fence's info string holds no backtick (CommonMark):
+    ```V``` on a line of its own is a code span (#701 review: the value in it was written whole and the
+    forty lines after it masked as the block's content)."""
+    match = _FENCE.match(text, start, end)
+    if match is not None and match.group(1)[0] == "`" and text.find("`", match.end(), end) >= 0:
+        return None
+    return match
+
+
+def _fence_openers(text: str, lines) -> dict[int, int]:
+    """The indices of the lines that open a fenced block, each with the index of the line that closes it
+    (``len(lines)`` for a block left open): a fence line of the open block's character, at least as long
+    and with no info string, closes it (CommonMark). A closing fence below a label inside a block opens
+    nothing (#701 review: the paragraph after a block was masked as its content)."""
     if "```" not in text and "~~~" not in text:
-        return frozenset()
-    openers, open_mark = set(), None
+        return {}
+    openers, open_at, open_mark = {}, None, None
     for number, (start, end) in enumerate(lines):
-        match = _FENCE.match(text, start, end)
+        match = _FENCE.match(text, start, end) if open_mark is not None else _opening_fence(text, start, end)
         if match is None:
             continue
         mark = match.group(1)
         if open_mark is None:
-            openers.add(number)
-            open_mark = mark
+            openers[number], open_at, open_mark = len(lines), number, mark
         elif mark[0] == open_mark[0] and len(mark) >= len(open_mark) and not text[match.end():end].strip():
-            open_mark = None
-    return frozenset(openers)
+            openers[open_at], open_mark = number, None
+    return openers
+
+
+def _enclosing_close(openers: dict[int, int], opener_lines: list[int], index: int) -> int | None:
+    """The index of the line that closes the fenced block line ``index`` stands in, else None."""
+    at = bisect_left(opener_lines, index) - 1
+    if at < 0:
+        return None
+    close = openers[opener_lines[at]]
+    return close if close > index else None
+
+
+def _heredoc_end(text: str, lines, index: int, terminator: str, close: int | None) -> int:
+    """The index of the line that ends the body of a heredoc opened on line ``index``: its terminator,
+    within ``HEREDOC_LINES`` lines and the fenced block the heredoc stands in; a heredoc cut short ends
+    at its first blank or fence line, so it masks no text past its block (#701 review: a fence that
+    closed without the terminator lost the paragraphs after it)."""
+    last = min(len(lines), index + HEREDOC_LINES + 1, len(lines) if close is None else close)
+    first_break = None
+    for below in range(index + 1, last):
+        row = text[lines[below][0]:lines[below][1]]
+        if row.strip() == terminator:
+            return below
+        if first_break is None and (not row.strip() or _is_fence(row)):
+            first_break = below
+    return last if first_break is None else first_break
+
+
+# A line that is one code span: ```V```, `V`. As a value line its code goes and its backticks stay.
+_CODE_LINE = re.compile(r"[ \t]*(?P<ticks>`{1,16})(?P<code>[^`\r\n]{1,4096})(?P=ticks)[ \t]*")
+
+
+def _row_span(text: str, row_start: int, row_end: int) -> tuple[int, int]:
+    """Where a value line below a label is masked: from its indentation to its end, or the code of a
+    line that is one code span, so ```V``` keeps its backticks and is never taken for a fence."""
+    row = text[row_start:row_end]
+    stripped = row.lstrip(" \t")
+    if stripped.startswith("`"):
+        code = _CODE_LINE.fullmatch(row)
+        if code is not None:
+            return row_start + code.start("code"), row_start + code.end("code")
+    return row_start + len(row) - len(stripped), row_end
 
 
 def _below(text: str, lines, index: int, mode: str, openers=None) -> tuple[list[tuple[int, int]], int]:
     """The spans of a label line's value below it, and the index of the line the rule goes on at.
 
-    ``block``: the lines indented under it, else a lone value on the next line (the output of
-    ``$ printenv DB_PASSWORD`` or of ``op read op://vault/db/password``). ``one``: the next
-    non-blank line (a quoted form field's value). ``lines``: the next non-blank line whatever it
-    holds, a list item only when its text reads as a value, then those after it that read as a value,
-    up to a blank line. ``values``: only lines that read as a value. ``single``: lone values, a
-    sentence's value that it says stands below. ``output``: what a command after a prompt prints,
-    lines that read as a value up to a blank line or the next prompt. A fenced block first below the
-    label loses its content and keeps its fences, and no fence line is masked; a fence that closes
-    a block (``openers`` holds the lines that open one) opens nothing. A YAML or INI sibling key below
-    a key line is no value of it. After ``BELOW_BLANKS`` blank lines,
-    and up to ``BELOW_LINES`` of them, only a line that reads as a value is taken; past
-    ``BELOW_LINES`` lines only rows of the shape of the row above go on, up to ``TABLE_ROWS``."""
+    ``block``: the lines indented under it, else a lone value or a fenced block on the very next line
+    (the output of ``$ printenv DB_PASSWORD`` or of ``op read op://vault/db/password``; Update: the new
+    password). ``one``: the next non-blank line (a quoted form field's value). ``lines``: the next
+    non-blank line whatever it holds, a list item only when its text reads as a value, then those after
+    it that read as a value, up to a blank line. ``values``: only lines that read as a value.
+    ``single``: lone values, a sentence's value that it says stands below. ``output``: what a command
+    after a prompt prints, lines that read as a value up to a blank line or the next prompt. A fenced
+    block first below the label loses its content and keeps its fences, and no fence line is masked; a
+    fence that closes a block (``openers`` holds the lines that open one) opens nothing, and neither
+    does a line of inline code (```V```), whose code is the value. A table's header below the label is
+    the table rule's. A YAML or INI sibling key below a key line is no value of it. After
+    ``BELOW_BLANKS`` blank lines, and up to ``BELOW_LINES`` of them, only a line that reads as a value
+    is taken; past ``BELOW_LINES`` lines only rows of the shape of the row above go on, up to
+    ``TABLE_ROWS``."""
     start, end = lines[index]
     label = text[start:end]
     spans, below, blanks = [], index + 1, 0
@@ -1391,14 +1604,9 @@ def _below(text: str, lines, index: int, mode: str, openers=None) -> tuple[list[
         return _indented(text, lines, index, below, label)
     if _ARMOUR_LINE.fullmatch(row):
         return spans, index + 1  # a key block below a label is the key block rule's
-    if mode == "block":
-        if not far and _lone_value(row):
-            spans.append((row_start + _indent(row), row_end))
-            return spans, below + 1
-        return spans, index + 1
-    fence = _FENCE.match(row)
+    fence = _opening_fence(row, 0, len(row))
     if fence is not None:
-        if mode == "output" or far or openers is not None and below not in openers:
+        if mode == "output" or far or mode == "block" and blanks or openers is not None and below not in openers:
             return spans, index + 1
         mark, last = fence.group(1), min(len(lines), below + FENCE_LINES + 1)
         inner = below + 1
@@ -1408,13 +1616,19 @@ def _below(text: str, lines, index: int, mode: str, openers=None) -> tuple[list[
                 spans.append((lines[inner][0] + _indent(content), lines[inner][1]))
             inner += 1
         return spans, min(inner + 1, len(lines))
+    if mode == "block":
+        if not far and _lone_value(row):
+            spans.append(_row_span(text, row_start, row_end))
+            return spans, below + 1
+        return spans, index + 1
     if mode == "single":
         count = 0
         while below < len(lines) and count < BELOW_LINES and _lone_value(text[lines[below][0]:lines[below][1]]):
-            row = text[lines[below][0]:lines[below][1]]
-            spans.append((lines[below][0] + _indent(row), lines[below][1]))
+            spans.append(_row_span(text, *lines[below]))
             below, count = below + 1, count + 1
         return spans, below if count else index + 1
+    if _table_rows(text, lines, below) is not None:
+        return spans, below  # a table below the label: the table rule reads its header (Доступы:, then a table)
     if mode in ("lines", "one") and _IDENTIFIER_KEY.fullmatch(label) and _SIBLING_KEY.match(row) and \
             not row.lstrip().startswith("-") and not _value_like(row.split()[0]):
         return spans, index + 1  # password:⏎username: admin, a sibling key in YAML or INI
@@ -1429,7 +1643,7 @@ def _below(text: str, lines, index: int, mode: str, openers=None) -> tuple[list[
             break
         if count >= BELOW_LINES and not (count < TABLE_ROWS and _same_shape(previous, row)):
             break
-        spans.append((row_start + _indent(row), row_end))
+        spans.append(_row_span(text, row_start, row_end))
         previous, below, count = row, below + 1, count + 1
     return spans, below
 
@@ -1469,6 +1683,22 @@ def _rule_line(row: str) -> bool:
     return bool(_TABLE_SEPARATOR.fullmatch(row) or _BORDER.fullmatch(row) or _SPACED_RULE.fullmatch(row))
 
 
+# Box-drawing tables read as the ASCII ones (DuckDB's and ClickHouse's default output, psql's unicode
+# linestyle, sqlite's .mode box, double-line boxes; #701 review): their bars as |, their rules as - or
+# =, their corners and joints as +. ClickHouse names its columns inside the top border (┌─id─┬─password─┐).
+_BOX_CHARACTERS = re.compile("[\u2500-\u257f]")
+_BOX = {code: "+" for code in range(0x2500, 0x2580)}
+_BOX.update({ord(bar): "|" for bar in "│┃║╎╏┆┇┊┋"})
+_BOX.update({ord(rule): "-" for rule in "─━╌╍┄┅┈┉"})
+_BOX[ord("═")] = "="
+_NAMED_BORDER = re.compile(r"[ \t]*\+(?:[-=]*[^\s|+=-][^|+]{0,62}?[-=]*\+){2,}[ \t]*")
+
+
+def _unboxed(line: str) -> str:
+    """``line`` with its box-drawing characters read as ASCII table marks (``_BOX``)."""
+    return line.translate(_BOX) if _BOX_CHARACTERS.search(line) else line
+
+
 def _table_rows(text: str, lines, index: int, hinted: bool = False) -> tuple[int, list[int]] | None:
     """``(end, rows)``: the index after the table whose header at ``index`` names a secret in one of
     its cells, and the indices of its rows, in any delimited or aligned form: a pipe table with or
@@ -1480,14 +1710,22 @@ def _table_rows(text: str, lines, index: int, hinted: bool = False) -> tuple[int
     blanks, emphasis and quotes. None when the line heads no such table."""
     start, end = lines[index]
     line = text[start:end]
-    if index + 1 >= len(lines) or not (hinted or _HINT.search(line)) or _is_fence(line):
+    if index + 1 >= len(lines) or not (hinted or _hinted(line)) or _is_fence(line):
         return None
-    following = text[lines[index + 1][0]:lines[index + 1][1]]
+    boxed = _BOX_CHARACTERS.search(line) is not None
+    line = _unboxed(line)
+    following = _unboxed(text[lines[index + 1][0]:lines[index + 1][1]])
     if not any(mark in following for mark in ("--", "==", "|", ",", ";", "\t", "  ")):
         return None  # no rule line and no row of cells below: no table
+    # A box's top border above its header (sqlite's .mode box, DuckDB, which prints a row of types
+    # under the header before the rule).
+    under_border = boxed and index > 0 and _BORDER.fullmatch(_unboxed(text[lines[index - 1][0]:lines[index - 1][1]]))
     cells, kind, ruled = None, None, False
-    if "|" in line and (_TABLE_SEPARATOR.fullmatch(following) or _BORDER.fullmatch(following)):
+    if "|" in line and (_TABLE_SEPARATOR.fullmatch(following) or _BORDER.fullmatch(following)
+                        or under_border and "|" in following):
         cells, kind = line.strip().strip("|").split("|"), "|"
+    elif boxed and _NAMED_BORDER.fullmatch(line) and "|" in following:
+        cells, kind = [cell.strip("-= ") for cell in line.strip().strip("+").split("+")], "|"  # ┌─id─┬─password─┐
     elif "|" not in line and _SPACED_RULE.fullmatch(following):
         cells, kind, ruled = _COLUMN_GAP.split(line.strip()), "aligned", True
     else:
@@ -1507,13 +1745,16 @@ def _table_rows(text: str, lines, index: int, hinted: bool = False) -> tuple[int
                     len(_COLUMN_GAP.split(following.strip())) >= 2:
                 cells, kind, ruled = header, "aligned", comment
     if cells is None or len(cells) < 2 or not any(
-            _HINT.search(cell) and _cell_names_secret(cell.strip(" \t*_`\"'")) for cell in cells):
+            _hinted(cell) and _cell_names_secret(cell.strip(" \t*_`\"'")) for cell in cells):
         return None
+    if any(TOKEN_RUN.fullmatch(cell.strip()) and random_looking(cell.strip()) for cell in cells):
+        return None  # a cell holds a value: a record of keys and values, not a header (npm token create)
     rows, below = [], index + 1
     while below < len(lines) and below - index <= TABLE_ROWS:
         row = text[lines[below][0]:lines[below][1]]
         if not row.strip() or _is_fence(row):
             break
+        row = _unboxed(row) if boxed else row
         if _rule_line(row):
             below += 1  # a rule or a border holds no value and keeps the table's shape
             continue
@@ -1610,8 +1851,8 @@ def _pair_spans(text: str, lines, index: int) -> list[tuple[int, int]]:
     if element is None or len(element.group("text").split()) > 3 or not _names_secret(element.group("text")):
         return spans
     for other in range(index + 1, min(len(lines), index + PAIR_LINES + 1)):
-        if not text[lines[other][0]:lines[other][1]].strip():
-            continue
+        if not text[lines[other][0]:lines[other][1]].strip() or _XML_COMMENT.fullmatch(text, *lines[other]):
+            continue  # a blank line or a comment between the pair (<!-- prod -->, #701 review)
         found = _ELEMENT.fullmatch(text, lines[other][0], lines[other][1])
         return [found.span("text")] if found is not None else spans
     return spans
@@ -1702,6 +1943,7 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
     masks = sorted(masks)
     mask_starts = [mask[0] for mask in masks]
     openers = _fence_openers(text, lines)
+    opener_lines = sorted(openers)
     index, covered, windowed = 0, 0, -1
     while index < len(lines):
         start, end = lines[index]
@@ -1710,7 +1952,7 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
             index += 1
             continue
         names, words, inside = _mask_views(line, start, end, masks, mask_starts)
-        hinted = _HINT.search(names) is not None
+        hinted = _hinted(names)
         if hinted:
             table = _table_rows(text, lines, index, hinted)
             if table is not None:
@@ -1773,13 +2015,12 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
             covered = max(covered, lines[last][1])
         heredoc = _HEREDOC.search(line)
         if heredoc is not None:
-            terminator, below = heredoc.group(2) or heredoc.group(4), index + 1
-            while below < len(lines) and below - index <= HEREDOC_LINES and \
-                    text[lines[below][0]:lines[below][1]].strip() != terminator:
-                body = text[lines[below][0]:lines[below][1]]
+            close = _enclosing_close(openers, opener_lines, index)
+            below = _heredoc_end(text, lines, index, heredoc.group(2) or heredoc.group(4), close)
+            for row in range(index + 1, below):
+                body = text[lines[row][0]:lines[row][1]]
                 if body.strip() and not _is_fence(body):
-                    spans.append((lines[below][0], lines[below][1]))
-                below += 1
+                    spans.append((lines[row][0], lines[row][1]))
             index = below
             continue
         mode = None
@@ -1792,6 +2033,8 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
                 mode = "lines"
             elif prose is not None and _AFTER_SEPARATOR.match(line, label_end) is None and prose.few_after(label_end):
                 mode = "single"  # The new root password is below.
+            elif _points_below(line, label_end):
+                mode = "single"  # DB password —, Password →, Password is, Password (prod), the token here 👇
         elif form == "quoted":
             mode = "one"
         elif form == "bare" or _ends_with_colon(line):
@@ -1825,7 +2068,66 @@ def line_spans(text: str, masks=()) -> list[tuple[int, int]]:
             continue
         found_spans, index = _below(text, lines, index, mode, openers)
         spans.extend(found_spans)
+    spans.extend(_seed_spans(text, lines))
     return [span for span in spans if not _inside(span, masks)]
+
+
+# A wallet's seed phrase written out: 12 to 24 words of three to eight lowercase letters, as BIP-39's
+# are, ending its line. English prose holds a word of one or two letters well within twelve words, and
+# Russian prose is Cyrillic, so such a run is a value where its line, or the line above it past blanks
+# and fences, names a seed, a phrase, a mnemonic, recovery or words, or is a run of seed words itself
+# (#701 review: "Seed:", "the seed is", "24 words:" and labels outside the lists left the words whole).
+SEED_PHRASE_WORDS = (12, 24)
+SEED_LINE_CHARACTERS = 320
+_SEED_WORD = re.compile(r"[a-z]{3,8},?")
+_SEED_HINT = re.compile(r"(?i)seed|phrase|mnemonic|words|recovery|backup|wallet|bip-?39|сид|фраз|слов|мнемони|"
+                        r"восстанов|резервн")
+_SEED_TOKEN = re.compile(r"\S+")
+
+
+def _seed_run(line: str) -> int | None:
+    """Where a seed phrase that ends ``line`` begins: its last 12 to 24 tokens are words of three to
+    eight lowercase letters (a comma after one, a full stop after the last allowed) and the token before
+    them, if any, is none; else None. Read from the line's end, ``SEED_LINE_CHARACTERS`` at most."""
+    end = len(line)
+    while end and line[end - 1] in " \t":
+        end -= 1
+    window = max(0, end - SEED_LINE_CHARACTERS)
+    tokens = [(match.start(), match.group()) for match in _SEED_TOKEN.finditer(line, window, end)]
+    if tokens and tokens[-1][1].endswith("."):
+        tokens[-1] = (tokens[-1][0], tokens[-1][1][:-1])
+    count = 0
+    for position, token in reversed(tokens):
+        if not _SEED_WORD.fullmatch(token):
+            break
+        count += 1
+    else:
+        if window and count:
+            return None  # the window ends inside the run: longer than a seed phrase
+    if not SEED_PHRASE_WORDS[0] <= count <= SEED_PHRASE_WORDS[1]:
+        return None
+    return tokens[len(tokens) - count][0]
+
+
+def _seed_spans(text: str, lines) -> list[tuple[int, int]]:
+    """Seed phrases written out (``_seed_run``) where their line or the line above names one."""
+    spans, previous = [], None  # the last line that is neither blank nor a fence: (index, start, end, seed)
+    for number, (start, end) in enumerate(lines):
+        if end - start < SEED_PHRASE_WORDS[0] * 4 - 1:
+            if text[start:end].strip() and not _is_fence(text[start:end]):
+                previous = (number, start, end, False)
+            continue
+        line = text[start:end]
+        if not line.strip() or _is_fence(line):
+            continue
+        run = _seed_run(line)
+        above = previous is not None and number - previous[0] <= 4  # blank lines and fences between
+        seed = run is not None and bool(_SEED_HINT.search(line) or above and (
+            previous[3] or _SEED_HINT.search(text, previous[1], previous[2])))
+        if seed:
+            spans.append((start + run, start + len(line.rstrip(" \t"))))
+        previous = (number, start, end, seed)
+    return spans
 
 
 def _trigger_spans(text: str, lines, index: int, line: str, names: str, inside) -> list[tuple[int, int]]:
