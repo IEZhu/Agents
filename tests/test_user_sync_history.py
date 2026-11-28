@@ -1925,6 +1925,33 @@ def test_a_hook_ended_after_its_record_and_before_the_change_leaves_nothing_stal
     assert question_outcomes(b) == [flat(corrected)]
 
 
+def test_an_unchanged_reconcile_after_many_replaced_turns_does_not_call_the_writer(
+        shared, clock, hook_process, monkeypatch, tmp_path):
+    """Final verification T5: the record of a replaced turn named an id still shared (its replacement's),
+    so every later reconcile called the writer and tried to cut the entry out again, record by record."""
+    a, _b = shared
+    as_this_machine(monkeypatch, a)
+    turns = []
+    for index in range(20):
+        transcript, first_answer, corrected = hook_turn(tmp_path, f"p{index}", f"question {index}")
+        hook_process.record_turn(hook_stop(a, transcript, prompt_id=f"p{index}", last_assistant_message=first_answer),
+                                 interactive=True)
+        turns.append((transcript, corrected))
+    assert reconcile(a)["status"] == "exported"
+    for index, (transcript, corrected) in enumerate(turns):
+        again = hook_process.record_turn(hook_stop(a, transcript, prompt_id=f"p{index}", stop_hook_active=True,
+                                                   last_assistant_message=corrected), interactive=True)
+        assert "replaced" in again
+    applied = reconcile(a)
+    assert len(applied["removed"]) == len(applied["written"]) == 20, applied
+    assert len(history_sync._read_state(a.machine.state)["deleted"][KEY]) == 20
+    calls = []
+    real_write = history_sync._write
+    monkeypatch.setattr(history_sync, "_write", lambda *arguments, **keywords: calls.append(1) or real_write(
+        *arguments, **keywords))
+    assert reconcile(a)["status"] == "unchanged" and calls == []
+
+
 # --- the fallback journal (#292) ----------------------------------------------------------------
 
 FALLBACK_SEGMENTS = f"repos/{history_sync.FALLBACK_KEY}/history"
