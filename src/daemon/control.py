@@ -644,7 +644,11 @@ def main(argv=None):
             require_service(controller, args.command)
             require_installation_source(controller, args.command)
             with run_lease.hold(controller.directory):
-                result = (recover if args.command == "recover" else offline_update)(controller)
+                if args.command == "recover":  # acts on the configuration checked above
+                    result = recover(controller)
+                else:  # rereads service.json under the control lock, where the precheck checks the tree again
+                    result = offline_update(
+                        controller, precheck=lambda: require_installation_source(controller, args.command))
         except run_lease.LeaseBusy as error:
             result, exit_code = {"state": "refused", "error": f"{error}; try again once it ends"}, 1
         except NotInstalled as error:

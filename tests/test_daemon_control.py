@@ -290,7 +290,7 @@ def test_a_manual_update_never_replaces_the_code_under_an_autodev_run(tmp_path, 
     # `update` and `recover` need a service, installed in the tree whose code runs them (#592)
     write_json(state / "service.json", {"installation": str(runtime_paths.runtime_root())})
 
-    def transaction(controller):
+    def transaction(controller, **options):  # `update` also passes the precheck of its tree (#592)
         held.append(lease.held(controller.directory))
         return {"state": "UPDATED"}
     monkeypatch.setattr(update, "offline_update" if command == "update" else "recover", transaction)

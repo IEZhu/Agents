@@ -543,6 +543,34 @@ def test_update_and_recover_run_only_from_the_installations_own_tree(installatio
     assert git(root, "rev-parse", "HEAD") == (target if command == "update" else old)
 
 
+def test_a_service_installed_elsewhere_after_the_check_is_not_updated_from_this_tree(installation, monkeypatch,
+                                                                                    capsys, tmp_path):
+    """#592 review: `main()` checks the tree before the lease, and the update rereads service.json under the
+    control lock. A service installed in another tree in between is refused there, before anything is built."""
+    from contextlib import contextmanager
+    from src import runtime_paths
+    from src.daemon import control
+    from src.schedules import lease as run_lease
+    controller, root, old, target = installation
+    monkeypatch.setattr(control, "Controller", lambda directory=None: controller)
+    monkeypatch.setattr(runtime_paths, "_RUNTIME_ROOT", root.resolve())  # the check before the lease passes
+    elsewhere = tmp_path / "elsewhere"; elsewhere.mkdir()
+    hold = run_lease.hold
+
+    @contextmanager
+    def reinstalled_meanwhile(*args, **kwargs):
+        write_json(controller.directory / "service.json", {**controller.config, "installation": str(elsewhere)})
+        with hold(*args, **kwargs) as held:
+            yield held
+
+    monkeypatch.setattr(run_lease, "hold", reinstalled_meanwhile)
+    assert control.main(["--state", str(controller.directory), "update"]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "refused" and f"installed in {elsewhere}" in refused["error"]
+    assert git(root, "rev-parse", "HEAD") == old and controller.builds == controller.stops == 0
+    assert list(elsewhere.iterdir()) == []
+
+
 def test_the_installations_own_tree_is_accepted_however_it_is_spelled(tmp_path):
     from src import runtime_paths
     running = runtime_paths.runtime_root()

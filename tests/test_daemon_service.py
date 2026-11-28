@@ -345,7 +345,8 @@ def test_updates_run_on_windows(windows, monkeypatch, capsys, command):
     installed = {**controller.config, "installation": str(runtime_paths.runtime_root())}
     (controller.directory / "service.json").write_text(json.dumps(installed))
     calls = []
-    monkeypatch.setattr(update, "offline_update", lambda current: calls.append("update") or {"state": "UP_TO_DATE"})
+    monkeypatch.setattr(update, "offline_update",
+                        lambda current, **options: calls.append("update") or {"state": "UP_TO_DATE"})
     monkeypatch.setattr(autoupdate, "run", lambda current: calls.append("run") or {"state": "up_to_date"})
     assert control.main(["--state", str(controller.directory), *command]) == 0
     assert calls == [command[-1]] and "state" in json.loads(capsys.readouterr().out)

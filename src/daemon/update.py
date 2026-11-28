@@ -391,7 +391,9 @@ def require_installation_source(controller, command="update"):
     installation, pointed at the installed service with ``--state``, would update the installation
     and leave the update in its own ``data/``, where the installation's ``channel show`` does not
     find it. `bootstrap.serve` refuses the same mismatch (`runtime_paths.configure_runtime_paths`).
-    Call it after `require_service`, and before a lease or a lock.
+    Call it after `require_service`, and before a lease or a lock; for ``update``, also as the
+    `offline_update` precheck, because the update rereads ``service.json`` under the control lock and
+    a service installed elsewhere in between must not be updated from this tree.
     """
     from src import runtime_paths
     installation, running = Path(controller.config["installation"]), runtime_paths.runtime_root()
