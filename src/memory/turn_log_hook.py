@@ -120,8 +120,9 @@ FALSE_WORDS = ("0", "off", "f", "false", "n", "no")
 # The agent of an entry whose turn has no applied persona and whose answer names none in a footer.
 UNATTRIBUTED = "unattributed"
 FOOTER_AGENT = re.compile(r"\*\*Agent\*\*: *([A-Za-z0-9_.-]+)")
-# An agent's canonical name: the folder of its system prompt under agents/.
-AGENT_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
+# An agent's canonical name: the folder of its system prompt under agents/, in the descriptor schema's
+# form (``src.schemas.protocol.PersonaDescriptor``: a first letter or digit, as in 3d_print_finder).
+AGENT_NAME = re.compile(r"[a-z0-9][a-z0-9_]{0,63}")
 INTERACTIVE_ARGUMENT = "--interactive"
 PERSONA_STATUSES = ("SUCCESS", "NO_CHANGE")
 # A prompt typed by the user; rows that Claude Code writes itself carry another origin or none.

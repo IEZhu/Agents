@@ -1982,3 +1982,32 @@ def test_another_servers_persona_and_flow_results_still_do_not_attribute_the_tur
     assert entry.action.startswith("Agent: unattributed"), entry.action
 
 
+def agent_folders():
+    return sorted(path.parent.name for path in (ROOT / "agents").glob("*/system_prompt.mdc"))
+
+
+def test_the_agents_folder_holds_an_agent_whose_name_starts_with_a_digit():
+    assert "3d_print_finder" in agent_folders() and len(agent_folders()) > 40
+
+
+@pytest.mark.parametrize("agent", agent_folders())
+def test_every_installed_agent_attributes_its_turn(project, tmp_path, agent):
+    """v701-4 regression: the hook's name pattern wanted a first letter, the descriptor schema allows a
+    first digit, and turns under 3d_print_finder became unattributed."""
+    footer = f"**Agent**: {agent} | **Skills**: skill-dev-testing"
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"),
+                                                  *activation_rows(persona={**PERSONA, "agent": agent}),
+                                                  answer_row("Done.\n\n" + footer, "m1")])
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message="Done.\n\n" + footer),
+                     interactive=True)
+    [entry] = entries(project)
+    assert entry.action.startswith(f"Agent: {agent} Persona (client-reported): {agent}; activation=act-1"), entry.action
+
+
+def test_the_hooks_agent_pattern_is_the_descriptor_schemas():
+    from src.schemas.protocol import PersonaDescriptor
+    schema = PersonaDescriptor.model_fields["agent"].metadata[0].pattern
+    for name in ("3d_print_finder", "software_engineer", "a", "9", "Agent", "-x", "_x", "a-b", "a.b"):
+        assert bool(hook.AGENT_NAME.fullmatch(name)) is bool(re.fullmatch(schema, name)), name
+
+
