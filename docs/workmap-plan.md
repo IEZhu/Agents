@@ -411,42 +411,81 @@ model tokens; the page calls no model.
   with another input is a card of its own, so no edge has to enter a tray. Edges differ
   by line and head: `depends_on` from the prerequisite to its dependant, the head hollow
   while the prerequisite is not settled; `verifies` dashed; `supersedes` dotted;
-  `contradicts` dash-dot. The layout depends on node ids, kinds and edges only, so a live
-  status update never re-lays the map or moves a card across; a card that takes a second
-  state row grows and moves the cards below it down. Within each layer the order is the
-  one with the fewest crossings that sweeps of the weighted median, swaps of neighbours,
-  layers re-sorted by their neighbours and sifting (each entry tried at every place of
-  its layer) find, from the payload's order and others shuffled by a fixed seed, a
-  docked tray moving with its node; every edge that crosses a layer, a `supersedes` or
-  `contradicts` one too, passes a lane there that no card covers. An edge between two
-  nodes of one layer counts as well: the order puts its ends side by side where the
-  other crossings allow, and then it runs straight between the two cards; between two
-  that are not neighbours (or from a docked verifier) it dips below the layer, past the
-  edges down from the nodes between, which it crosses and the order counts. Across, each
-  node sits where most of its edges run straight (least total run across, within the
-  widest layer's width, so placing never widens the map). The gap above a layer is as
-  tall as the edges entering it need to bend; the gaps within the height budget take
-  26 px each together, the tallest giving way first, so that from 75 % up the map is no
-  taller than with the uniform 28 px of the layout before (the 14 px of a gap that hold
-  an edge's straight end stay fixed above 100 % and 12 below 86 %), and Fit and Present
-  use the taller gaps only where the map's height still fits the canvas with them at
-  the zoom the budget reaches. The side of the map that holds more cards comes first,
-  since a map wider than the canvas opens at its left edge.
+  `contradicts` dash-dot. Edges of one type from one group (a node and the verifiers
+  docked under it) into one card are one trunk with one arrowhead, as the tray's own
+  verifies comb is, instead of a bend repeated side by side: a review that waits for an
+  attempt and its verifiers takes one line from that tray's foot, its head hollow while
+  any of them is unsettled, and hovering any of them lights it. The layout depends on node
+  ids, kinds, which nodes are set aside and edges only, so a live status update never
+  re-lays the map or moves a card across (setting a node aside does, since no derived
+  connector leaves it); a card that takes a second state row grows and moves the cards
+  below it down. Within each layer the order is the one with the fewest crossings that
+  sweeps of the weighted median, swaps of neighbours, layers re-sorted by their
+  neighbours and sifting (each entry tried at every place of its layer) find, from the
+  payload's order and others shuffled by a fixed seed, a docked tray moving with its
+  node; every trunk that crosses a layer, a `supersedes` or `contradicts` one too, passes
+  a lane there that no card covers. An edge between two nodes of one layer counts as
+  well, and a detour (an edge between two that are not neighbours) as two crossings
+  besides, so neighbours join side to side, a chain of attempts in its order, unless
+  that costs more: between two cards the edge runs straight across, and from a docked
+  verifier it leaves its pill's side (the left edge of the tray, past its comb, where the
+  card lies left), turning in the room kept between the two into the card's side. A
+  detour runs over the layer, its arrowhead down into the other top, where nothing
+  enters the nodes between from above (the first layer keeps room over it for that),
+  and otherwise dips below the layer, past the edges down from the nodes between, which
+  it crosses and the order counts. Across, each node sits where most of its edges run
+  straight (least total run across, a trunk weighing as its edges, within the widest
+  layer's width, so placing never widens the map). Opened afresh the side of the map that
+  holds more cards comes first, since a map wider than the canvas opens at its left
+  edge. A change of structure on the map on screen is laid out from the layout it
+  replaces: the order starts from the places the cards had there (a new node beside the
+  node it joins in its layer, else under or over its neighbours) and sifts, swaps and
+  sweeps from there only; of the orders with the fewest crossings it finds, the one that
+  moves the fewest cards wins, each taken the way round that moves fewer, every card
+  moved back toward its place wherever that crosses no more, and the side is never
+  chosen again. Grown by one node of each kind it grows by (a further attempt, one with
+  two verifiers, a verifier, an attempt on another line, a stage after the docs), the
+  release map keeps its other rows in their order, no card moves more than one place and
+  it crosses no more than opened afresh; a stage added after `fix-701` on its copy of
+  revision 149, which turned the previous version of this layout round (28 of 28 cards
+  moved, up to 2,021 px), moves 11 of 28 cards by at most 125 px. The price is that a
+  change may cross more than the same map opened afresh: of 411 single additions to
+  eight maps 111 did, 1,845 crossings against 1,675 in all; reloading the page lays the
+  map out afresh. The gap
+  above a layer is as tall as the edges entering it need to bend. Within the height
+  budget the gaps take 26 px each together, the tallest giving way first down to their
+  least: the straight end (12 px and a px either side), a bend of 4 px and 6 px for
+  each level of curves that run the same way above the first, so two of them never lie
+  on one line. A gap's first 18 px stay that size at every zoom (above 100 % the bend
+  scales) and the rest scales, so from 90 % up a map within the budget is no taller than
+  with the uniform 28 px of the layout before, while a gap of 26 px is 3 px taller at
+  75 % and 8 px at 50 %: on 23 maps in five scenes each, Fit and the opening zoom came out
+  a step lower than at b855b17f in 12 of 115 and more cards were cut in 26. A map whose
+  least takes more than the budget, many levels of curves in its gaps, is taller by that
+  excess: a map of 78 nodes takes 495 px of gaps at 100 % where the budget gives 312 and
+  is 12 % taller. Fit and Present use the taller gaps the edges want only where the map's
+  height still fits the canvas with them at the zoom the budget reaches.
   An edge leaves the foot of its group, under the tray (an edge from a docked verifier
   too), and enters the top of a card; the ends on one side are spread in the order of
   their other ends, each aimed at its lane, then at the end it runs to, so the edges
   between two boxes that overlap run straight side by side, and an end a few px off its
   other end's line moves onto it. Between two layers an edge is one smooth curve with
   vertical ends, through its lanes; the curves of one span bend between the same two
-  heights, starting right under the lowest box above them (and below a dip), staggered
-  so that two running the same way never lie on one line and every pair crosses as the
-  order says: the drawing crosses only where the order does and no curve passes
-  through a card or a tray. Every edge ends in a straight vertical piece 12 px long, so
-  its arrowhead lies along it (shorter only in a gap planned too low for it; one side to
-  side or between two pills of a tray ends level with the box it enters, the latter
-  round the tray's right edge, its reach and bulge scaled with the zoom and short of the
-  next card). With one goal and no edge into it, a
-  dotted connector marked derived leads to it from the nodes nothing follows. The edges
+  heights, starting right under the lowest box above them (below a dip, and ending their
+  bends over an edge over the layer below), staggered so that two running the same way
+  never lie on one line and every pair crosses as the order says: the drawing crosses
+  only where the order does and no curve passes through a card or a tray. Where more
+  levels stack in one span than a gap of 56 px holds, as on maps of 60 nodes and more,
+  two curves that run the same way can still come within 1.5 px of each other for over
+  40 px: 18 to 24 pairs a scene on a map of 78 nodes and 4 to 10 and 3 to 9 on two of 64
+  and 72 (93 to 186, 32 to 64 and 12 to 27 before), against one pair a scene on one of 20
+  maps of up to 46 nodes. Every edge ends in a straight piece 12 px long at every zoom, so
+  its arrowhead lies along it with no turn within it: vertical, or level side to side and
+  between two pills of a tray (round the tray's right edge, its reach and bulge scaled
+  with the zoom and short of the next card, the reach never under the straight end).
+  Only a gap planned lower than its least, which the budget never sets, would shorten
+  one. With one goal and no edge into it, a dotted connector marked derived leads to it
+  from the live nodes nothing follows. The edges
   of the critical path are drawn at double weight and the stages the goal waits on are
   underlined: what runs, can start or needs someone on it, the verifier checking a node
   on it, and a stale node on it. A node set aside stays in place as a ghost. A map of
