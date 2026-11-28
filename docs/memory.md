@@ -331,8 +331,9 @@ masked. Every rule works line by line or on a bounded window: a match that masks
 end is read once per line, lookaheads and quoted values are bounded, no pattern restarts inside a
 run, and a line's tokens are read once for all its words. This is measured, not proven: of the
 attempt 4 verification's 63 hostile and large inputs of up to 1 MB, the ten that took 5 to over
-120 s take 1.2 to 3.4 s on the machine they were measured on, and the longest of all takes 4.3 s,
-an ordinary 1 MB text of JSON lines (3.6 s before attempt 5, whose new forms add checks per line).
+120 s take 1.1 to 4.1 s in five runs on the machine they were measured on, beside other sessions'
+work, and the longest of all take 4.2 to 4.4 s, ordinary 1 MB texts of JSON lines or of quoted
+labels (3.6 s and 2.4 s before attempt 5, whose new forms add checks per line).
 
 A text the scanner cannot clean, too large, with too many hits, or not in the time left before the
 hook's deadline, is not written: the field holds a placeholder and the entry's metadata
