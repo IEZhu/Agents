@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import functools
 import json
+import os
 import random
 import string
 import time
@@ -32,6 +33,9 @@ BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 BECH32 = "QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L"
 MARKER = "PRIVATE " + "KEY"
 MASK = redaction.MASK
+# A shape scanned in linear time takes seconds at 1 MB, a quadratic one minutes. CI runners are slower
+# than a developer's machine and shared, so there the bound only catches the minutes.
+SLOW_SECONDS = 30.0 if os.environ.get("CI") else 6.0
 
 
 class Seeded:
@@ -796,7 +800,7 @@ def test_one_long_line_is_scanned_in_linear_time(make, size):
     text = make(size)
     started = time.monotonic()
     redaction.redact(text)
-    assert time.monotonic() - started < 6, len(text)
+    assert time.monotonic() - started < SLOW_SECONDS, len(text)
 
 
 def json_one_line(size: int, field: str) -> str:
@@ -840,7 +844,7 @@ def test_the_final_verifications_slow_shapes_are_scanned_in_linear_time(make):
     text = make()
     started = time.monotonic()
     masked, clean = redaction.redact(text)
-    assert time.monotonic() - started < 6, len(text)
+    assert time.monotonic() - started < SLOW_SECONDS, len(text)
     assert clean
 
 
