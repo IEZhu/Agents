@@ -204,7 +204,7 @@ _CLIENT_HINT = re.compile(r"mysql|mariadb|docker|sqlcmd|redis-cli|curl|sshpass|h
 # cqlsh -u U -p V, ipmitool -U U -P V, xfreerdp /u:U /p:V), and the value a user option carries after
 # its user (lftp -u U,V; etcdctl --user U:V). A uid:gid pair is no password.
 USER_OPTION = re.compile(r"(?<![\w/-])(?:-u|-U|--user(?:name)?|-user|/u(?:ser)?:)(?:[ \t]*=[ \t]*|[ \t]+|(?<=:))"
-                         r"(?P<user>[^\s\"'`;|&<>]{1,128})")
+                         r"(?P<user>[^\s\"'`;|&<>-][^\s\"'`;|&<>]{0,127})")  # a user, not the next option
 PASSWORD_OPTION = re.compile(r"(?<![\w/-])(?:(?:-p|-P|-w|-pw|--pass)(?=[ \t=\"']|$)|/p(?:ass(?:word)?)?:)")
 _ID_PAIR = re.compile(r"[0-9]+[:,][0-9]+")
 STRONG, WEAK, EQUALS, CALL = "strong", "weak", "equals", "call"

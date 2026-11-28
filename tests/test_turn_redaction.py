@@ -1040,6 +1040,7 @@ def test_line_breaks_of_benign_text_stay_outside_masked_spans():
     "The key point is that the hook runs after every turn.", "| key | value |\n|---|---|\n| timeout | 30 |",
     "entry 3afab3fea63f, key digest 0123", "This PR adds a password strength meter to the signup form.",
     "kind: Secret\napiVersion: v1", "The hook masks anything that looks like a password.\nNext line stays.",
+    "sort -u -k2,2 data.csv", "docker run -u 1000:1000 nginx",
 ])
 def test_the_new_classes_leave_these_lines_alone(text):
     """Over-masking the new classes could cause on lines a reader needs: a property's plain value, a
