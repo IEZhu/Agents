@@ -396,23 +396,28 @@ model tokens; the page calls no model.
 - **Graph.** Layers top to bottom in dependency order, the goal alone in the last layer.
   A card shows its status as a disc and a word (`running` for `prepared`, with the elapsed
   time and the attempt), its level, the risk, stale or ready, and the check counts; its
-  state row wraps rather than leave the card. A level reached is a filled box (`V2`), a
-  level still needed an outlined one with an arrow (`→V3`), and while nothing is reached
-  one outlined box says both (`V0→V3`). A node whose who acts is the owner has a solid
-  attention border and a filled `you` badge. A verifier docks in a tray under the node it
-  checks, as a pill that names its id and shows its verdict on the target's current
-  result: an empty ring while pending (a running one keeps its turning ring), a check
-  when clean, the attention triangle and the counts for a critical or high finding, a
-  struck ring when it judged an older result, a dash when no verdict was recorded. Edges
-  differ by line and head: `depends_on` from the prerequisite to its dependant, the head
-  hollow while the prerequisite is not settled; `verifies` dashed; `supersedes` dotted;
-  `contradicts` dash-dot. With one goal and no edge into it, a dotted connector marked
-  derived leads to it from the nodes nothing follows. The edges of the critical path are
-  drawn at double weight and the stages the goal waits on are underlined: what runs,
-  can start or needs someone on it, the verifier checking a node on it, and a stale node
-  on it. A node set aside stays in place as a ghost. A map of more than 400 nodes, or
-  whose long edges would need more than 2,000 lanes, is not drawn: the page says so and
-  the summary still shows how it stands.
+  state row wraps rather than leave the card. A running card's elapsed time is its
+  largest unit (`13m`, `4h`, `2d`) in a monospaced box of one width, so the refresh between
+  polls never wraps or unwraps the row. A level reached is a filled box (`V2`), a level
+  still needed an outlined one with an arrow (`→V3`), and while nothing is reached one
+  outlined box says both (`V0→V3`). Every node the tiles count as waiting for you or as
+  needing attention has a solid attention border, a validated one below its need
+  included, and a node whose who acts is the owner a filled `you` badge as well. A
+  verifier docks in a tray under the node it checks, as a pill that names its id and
+  shows its verdict on the target's current result: an empty ring while pending (a
+  running one keeps its turning ring), a check when clean, the attention triangle and the
+  counts for a critical or high finding, a struck ring when it judged an older result or
+  runs on one, a dash when no verdict was recorded. Edges differ by line and head:
+  `depends_on` from the prerequisite to its dependant, the head hollow while the
+  prerequisite is not settled; `verifies` dashed; `supersedes` dotted; `contradicts`
+  dash-dot. An edge leaves a node at the foot of its group, under the verifier tray, and
+  so does one from a docked verifier to a card below. With one goal and no edge into it,
+  a dotted connector marked derived leads to it from the nodes nothing follows. The edges
+  of the critical path are drawn at double weight and the stages the goal waits on are
+  underlined: what runs, can start or needs someone on it, the verifier checking a node
+  on it, and a stale node on it. A node set aside stays in place as a ghost. A map of
+  more than 400 nodes, or whose long edges would need more than 2,000 lanes, is not
+  drawn: the page says so and the summary still shows how it stands.
 - **Panel.** A node's kind, id, status and risk; the verification ladder V0 to V4 first,
   with what the level means and why it is needed (V0 on a node that holds a result says
   that nothing is established yet and why); a sentence on its state and who acts; the
@@ -431,27 +436,37 @@ model tokens; the page calls no model.
   derives one from findings. On a closed map nobody acts: the summary lists what was
   left unfinished, and no card is ready or running.
 - **Present** hides the page header, the slots, the ids and the map select and refits the
-  graph into the room they leave, for a projector; the button or Escape brings them
-  back. Measured on the release map: 115 % at 1920 x 1080 and 125 % with Present, the
-  whole map at 90 % on 1440 x 900; **Fit** may go below the automatic 75 % floor, and
-  "N more below" marks what a canvas still cannot show.
-- Light, dark or the system's theme from the header's switch (remembered in the browser);
-  the running disc turns and its halo breathes unless the reader asked for reduced
-  motion; at 760 px and below the layers become an outline of steps without edges and the
-  panel a bottom sheet.
+  graph into the room they leave, for a projector, but never below a readable zoom: 110 %
+  on a viewport 1920 pixels wide, scaled with the width and never under the automatic
+  75 %. A larger map, a second state row or the browser's bars then leave the words their
+  size, and "N more below" or "to the right" says what the canvas cannot show. A reload
+  keeps presenting in the same browser tab; the button or Escape brings the rest back.
+  Measured on the release map at revision 80: 115 % at 1920 x 1080 and 125 % with
+  Present, 95 % and 110 % at 1920 x 960, the whole map at 90 % on 1440 x 900 and at 75 %
+  on 1280 x 800; with one more layer 100 % and 110 %, with two more 90 % and 110 % (the
+  goal below the fold). **Fit** shows the whole map however small, down to 50 %.
+- Light, dark or the system's theme from the header's switch (remembered in the browser),
+  and in Present from the **Dark** switch that closes the summary's first row, since the
+  header is hidden; the running disc turns and its halo breathes unless the reader asked
+  for reduced motion; at 760 px and below the layers become an outline of steps without
+  edges and the panel a bottom sheet.
 
 The page polls the open map every five seconds and redraws when its revision changes; a
 status change repaints the cards in place and rings the changed ones briefly, a new node
 is ringed too, and only a change of nodes or edges lays the graph out again. The graph is
-fitted only on the first load, a change of nodes or edges, a window resize, **Fit** and
-**Present**: opening the panel keeps the zoom and scrolls the selected card back under
-the pointer, and the refresh alert and the legend open over the canvas, so neither
-rescales the graph. `/ui#workmap/<workspace id>/<task id>` opens one map and the address
-bar keeps that link; `/ui#workmap/<task id>` finds the most recently written map of that
-task id among the registered workspaces; `/ui#workmap` opens the open map that changed
-last. When the page chose among several (more than one open map, or one task id in
-several repositories), a line beside the select says so and the select stays ringed until
-the viewer picks.
+fitted only on the first load, a change of nodes or edges, a window resize, **Fit**,
+**Present**, and a repaint that left a fitted map larger than its canvas, as a card that
+takes a second state row does, so the goal never slips under the fold with **Fit**
+pressed. Opening the panel keeps the zoom and scrolls the selected card back under the
+pointer; a card that changes size between repaints has its edges drawn again; the legend
+opens over the canvas and the refresh alert stands in the summary's first row, in the
+place of the revision line, so neither rescales the graph.
+`/ui#workmap/<workspace id>/<task id>` opens one map and the address bar keeps that link;
+`/ui#workmap/<task id>` finds the most recently written map of that task id among the
+registered workspaces; `/ui#workmap` opens the open map that changed last. When the page
+chose among several (more than one open map, or one task id in several repositories), a
+line beside the select says so and the select stays ringed until the viewer picks. The
+select always names the open map, also one older than the maps a repository lists.
 
 The data comes from `GET /ui/api/workmap/maps`, `/ui/api/workmap/map?workspace=&task_id=`,
 `/ui/api/workmap/node?workspace=&task_id=&node=` and
@@ -471,9 +486,11 @@ stat. A log over 2 MiB is not folded for the page (`map_too_large`, and counted 
 list); `workmap_view` still reads it. The reads run on two threads of their own, so a
 slow one never holds the daemon's shared executor, and the fold itself is linear: a
 commit is applied in place and undone when one of its events fails, and the edges are
-indexed for the cycle check. A time or author in a log that is not the writers' own form
-is dropped, and a time later than now counts as none, so a planted log can neither break
-the list nor stay the latest map.
+indexed for the cycle check. The artifacts a node's record lists come from the first
+200,000 characters of its result in one linear pass: no pattern backtracks over a run of
+spaces, and no string is rebuilt per line or per citation. A time or author in a log
+that is not the writers' own form is dropped, and a time later than now counts as none,
+so a planted log can neither break the list nor stay the latest map.
 
 **Two designs, one view.** The view applies an information design (what each mark encodes
 and what each state means) and a visual design (tokens, layout direction, card anatomy,

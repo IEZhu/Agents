@@ -1008,8 +1008,10 @@ seconds while the browser tab is visible (see
   waits for you, what needs attention, what runs now and what can start next), its graph
   top to bottom with the goal last, and the panel of the node selected in it. The stored
   result is fetched only on **Show full result** and shown as text in a dialog.
-  **Present** hides the page header and the slots for a projector. Everything is drawn in
-  the browser, so following a map costs no model tokens. The open map is polled every
+  **Present** hides the page header and the slots for a projector and keeps the graph at
+  a readable zoom, saying what a larger map leaves below the fold; a reload in the same
+  browser tab keeps it. Everything is drawn in the browser, so following a map costs no
+  model tokens. The open map is polled every
   five seconds; the polls are not activity, so an open map never holds back an automatic
   update. `/ui#workmap` opens the open map that changed last, and says so when another
   is open; `/ui#workmap/<workspace id>/<task id>` opens one map. The reads
@@ -1018,7 +1020,8 @@ seconds while the browser tab is visible (see
   map file once per change, on two threads of their own, draw no log over 2 MiB, and
   name no path in an answer. Signing out takes the map and a shown result off the page
   and stops its polls. The header's **Auto**, **Light** and **Dark** switch sets the
-  theme of every tab.
+  theme of every tab; in Present, which hides the header, a **Dark** switch in the
+  summary stands in for it.
 
   What a UI session can read here: the maps and the stored stage results of every
   registered workspace, each result up to 2,000,000 characters and unredacted (a result
