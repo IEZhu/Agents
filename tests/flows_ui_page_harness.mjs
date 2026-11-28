@@ -2889,6 +2889,26 @@ function workmapRouteChecks(data, scale = 1.25, heightOf = (id) => 52 + (id.char
       if (inside.length) out.tray_run = Math.max(out.tray_run, Math.round((Math.max(...inside.map(([x]) => x)) - Math.min(...inside.map(([x]) => x))) / scale * 10) / 10);
     });
   });
+  // Edges side to side: the pills they stand for that no line leaves at its own row, out of its side
+  // (a trunk of pills reaches each by a spur); how many stand for edges from more than one node; and
+  // how many of those leave anything but their top pill.
+  out.side_off = 0;
+  out.side_trunks = 0;
+  out.side_top = 0;
+  routes.forEach((route, i) => {
+    if (route.kind !== "side") return;
+    for (const id of route.edge.starts) {
+      if (layout.docked[id] === undefined) continue;
+      const pill = cards.get(id), tray = groups.get(layout.docked[id]), reach = 12 * scale + 2;
+      const row = points[i].filter(([, y]) => y > pill.t && y < pill.b);
+      if (!row.some(([x]) => (x >= pill.r && x <= tray.r + reach) || (x <= tray.l && x >= tray.l - reach))) out.side_off += 1;
+    }
+    if (route.edge.starts.length < 2) return;
+    out.side_trunks += 1;
+    const top = cards.get(route.edge.starts.reduce((p, q) => (cards.get(p).t < cards.get(q).t ? p : q)));
+    const main = route.steps.filter(([op]) => op === "M").at(-1);
+    if (!(main[2] > top.t && main[2] < top.b)) out.side_top += 1;
+  });
   // The room an edge side to side from a pill turns in: the width of its curve, from the level piece
   // it leaves.
   for (const route of routes) {
@@ -3026,6 +3046,20 @@ const WORKMAP_GOALS_OVER = workmapShape("g1:g g2:g g3:g s:s t:s", "g1>s g3>t g1^
 // wider together than it is: the edge between the outer two runs over the last layer, and the curve
 // from the node that overhangs the middle goal passes over the arch, ending its bend above it.
 const WORKMAP_OVER_PAST = workmapShape("g1:g g2:g g3:g s:s u:s v:s w:s t:s", "g1>s g1>u g1>v g1>w g3>t g1^g2 g2!g3 g3^g1");
+// Three verifiers docked under one card, one under the other, that all contradict its neighbour: one
+// trunk from the top one, a spur from each below (the edges listed bottom pill first).
+const WORKMAP_PILLS_SIDE = workmapShape("goal:g p:s a:s b:s v1:s v2:s v3:s", "a>p b>p v1~b v2~b v3~b v3!a v1!a v2!a goal>a goal>b");
+// Where a trunk of pills could cross another line, each pill keeps a line of its own: two pills that
+// contradict the neighbour with one between them that supersedes it; two side by side, one of them with
+// a second edge side to side (to the other neighbour); a card and its pill with the same edge to the
+// neighbour; and two whose tray holds an edge of its own.
+const WORKMAP_PILLS_APART = workmapShape("goal:g p:s a:s b:s c:s d:s e:s v1:s v2:s v3:s w1:s w2:s x1:s y1:s",
+  "a>p b>p c>p d>p e>p v1~b v2~b v3~b w1~c w2~c x1~d y1~e v1!a v2^a v3!a w1!b w2!b w2!d d!c x1!c e!d y1!d "
+  + "goal>a goal>b goal>c goal>d goal>e");
+const WORKMAP_PILLS_TRAYED = workmapShape("goal:g p:s a:s b:s v1:s v2:s v3:s", "a>p b>p v1~b v2~b v3~b v3^v2 v1!a v2!a goal>a goal>b");
+// Two neighbours with verifiers docked under them: the upper pill of the first contradicts a pill of the
+// second, the lower one the second's card, so the two lines cross once between them, as the order counts.
+const WORKMAP_PILL_CROSS = workmapShape("goal:g p:s A:s B:s a1:s a2:s b1:s", "A>p B>p a1~A a2~A b1~B a1!b1 a2!B goal>A goal>B");
 // A review card that takes five edges from a tray (a node and its four verifiers) that is not above it:
 // one trunk, one arrowhead.
 const WORKMAP_FAR = workmapShape("goal:g a:s b:s c:s d:s h:s v1:s v2:s v3:s v4:s x:s y:s z:s r:s s:s",
@@ -3102,13 +3136,18 @@ if (scenario === "workmap_routes") {
     out[`far_${scale * 100}`] = workmapRouteChecks(WORKMAP_FAR, scale, () => 72, { between: ["h", "r"] });
     out[`goals_over_${scale * 100}`] = workmapRouteChecks(WORKMAP_GOALS_OVER, scale, () => 72);
     out[`over_past_${scale * 100}`] = workmapRouteChecks(WORKMAP_OVER_PAST, scale, () => 72);
+    out[`pills_side_${scale * 100}`] = workmapRouteChecks(WORKMAP_PILLS_SIDE, scale, () => 72);
+    out[`pills_apart_${scale * 100}`] = workmapRouteChecks(WORKMAP_PILLS_APART, scale, () => 72);
+    out[`pills_trayed_${scale * 100}`] = workmapRouteChecks(WORKMAP_PILLS_TRAYED, scale, () => 72);
+    out[`pill_cross_${scale * 100}`] = workmapRouteChecks(WORKMAP_PILL_CROSS, scale, () => 72);
   }
   // Every map at 50 % with every gap at its least: the straight ends and the least bend still hold.
   for (const [name, shape, height] of [["release", RELEASE_SHAPE], ["fixture", { nodes: workmapNodes(), edges: WORKMAP_EDGES }],
     ["synth_40", workmapSynth(40, 40)], ["synth_60", workmapSynth(60, 60)], ["beside", WORKMAP_BESIDE], ["tray", WORKMAP_TRAY, () => 72],
     ["goals", WORKMAP_GOALS, () => 72], ["attempts", WORKMAP_ATTEMPTS], ["pill", WORKMAP_PILL, () => 72], ["over", WORKMAP_OVER, () => 72],
     ["live", WORKMAP_LIVE], ["tall", WORKMAP_TALL, () => 72], ["goals_over", WORKMAP_GOALS_OVER, () => 72],
-    ["over_past", WORKMAP_OVER_PAST, () => 72]]) {
+    ["over_past", WORKMAP_OVER_PAST, () => 72], ["pills_side", WORKMAP_PILLS_SIDE, () => 72], ["pills_apart", WORKMAP_PILLS_APART, () => 72],
+    ["pills_trayed", WORKMAP_PILLS_TRAYED, () => 72], ["pill_cross", WORKMAP_PILL_CROSS, () => 72]]) {
     out[`${name}_least`] = workmapRouteChecks(shape, 0.5, height, { tight: "least" });
   }
   // The trunks into the review card: h is settled and its verifiers are not, so the head of the trunk
@@ -3345,6 +3384,9 @@ if (scenario === "workmap" || scenario === "workmap_signout") {
   const fitWorkmap = context.fitWorkmap;
   context.fitWorkmap = () => { fits.push(vm.runInContext("workmapFitFloor()", context)); return fitWorkmap(); };
   const out = {};
+  // The legend's items: their words and their sample lines (path data, marker).
+  out.legend = classed(byId("wm-legend"), "wm-lg-item").map((entry) => ({ text: texts(entry).join(" "),
+    paths: walk(entry, [], (child) => child.tag === "path").map((path) => [path.attrs.d, path.attrs["marker-end"] || null]) }));
   if (scenario === "workmap_signout") {
     out.before = { hidden: byId("workmap-page").classes.has("hidden"), cards: Object.keys(cards()).length,
                    polls: pendingTimers(5000).length };

@@ -1917,10 +1917,11 @@ def workmap_routes():
 # at its least (`_least`), the live release map among them.
 ZOOMS = [50, 80, 100, 125, 160]
 LEAST_MAPS = [f"{name}_least" for name in ("release", "fixture", "synth_40", "synth_60", "beside", "tray", "goals", "attempts", "pill",
-                                           "over", "live", "tall", "goals_over", "over_past")]
+                                           "over", "live", "tall", "goals_over", "over_past", "pills_side", "pills_apart",
+                                           "pills_trayed", "pill_cross")]
 ROUTED_MAPS = (["release", "release_100", "release_wide", "fixture", "synth_20", "synth_40", "synth_60", "odd", "comb", "comb_wide"]
                + [f"{name}_{zoom}" for name in ("alt", "beside", "tray", "goals", "attempts", "pill", "over", "far", "goals_over",
-                                                "over_past")
+                                                "over_past", "pills_side", "pills_apart", "pills_trayed", "pill_cross")
                   for zoom in ZOOMS]
                + LEAST_MAPS)
 
@@ -1960,11 +1961,43 @@ def test_the_drawing_crosses_exactly_where_the_order_does(workmap_routes):
     for name in ROUTED_MAPS:
         assert workmap_routes[name]["drawn"] == workmap_routes[name]["crossings"], name
     assert workmap_routes["odd"]["kinds"] == {"down": 5, "side": 1, "tray": 1}
+    # Two edges side to side between one pair of neighbours whose ends come in opposite orders on the two
+    # sides (the upper pill to the other's pill, the lower pill to the other's card) cross once, and the
+    # order counts that crossing.
+    for zoom in ZOOMS:
+        cross = workmap_routes[f"pill_cross_{zoom}"]
+        assert cross["kinds"] == {"down": 4, "side": 2} and cross["drawn"] == cross["crossings"] == 1, zoom
     for zoom in ZOOMS:
         assert workmap_routes[f"alt_{zoom}"]["kinds"] == {"down": 10, "side": 2}
         assert workmap_routes[f"alt_{zoom}"]["crossings"] == 1  # two down edges; with both alternatives side by side, the fewest
         beside = workmap_routes[f"beside_{zoom}"]
         assert beside["kinds"] == {"down": 9, "side": 2, "dip": 1} and beside["dips"] == beside["crossings"] == 2
+
+
+def test_every_pill_shows_its_line_to_a_neighbour(workmap_routes):
+    # Three verifiers docked one under the other under one card all contradict its neighbour: one trunk
+    # leaves the top pill and a spur from each pill below joins it, so every pill shows its line (and
+    # lights it on hover). Where a trunk could cross another line (a pill between that supersedes the
+    # neighbour, a pill with a second edge side to side, the card's own edge of that type, a tray with an
+    # edge of its own), each pill keeps a line of its own, and the drawing crosses where the order does.
+    for zoom in ZOOMS:
+        side, apart, trayed = (workmap_routes[f"{name}_{zoom}"] for name in ("pills_side", "pills_apart", "pills_trayed"))
+        assert side["kinds"] == {"down": 4, "side": 1} and side["side_trunks"] == 1, zoom
+        assert apart["kinds"] == {"down": 10, "side": 10} and apart["side_trunks"] == 0, zoom
+        assert trayed["kinds"] == {"down": 4, "tray": 1, "side": 2} and trayed["side_trunks"] == 0, zoom
+        for result in (side, apart, trayed):
+            assert result["drawn"] == result["crossings"], zoom
+    for name in ROUTED_MAPS:
+        assert workmap_routes[name]["side_off"] == workmap_routes[name]["side_top"] == 0, name
+
+
+def test_the_legend_says_one_arrow_can_stand_for_a_node_and_its_verifiers(workmap_page):
+    # A trunk is one line with one arrowhead for the edges of one type from a node and the verifiers
+    # docked under it into one card: the legend shows two lines joining into one hollow arrowhead.
+    trunk = [item for item in workmap_page["legend"] if item["text"].startswith("one arrow for a node and its verifiers")]
+    assert len(trunk) == 1 and "hollow while any is unsettled" in trunk[0]["text"]
+    [[path, marker]] = trunk[0]["paths"]
+    assert path.count("M") == 2 and path.endswith("H37") and marker == "url(#wm-mk-depends_on-open)"
 
 
 def test_a_dip_leaves_its_feet_at_their_facing_ends_and_the_gap_bends_below_it(workmap_routes):

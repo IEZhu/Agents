@@ -6468,19 +6468,24 @@ function workmapReason(item, view, brief = false) {
 // into one node are one trunk, drawn as one path with one arrowhead, as a tray's comb is: they leave
 // the group's foot together, where a path per edge would only repeat one bend side by side. `key` is
 // the first edge's (payload order), `keys` every edge's, `starts` their starts (the group's node
-// first, then in payload order); an edge inside one tray stays an edge of its own.
-function wmTrunks(edges, known, groupOf, derived) {
-  const trunks = new Map(), list = [];
+// first, then in payload order); an edge inside one tray stays an edge of its own. Edges side to side
+// (`sameRow`) from docked verifiers make one trunk only where those pills lie next to one another in
+// their tray, the tray holds no edge of its own and none of the pills has another edge side to side:
+// the trunk leaves the top pill (its start, by `rankOf`, a node's place in its group) and a spur from
+// each pill below joins it, so every pill shows its line; elsewhere each pill keeps a line of its own.
+function wmTrunks(edges, known, groupOf, derived, sameRow = () => false, rankOf = () => 0) {
+  const trunks = new Map(), list = [], trayed = new Set(), beside = new Map();
   const add = (key, type, start, end) => {
     const group = groupOf(start), own = group === groupOf(end);
     const id = own ? key : group + "\n" + end + "\n" + type;
     let trunk = trunks.get(id);
     if (!trunk) {
-      trunk = { key, keys: [], type, start, starts: [], end };
+      trunk = { key, keys: [], type, start, starts: [], end, parts: [] };
       trunks.set(id, trunk);
       list.push(trunk);
     }
     trunk.keys.push(key);
+    trunk.parts.push([key, start]);
     if (!trunk.starts.includes(start)) trunk.starts.push(start);
     if (start === group) trunk.starts.sort((a, b) => (a === group ? -1 : b === group ? 1 : 0));
     trunk.start = trunk.starts[0];
@@ -6490,10 +6495,28 @@ function wmTrunks(edges, known, groupOf, derived) {
     if (edge.type === "verifies" && groupOf(edge.from) === edge.to) continue;
     const flow = edge.type === "depends_on" || edge.type === "verifies";
     const [start, end] = flow ? [edge.to, edge.from] : [edge.from, edge.to];
+    if (groupOf(start) === groupOf(end)) trayed.add(groupOf(start));
+    else if (sameRow(start, end)) for (const id of [start, end]) beside.set(id, (beside.get(id) || 0) + 1);
     add(`${edge.from}|${edge.to}|${edge.type}`, edge.type, start, end);
   }
   for (const [from, to] of derived) add(`${from}|${to}|derived`, "derived", from, to);
-  return list;
+  const out = [];
+  for (const { parts, ...trunk } of list) {
+    if (trunk.starts.length < 2 || trunk.type === "derived" || !sameRow(trunk.start, trunk.end)) {
+      out.push(trunk);
+      continue;
+    }
+    const ranks = trunk.starts.map(rankOf).sort((a, b) => a - b);
+    if (trunk.starts.every((id) => groupOf(id) !== id && beside.get(id) === 1) && !trayed.has(groupOf(trunk.start))
+        && ranks.every((rank, i) => !i || rank === ranks[i - 1] + 1)) {
+      trunk.starts.sort((a, b) => rankOf(a) - rankOf(b));
+      trunk.start = trunk.starts[0];
+      out.push(trunk);
+    } else {
+      for (const [key, start] of parts) out.push({ key, keys: [key], type: trunk.type, start, starts: [start], end: trunk.end });
+    }
+  }
+  return out;
 }
 
 // The layout: layers top to bottom, the goal last. depends_on {from X, to Y} puts Y above X and
@@ -6571,6 +6594,13 @@ function workmapLayers(nodes, edges, previous = null) {
   }
   const groupOf = (id) => docked.get(id) || id;
   const hosts = work.filter((id) => !docked.has(id));
+  // Where a node sits in its group, top down: 0 the card, then its tray's pills in payload order.
+  const rankOf = new Map(), filled = new Map();
+  for (const id of work) {
+    if (!docked.has(id)) continue;
+    filled.set(docked.get(id), (filled.get(docked.get(id)) || 0) + 1);
+    rankOf.set(id, filled.get(docked.get(id)));
+  }
   const groupPred = new Map(hosts.map((id) => [id, []]));
   for (const id of work) {
     for (const other of pred.get(id)) {
@@ -6587,7 +6617,8 @@ function workmapLayers(nodes, edges, previous = null) {
   if (goals.length === 1 && !pred.get(goals[0]).length) {
     for (const id of work) if (!succ.get(id).length && live.has(id)) derived.push([id, goals[0]]);
   }
-  const links = wmTrunks(edges, (id) => known.has(id), groupOf, derived).map((trunk) => ({ key: trunk.key,
+  const links = wmTrunks(edges, (id) => known.has(id), groupOf, derived,
+    (start, end) => layerOf.get(groupOf(start)) === layerOf.get(groupOf(end)), (id) => rankOf.get(id) || 0).map((trunk) => ({ key: trunk.key,
     from: groupOf(trunk.start), to: groupOf(trunk.end), start: trunk.start, end: trunk.end }));
   let needed = 0;
   for (const { from, to } of links) needed += Math.max(0, Math.abs(layerOf.get(to) - layerOf.get(from)) - 1);
@@ -6607,7 +6638,7 @@ function workmapLayers(nodes, edges, previous = null) {
     const a = layerOf.get(from), b = layerOf.get(to), step = b > a ? 1 : -1;
     if (from === to) return;  // inside one tray
     if (a === b) {
-      flats.push({ key, from, to, pill: docked.has(start) || docked.has(end) });
+      flats.push({ key, from, to, pill: docked.has(start) || docked.has(end), ranks: [rankOf.get(start) || 0, rankOf.get(end) || 0] });
       return;
     }
     const points = [from];
@@ -6736,6 +6767,22 @@ function wmOrder(start, segments, flats = [], prior = null, isLane = () => false
     flatsOf[layerOf[a]].push([a, b, f]);
     flatEnd[a] = flatEnd[b] = 1;
   });
+  // Edges side to side between one pair of neighbours leave and enter each side at the heights of their
+  // ends (the card, then its pills from the top), so two whose ends come in opposite orders on the two
+  // sides cross once, wherever the pair stands: `pairCross` counts those for each pair of a layer.
+  const pairCross = start.map(() => []), byPair = new Map();
+  flats.forEach(({ from, to, ranks = [0, 0] }) => {
+    const a = index.get(from), b = index.get(to), key = Math.min(a, b) + "," + Math.max(a, b);
+    if (!byPair.has(key)) byPair.set(key, { a: Math.min(a, b), b: Math.max(a, b), ends: [] });
+    byPair.get(key).ends.push(a < b ? ranks : [ranks[1], ranks[0]]);
+  });
+  for (const { a, b, ends } of byPair.values()) {
+    let count = 0;
+    for (let i = 0; i < ends.length; i++) {
+      for (let j = i + 1; j < ends.length; j++) if ((ends[i][0] - ends[j][0]) * (ends[i][1] - ends[j][1]) < 0) count += 1;
+    }
+    if (count) pairCross[layerOf[a]].push([a, b, count]);
+  }
   let order = [];
   const reindex = (k) => { const list = order[k]; for (let i = 0; i < list.length; i++) pos[list[i]] = i; };
   // Crossings between layer k and k + 1: pairs of segments whose ends are in opposite orders, counted
@@ -6761,6 +6808,7 @@ function wmOrder(start, segments, flats = [], prior = null, isLane = () => false
     for (let i = 0; i < m; i++) { up[i + 1] = up[i] + above[list[i]].length; down[i + 1] = down[i] + below[list[i]].length; }
     let count = 0, detours = 0, spread = 0;
     const overs = [], dips = [];
+    for (const [a, b, c] of pairCross[k]) if (Math.abs(pos[a] - pos[b]) < 2) count += c;
     for (const [a, b, f] of pairs) {
       const p = Math.min(pos[a], pos[b]), q = Math.max(pos[a], pos[b]);
       if (q - p < 2) { if (mark) ways[f] = "side"; continue; }
@@ -7702,9 +7750,16 @@ function workmapRoutes(list, layout, geo) {
       const x = (box, end) => (right === !end ? box.r + 1
         : route.pills[end] ? geo.group(end ? route.end : route.start).l - 1 : box.l - 1);
       const [sx, ex] = [x(route.from, 0), x(route.to, 1)], [sy, ey] = route.ys, way = right ? 1 : -1;
+      // A trunk of pills leaves the top one; a spur from each pill below runs out of its side and up
+      // to where the trunk turns, drawn first, so the arrowhead stays at the trunk's end.
+      const join = route.edge.starts.length > 1 ? sx + way * Math.min(4 * scale, Math.abs(ex - sx) / 6) : null;
+      for (const id of route.edge.starts.slice(1)) {
+        const pill = geo.card(id);
+        steps.push(["M", right ? pill.r + 1 : sx, (pill.t + pill.b) / 2], ["H", join], ["V", sy]);
+      }
       steps.push(["M", sx, sy]);
       if (Math.abs(ey - sy) > 0.5) {
-        const a = sx + way * Math.min(2 * scale, Math.abs(ex - sx) / 8), b = ex - way * stub, reach = (b - a) / 2;
+        const a = join ?? sx + way * Math.min(2 * scale, Math.abs(ex - sx) / 8), b = ex - way * stub, reach = (b - a) / 2;
         steps.push(["H", a], ["C", a + reach, sy, b - reach, ey, b, ey]);
       }
       steps.push(["H", ex]);
@@ -8685,7 +8740,10 @@ function workmapCard(view, item, pill) {
 // the critical path when one of its edges is.
 function workmapEdgeList(view) {
   const index = view.index, layout = view.layout;
-  return wmTrunks(view.data.edges, (id) => index.byId.has(id), (id) => layout.docked[id] || id, layout.derived).map((trunk) => {
+  const groupOf = (id) => layout.docked[id] || id, rank = new Map();
+  for (const entry of layout.layers.flat()) (entry.verifiers || []).forEach((id, i) => rank.set(id, i + 1));
+  return wmTrunks(view.data.edges, (id) => index.byId.has(id), groupOf, layout.derived,
+    (start, end) => layout.layer[groupOf(start)] === layout.layer[groupOf(end)], (id) => rank.get(id) || 0).map((trunk) => {
     const settled = trunk.starts.every((id) => index.byId.get(id).settled);
     const marker = trunk.type === "depends_on" ? (settled ? "depends_on" : "depends_on-open")
       : trunk.type === "derived" ? null : trunk.type;
@@ -8970,6 +9028,13 @@ function renderWorkmapLegend() {
     if (marker) path.setAttribute("marker-end", `url(#wm-mk-${marker})`);
     entry.appendChild(document.createTextNode(words));
   }
+  // A trunk: the edges of one type from a node and the verifiers docked under it into one card.
+  const trunk = item(edges);
+  const merged = svgNode("svg", trunk, { class: "wm-lg-edge", viewBox: "0 0 40 12", "aria-hidden": "true", focusable: "false" });
+  const lines = svgNode("path", merged, { class: "wm-edge", d: "M1 10H9C17 10 17 6 25 6M1 2H9C17 2 17 6 25 6H37" });
+  lines.dataset.type = "depends_on";
+  lines.setAttribute("marker-end", "url(#wm-mk-depends_on-open)");
+  trunk.appendChild(document.createTextNode("one arrow for a node and its verifiers into one card (hollow while any is unsettled)"));
   const chain = item(edges);
   const svg = svgNode("svg", chain, { class: "wm-lg-edge", viewBox: "0 0 40 12", "aria-hidden": "true", focusable: "false" });
   svgNode("path", svg, { class: "wm-edge is-path", d: "M1 6H37" }).dataset.type = "depends_on";
