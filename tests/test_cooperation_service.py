@@ -1551,6 +1551,11 @@ def test_recovery_ends_the_work_units_window(h):
     h.service.close()
     h.service.start()
     assert h.recover(holder)["status"] == "ok"
+    # Recovery deletes the row: the generation check would ignore it as well,
+    # but the table keeps no window that no generation can use.
+    with h.service.store.transaction(write=False) as db:
+        assert db.execute("SELECT COUNT(*) FROM participant_windows WHERE participant_id=?",
+                          (holder["participant_id"],)).fetchone()[0] == 0
     # The recovered generation holds nothing and never acquired: the released
     # unit's due time cannot keep it live.
     h.now = start + 121
