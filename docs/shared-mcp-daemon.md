@@ -1577,6 +1577,15 @@ installation, ends as `{"state": "not_installed", "error": ...}` with exit code 
 error names the directory it looked in and the command to run from the installation, and
 nothing is created there, no run lease and no lock.
 
+They also run only from the installation's own tree. The updater keeps its record and its
+prepared build in the `data/` of the tree whose code runs it, so a checkout that is not the
+installation, pointed at the installed service with `--state`, would update the installation
+and leave the update in its own `data/`. That ends as `{"state": "refused", "error": ...}`
+with exit code 1, before a lease is taken or anything starts, as `serve` refuses a service
+configuration for another source. Run `python -m src.daemon update` in the installation's own
+directory with its `.venv` interpreter, adding `--state <dir>` when the service was installed
+with one.
+
 The manual and scheduled controllers use the same dependency gate
 (`src/daemon/update_dependencies.py`), as does the standalone stdio updater. A
 `pyproject.toml` change may update metadata or package data and declare a new

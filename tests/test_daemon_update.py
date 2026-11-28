@@ -10,7 +10,8 @@ import pytest
 
 from src import self_update
 from src.daemon.state import write_json, read_json
-from src.daemon.update import NotInstalled, offline_update, recover, require_service
+from src.daemon.update import (NotInstalled, WrongSource, offline_update, recover, require_installation_source,
+                               require_service)
 from src.daemon.update import prepare_reindex as real_prepare_reindex
 from src.daemon.bootstrap import assert_service_safe
 from src.file_lock import file_lock
@@ -495,6 +496,48 @@ def test_update_and_recover_without_a_service_refuse_and_create_nothing(tmp_path
     assert str(state.resolve() if not explicit_state else state) in refused["error"]
     assert f"python -m src.daemon {command}" in refused["error"] and "--state" in refused["error"]
     assert not state.exists()
+
+
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_update_and_recover_run_only_from_the_installations_own_tree(installation, monkeypatch, capsys, command):
+    """#592: a checkout that is not the installation, pointed at the installed service with --state, updated
+    the installation and left the update in its own data/, where the installation's `channel show` finds none."""
+    from src import runtime_paths
+    from src.daemon import control
+    controller, root, old, target = installation
+    monkeypatch.setattr(control, "Controller", lambda directory=None: controller)
+    argv = ["--state", str(controller.directory), command]
+    assert control.main(argv) == 1  # from the checkout these tests run in, which is not the installation
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "refused"
+    assert str(runtime_paths.runtime_root()) in refused["error"] and str(root) in refused["error"]
+    assert f"python -m src.daemon {command}" in refused["error"]
+    assert f"--state {controller.directory}" in refused["error"]
+    assert git(root, "rev-parse", "HEAD") == old and controller.builds == controller.stops == 0
+    assert not (controller.directory / "schedules").exists()  # no lease was taken either
+    # the same service, run from its own tree
+    monkeypatch.setattr(runtime_paths, "_RUNTIME_ROOT", root.resolve())
+    assert control.main(argv) == 0
+    done = json.loads(capsys.readouterr().out)
+    assert done["state"] == ("UPDATED" if command == "update" else "no_transaction")
+    assert git(root, "rev-parse", "HEAD") == (target if command == "update" else old)
+
+
+def test_the_installations_own_tree_is_accepted_however_it_is_spelled(tmp_path):
+    from src import runtime_paths
+    running = runtime_paths.runtime_root()
+    for spelled in (running, running / "src" / ".."):
+        assert require_installation_source(SimpleNamespace(config={"installation": str(spelled)},
+                                                           directory=tmp_path)) is None
+
+
+@pytest.mark.parametrize("other", ["a directory", "a path that is not there"])
+def test_another_tree_is_refused_naming_both_and_the_command(tmp_path, other):
+    installed = tmp_path if other == "a directory" else tmp_path / "gone"
+    with pytest.raises(WrongSource, match="installed in") as refused:
+        require_installation_source(SimpleNamespace(config={"installation": str(installed)},
+                                                    directory=tmp_path / "state"), "recover")
+    assert str(installed) in str(refused.value) and "python -m src.daemon recover" in str(refused.value)
 
 
 def test_build_for_an_older_target_is_rebuilt_for_the_new_one(installation):

@@ -370,7 +370,35 @@ def require_service(controller, command="update"):
         f"Service is not installed: {controller.directory} has no service.json that names an "
         "installation. The state directory comes from --state, AGENTS_SERVICE_DIR or the checkout "
         f"whose code runs the command: run `python -m src.daemon {command}` in the installation's own "
-        "directory with its .venv interpreter, or pass --state with the installed service's state directory")
+        "directory with its .venv interpreter, adding --state <dir> when the service was installed with one")
+
+
+class WrongSource(RuntimeError):
+    """``update`` or ``recover`` runs the code of a tree that is not the service's installation (#592)."""
+
+
+def require_installation_source(controller, command="update"):
+    """Refuse ``update`` and ``recover`` run from another tree than the service's installation.
+
+    The updater keeps its record of the last update, its prepared build and its staging worktrees in
+    the ``data/`` of the tree whose code runs it (`src.engine.config`). A checkout that is not the
+    installation, pointed at the installed service with ``--state``, would update the installation
+    and leave the update in its own ``data/``, where the installation's ``channel show`` does not
+    find it. `bootstrap.serve` refuses the same mismatch (`runtime_paths.configure_runtime_paths`).
+    Call it after `require_service`, and before a lease or a lock.
+    """
+    from src import runtime_paths
+    installation, running = Path(controller.config["installation"]), runtime_paths.runtime_root()
+    try:
+        if installation.samefile(running):
+            return
+    except OSError:
+        pass  # an installation that is not there is not this tree either
+    raise WrongSource(
+        f"This command runs the code in {running}, but the service in {controller.directory} is installed "
+        f"in {installation}. The updater keeps its record and its prepared build in the data/ of the tree "
+        f"it runs from, so run `python -m src.daemon {command}` in {installation} with its .venv "
+        f"interpreter, adding --state {controller.directory} when the service was installed with one")
 
 
 def load_service(controller):

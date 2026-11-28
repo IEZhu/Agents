@@ -283,10 +283,12 @@ def test_stop_scheduled_sync_never_raises(monkeypatch):
 @pytest.mark.parametrize("command", ["update", "recover"])
 def test_a_manual_update_never_replaces_the_code_under_an_autodev_run(tmp_path, monkeypatch, capsys, command):
     """#338: `update` and `recover` hold the run lease for the whole transaction, as the auto-update does."""
+    from src import runtime_paths
     from src.daemon import update
     from src.schedules import lease
     state, held = tmp_path / "state", []
-    write_json(state / "service.json", {"installation": str(tmp_path)})  # `update` and `recover` need a service (#592)
+    # `update` and `recover` need a service, installed in the tree whose code runs them (#592)
+    write_json(state / "service.json", {"installation": str(runtime_paths.runtime_root())})
 
     def transaction(controller):
         held.append(lease.held(controller.directory))
