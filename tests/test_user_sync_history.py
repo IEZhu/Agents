@@ -1887,6 +1887,44 @@ def test_a_corrected_answer_written_in_the_same_second_still_replaces_the_shared
     assert question_outcomes(b) == [flat(corrected)] and question_outcomes(a) == [flat(corrected)]
 
 
+def test_a_hook_ended_after_its_record_and_before_the_change_leaves_nothing_stale_shared(
+        shared, clock, hook_process, monkeypatch, tmp_path):
+    """Final verification T6: the removal is recorded before the journal changes. A hook ended in between
+    leaves a record of an entry still in the journal: the next reconcile takes the shared copy out and
+    shares it no more, and the turn's next Stop replaces it and shares the corrected answer."""
+    from tests.test_turn_log_hook import flat
+    a, b = shared
+    as_this_machine(monkeypatch, a)
+    transcript, first_answer, corrected = hook_turn(tmp_path)
+    first = hook_process.record_turn(hook_stop(a, transcript, last_assistant_message=first_answer), interactive=True)
+    assert reconcile(a)["status"] == "exported"
+    for box in (a, b):
+        box.sync()
+    assert question_outcomes(b) == [flat(first_answer)]
+    real_replace = journal._replace
+
+    def ended(path, text, *, info):
+        if flat(corrected) in flat(text):
+            raise KeyboardInterrupt("the client cancelled the hook after its record")
+        return real_replace(path, text, info=info)
+    monkeypatch.setattr(journal, "_replace", ended)
+    with pytest.raises(KeyboardInterrupt):
+        hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
+                                 interactive=True)
+    monkeypatch.setattr(journal, "_replace", real_replace)
+    assert history_sync._read_state(a.machine.state)["deleted"] == {KEY: [[first["entry_id"], first["timestamp"]]]}
+    assert reconcile(a)["removed"] == [first["entry_id"]]
+    for box in (a, b, a, b):
+        box.sync()
+    assert question_outcomes(b) == []  # the first answer left the shared history; nothing stale remains
+    again = hook_process.record_turn(hook_stop(a, transcript, stop_hook_active=True, last_assistant_message=corrected),
+                                     interactive=True)
+    assert "replaced" in again and reconcile(a)["written"] == [again["entry_id"]]
+    for box in (a, b, a, b):
+        box.sync()
+    assert question_outcomes(b) == [flat(corrected)]
+
+
 # --- the fallback journal (#292) ----------------------------------------------------------------
 
 FALLBACK_SEGMENTS = f"repos/{history_sync.FALLBACK_KEY}/history"

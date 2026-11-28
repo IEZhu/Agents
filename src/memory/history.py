@@ -426,7 +426,11 @@ def set_sync(integration):
     ``integration.machines(history_path)`` returns a ``MachineHistory``, or None
     while the repository's history does not take part in sync; an optional
     ``integration.deleted(history_path, entry_id, timestamp)`` hears of an entry
-    ``delete_entry`` removed, also once the locks are released. Without an
+    ``delete_entry`` removed, also once the locks are released; an optional
+    ``integration.deleting(history_path, entry_id, timestamp)`` hears of an entry a
+    keyed write (``supersede``, ``withdraw``) is about to remove, under the
+    journal's locks and before the journal changes, so a process ended right
+    after the change still leaves its record (#701 review). Without an
     integration the history is this machine's journal only.
     ``src.user_sync.history.install`` sets it.
     """
@@ -455,6 +459,20 @@ def _appended(history_path: str, entry_id: Optional[str]) -> None:
         integration.appended(history_path, entry_id)
     except Exception:
         logger.warning("could not schedule sharing the history of %s", history_path, exc_info=True)
+
+
+def _deleting(history_path: str, entries) -> None:
+    """Tell the sync, under the journal's locks and before the journal changes, which entries a
+    keyed write is about to remove (#701 review). A failure is logged and the write goes on, as
+    after a removal; an interruption (``KeyboardInterrupt``) ends it before the journal changes."""
+    hook = getattr(_sync, "deleting", None)
+    if hook is None:
+        return
+    for entry in entries:
+        try:
+            hook(history_path, entry.id, entry.timestamp)
+        except Exception:
+            logger.warning("could not record a removal of %s for sync", history_path, exc_info=True)
 
 
 def _later_than(timestamp: str, earlier) -> str:
@@ -1296,6 +1314,7 @@ class HistoryWriter:
                         # A write killed between its new entry and the removal of the copy it
                         # replaced left that copy: this write under the key removes it, keeping
                         # receipts only where the key was withdrawn.
+                        _deleting(self.history_path, [item[1] for item in others])
                         removed = (self._remove_keyed(texts, others, directory_info, archive_info) if entry is None
                                    else self._remove_copies(texts, others, directory_info, archive_info))
                     return {**receipt["result"], "path": self.history_path}, False, removed
@@ -1304,6 +1323,7 @@ class HistoryWriter:
             if bare:
                 # Removed on purpose: a later write under the key must not bring it back, and a
                 # copy that an interrupted removal left goes as well.
+                _deleting(self.history_path, [item[1] for item in keyed])
                 removed = self._remove_keyed(texts, keyed, directory_info, archive_info)
                 return {"status": "withdrawn", "entry_id": entry_id, "path": self.history_path,
                         "state": "durably_accepted"}, False, removed
@@ -1356,6 +1376,8 @@ class HistoryWriter:
                                         "payload_digest": payload_digest,
                                         "result": {key: value for key, value in result.items() if key != "path"}}
         block = self._render_entry(entry_id, timestamp, intent, action, outcome, files, tags, metadata)
+        # Sync hears of what goes before anything changes, so the record survives a kill after it.
+        _deleting(self.history_path, [entry for _index, entry, _receipt in replacing])
         # The new entry first, in the replacement that also drops history.md's older copies.
         _replace(self.history_path, content + block, info=directory_info)
         removed = [entry for _index, entry, _receipt in replacing]
@@ -1415,6 +1437,7 @@ class HistoryWriter:
                 content, journal_info = "", None
             texts, archive_info = self._keyed_texts(content, journal_info, key_digest[:12])
             _holders, keyed, _bare = self._keyed_entries(texts, key_digest, key_digest[:12])
+            _deleting(self.history_path, [item[1] for item in keyed])
             removed = self._remove_keyed(texts, keyed, directory_info, archive_info)
         if not removed:
             return {"status": "absent"}

@@ -1857,6 +1857,40 @@ def test_a_replacement_written_in_the_same_second_gets_a_later_time(project, tmp
     assert entry.timestamp == again["timestamp"] and entry.outcome == flat(CORRECTED)
 
 
+def test_a_removal_is_recorded_for_sync_before_the_journal_changes(project, tmp_path, monkeypatch):
+    """A hook ended between the journal change and the record left the replaced answer shared for good.
+    The record comes first now: when it is written the journal still holds the entry it names, and a
+    hook ended before it leaves the journal as it was, for the turn's next Stop to replace."""
+    from src.user_sync import history as history_sync
+    seen = []  # the journal's text when the record is written, read without its lock, which the write holds
+    monkeypatch.setattr(history_sync, "record_deletion", lambda path, entry_id, timestamp: seen.append(
+        (flat(LONG_ANSWER) in flat((project / "history.md").read_text(encoding="utf-8")),
+         flat(CORRECTED) in flat((project / "history.md").read_text(encoding="utf-8")))))
+    transcript = corrected_turn(tmp_path, answer_row(CORRECTED, "m2"))
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", last_assistant_message=LONG_ANSWER),
+                     interactive=True)
+    hook.record_turn(stop_event(project, transcript, prompt_id="p1", stop_hook_active=True,
+                                last_assistant_message=CORRECTED), interactive=True)
+    assert seen == [(True, False)] and [entry.outcome for entry in entries(project)] == [flat(CORRECTED)]
+
+    def ended(path, entry_id, timestamp):
+        raise KeyboardInterrupt("the client cancelled the hook")
+    other = rows_file(tmp_path / "t2.jsonl", [opener("p2", "second question"), *activation_rows(),
+                                              answer_row(LONG_ANSWER, "m3"), {**FEEDBACK, "promptId": "p2"},
+                                              answer_row(CORRECTED, "m4")])
+    hook.record_turn(stop_event(project, other, prompt_id="p2", last_assistant_message=LONG_ANSWER), interactive=True)
+    monkeypatch.setattr(history_sync, "record_deletion", ended)
+    with pytest.raises(KeyboardInterrupt):
+        hook.record_turn(stop_event(project, other, prompt_id="p2", stop_hook_active=True,
+                                    last_assistant_message=CORRECTED), interactive=True)
+    assert [entry.outcome for entry in entries(project) if entry.intent == "second question"] == [flat(LONG_ANSWER)]
+    monkeypatch.setattr(history_sync, "record_deletion", lambda *arguments: None)
+    again = hook.record_turn(stop_event(project, other, prompt_id="p2", stop_hook_active=True,
+                                        last_assistant_message=CORRECTED), interactive=True)
+    assert "replaced" in again
+    assert [entry.outcome for entry in entries(project) if entry.intent == "second question"] == [flat(CORRECTED)]
+
+
 def persona_rows(tool_name, persona):
     return [{"type": "assistant", "message": {"id": "a1", "content": [
                 {"type": "tool_use", "id": "t1", "name": tool_name, "input": {}}]}},

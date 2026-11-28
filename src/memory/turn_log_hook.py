@@ -42,9 +42,9 @@ yet, and a turn the model kept out of the journal (``journal=false``), belongs t
 hook removes its own earlier entry of the turn and writes nothing. A turn whose own call the server
 refused is not logged at all, as it was not before this hook, and neither is one whose
 ``journal=false`` call a server older than that parameter recorded; both are reported. What the
-hook removes is recorded for the user library sync (``src.user_sync.history.record_deletion``), so
-the next reconcile of a process that shares this repository's history takes it out of what this
-machine shared.
+hook removes is recorded for the user library sync (``src.user_sync.history.record_deletion``),
+before the journal changes, so the next reconcile of a process that shares this repository's
+history takes it out of what this machine shared.
 
 Secrets are cleaned before anything is written (``src.memory.turn_redaction.redact``): the rest
 of every line after a word that names a secret or a client's password option, token formats,
@@ -591,9 +591,11 @@ def turn_key(payload: dict, prompt: str | None) -> str | None:
 
 class _RemovalsForSync:
     """The history sync integration of the hook process: it shares nothing itself and only records
-    the entries the hook removed (a superseded or withdrawn entry), so the next reconcile of a
+    the entries the hook removes (a superseded or withdrawn entry), so the next reconcile of a
     process that shares this repository's history takes them out of what this machine shared, and
-    merged reads leave them out at once (#701 review)."""
+    merged reads leave them out at once (#701 review). The record is written under the journal's
+    locks before the journal changes (``deleting``), so a hook ended right after the change, by
+    the client's timeout or its own watchdog, still leaves it."""
 
     def appended(self, history_path: str, entry_id: str | None = None) -> None:
         return None
@@ -601,9 +603,12 @@ class _RemovalsForSync:
     def machines(self, history_path: str):
         return None
 
-    def deleted(self, history_path: str, entry_id: str, timestamp: str) -> None:
+    def deleting(self, history_path: str, entry_id: str, timestamp: str) -> None:
         from src.user_sync import history as history_sync
         history_sync.record_deletion(history_path, entry_id, timestamp)
+
+    def deleted(self, history_path: str, entry_id: str, timestamp: str) -> None:
+        return None  # recorded before the change
 
 
 def _remaining(deadline: float | None) -> float | None:
