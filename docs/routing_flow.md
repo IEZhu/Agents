@@ -142,10 +142,11 @@ When the user names a flow, workflow or ritual, or asks for work by one ("flow",
 "workflow", "флоу", "по флоу X", "ритуал", a flow ID), the client calls
 `list_flows` and then `run_flow` for the matching flow before taking any of its
 steps, and applies a returned `persona_activation` as a switch. Once the flow
-is done, it assesses the next request that does not continue the flow against
-the last returned `previous_persona` rather than the flow's persona, switches
-back to that role with `get_agent_context` when it fits, and routes the request
-when there is none. If no flow matches, it says so and continues without one.
+is done, it assesses the next request that does not continue it against the last
+`previous_persona` that `run_flow` returned and never keeps the flow's persona:
+it switches back to that role with `get_agent_context` (the flow's descriptor as
+`current_persona`) when it fits, else it calls `route_and_load`. If no flow
+matches, it says so and continues without one.
 It does not improvise a procedure that an installed flow covers.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
