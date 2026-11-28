@@ -24,11 +24,12 @@ it: its records stay in the set, and the next stage continues from them.
 ## What changed in the harness
 
 - **Schedule by cluster blocks.** Clusters come in a seeded order, and every slot of
-  a cluster's items stays together. `run --stage-runs <n>` takes the leading
-  complete clusters whose slots fit `n`. So a stage is a cluster sample of the set,
-  and its design effect estimates the whole set's: a stage of scattered items would
-  break the clusters up and report `D` near 1. Within what one run takes, slots are
-  still shuffled so arms and items interleave.
+  a cluster's items stays together. `run --stage-runs <n>` took the leading
+  complete clusters whose slots fit `n`; it now takes as many as `n` slots hold on
+  average ([the current cut](../verifier-accuracy-measurement.md#the-runs)). So a
+  stage is a cluster sample of the set, and its design effect estimates the whole set's:
+  a stage of scattered items would break the clusters up and report `D` near 1. Within
+  what one run takes, slots are still shuffled so arms and items interleave.
 - **Planning look.** `analyze --look planning` reports the final look's bands with no
   rule case. It also projects the whole set: `(c, b)` drawn from the stage's
   posterior, the full design simulated on the set's clusters with each verdict lost
