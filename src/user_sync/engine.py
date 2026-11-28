@@ -14,6 +14,14 @@ three-way merge of the last integrated tree, the working tree and the remote tre
 merged exclusions, and pushes that. Text that another machine excluded therefore never reaches the
 remote, not even in an intermediate commit.
 
+Someone may still run ``git commit`` in the library. Such commits on top of the last integrated
+remote head count as edits of the working tree since that head, which stays the merge base while
+the remote has not moved (#754). They go up below the cycle's commit only when every version they
+hold passes the rules a working-tree file must pass; otherwise the owner confirms an upload of
+the files that sync, on top of the remote head, and ``refs/agents-core/local-commits/<commit>``
+keeps the commits here. That ref, never pushed, keeps every commit the branch would leave behind
+that no remote head this machine knows of contains.
+
 One cycle:
 
 1. ``git fetch`` without any lock.
@@ -32,10 +40,11 @@ runner reports ``lock_held``. Git lock files that a killed run left behind are r
 are older than a few seconds, because no other syncer can hold them.
 
 The first upload, joining a remote that has flows without common history, a remote whose history
-was rewritten, a commit that would delete most of the library, and including again what another
-machine excluded all wait for the owner's confirmation of the exact preview, identified by its
-hash. Network failures retry after 1, 2, 5, 10 and 30 minutes; access and safety failures stop with
-a reason until the owner acts.
+was rewritten, commits made outside sync that hold files sync does not upload or that the remote
+does not contain while it has moved on, a commit that would delete most of the library, and
+including again what another machine excluded all wait for the owner's confirmation of the exact
+preview, identified by its hash. Network failures retry after 1, 2, 5, 10 and 30 minutes; access
+and safety failures stop with a reason until the owner acts.
 
 Settings, state, this machine's key, ``known_hosts``, the isolated ``gitconfig`` and the log live
 in a private per-installation directory (``default_state_dir``), never in the library.
@@ -94,6 +103,12 @@ TRAILER = "Agents-Sync-Machine"
 # more than half of them, waits for confirmation: a broken script or a wrong ``rm`` must not empty
 # every machine.
 MASS_DELETION_FILES = 10
+# Commits made in the library outside sync that the branch leaves behind, kept here and never pushed.
+LOCAL_COMMITS_REFS = "refs/agents-core/local-commits/"
+# The files of such commits that keep them here, as a confirmation message names them.
+UNSYNCED_SHOWN = 5
+# Blobs of such commits the secret scanner reads per git call; each is at most MAX_FILE_BYTES.
+SCAN_BATCH = 8
 
 _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 _EMAIL = re.compile(r"[^@\s<>]+@[^@\s<>]+")
@@ -577,10 +592,12 @@ def changed_paths(old: dict, new: dict) -> list[str]:
 class _Plan:
     """What a cycle would do; computed under the library lock, without changing anything."""
 
-    head: str | None                        # the last integrated remote commit (local branch)
+    head: str | None                        # the local branch: the last integrated remote commit,
+                                            # or commits made outside sync on top of it
     remote_head: str | None
     snapshot: Snapshot
-    current: dict                           # the tree of ``head``
+    current: dict                           # the tree of the last integrated commit: ``head``, or the
+                                            # remote head below commits made outside sync (``ahead``)
     desired: dict                           # the working tree as sync would commit it
     remote_tree: dict
     remote_other: dict                      # non-file entries of the remote tree, kept as they are
@@ -609,6 +626,9 @@ class _Plan:
     accepted_tips: dict[str, str] = field(default_factory=dict)
     replacement: dict[str, str | bytes | None] = field(default_factory=dict)
     shape_holds: dict[str, str] = field(default_factory=dict)
+    outside: list[str] = field(default_factory=list)   # commits made on the branch outside sync
+    ahead: bool = False                     # they sit on the remote head, which has not moved since
+    unsynced: dict[str, str] = field(default_factory=dict)  # path -> why their history stays here
 
 
 class Syncer:
@@ -956,8 +976,12 @@ class Syncer:
 
     def _commit(self, git: Git, settings: Settings, tree: dict[str, str], parents, summary: str,
                 other: dict[str, tuple] | None = None, executable: set[str] = frozenset()) -> str:
+        return self._commit_written(git, settings, self._write_tree(git, tree, other, executable), parents, summary)
+
+    def _commit_written(self, git: Git, settings: Settings, tree: str, parents, summary: str) -> str:
+        """A sync commit of the tree object ``tree``."""
         message = f"sync({settings.label}): {summary}\n\n{TRAILER}: {settings.label}\n"
-        arguments = ["commit-tree", self._write_tree(git, tree, other, executable)]
+        arguments = ["commit-tree", tree]
         for parent in parents:
             arguments += ["-p", parent]
         return git.text(*arguments, input=message.encode("utf-8"))
@@ -2025,12 +2049,16 @@ class Syncer:
                     *, joining: bool) -> _Plan:
         """Read the library and work out the cycle. Call under the library lock; changes nothing."""
         head = self._rev(git, f"refs/heads/{settings.branch}")
-        current, _, _ = self._tree_entries(git, head)
-        remote_tree, remote_other, remote_executable = self._tree_entries(git, remote_head)
         last_seen = state.get("remote_head")
         rewritten = bool(remote_head and last_seen and settings.started and remote_head != last_seen
                          and not self._is_ancestor(git, last_seen, remote_head))
-        integrated = remote_head is None or (head is not None and (
+        outside = self._outside_commits(git, settings, head, last_seen)
+        # Commits made in the library outside sync on top of the remote head integrated last, while
+        # the remote has not moved, are edits of the working tree since that head (#754).
+        ahead = bool(outside) and remote_head == last_seen
+        current, _, _ = self._tree_entries(git, remote_head if ahead else head)
+        remote_tree, remote_other, remote_executable = self._tree_entries(git, remote_head)
+        integrated = remote_head is None or ahead or (head is not None and (
             head == remote_head or self._is_ancestor(git, head, remote_head)))
         # A normal cycle merges against what this machine integrated last. A join, a rewritten or an
         # unrelated remote has no trustworthy base: every file from either side survives (S4).
@@ -2060,19 +2088,33 @@ class Syncer:
         plan = _Plan(head, remote_head, snap, current, desired, remote_tree, remote_other, base,
                      remote_executable=remote_executable,
                      target=desired, rewritten=rewritten, held_groups=held_groups, held_files=held_files,
-                     scopes=effective, rules=Rules(effective, snap.portable, held_groups, held_files))
+                     scopes=effective, rules=Rules(effective, snap.portable, held_groups, held_files),
+                     outside=outside, ahead=ahead)
         if remote_head is None:
             plan.kind = "push" if desired and (desired != current or head is None) else "none"
+            return plan
+        if ahead:
+            # Always a push, even of nothing new: a branch left ahead would diverge from the next
+            # commit another machine pushes.
+            plan.unsynced = self._unsynced(git, plan)
+            if plan.unsynced and not joining:
+                raise SyncError("confirmation_needed", self._unsynced_message(plan))
+            plan.kind = "push"
             return plan
         if integrated and not rewritten and head == remote_head:
             plan.kind = "push" if desired != current else "none"
             return plan
         if not integrated or rewritten:
             if not joining:
-                raise SyncError("confirmation_needed",
-                                "the remote history was rewritten or is unrelated to this library; "
-                                "review the preview and confirm it" if settings.started else
-                                "review the preview and start sync")
+                if not settings.started:
+                    message = "review the preview and start sync"
+                elif outside and not rewritten:
+                    message = (f"{self._outside_count(plan)} that the remote does not have, and the remote "
+                               "has changed since; review the preview and confirm it")
+                else:
+                    message = ("the remote history was rewritten or is unrelated to this library; "
+                               "review the preview and confirm it")
+                raise SyncError("confirmation_needed", message)
         merged = merging.merge(base, desired, remote_tree, read, label=settings.label, now=self._clock(),
                                local_commit=head, remote_commit=remote_head)
         marker = merged.tree.get(MARKER)
@@ -2099,6 +2141,109 @@ class Syncer:
         else:
             plan.kind = "join" if not integrated or rewritten else "merge"
         return plan
+
+    def _outside_commits(self, git: Git, settings: Settings, head: str | None, last_seen: str | None) -> list[str]:
+        """The commits of ``head`` after ``last_seen``, the remote head the last cycle integrated.
+
+        Sync moves the branch only to a remote head or to a commit the remote accepted, so commits
+        there that descend from that head were made in the library outside sync (someone ran
+        ``git commit``). Empty when ``head`` does not descend from it.
+        """
+        if not (settings.started and head and last_seen and head != last_seen
+                and self._is_ancestor(git, last_seen, head)):
+            return []
+        return git.text("rev-list", f"{last_seen}..{head}", "--").split()
+
+    @staticmethod
+    def _outside_count(plan: _Plan) -> str:
+        count = len(plan.outside)
+        return f"the library's branch has {count} commit{'s' if count != 1 else ''} made outside sync"
+
+    def _unsynced(self, git: Git, plan: _Plan) -> dict[str, str]:
+        """Why the history of the commits made outside sync cannot be pushed as it is, by path.
+
+        Pushing them sends every version they hold, not only the last one. So each file version they
+        add or change, other than the remote head's own, must be one a cycle could commit from the
+        working tree: a regular file of at most ``MAX_FILE_BYTES`` on a path that syncs here (never
+        ``.history/``) that the secret scanner passes. Reasons: ``never``, ``excluded``, ``local``,
+        ``pending`` (as ``Rules.reason`` gives them), ``not_regular``, ``size``, ``secret`` (a credential
+        the owner has not allowed) and ``invalid_mcp_record``.
+        """
+        listing = git.run("diff-tree", "--stdin", "-r", "-z", "-m", "--root", "--no-renames", "--no-abbrev",
+                          input="".join(f"{commit}\n" for commit in plan.outside).encode()).stdout
+        tokens = listing.split(b"\0")
+        reasons: dict[str, str] = {}
+        found: dict[str, list[str]] = {}  # blob -> the paths that hold it, in the order git listed them
+        index = 0
+        while index < len(tokens) - 1:
+            token, raw = tokens[index], tokens[index + 1]
+            if not token.startswith(b":"):  # the commit the next entries belong to
+                index += 1
+                continue
+            index += 2
+            _, mode, _, blob, status = token[1:].decode("ascii").split()
+            if status == "D":
+                continue
+            try:
+                path = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                reasons.setdefault(raw.decode("utf-8", "replace"), "never")
+                continue
+            if mode not in ("100644", "100755"):
+                if plan.remote_other.get(path) != (mode, blob):
+                    reasons.setdefault(path, "not_regular")
+            elif plan.remote_tree.get(path) != blob:
+                reason = "never" if path.startswith(".history/") else plan.rules.reason(path)
+                if reason is not None:
+                    reasons.setdefault(path, reason)
+                elif path not in found.setdefault(blob, []):
+                    found[blob].append(path)
+        sizes = self._blob_sizes(git, found)
+        small = []
+        for blob in sorted(found):
+            if sizes.get(blob, MAX_FILE_BYTES + 1) <= MAX_FILE_BYTES:
+                small.append(blob)
+            else:
+                for path in found[blob]:
+                    reasons.setdefault(path, "size")
+        for start in range(0, len(small), SCAN_BATCH):
+            contents = self._read_blobs(git, small[start:start + SCAN_BATCH])
+            for blob in small[start:start + SCAN_BATCH]:
+                data = contents[blob]
+                allowed = scope.content_hash(data) in plan.scopes.allow
+                for path in found[blob]:
+                    pattern = scope.scan(data, path=path)
+                    if pattern == "invalid_mcp_record":
+                        reasons.setdefault(path, pattern)
+                    elif pattern and not allowed:
+                        reasons.setdefault(path, "secret")
+        return reasons
+
+    @staticmethod
+    def _unsynced_message(plan: _Plan) -> str:
+        listed = sorted(plan.unsynced.items())
+        files = ", ".join(f"{path} ({reason.replace('_', ' ')})" for path, reason in listed[:UNSYNCED_SHOWN])
+        if len(listed) > UNSYNCED_SHOWN:
+            files += f" and {len(listed) - UNSYNCED_SHOWN} more"
+        return (f"{Syncer._outside_count(plan)} that the remote does not have, with files sync does not upload: "
+                f"{files}; review the preview and confirm to upload only the files that sync, keeping those "
+                "commits on this machine")
+
+    def _keep_local_commits(self, git: Git, state: dict, plan: _Plan, new: str | None) -> None:
+        """Before the branch moves from ``plan.head`` to ``new``, keep the commits only it holds.
+
+        Commits made in the library outside sync that neither ``new`` nor a remote head this machine
+        knows of (the one fetched, the one integrated last) contains would be reachable from no ref:
+        ``LOCAL_COMMITS_REFS<commit>`` keeps them on this machine. It is never pushed.
+        """
+        head = plan.head
+        if head is None or new is None or self._is_ancestor(git, head, new):
+            return
+        known = (plan.remote_head, state.get("remote_head"))
+        if any(commit and self._is_ancestor(git, head, commit) for commit in known):
+            return
+        git.run("update-ref", LOCAL_COMMITS_REFS + head, head)
+        self._log(f"kept commits made outside sync at {LOCAL_COMMITS_REFS}{head}")
 
     @staticmethod
     def _history_publication(backend, rules: Rules) -> versions.Publication:
@@ -2166,6 +2311,12 @@ class Syncer:
             upload, removed = [], []
             download = [entry(p, remote_sizes) for p, value in plan.replacement.items() if value is not None]
             delete_local = [p for p, value in plan.replacement.items() if value is None]
+        # Commits made in the library outside sync: pushed below the cycle's commit (also when the
+        # remote branch is gone and the branch goes up again as a whole), or kept here.
+        pushed = (plan.ahead and not plan.unsynced) or (plan.remote_head is None and plan.kind == "push")
+        local_commits = {"count": len(plan.outside), "pushed": pushed,
+                         "unsynced": [{"path": p, "reason": r} for p, r in sorted(plan.unsynced.items())]} \
+            if plan.outside else None
         identity = json.dumps({
             "remote": plan.remote_head, "head": plan.head,
             "desired": sorted(plan.desired.items()),
@@ -2188,9 +2339,11 @@ class Syncer:
             "generated_values": sorted((p, hashlib.sha256(v).hexdigest()) for p, v in target.items()
                                        if isinstance(v, bytes) and p not in plan.generated),
             "comparison": plan.comparison,
+            "local_commits": [plan.outside, local_commits],
         }, sort_keys=True)
         return {
             "kind": plan.kind, "remote_head": plan.remote_head, "head": plan.head,
+            "local_commits": local_commits,
             "upload": upload, "remove_from_remote": removed, "download": download,
             "delete_local": delete_local, "conflicts": conflicts, "merged": merged, "blocked": blocked,
             "held": [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())],
@@ -2261,7 +2414,12 @@ class Syncer:
     # --- writing ----------------------------------------------------------------------
 
     def _commit_target(self, git: Git, settings: Settings, plan: _Plan) -> str:
-        """The commit to push: ``plan.target`` on top of the remote head (or ``head`` before the first push)."""
+        """The commit to push: ``plan.target`` on top of the remote head (or ``head`` before the first push).
+
+        Commits made in the library outside sync go below it when their history may be pushed as it
+        is (``plan.ahead`` and nothing ``unsynced``); otherwise it goes on the remote head, without
+        them. When it would not change its parent's tree, the parent itself is pushed.
+        """
         known = set(plan.remote_tree.values()) | set(plan.current.values()) | set(plan.base.values())
         stored = [path for path, value in plan.target.items() if isinstance(value, str)
                   and value not in known and plan.snapshot.files.get(path) == value]
@@ -2273,13 +2431,20 @@ class Syncer:
             parents, old = [plan.remote_head], plan.remote_tree
         else:
             parents, old = ([plan.head] if plan.head else []), plan.current
+        executable = {path for path in plan.remote_executable if tree.get(path) == plan.remote_tree.get(path)}
+        if plan.ahead and not plan.unsynced:
+            old, _, marked = self._tree_entries(git, plan.head)
+            executable |= {path for path in marked if tree.get(path) == old.get(path)}
+            parents = [plan.head]
+        written = self._write_tree(git, tree, plan.remote_other, executable)
+        if plan.ahead and written == git.text("rev-parse", f"{parents[0]}^{{tree}}"):
+            return parents[0]
         summary = describe(old, tree)
         if plan.merged:
             summary += f" (merged {len(plan.merged)} file{'s' if len(plan.merged) > 1 else ''} line by line)"
         if plan.conflicts:
             summary += f" ({len(plan.conflicts)} conflict{'s' if len(plan.conflicts) > 1 else ''})"
-        executable = {path for path in plan.remote_executable if tree.get(path) == plan.remote_tree.get(path)}
-        return self._commit(git, settings, tree, parents, summary, plan.remote_other, executable)
+        return self._commit_written(git, settings, written, parents, summary)
 
     def _publisher(self, git: Git) -> str:
         identifier = git.text("config", "--get", "agents-history.publisher", check=False)
@@ -2985,6 +3150,8 @@ class Syncer:
                 # Objects only: the commit exists before the working tree changes, and stays
                 # unreferenced if anything below fails.
                 outcome["push"] = self._commit_target(git, settings, plan)
+            if plan.kind == "push":
+                self._keep_local_commits(git, state, plan, outcome["push"])  # the push moves the branch there
             if plan.kind in ("merge", "join", "fast_forward"):
                 outcome["received_from"] = senders
                 applied = self._apply(git, state, plan)
@@ -2993,6 +3160,7 @@ class Syncer:
                 held = set(state.get("held_remote", ()))
                 outcome["merged"] = [item for item in plan.merged if item["path"] not in held]
                 self._save_state(state)  # held_remote is on disk before the branch moves
+                self._keep_local_commits(git, state, plan, remote_head)
                 self._set_head(git, settings, remote_head, plan.head)
                 outcome["integrated"] = remote_head
                 outcome["received"] = sorted(applied["written"] + applied["deleted"])

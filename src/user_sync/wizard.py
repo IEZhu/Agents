@@ -17,7 +17,7 @@ from typing import Callable
 import webbrowser
 
 from src.user_sync import github as github_api
-from src.user_sync.engine import SyncError, Syncer, default_label, validate_identity
+from src.user_sync.engine import LOCAL_COMMITS_REFS, SyncError, Syncer, default_label, validate_identity
 from src.user_sync.gitcmd import RemoteError, parse_remote
 
 _KINDS = {
@@ -175,6 +175,17 @@ def describe_preview(preview: dict) -> list[str]:
     lines = [f"Preview: {'replace local library with the repository' if mode == 'replace' else description}"]
     if preview.get("connection_choice_required") and not mode:
         lines.append("Choose merge or replace before this preview can start sync.")
+    local = preview.get("local_commits")
+    if local:
+        title = f"Commits made in this library outside sync: {local['count']}"
+        if local.get("pushed"):
+            lines.append(f"{title}, uploaded with their history.")
+        else:
+            lines.append(f"{title}, kept on this machine ({LOCAL_COMMITS_REFS}); only their files "
+                         "that sync are uploaded.")
+            lines += _listed("Files in them that sync does not upload",
+                             [f"{item['path']} ({item['reason'].replace('_', ' ')})"
+                              for item in local.get("unsynced", [])])
     comparison = preview.get("comparison", {})
     if comparison:
         summary = comparison.get("summary", {})
