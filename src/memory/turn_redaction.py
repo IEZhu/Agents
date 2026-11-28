@@ -12,8 +12,9 @@ detectors find, round after round, and says whether a last scan found nothing mo
   A word used as an ordinary word in a sentence keeps its line when the rule can tell nothing
   after it is a value; in doubt the line is masked.
 - Formats: the schedule records' token formats (``records.SECRET_PATTERNS``) and
-  ``EXTRA_SECRET_PATTERNS``, keeping a token's prefix; private key blocks, PGP ones included, and
-  key bodies whose BEGIN line is missing; credentials in URLs and DSNs; pgpass lines.
+  ``EXTRA_SECRET_PATTERNS``, keeping a token's prefix; the bodies of private key blocks, PGP ones
+  included (the scanner then masks a block's BEGIN line, and its END line stays), and key bodies
+  whose BEGIN line is missing; credentials in URLs and DSNs; pgpass lines.
 - Shapes: random-looking runs of token characters or of base64, 43-character tokens, hex keys of
   32 digits or of a length no commit name or digest has, base32 secrets, hex dumps of key
   material, AWS secret keys and Discord tokens, except the ids ``NOT_SECRET`` names.
@@ -21,13 +22,16 @@ detectors find, round after round, and says whether a last scan found nothing mo
   the caller's known secrets (``environment_secrets``), also split or encoded; and the credentials
   that shared memory and user sync refuse to serve or publish.
 
-Every rule works line by line or on bounded windows, so a scan stays linear in the text's length
-(#701 review: one pattern took 70 s on a 160,000-character line). What still passes is listed in
-docs/memory.md (Secrets and private details).
+Every rule works line by line or on bounded windows: a match that masks to its line's end is
+read once per line, lookaheads and quoted values are bounded, no pattern restarts inside a run,
+and a line's tokens are read once for all its words (#701 reviews: one pattern took 70 s on a
+160,000-character line, and ten shapes of the final verification 5 to over 120 s at 1 MB). This
+is measured, not proven: docs/memory.md gives the times. What still passes is listed there too
+(Secrets and private details).
 """
 from __future__ import annotations
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 import functools
 import os
 import re
@@ -164,7 +168,9 @@ EXTRA_SECRET_PATTERNS = (
     re.compile(r"\b(xox[abposr]-)[A-Za-z0-9-]{10,}"),
     re.compile(r"\b(xapp-)[A-Za-z0-9-]{10,}"),
     re.compile(r"\b(AIza)[0-9A-Za-z_-]{30,}"),
-    re.compile(r"\b(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+    # The scanner's run-start lookbehind: without it every "eyJ" inside a run restarted the match
+    # (#701 review: 72 s for 300 kB of "-eyJ").
+    re.compile(r"(?<![A-Za-z0-9_-])(eyJ)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?<![A-Z0-9])(ASIA)[A-Z0-9]{16}(?![A-Z0-9])"),
     re.compile(r"\b(SG\.)[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"),
     re.compile(r"\b(SK)[0-9a-fA-F]{32}\b"),
@@ -424,15 +430,23 @@ def _separator_after(line: str, index: int) -> str | None:
     return None
 
 
-def _field(line: str, start: int, end: int) -> str | None:
+def _field(line: str, start: int, end: int, delimiters=None) -> str | None:
     """The delimiter of a table's header that the name is a field of (``user,password``,
-    ``| user | password |``), else None."""
+    ``| user | password |``), else None. ``delimiters``, those the line holds, saves a search of the
+    line per name; the blanks around a pipe are read a bounded way, never by slicing the line."""
+    delimiters = {mark for mark in ",;\t|" if mark in line} if delimiters is None else delimiters
     before, after = line[start - 1:start] if start else "", line[end:end + 1]
     for delimiter in (",", ";", "\t"):
-        if before in (delimiter, "") and after in (delimiter, "") and delimiter in line:
+        if before in (delimiter, "") and after in (delimiter, "") and delimiter in delimiters:
             return delimiter
-    if line[:start].rstrip(" ").endswith("|") and line[end:].lstrip(" ").startswith("|"):
-        return "|"
+    if "|" in delimiters:
+        left, right = start - 1, end
+        while left >= 0 and line[left] == " " and start - left <= 64:
+            left -= 1
+        while right < len(line) and line[right] == " " and right - end <= 64:
+            right += 1
+        if left >= 0 and line[left] == "|" and right < len(line) and line[right] == "|":
+            return "|"
     return None
 
 
@@ -453,23 +467,42 @@ def _prose_token(token: str, introducers: frozenset) -> bool:
 
 class _Prose:
     """Whether what follows a word to the end of its line is a sentence of ordinary words, at least
-    two of them; checked once per line, since a later word's rest is part of an earlier one's."""
+    two of them. The line's tokens are read once and judged once, so every word's question is a
+    bisection (#701 review: reading the rest of the line per word took 5 to 18 s for one 1 MB line)."""
 
     def __init__(self, line: str):
-        self.line, self.since, self.starts = line, None, []
+        self.line, self.ready = line, False
+
+    def _read(self) -> None:
+        # An earlier round's placeholder is no word, so a later round decides as the first one did;
+        # " masked " has the placeholder's length, so every offset stays.
+        words = self.line.replace(MASK, " masked ") if MASK in self.line else self.line
+        tokens = [(match.start(), match.end()) for match in re.finditer(r"\S+", words)]
+        self.words, self.starts, self.ends = words, [start for start, _ in tokens], [end for _, end in tokens]
+        # Where the first verb that sets a value ends: after it, "to" introduces one ("set it to V").
+        self.setting = min((run.end() for run in _LETTER_RUN.finditer(words) if run.group().lower() in SETTING_VERBS),
+                           default=len(words) + 1)
+        plain = [_prose_token(words[start:end], INTRODUCERS) for start, end in tokens]
+        plain_to = [_prose_token(words[start:end], INTRODUCERS | {"to"}) for start, end in tokens]
+        self.suffix, self.suffix_to = [True] * (len(tokens) + 1), [True] * (len(tokens) + 1)
+        for index in range(len(tokens) - 1, -1, -1):
+            self.suffix[index] = plain[index] and self.suffix[index + 1]
+            self.suffix_to[index] = plain_to[index] and self.suffix_to[index + 1]
+        self.ready = True
 
     def after(self, index: int) -> bool:
-        if self.since is not None and index >= self.since:
-            return len(self.starts) - bisect_left(self.starts, index) >= 2
-        # An earlier round's placeholder is no word, so a later round decides as the first one did.
-        rest = self.line[index:].replace(MASK, " masked ")
-        tokens = [(match.start(), match.group()) for match in re.finditer(r"\S+", rest)]
-        before = {word.lower() for word in _LETTER_RUN.findall(self.line[:index])}
-        introducers = INTRODUCERS | {"to"} if before & SETTING_VERBS else INTRODUCERS
-        if len(tokens) < 2 or not all(_prose_token(token, introducers) for _, token in tokens):
-            return False
-        self.since, self.starts = index, [index + start for start, _ in tokens]
-        return True
+        if not self.ready:
+            self._read()
+        setting = self.setting <= index
+        introducers = INTRODUCERS | {"to"} if setting else INTRODUCERS
+        first = bisect_left(self.starts, index)
+        count = len(self.starts) - first
+        holder = first - 1  # a token the word ends inside: its rest is the first token after the word
+        if holder >= 0 and self.ends[holder] > index:
+            count += 1
+            if not _prose_token(self.words[index:self.ends[holder]], introducers):
+                return False
+        return count >= 2 and (self.suffix_to if setting else self.suffix)[first]
 
 
 def _trigger(line: str) -> tuple[int, str | None] | None:
@@ -493,6 +526,13 @@ def _trigger(line: str) -> tuple[int, str | None] | None:
 
 def _word_trigger(line: str) -> tuple[int, str | None] | None:
     prose, exempt, documents = _Prose(line), None, "docs.google" in line
+    # Read once per line, not per word (#701 review: slicing the line per word was quadratic).
+    stripped_line = line.strip().rstrip(":=").strip()
+    delimiters = {mark for mark in ",;\t|" if mark in line}
+    # The last character that can be a value: a label after it has nothing to mask on this line.
+    last_value = len(line) - 1
+    while last_value >= 0 and line[last_value] in _NO_VALUE:
+        last_value -= 1
     for name in _IDENT.finditer(line.replace(MASK, " " * len(MASK)) if MASK in line else line):
         if not _HINT.search(name.group()):
             continue
@@ -521,9 +561,6 @@ def _word_trigger(line: str) -> tuple[int, str | None] | None:
             joined = (line[start:label_name_end] != line[label_start:label_end]
                       and not _PLAIN_KEBAB.fullmatch(name.group()))
             separator = _separator_after(line, label_name_end)
-            stripped = line.strip().rstrip(":=").strip()
-            bare = stripped == line[label_start:label_end] or stripped == line[start:label_name_end]
-            field = _field(line, start, label_name_end)
             if kind == EQUALS:
                 hit = label_end == label_name_end and separator == "="
             elif kind == CALL:
@@ -537,11 +574,15 @@ def _word_trigger(line: str) -> tuple[int, str | None] | None:
             else:
                 hit = (joined or quoted or sigil or separator in ("=", ":", "quote")
                        or not prose.after(label_name_end))
+            if not hit and kind != STRONG:
+                continue  # only a strong word may head a table's column or stand alone without a hit
             # From the end of the name when the rest of it is words (SECRET_KEY, authToken), else
             # from the end of the word, so a value glued to it goes too (key-<hex>).
             rest = line[label_end:label_name_end]
             mask_from = label_name_end if _NAME_TAIL.fullmatch(rest) else label_end
-            if not line[mask_from:].strip(_NO_VALUE):
+            if mask_from > last_value:
+                bare = stripped_line == line[label_start:label_end] or stripped_line == line[start:label_name_end]
+                field = _field(line, start, label_name_end, delimiters)
                 # Nothing to mask on this line: a label line leaves its value for the lines below. A
                 # word alone on its line or heading a table's column is such a label when it names a
                 # secret by itself (Password, username,password), a weaker word only with a separator.
@@ -720,11 +761,15 @@ def key_block_spans(text: str) -> list[tuple[int, int]]:
 
 
 def _not_secret_spans(text: str) -> list[tuple[int, int]]:
+    """The regions ``NOT_SECRET`` names, in order and apart, as ``_inside`` needs them."""
     return [match.span() for match in NOT_SECRET.finditer(text)]
 
 
 def _inside(span: tuple[int, int], regions: list[tuple[int, int]]) -> bool:
-    return any(start <= span[0] and span[1] <= end for start, end in regions)
+    """Whether ``span`` lies within one of ``regions`` (sorted and apart): one bisection, not a scan of
+    every region per span (#701 review: 49.5 s for 18,519 lines of ids)."""
+    index = bisect_right(regions, (span[0], float("inf"))) - 1
+    return index >= 0 and regions[index][0] <= span[0] and span[1] <= regions[index][1]
 
 
 def _outside(run: str, offset: int, regions: list[tuple[int, int]]) -> str:
@@ -834,6 +879,25 @@ def _mixed(value: str) -> bool:
             and any(character.isdigit() for character in value))
 
 
+class _LineTails:
+    """Spans from a match to the end of its line, one per line: a later match on a line already masked
+    to its end adds nothing, so a line of many matches is read once (#701 review: a JSON array on one
+    line with a password field per record took 107 s at 1 MB)."""
+
+    def __init__(self, text: str):
+        self.text, self.until = text, -1
+
+    def add(self, spans: list, start: int) -> None:
+        if start < self.until:
+            return
+        end = self.text.find("\n", start)
+        end = len(self.text) if end < 0 else end
+        if end > start and self.text[end - 1] == "\r":
+            end -= 1
+        spans.append((start, end))
+        self.until = end
+
+
 def _secret_spans(text: str, scanner) -> list[tuple[int, int]] | None:
     """Where the detectors find a secret in ``text``; None when the scanner could not scan it
     whole (too large, too many hits). An entropy hit inside a region that ``NOT_SECRET`` names is
@@ -851,17 +915,17 @@ def _secret_spans(text: str, scanner) -> list[tuple[int, int]] | None:
             continue
         spans.append((hit.start, hit.end))
     for name, pattern in MEMORY_SECRETS:
+        tails = _LineTails(text)  # one per pattern: its matches come in order
         for match in pattern.finditer(text):
             if name == "labelled_credential":
-                start = match.start("value")
-                spans.append((start, _LINE_END.match(text, start).end()))
+                tails.add(spans, match.start("value"))
             else:
                 spans.append(match.span())
     for name, pattern in _sync_patterns():
+        tails = _LineTails(text)
         for match in pattern.finditer(text):
             if name == "password":  # it stops after the first character of the value
-                start = match.end() - 1
-                spans.append((start, _LINE_END.match(text, start).end()))
+                tails.add(spans, match.end() - 1)
             else:
                 spans.append(match.span())
     spans.extend(_shape_spans(text, exempt))
@@ -902,7 +966,8 @@ def redact(text: str, known=(), deadline: float | None = None) -> tuple[str, boo
     masked, and whether a last scan of the result found nothing more (#701, owner's decisions
     2026-11-27 and 2026-11-28).
 
-    Token formats keep their prefix and private key blocks their armour lines; then, round after
+    Token formats keep their prefix and a private key block its END line (the scanner masks the
+    BEGIN line, #701 review); then, round after
     round, the line rule (``line_spans``) masks after each label that names a secret, and every
     other find becomes ``MASK``, until the scan comes back empty or ``REDACTION_ROUNDS`` pass.
     ``known`` are the scanner's known secrets (``environment_secrets``). A round that ``deadline``

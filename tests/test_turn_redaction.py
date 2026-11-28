@@ -522,13 +522,15 @@ def test_a_private_key_begin_line_in_prose_masks_no_more_than_its_line():
     assert clean and masked.endswith("\nThe next paragraph explains how to rotate them.")
 
 
-def test_a_key_block_keeps_its_armour_lines_and_loses_its_body():
+def test_a_key_block_keeps_its_end_line_and_loses_its_body():
+    """v701-4 redaction: "keeps its armour lines" was not so; the scanner's private-key pattern masks the
+    BEGIN line, and only the END line stays."""
     rnd = Seeded(9100)
     body = [rnd(64, B64) for _ in range(4)]
     text = f"key:\n-----BEGIN RSA {MARKER}-----\n" + "\n".join(body) + f"\n-----END RSA {MARKER}-----\nDone."
     masked, clean = redaction.redact(text)
     assert clean and masked.endswith(f"-----END RSA {MARKER}-----\nDone.")
-    assert all(line not in masked for line in body)
+    assert all(line not in masked for line in body) and f"-----BEGIN RSA {MARKER}-----" not in masked
 
 
 def test_a_begin_line_without_its_end_takes_the_key_lines_after_it_only():
@@ -792,3 +794,48 @@ def test_one_long_line_is_scanned_in_linear_time(make, size):
     started = time.monotonic()
     redaction.redact(text)
     assert time.monotonic() - started < 6, len(text)
+
+
+def json_one_line(size: int, field: str) -> str:
+    """A JSON array on one line, as an API response prints it: a labelled value per record."""
+    generator, parts, total = random.Random(10), [], 0
+    while total < size:
+        value = "".join(generator.choice(ALNUM) for _ in range(16))
+        part = '{"id":%d,"email":"u%d@example.com","%s":"%s"}' % (len(parts) + 1, len(parts) + 1, field, value)
+        parts.append(part)
+        total += len(part) + 1
+    return "[" + ",".join(parts) + "]"
+
+
+def exempt_ids_and_hex(size: int) -> str:
+    """Ids of an exempt form and 32-digit hex ids, a pair per line."""
+    generator, lines, total = random.Random(11), [], 0
+    while total < size:
+        line = "msg_01" + "".join(generator.choice(ALNUM) for _ in range(14)) + " " + "".join(
+            generator.choice(HEX) for _ in range(32))
+        lines.append(line)
+        total += len(line) + 1
+    return "\n".join(lines)
+
+
+NESTED_QUOTES = "password = \"it's \\\"quoted\\\" 'inside' `ticks` \\\\ \" + '\"' + \"\\'\" ; "
+KB = 1024
+
+
+@pytest.mark.parametrize("make", [
+    lambda: json_one_line(512 * KB, "password"), lambda: json_one_line(512 * KB, "token"),
+    lambda: "token:" * (512 * KB // 6), lambda: "-eyJ" * (512 * KB // 4), lambda: "password=" * (512 * KB // 9),
+    lambda: exempt_ids_and_hex(512 * KB), lambda: NESTED_QUOTES * (512 * KB // len(NESTED_QUOTES)),
+    lambda: "key " * (1024 * KB // 4), lambda: "pass\u200bword=x " * (1024 * KB // 12),
+    lambda: "the token budget and " * (1024 * KB // 21),
+], ids=["json-password", "json-token", "token-colon", "jwt-dash", "password-equals", "exempt-ids-and-hex",
+        "nested-quotes", "weak-word-line", "zero-width", "strong-prose-line"])
+def test_the_final_verifications_slow_shapes_are_scanned_in_linear_time(make):
+    """v701-4 redaction finding 13: ten shapes took 5 to over 120 s at 300 kB to 1 MB, each match
+    reading to its line's end, lookaheads rescanning a run, a JWT pattern restarting inside a run,
+    every exempt region scanned per match and the line sliced per word."""
+    text = make()
+    started = time.monotonic()
+    masked, clean = redaction.redact(text)
+    assert time.monotonic() - started < 6, len(text)
+    assert clean
