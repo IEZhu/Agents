@@ -529,6 +529,17 @@ def test_a_project_named_in_another_case_follows_the_real_volume(world, tmp_path
     assert "variant" in visible(world, "project", root=variant)
 
 
+def test_a_project_named_like_this_one_with_more_or_fewer_characters_is_another_project(world):
+    """Only the case of a name's letters may differ: a longer or shorter name is never this workspace's."""
+    own = native.project_name(world["root"])
+    for fact, project in (("extra", own + "-extra"), ("client", own + "-client-2"), ("shorter", own[:-1])):
+        write(world["claude"] / "projects" / project / "memory" / f"{fact}.md",
+              note(fact, "kept for a project with a similar name", f"Belongs to the {fact} project."))
+    shown = set(visible(world, "project"))
+    assert "style" in shown and not {"extra", "client", "shorter"} & shown
+    assert {"extra", "client", "shorter"} <= set(visible(world, "all"))
+
+
 def test_the_index_store_never_holds_note_text(world, tmp_path):
     index = make_index(tmp_path / "index", FakeModel())
     build(world, index)
@@ -658,6 +669,10 @@ def test_a_long_description_does_not_grow_every_chunk(world):
     pieces = shared.chunks(wordy)
     assert all(text.startswith("wordy — ddd") for _, text in pieces)
     assert all(len(text) <= shared.CHUNK_CHARS for _, text in pieces)  # the title counts
+    # The bodies after the title line, joined, are the note's body: nothing is lost or doubled at a cut.
+    # Only the paragraph break where one chunk ends and the next begins is not kept.
+    joined = "".join(text.split("\n", 1)[1] for _, text in pieces)
+    assert joined.replace("\n\n", "") == body.replace("\n\n", "")
 
 
 def test_a_failing_semantic_search_still_answers_lexically(world, tmp_path):
@@ -838,15 +853,25 @@ def test_a_model_that_loads_another_snapshot_rebuilds_under_its_fingerprint(worl
     assert index.coverage(documents)["covered"] == len(documents)
 
 
-def test_a_query_whose_model_loads_another_snapshot_skips_the_old_vectors(world, tmp_path):
+def test_a_query_whose_model_loads_another_snapshot_compares_only_that_snapshots_vectors(world, tmp_path):
+    from src.engine.vector_store import NumpyVectorStore
     model = FakeModel(fingerprint="from-cache")
     build(world, make_index(tmp_path / "index", model))  # every vector is stored under from-cache
+    facts = list(shared.collect(world["stores"]).facts.values())
+    loaded = {chunk_id for chunk_id, _ in shared.chunks(by_name(facts)["style"])}
+    # The loaded snapshot made style's vectors, as another process would have stored them.
+    store = NumpyVectorStore(shared.STORE_NAME, str(tmp_path / "index"))
+    stored = store.get(sorted(shared.documents_of(facts)))
+    embeddings = store.get_embeddings(stored.ids)
+    store.replace(ids=stored.ids, embeddings=np.asarray([embeddings[i] for i in stored.ids]),
+                  documents=stored.documents,
+                  metadatas=[{"model": "loaded" if i in loaded else "from-cache"} for i in stored.ids])
+    store.save()
     loads_on_first_embedding(model, "embed_query")
     querying = make_index(tmp_path / "index", model)
-    facts = list(shared.collect(world["stores"]).facts.values())
     ranked, vectors, problem = querying.search("markdown links", facts)
-    assert vectors == {} and problem is None
-    assert ranked[0]["fact"].name == "style" and ranked[0]["semantic"] is None
+    assert set(vectors) == loaded and problem is None  # selected again for the loaded snapshot, and only its vectors
+    assert ranked[0]["fact"].name == "style" and ranked[0]["semantic"] is not None
 
 
 def test_a_pass_that_embedded_nothing_yet_saves_nothing(world, tmp_path):
