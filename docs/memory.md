@@ -206,80 +206,109 @@ lags after the wait, so it never pairs the answer with the previous prompt and r
 entry. When rotation has moved the entry into an archive, its replacement is written into
 `history.md` first and the archived copy removed after it, so a hook killed in between leaves the
 new entry and an older copy, which readers rank below it and the next write under the key removes.
-With [user sync](user-sync.md#repository-history) set up, an entry the hook replaced or removed is
-recorded as deleted for the next reconcile of a process that shares this repository's history,
-which takes it out of what this machine shared and shares the replacement in the same run; merged
-reads leave it out at once.
+With [user sync](user-sync.md#repository-history) set up, an entry the hook replaces or removes is
+recorded as deleted, before the journal changes, for the next reconcile of a process that shares
+this repository's history, which takes it out of what this machine shared and shares the
+replacement in the same run; merged reads leave it out at once. A replacement carries a later time
+than the entry it replaces, one second later when both fall in the same second, since it keeps that
+entry's id.
 
 **Secrets and private details.** The owner decided on 2026-11-27 that the hook writes by default
-and that secrets are cleaned, not written. Before anything is written, the hook masks
+and that secrets are cleaned, not written, and on 2026-11-28 that a line naming a secret loses the
+rest of the line rather than one more pattern per syntax, accepting that a harmless line tail is
+sometimes lost from the journal. Before anything is written, the hook masks
 ([turn_redaction.py](../src/memory/turn_redaction.py)):
 
+- **the rest of every line after a word that names a secret**, separators and symbols included,
+  whatever the value looks like. The words are `password`, `passwd`, `passphrase`, `secret`,
+  `token`, `credential(s)`, `creds`, `apikey` and the pairs `api key`, `access key`,
+  `private key`, `signing key`, `encryption key` and `master key`, any word ending in `password`,
+  `passwd`, `passphrase`, `secret` or `token` (`PGPASSWORD`, `clientSecret`), and the Russian
+  `пароль`, `токен` and `секрет` in every form; in any case, in camelCase, snake_case,
+  kebab-case or dotted names, after `$`, `@`, `%`, `-`, `--` or `-D`, in quotes or escaped quotes,
+  in XML elements, subscripts and calls (`DB_PASSWORD=`, `$authToken =`, `-Dapi.key=`,
+  `config["password"] =`, `define('DB_PASSWORD',`, `<password>`, `\"token\":`, `Пароль от базы:`).
+  Words common in prose name a secret only in such a name or form, or before `=`, `:`, `->` or a
+  quoted value: `key`, `keys`, `pass`, `pwd`, `pw`, `passcode`, `auth`, `authorization`,
+  `cookie`, `bearer`, `oauth`, `otp`, `hmac`, `dsn`, `mnemonic`, `ключ`, `session id`,
+  `connection string`, `seed phrase` and `recovery phrase`, and joined names in capitals that end in
+  `KEY` or `PASS` (`MASTERKEY`, `SSHPASS`); `pin`, `salt`, `seed`, `session`, `sig`, `signature`
+  and `private` only as the last word before `=`; `login(`, `signin(` and `authenticate(` before
+  their arguments. The password options of common clients count the same way: `mysql -p` and its
+  siblings, `docker login -p`, `sqlcmd -P`, `redis-cli -a`, `curl -u`, `--user` and
+  `--proxy-user`, `sshpass -p`, `http -a`, `ldapsearch -w`, `smbclient -U`, `7z -p`, `zip -P`,
+  `openssl -k`, `mongosh -p`, and what follows `::add-mask::`;
+- **the value a label line leaves below it**: the lines indented under `password: |`,
+  `secret:`, `- name: DB_PASSWORD` or `variable "db_password" {`, the next line after a label
+  alone on its line (`Password`) or a quoted field name (`name="password"`), the rows under a
+  table's header that names a secret (`username,password`, `| user | password |`), and a quoted
+  value to the line it closes on;
 - token formats, keeping their prefix (`ghp_***`, `sk-proj-<secret>`): GitHub, GitLab, Anthropic,
   OpenAI, OpenRouter, Slack (`xoxb-`, `xoxp-`, `xapp-` and webhook URLs), Discord bot tokens and
   webhooks, Google, Stripe, SendGrid, Twilio `SK` keys, Telegram bot tokens, Hugging Face and npm
-  tokens, AWS `AKIA` and `ASIA` key ids, JWTs and Bearer values; private key blocks, PGP ones
-  included, to their END line, and key bodies without their BEGIN line, to their END line or as
-  consecutive lines of base64;
-- the whole value after a label that names a secret, whatever its shape: an identifier with one of
-  the words `pass`, `passwd`, `password`, `passphrase`, `pwd`, `secret`, `token`, `key`, `apikey`,
-  `auth`, `authorization`, `credential(s)`, `creds`, `dsn`, `cookie` or `capability`, or a word
-  ending in one of `password`, `passwd`, `passphrase`, `secret` or `token` (`API_TOKEN`,
-  `JWT_SECRET`, `SECRET_KEY`, `X_API_KEY`, `db_password`, `accessToken`, `refresh_token`,
-  `private_key`, `PGPASSWORD`, `MYSQL_PWD`), and a database or broker word before `URL`, `URI` or
-  `DSN` (`DATABASE_URL`, `REDIS_URL`), before `=`, `:`, `:=`, `=>` or `==`, quoted or not, as a
-  camelCase or JSON key (`"SecretAccessKey"`, `"SessionToken"`) or a Markdown label; after an
-  `Authorization` label, what follows its scheme (`Basic`, `Bearer`, `Digest` ...); and on a command
-  line, `--password VALUE`, `sshpass -p PASSWORD` and `curl -u user:PASSWORD`. `pass` and `pwd`
-  alone, a word inside another (`KEYRING`, `KEYBOARD`, `AUTHOR`), and a name whose last word is a
-  property of a secret (`SSH_KEY_NAME`, `AUTH_MODE`, `TOKEN_TYPE`, `PASSWORD_FILE`) are no labels;
+  tokens, DigitalOcean, Postman, New Relic and Airtable tokens, AWS `AKIA` and `ASIA` key ids, JWTs
+  and Bearer values; the body of a private key block, PGP ones included, between its armour lines,
+  a body whose BEGIN line is missing, and key material printed as hex pairs (`openssl -text`);
+  credentials in URLs and DSNs (`redis://:PASSWORD@`, a password holding an at sign,
+  `//user:PASSWORD@`, `user:PASSWORD@tcp(db)`) and pgpass lines;
 - random-looking strings without a label: runs of 20 or more letters, digits, `_` and `-`, or of
-  base64 with `+` or `/`, that look random rather than like a name (short, vowel-poor parts and
-  scattered digits, judged piece by piece between separators), every 43-character run that is not
-  a plain snake_case, SCREAMING_CASE or kebab-case name, 32-digit hex keys, 40-character AWS secret
-  keys, and high-entropy strings;
+  base64 with `+` or `/`, that look random rather than like a name, every 43-character run that is
+  not a plain snake_case, SCREAMING_CASE or kebab-case name, hexadecimal runs of 32 digits or of
+  a length from 33 on that no commit name or digest has, glued to a prefix or a suffix or not
+  (`shpat_…`, `key-…`, `…-us21`), base32 secrets (a TOTP seed), 40-character AWS secret keys, and
+  high-entropy strings;
 - then, until a scan finds nothing, what the outgoing-text scanner of self-development finds
   ([autodev guards](autodev-guards.md): token formats and private key headers, also split over
   lines or encoded), every value of the hook's own environment whose variable's name names a secret
-  by the same words (or whose value scans as a secret) as a known secret, raw, split, base64 or
+  (by the same words, plural and joined names included: `API_KEYS`, `SERVICE_TOKENS`, `MASTERKEY`,
+  `SSHPASS`, `ADMIN_PW`; or whose value scans as a secret) as a known secret, raw, split, base64 or
   hex, and the credentials that [shared memory](shared-memory.md) and [user sync](user-sync.md)
   refuse to serve or publish. An environment value under eight characters, or one naming an
   existing path, is no known secret.
+
+A word used as an ordinary word in a sentence keeps its line when the rule can tell that nothing
+after it is a value: the word stands alone, not quoted and not joined to other characters, and the
+rest of the line is two or more ordinary words with sentence punctuation only, none of them a verb
+that introduces a value (`is`, `was`, `are`, `equals`, `set`, `это`, and `to` after `set`,
+`change` or `reset`): "the key point is", "auth flow works", "Reset your password from the
+account settings page." In doubt the line is masked. Every rule works line by line or on a bounded
+window, so the scan stays linear in the text's length.
 
 A text the scanner cannot clean, too large, with too many hits, or not in the time left before the
 hook's deadline, is not written: the field holds a placeholder and the entry's metadata
 `redaction` names it.
 
-Some text is no secret and stays as written: a value after a label that is a placeholder or an
-expression (it starts with `<`, `$`, `%`, `{`, `[`, `(`, `*`, `-` or `=`, or holds an opening
-bracket: `password=<your password>`, `token=${TOKEN}`, `api_key=os.environ["KEY"]`), a literal or a
-type name (`None`, `true`, `str`, `string`), a plain snake_case or SCREAMING_CASE name
-(`api_key=api_key`), and a plain word that more words or the end of an argument follow
-(`token: the unit a model reads`, `Client(password=password)`); Anthropic API ids (`toolu_01…`,
-`msg_01…`, `req_01…`, `session_01…`), GitHub node ids, a Google document's id in its link,
-subresource integrity digests and the payload of a `data:` URI; UUIDs, commit names, SHA-256
-digests and paths. Some text that is no secret is masked: a 32-digit hex id such as a trace id or
-an MD5 digest, a random-looking id such as a Stripe object id, and the value after a label in a
-line that is not a credential (`key: 1`, `Primary key: id`).
+Some text that is no secret is masked. Measured at attempt 4 of #701: of the final verification's
+79 benign strings 40 change, mostly a line of code or Markdown after a secret's name
+(`self.token = token`, `**Key:** Enter`, `Auth: OAuth 2.0`, `def sign(key: KeyType, ...)`),
+header lines named for a key (`Idempotency-Key:`, `Sec-WebSocket-Key:`), and ids that look random
+(an MD5, a dashless UUID, a KSUID, an ssh key's body); of 60 sentences of everyday engineering
+prose 6 lose their tail, each a word that names a secret before `is` ("The token budget for this
+model is generous."). Placeholders and expressions after a label go too (`password=<your
+password>`, `api_key=os.environ["KEY"]`). Anthropic API ids (`toolu_01…`, `msg_01…`, `req_01…`,
+`session_01…`), GitHub node ids, a Google document's id in its link, subresource integrity
+digests, the payload of a `data:` URI, a W3C `traceparent`, UUIDs, commit names, SHA-256 digests
+and paths stay.
 
 Deterministic redaction cannot catch everything, and these shapes still pass:
 
 - free-form personal details, such as a name, an address, a diagnosis or an account written out
   in prose: they are not detected at all;
-- a secret in prose without a label, a known format or a random look, such as a short or
-  dictionary-word password ("I typed hunter2 into the form") or a passphrase of words;
-- a value after a label that reads as one of the kept forms above: a plain word that more words
-  follow (`password: hunter and ...`, `password: my secret phrase`), a plain snake_case name
-  (`password=super_secret`), a value holding an opening bracket (`password=abc[1]`), and a value on
-  the line after its label (a YAML block);
-- a hex key of 40 or 64 digits without a label, which has the shape of a commit name or a SHA-256
-  digest, and a hex key of another length than 32;
-- a random string without a label that is short or looks like a name: under 20 characters, of one
-  letter case with digits (a base32 secret), or, rarely, a random one of 20 to 32 characters (about
-  4 in 100 at 20 to 24 characters and 1 to 3 in 100 at 32, in 400 samples of each kind);
+- a secret with no word that names one before it on its line, in a short or plain shape: a short
+  or dictionary-word password in prose ("I typed hunter2 into the form"), a passphrase of words,
+  a value written before its label ("hunter2 is my password"), or one passed to a call by position
+  (`connect("db", "admin", "...")`);
+- a value of plain lowercase words after a word that names a secret, inside a sentence of ordinary
+  words with no verb that introduces it ("the token sunshine expires tonight");
+- hexadecimal without a label of 40, 56, 64, 96 or 128 digits, which is the form of a commit name
+  or a digest (a 64-digit Ethereum key after `0x` has a transaction id's form), and of fewer than
+  32 digits;
+- a random string without a label that is short or looks like a name: under 20 characters, or,
+  rarely, a random one of 20 to 32 characters (about 4 in 100 at 20 to 24 characters and 1 to 3 in
+  100 at 32, in 400 samples of each kind);
 - a secret of the hook's environment under eight characters, or in a form the scanner does not
-  decode: split into concatenated pieces, base32, reversed, upper-cased, or only part of it (a
-  15-character prefix of 30, all but the last four characters).
+  decode: split into concatenated pieces, reversed, upper-cased, or only part of it (a 15-character
+  prefix of 30, all but the last four characters).
 
 A turn that holds such details is protected by the model's own call: a `log_interaction` call with
 the turn redacted, which the hook leaves alone, or `journal=false`, which keeps the turn out. The
@@ -289,11 +318,13 @@ journal is a file in the project that may be committed; check its ignore rules a
 1, which Claude Code shows as a non-blocking hook error with the reason, such as
 `turn not logged (journal_busy)`; it never exits 2, which would keep the turn going. A Stop event
 has 25 seconds in all, for the transcript wait, the redaction and the journal lock (ten seconds at
-most), and the command ends itself with exit 1 at 28 seconds, so the registration's `timeout` of
-30 seconds below is a minimum: with less, Claude Code may cancel the hook and discard its output,
-and the turn is lost without a word. It reads the transcript line by line, so memory follows the
-turn and not the file, up to 1 GiB, and a larger transcript is such a failure too. A turn whose prompt row is still missing after two
-seconds of reading again is a failure as well. A Stop event of a turn whose project does not
+most), and the command ends itself with exit 1 at 28 seconds, or at 29 seconds with a traceback
+when one long computation holds the interpreter lock (Python's `faulthandler` watchdog), so the
+registration's `timeout` of 30 seconds below is a minimum: with less, Claude Code may cancel the
+hook and discard its output, and the turn is lost without a word. It reads the transcript line by
+line, so memory follows the turn and not the file, up to 1 GiB, and a larger transcript is such a
+failure too. A turn whose prompt row is still missing after two seconds of reading again is a
+failure as well. A Stop event of a turn whose project does not
 resolve writes to the installation's fallback journal that `log_interaction` uses, with the
 session's directory as unverified metadata, and `read_history` reads it there.
 
@@ -305,7 +336,12 @@ the two write to different journals. A turn interrupted with Esc has no Stop eve
 as it had no logging call before, and neither has a turn that ends in an API error, which fires
 `StopFailure` instead of `Stop`. Entries the hook writes, and the removals it records, reach
 [user sync](user-sync.md#repository-history) with the next reconcile of a process that runs it,
-such as the daemon's next append, a server start or a resume, not at once.
+such as the daemon's next append, a server start or a resume, not at once. The hook records a
+removal in the sync state it resolves itself: `AGENTS_SERVICE_DIR` in its own environment, else
+the directory the installed daemon recorded (`data/.shared-service.json`), else the default. A
+server whose entry sets `AGENTS_SERVICE_DIR` only in its `env`, or another installation's
+server, reads another state, and the removal stays in what this machine shared: set the same
+`AGENTS_SERVICE_DIR` in the environment Claude Code starts hooks with.
 
 To enable it for a headless installation, register the hook in Claude Code's managed settings
 (`managed-settings.json` in `/Library/Application Support/ClaudeCode` on macOS or
