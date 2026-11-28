@@ -155,7 +155,9 @@ items also carry `qualified_id` (`builtin:<id>`). See
 sources and fields. A flow that cannot be loaded is left out of `flows` and
 reported in an `issues` array of `{id, error}` entries. `run_flow` returns
 `status="needs_execution"`, the flow's metadata under `flow`, the full `content`,
-`repo_path`, `workspace_id` (null on stdio), `request`, and execution `instruction`.
+`repo_path`, `workspace_id` (null on stdio), `request`, and execution `instruction`;
+a flow with a persona adds `persona_activation` and `previous_persona`
+([flow personas](#choose-a-flows-agent-and-components)).
 Its `flow` has the listing's fields, except that `flow.id` is always
 scope-qualified (`builtin:<id>` for a built-in) and the listing-only
 `qualified_id` and `overridden_by` are absent.
@@ -267,6 +269,20 @@ that `route_and_load` shares between users. A flow without a persona returns no
 activation. A later `refresh_persona_context`, or a restore with
 `get_agent_context(force_reload=True)`, rebuilds the agent's default bundle, not
 the flow's exact lists.
+
+Beside the activation, `previous_persona` returns the `current_persona` that
+`run_flow` received (null without one): the role to go back to. A flow's
+activation has an `activation_id` starting with `flow-`, and `run_flow` called
+with such a descriptor, for another flow or for the same one again (a
+`NO_CHANGE` or a `force_reload` restore), returns no `previous_persona`, so the
+last one returned names the role from before the first flow. Once the flow is
+done, the next request that does not continue it is assessed against that role,
+not the flow's persona, even where `keep` would apply: when it fits, switch back
+with `get_agent_context`, passing the flow's descriptor as `current_persona`;
+when it is null or lost, route the request with `route_and_load`. Loading the
+flow persona's own agent from a flow's activation compares bundles by revision,
+so switching back to that agent replaces the flow's lists with the agent's own
+bundle instead of answering `NO_CHANGE` by name.
 
 ### Without Agents-Core MCP
 

@@ -141,9 +141,12 @@ keeps it without a reload, and reminds Codex to restore.
 When the user names a flow, workflow or ritual, or asks for work by one ("flow",
 "workflow", "флоу", "по флоу X", "ритуал", a flow ID), the client calls
 `list_flows` and then `run_flow` for the matching flow before taking any of its
-steps, and applies a returned `persona_activation` as a switch. If no flow
-matches, it says so and continues without one. It does not improvise a
-procedure that an installed flow covers.
+steps, and applies a returned `persona_activation` as a switch. Once the flow
+is done, it assesses the next request that does not continue the flow against
+the last returned `previous_persona` rather than the flow's persona, switches
+back to that role with `get_agent_context` when it fits, and routes the request
+when there is none. If no flow matches, it says so and continues without one.
+It does not improvise a procedure that an installed flow covers.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
 The installers switched to version 2 on 2026-09-26, and protocol 1 was removed on
@@ -525,8 +528,14 @@ response built from the flow's title and `request`: pass `current_persona` to
 `run_flow` and apply the activation as a switch before executing. It is compared
 with the current activation by `bundle_revision`, not by agent name, and never
 trains the routing cache; a later `refresh_persona_context` rebuilds the agent's
-default bundle. The current model then executes the flow with its own tools.
-Loading a flow does not route or complete the task. See the
+default bundle. A flow's `activation_id` starts with `flow-`. Beside the
+activation, `previous_persona` returns the `current_persona` received (null
+without one), the role the client switches back to once the flow is done; it is
+absent when that descriptor is already a flow's activation, and
+`get_agent_context` for a flow activation's own agent compares bundles by
+revision instead of answering `NO_CHANGE` by name. The current model then
+executes the flow with its own tools. Loading a flow does not route or complete
+the task. See the
 [workflow contract](../flows/README.md#through-agents-core-mcp) and
 [flow personas](../flows/README.md#choose-a-flows-agent-and-components).
 
