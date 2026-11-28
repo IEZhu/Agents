@@ -218,9 +218,11 @@ With [user sync](user-sync.md#repository-history) set up, an entry the hook repl
 recorded as deleted, before the journal changes, for the next reconcile of a process that shares
 this repository's history, which takes it out of what this machine shared and shares the
 replacement in the same run; merged reads leave it out at once. A journal change that fails after
-the record takes the record back for what the journal still holds; a hook killed inside the
-change itself (about a millisecond) leaves it, so other machines read no entry of that turn until
-its next Stop, as [user sync](user-sync.md#repository-history) says. A replacement carries a later time
+the record, or an interruption inside the record step, takes the record back for what the journal
+still holds, and a file that cannot be read back then holds the entry only while it is the file the
+entry was read from; a hook killed inside the change itself (about a millisecond) leaves the
+record, so other machines read no entry of that turn until its next Stop, as
+[user sync](user-sync.md#repository-history) says. A replacement carries a later time
 than the entry it replaces, one second later when both fall in the same second, since it keeps that
 entry's id.
 

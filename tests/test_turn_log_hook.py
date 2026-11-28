@@ -2208,6 +2208,92 @@ def test_a_write_under_a_withdrawn_key_that_removes_a_leftover_copy_records_it(t
 # --- The second verification of attempt 5 (#701 review, v701-5 regression) -----------------------------
 
 
+class RecordInterrupted(SyncRecorder):
+    """A sync integration whose record is interrupted right after the state write, before the change."""
+
+    def deleting(self, history_path, entry_id, timestamp):
+        super().deleting(history_path, entry_id, timestamp)
+        raise KeyboardInterrupt("the client cancelled the hook inside the record")
+
+
+def test_an_interruption_inside_the_record_takes_the_record_back(tmp_path):
+    """v701-5 regression (a): the record stood outside the try, so an interruption right after its state
+    write kept a record of an entry the journal still held, and sync took the turn out for good."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    recorder = RecordInterrupted()
+    previous = history_module.set_sync(recorder)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            keyed(writer, "second answer", "f2")
+    finally:
+        history_module.set_sync(previous)
+    pair = (first["entry_id"], first["timestamp"])
+    assert recorder.calls == [("deleting", *pair), ("not_deleting", *pair)]
+    assert [entry.outcome for entry in entries(tmp_path)] == ["first answer"]
+
+
+def test_a_file_unreadable_after_the_move_keeps_the_record(tmp_path, recorder, monkeypatch):
+    """v701-5 regression (b): when the change failed after its new file was in place and the file could
+    not be read back, the record was taken back although the entry was gone, and the first answer stayed
+    shared for good. A file that cannot be read holds the entry only while it is the file it was read
+    from; a missing file holds none."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    first = keyed(writer, "first answer", "f1")
+    real_open, moved = history_module._open_regular, []
+
+    def moved_then_failed(*_arguments, **_keywords):
+        moved.append(True)
+        no_space()
+
+    def unreadable_after_the_move(path, *arguments, **keywords):
+        if moved and path == str(tmp_path / "history.md"):
+            raise PermissionError(13, "Permission denied", path)
+        return real_open(path, *arguments, **keywords)
+    monkeypatch.setattr(history_module, "_sync_moved", moved_then_failed)
+    monkeypatch.setattr(history_module, "_open_regular", unreadable_after_the_move)
+    with pytest.raises(OSError):
+        keyed(writer, "second answer", "f2")
+    monkeypatch.setattr(history_module, "_open_regular", real_open)
+    assert recorder.calls == [("deleting", first["entry_id"], first["timestamp"])]
+    assert [entry.outcome for entry in entries(tmp_path)] == ["second answer"]
+
+
+def test_the_take_back_check_reads_an_unreadable_file_by_its_identity(tmp_path, monkeypatch):
+    """Both answers of the check the mutation run left unpinned: a missing file holds no entry, and an
+    unreadable one holds it only while its size and time are those of the file the entry was read from."""
+    writer = HistoryWriter(str(tmp_path / "history.md"), str(tmp_path / "history"))
+    keyed(writer, "first answer", "f1")
+    path = str(tmp_path / "history.md")
+    entry = entries(tmp_path)[0]
+    identity = os.stat(path)
+    assert writer._holds(path, entry, identity)
+    assert not writer._holds(str(tmp_path / "gone.md"), entry, identity)
+    real_open = history_module._open_regular
+    monkeypatch.setattr(history_module, "_open_regular", lambda *arguments, **keywords: (_ for _ in ()).throw(
+        PermissionError(13, "Permission denied")))
+    assert writer._holds(path, entry, identity)  # unreadable, still the file the entry was read from
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n")
+    assert not writer._holds(path, entry, identity)  # unreadable and changed: the change removed it
+    assert not writer._holds(path, entry, None)
+    monkeypatch.setattr(history_module, "_open_regular", real_open)
+
+
+def test_an_error_while_resolving_the_checkout_does_not_stop_the_turn(project, tmp_path, monkeypatch):
+    """The mutation run's last survivor: the hook resolves the checkout before the journal lock, and an
+    error there must leave the record under the lock to report its own failure, not fail the turn."""
+    from src.user_sync import history as history_sync
+
+    def broken(*_arguments, **_keywords):
+        raise RuntimeError("git is broken")
+    monkeypatch.setattr(history_sync, "prepare_deletions", broken)
+    hook._RemovalsForSync(str(project / "history.md"))  # does not raise
+    transcript = rows_file(tmp_path / "t.jsonl", [opener("p1", "question"), *activation_rows(),
+                                                  answer_row("Answer.\n\n" + FOOTER)])
+    assert hook.record_turn(stop_event(project, transcript, prompt_id="p1"), interactive=True)["status"] == "recorded"
+
+
 @pytest.mark.parametrize("arguments,history,logged", [
     ({"contact": "ACME", "note": "call back on Monday"}, {"status": "recorded"}, False),
     ({}, {"status": "error"}, False), (dict(MODEL_LOG_ARGUMENTS), {"status": "recorded"}, True),

@@ -493,6 +493,19 @@ def _not_deleting(history_path: str, entries) -> None:
             logger.warning("could not take back a removal of %s recorded for sync", history_path, exc_info=True)
 
 
+def _unchanged(path: str, identity) -> bool:
+    """Whether the file at ``path`` is still the one ``identity`` (an ``fstat`` result) describes, by
+    its size and modification time, which ``os.stat`` and ``os.fstat`` report alike on every system
+    (their ctimes differ on Windows). False when it cannot be told."""
+    if identity is None:
+        return False
+    try:
+        now = os.stat(path)
+    except OSError:
+        return False
+    return (now.st_size, now.st_mtime_ns) == (identity.st_size, identity.st_mtime_ns)
+
+
 def _later_than(timestamp: str, earlier) -> str:
     """``timestamp``, or one second after the latest of ``earlier`` when that is not before it: a
     replacement keeps the id of the entry it replaces, so only its time tells the two apart, for
@@ -1248,20 +1261,23 @@ class HistoryWriter:
 
     def _removing(self, texts, items, change):
         """``change()``, the journal change that removes ``items`` (``(index, entry, ...)`` of entries
-        parsed from ``texts``), after sync heard of them (``_deleting``). When it raises, sync hears
-        again of those their file still holds (``_not_deleting``), so a write that failed, such as one
-        on a full disk, takes no entry out of the shared history while this journal keeps it (#701
-        review); the error goes on."""
-        _deleting(self.history_path, [item[1] for item in items])
+        parsed from ``texts``), after sync heard of them (``_deleting``). When the record or the
+        change raises, sync hears again of those their file still holds (``_not_deleting``), so a
+        write that failed, such as one on a full disk, or an interruption inside the record, takes no
+        entry out of the shared history while this journal keeps it (#701 reviews); the error goes on."""
         try:
+            _deleting(self.history_path, [item[1] for item in items])
             return change()
         except BaseException:
-            _not_deleting(self.history_path, [item[1] for item in items if self._holds(texts[item[0]][0], item[1])])
+            _not_deleting(self.history_path, [item[1] for item in items
+                                              if self._holds(texts[item[0]][0], item[1], texts[item[0]][2])])
             raise
 
-    def _holds(self, path: str, entry: "HistoryEntry") -> bool:
-        """Whether the file at ``path`` still holds ``entry``'s heading; True when it cannot be read,
-        so a record is taken back rather than kept for an entry that may still be there."""
+    def _holds(self, path: str, entry: "HistoryEntry", identity=None) -> bool:
+        """Whether the file at ``path`` still holds ``entry``'s heading. A file that cannot be read
+        holds it only while it is the file the entry was read from (``identity``, its ``fstat``): a
+        change that failed after its new file was moved in removed the entry, so its record stays
+        (#701 review: taking it back left the first answer shared for good)."""
         live = path in (self.history_path, self.history_path + ".rotating")
         try:
             with _open_regular(path, encoding="utf-8", errors="surrogateescape", newline="",
@@ -1270,7 +1286,7 @@ class HistoryWriter:
         except FileNotFoundError:
             return False
         except (OSError, ValueError):
-            return True
+            return _unchanged(path, identity)
         return any(header.group("id") == entry.id and header.group("ts") == entry.timestamp
                    for header in _HEADER_RE.finditer(content))
 

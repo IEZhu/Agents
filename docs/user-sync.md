@@ -550,12 +550,16 @@ deletion (its id and time) is kept in the sync state, a run takes the entry out 
 left without entries is removed), and other machines lose it with their next pull. The hook writes
 that record before it changes the journal, and resolves the checkout's key before it takes the
 journal's locks, so only the state write happens under them. A journal change that fails after the
-record, such as a write on a full disk, takes the record back for every entry the journal still
-holds, so both machines keep the earlier answer until the turn's next Stop replaces it. A hook
-killed inside the change itself (the replacement of `history.md`, about a millisecond) cannot take
-it back: the next run takes the shared copy out, so nothing stale stays shared, and the turn's next
-Stop shares the corrected answer; without a next Stop the other machines read no entry of that
-turn, while this machine's journal keeps it. A replacement always carries a later time than the
+record, such as a write on a full disk, or an interruption inside the record step, takes the record
+back for every entry the journal still holds, so both machines keep the earlier answer until the
+turn's next Stop replaces it. A file that cannot be read back at that moment holds the entry only
+while it is the file the entry was read from (the same size and modification time): a change that
+failed after its new file was moved in removed the entry, so its record stays. A hook killed inside
+the change itself (the replacement of `history.md`, about a millisecond) cannot take it back: the
+next run takes the shared copy out, so nothing stale stays shared, and the turn's next Stop shares
+the corrected answer; without a next Stop the other machines read no entry of that turn, while this
+machine's journal keeps it. A record that pushed the oldest of the kept deletions out is taken back
+without bringing that one back. A replacement always carries a later time than the
 entry it replaced, also within one second. While sync is paused, the repository is not approved
 here or the group is excluded, the
 deletion waits and the entry stays in what was shared; merged reads on this machine leave it out at
