@@ -1282,7 +1282,7 @@ def corpus_false_positives():
         "sha512 hex": "sha512 " + fake(128, HEX, 403),
         "unix path": "edited /Users/dev/repos/Agents/src/memory/turn_log_hook.py:610 and tests/test_turn_log_hook.py",
         "path with a long dashed component":
-            "scratch /private/tmp/claude-501/-Users-dev-repos-Agents/5dd7911c-d0f8-42e2-807d-d64dbb5fcdd8/scratchpad/x.py",
+            "scratch /private/tmp/claude-501/-Users-dev-repos-Agents/7e3b9c14-2f6a-4d08-9b5e-c1a24f6d8e37/scratchpad/x.py",
         "windows path": r"C:\Users\dev\AppData\Local\agents-core\history.md",
         "long test name": "tests/test_schedules_scan.py::test_tracked_files_are_clean_except_known_fixtures passed",
         "identifier of exactly 43 characters": "def test_a_rotation_between_two_stops_keeps_one(): pass",
