@@ -312,59 +312,143 @@ async def test_run_flow_persona_waits_for_readiness(environment, tmp_path, monke
     assert not built
 
 
-@pytest.mark.asyncio
-async def test_run_flow_returns_the_persona_to_switch_back_to(environment, tmp_path, monkeypatch,
-                                                              persona_components):
-    """#456: nothing told a session to leave a flow's persona, so the answers after thread-close ran
-    under it. Every persona_activation comes with previous_persona, the current_persona run_flow
-    received; a flow without a persona returns neither."""
+ENGINEER = {"agent": "software_engineer", "activation_id": "before-flow", "bundle_revision": "e" * 64,
+            "scope": "Write code", "skills_loaded": ["skill-a"], "implants_loaded": [], "rules_loaded": ["truth"]}
+
+
+@pytest.fixture
+def switch_back(environment, tmp_path, monkeypatch, persona_components):
+    """Two flows with personas over fake bundles (#456): check runs as code_reviewer with the exact
+    skill list ["skill-a"], close as investigative_analyst. A bundle with an exact skill list has
+    revision c..c and any other d..d, so a flow's lists and the agent's own bundle differ."""
     from unittest.mock import AsyncMock
 
     from src import client_instructions
     from src.engine import persona
 
+    install, _ = environment
     monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "lib"))
+    (install / "close.md").write_text("# Close thread\n\nReport what happened.\n", encoding="utf-8")
+    analyst = persona_components / "agents" / "investigative_analyst" / "system_prompt.mdc"
+    analyst.parent.mkdir(parents=True)
+    analyst.write_text("---\nidentity: {name: investigative_analyst, role: Role}\n---\nBody\n", encoding="utf-8")
+    builds = []
 
     async def build(agent, query, history, tier=None, selection=None):
+        builds.append(agent)
+        exact = selection is not None and selection.skills is not None
         return SimpleNamespace(
-            agent=agent, bundle_revision="c" * 64, scope="Review code",
-            persona_block="Role", rules_block="Rules", skills_block="Skills",
-            implants_block="", skills_loaded=[], implants_loaded=[], rules_loaded=[], tier="standard")
+            agent=agent, bundle_revision=("c" if exact else "d") * 64, scope="Role scope",
+            persona_block="Role", rules_block="Rules", skills_block="Skills", implants_block="",
+            skills_loaded=list(selection.skills) if exact else [], implants_loaded=[], rules_loaded=[],
+            tier="standard")
     monkeypatch.setattr(persona, "build_persona_bundle", build)
     monkeypatch.setattr(server.router, "update_cache", AsyncMock())
     monkeypatch.setattr(client_instructions, "drift_warnings", lambda context=None: [])
-    engineer = {"agent": "software_engineer", "activation_id": "before-flow", "bundle_revision": "e" * 64,
-                "scope": "Write code", "skills_loaded": ["skill-a"], "implants_loaded": [],
-                "rules_loaded": ["truth"]}
+    return builds
 
-    plain = json.loads(await server.run_flow("check", current_persona=engineer))
+
+async def _flow(name, **arguments):
+    return json.loads(await server.run_flow(name, **arguments))
+
+
+async def _load(agent, current, **arguments):
+    return json.loads(await server.get_agent_context(agent, "Tick the checklist item and comment on it.",
+                                                     current_persona=current, **arguments))
+
+
+@pytest.mark.asyncio
+async def test_run_flow_returns_the_persona_to_switch_back_to(switch_back):
+    """#456: nothing told a session to leave a flow's persona, so the answers after thread-close ran
+    under it. A flow's persona_activation comes with previous_persona, the current_persona run_flow
+    received, null without one; a flow without a persona returns neither."""
+    plain = await _flow("check", current_persona=ENGINEER)
     assert "persona_activation" not in plain and "previous_persona" not in plain
 
-    json.loads(await server.set_flow_persona("check", agent="code_reviewer"))
-    switched = json.loads(await server.run_flow("check", current_persona=engineer))
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=["skill-a"]))
+    switched = await _flow("check", current_persona=ENGINEER)
     assert switched["persona_activation"]["status"] == "SUCCESS"
     assert switched["persona_activation"]["replaces_activation_id"] == "before-flow"
-    assert switched["previous_persona"] == engineer
+    assert switched["persona_activation"]["persona"]["activation_id"].startswith("flow-")
+    assert switched["previous_persona"] == ENGINEER
 
-    # Called again under the flow's own persona, it echoes that persona: the caller keeps the
-    # previous_persona of the flow's first run_flow.
-    reviewer = switched["persona_activation"]["persona"]
-    again = json.loads(await server.run_flow("check", current_persona=reviewer))
-    assert again["persona_activation"]["status"] == "NO_CHANGE"
-    assert again["previous_persona"] == reviewer
-
-    fresh = json.loads(await server.run_flow("check"))
+    fresh = await _flow("check")
     assert fresh["persona_activation"]["status"] == "SUCCESS" and fresh["previous_persona"] is None
 
     async def warming(tool):
         return "warming_up"
-    monkeypatch.setattr(server, "_readiness_problem", warming)
-    waiting = json.loads(await server.run_flow("check", current_persona=engineer))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(server, "_readiness_problem", warming)
+        waiting = await _flow("check", current_persona=ENGINEER)
     assert waiting["persona_activation"]["status"] == "ERROR"
-    assert waiting["previous_persona"] == engineer
+    assert waiting["previous_persona"] == ENGINEER
 
     tool = {t.name: t for t in await server.mcp.list_tools()}["run_flow"]
     assert "previous_persona" in " ".join(tool.description.split())
+
+
+@pytest.mark.asyncio
+async def test_run_flow_under_a_flow_activation_returns_no_previous_persona(switch_back):
+    """#456 review: a re-call under the flow's own persona (NO_CHANGE, or a force_reload restore after
+    a compaction) echoed that persona as the role to go back to. It now returns none, so the last
+    previous_persona the caller received still names the role from before the flow."""
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=["skill-a"]))
+    reviewer = (await _flow("check", current_persona=ENGINEER))["persona_activation"]["persona"]
+
+    again = await _flow("check", current_persona=reviewer)
+    assert again["persona_activation"]["status"] == "NO_CHANGE"
+    assert "previous_persona" not in again
+
+    restored = await _flow("check", current_persona=reviewer, force_reload=True)
+    assert restored["persona_activation"]["status"] == "SUCCESS"
+    assert restored["persona_activation"]["replaces_activation_id"] == reviewer["activation_id"]
+    assert restored["persona_activation"]["persona"]["activation_id"].startswith("flow-")
+    assert "previous_persona" not in restored
+
+
+@pytest.mark.asyncio
+async def test_a_second_flow_leaves_the_role_from_before_the_first(switch_back):
+    """#456 review: pr-review then thread-close under code_reviewer handed code_reviewer back. The
+    second flow returns no previous_persona, and switching back with the active descriptor lands on
+    the role from before the first flow."""
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=["skill-a"]))
+    json.loads(await server.set_flow_persona("close", agent="investigative_analyst"))
+    first = await _flow("check", current_persona=ENGINEER)
+    assert first["previous_persona"] == ENGINEER
+
+    second = await _flow("close", current_persona=first["persona_activation"]["persona"])
+    analyst = second["persona_activation"]["persona"]
+    assert second["persona_activation"]["status"] == "SUCCESS" and analyst["agent"] == "investigative_analyst"
+    assert "previous_persona" not in second
+
+    back = await _load(first["previous_persona"]["agent"], analyst)
+    assert back["status"] == "SUCCESS" and back["persona"]["agent"] == "software_engineer"
+    assert back["replaces_activation_id"] == analyst["activation_id"]
+    assert not back["persona"]["activation_id"].startswith("flow-")
+
+
+@pytest.mark.asyncio
+async def test_switching_back_to_the_flows_own_agent_replaces_the_flows_lists(switch_back):
+    """#456 review: get_agent_context answers NO_CHANGE by agent name, so a code_reviewer session that
+    ran a code_reviewer flow with its own skill list kept that list after switching back. From a
+    flow's activation the agent's bundle is rebuilt and compared by revision; from any other
+    activation of the same agent it is still NO_CHANGE without a rebuild."""
+    reviewer = (await _load("code_reviewer", None))["persona"]
+    assert reviewer["bundle_revision"] == "d" * 64
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=["skill-a"]))
+    flow = await _flow("check", current_persona=reviewer)
+    assert flow["previous_persona"] == reviewer
+    listed = flow["persona_activation"]["persona"]
+    assert listed["bundle_revision"] == "c" * 64 and listed["skills_loaded"] == ["skill-a"]
+
+    back = await _load("code_reviewer", listed)
+    assert back["status"] == "SUCCESS" and back["replaces_activation_id"] == listed["activation_id"]
+    assert back["persona"]["bundle_revision"] == "d" * 64 and back["persona"]["skills_loaded"] == []
+    assert not back["persona"]["activation_id"].startswith("flow-")
+
+    builds = len(switch_back)
+    kept = await _load("code_reviewer", back["persona"])
+    assert kept["status"] == "NO_CHANGE" and len(switch_back) == builds
 
 
 @pytest.mark.asyncio

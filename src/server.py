@@ -86,7 +86,7 @@ from src.rule_sources import RuleSourceError
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import (
     load_persona, route_persona, parse_persona, error_response,
-    parse_persona_for_logging, persona_history_line,
+    parse_persona_for_logging, persona_history_line, is_flow_activation,
 )
 from src.schemas import tool_args as ta
 from src.local_inference import tools as local_inference_tools
@@ -1128,7 +1128,9 @@ async def run_flow(
     When the flow names a persona (flow.persona), persona_activation is a protocol 2
     response for it: pass current_persona and apply it as a switch before executing.
     previous_persona comes with it: the current_persona received (null without one),
-    the role to switch back to once the flow is done.
+    the role to switch back to once the flow is done. It is absent when current_persona
+    is itself a flow's activation (activation_id flow-...), so the last one returned
+    names the role from before the first flow.
     force_reload=True with current_persona returns that persona's full instruction again.
     This tool only reads instructions: it does not run commands, edit files,
     create a background task, sample a model or claim the workflow is complete.
@@ -1154,8 +1156,10 @@ async def run_flow(
             await asyncio.to_thread(flow_persona.check_known, spec)
             query = f"{loaded.title}\n{request}".strip()
             # The role to switch back to once the flow is done (#456): the server keeps no
-            # activation state, so it returns the caller's descriptor as it arrived.
-            bundle["previous_persona"] = current_persona
+            # activation state, so it returns the caller's descriptor as it arrived. Under a
+            # flow's activation the caller already holds the role from before that flow.
+            if not is_flow_activation(current_persona):
+                bundle["previous_persona"] = current_persona
             problem = await _readiness_problem("run_flow")
             if problem is not None:
                 bundle["persona_activation"] = json.loads(_persona_not_ready(problem))
@@ -1660,8 +1664,10 @@ async def get_agent_context(
     """
     Load an explicitly chosen agent or a ROUTE_REQUIRED selection.
     Pass protocol_version=2 and current_persona. The same active agent
-    returns NO_CHANGE without enrichment. Use force_reload=True to restore lost
-    instructions; use refresh_persona_context to refresh the same role's skills.
+    returns NO_CHANGE without enrichment, unless the active activation is a flow's
+    (activation_id flow-...): then its agent's bundle is rebuilt and compared by revision.
+    Use force_reload=True to restore lost instructions; use refresh_persona_context to
+    refresh the same role's skills.
     SUCCESS contains separate blocks and a descriptor; apply only when its
     replaces_activation_id matches your current activation. Preserve the dialogue.
     Pass workspace, your working directory: the first SUCCESS or NO_CHANGE of this
