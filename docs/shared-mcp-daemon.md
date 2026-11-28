@@ -1569,6 +1569,14 @@ the Python dependencies gets an environment of its own inside the same
 transaction. Clients may stay connected (see [Drain and connected
 clients](#drain-and-connected-clients)).
 
+`update` and `recover` act on the service whose state directory they find: the one
+`--state` or `AGENTS_SERVICE_DIR` names, else the one of the checkout whose code runs
+them (`python -m src.daemon` imports `src` from the working directory). A directory
+without a `service.json` that names an installation, such as a checkout that is not the
+installation, ends as `{"state": "not_installed", "error": ...}` with exit code 1. The
+error names the directory it looked in and the command to run from the installation, and
+nothing is created there, no run lease and no lock.
+
 The manual and scheduled controllers use the same dependency gate
 (`src/daemon/update_dependencies.py`), as does the standalone stdio updater. A
 `pyproject.toml` change may update metadata or package data and declare a new

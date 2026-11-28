@@ -350,13 +350,32 @@ PREPARE_FAILED = ("PREPARE_ENVIRONMENT_FAILED", "SKIPPED_DEPENDENCIES", "PREPARE
 BUILD_CONFIG = ("installation", "runtime_root", "python", "git", "path", "model", "model_cache", "model_artifact", "model_path")
 
 
+class NotInstalled(RuntimeError):
+    """The state directory holds no service for ``update`` or ``recover`` to act on (#592)."""
+
+
+def require_service(controller, command="update"):
+    """Refuse a controller whose ``service.json`` is missing or names no installation.
+
+    ``python -m src.daemon`` finds its state directory from ``--state``, ``AGENTS_SERVICE_DIR``
+    or the checkout whose code runs it, so a command typed in another checkout meets an empty
+    one. Check it first, before a lease, a lock or a key lookup: nothing is created there.
+    """
+    if (controller.config or {}).get("installation"):
+        return
+    raise NotInstalled(
+        f"Service is not installed: {controller.directory} has no service.json that names an "
+        "installation. The state directory comes from --state, AGENTS_SERVICE_DIR or the checkout "
+        f"whose code runs the command: run `python -m src.daemon {command}` in the installation's own "
+        "directory with its .venv interpreter, or pass --state with the installed service's state directory")
+
+
 def load_service(controller):
     """Under the control lock: refuse an unfinished transaction or a removed service."""
     if (controller.directory / "transaction.json").exists():
         raise RuntimeError("An unfinished transaction requires recover")
     controller.config = read_json(controller.directory / "service.json")
-    if not controller.config:
-        raise RuntimeError("Service is not installed")
+    require_service(controller)
     executables.configure(controller.config)
 
 
@@ -430,11 +449,11 @@ def _offline_update(controller, expected_target, precheck, notes):
     branch out, and a failed probation returns to the previous branch and stores. A
     downgrade needs the confirmation `channel set <branch> --allow-downgrade` recorded.
     """
-    root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
         # Under the lock, so `uninstall` or another controller command cannot change
         # service.json while the model downloads; the service keeps serving meanwhile.
         load_service(controller)
+        root = Path(controller.config["installation"])  # only once a service is known to exist (#592)
         if reason := runtime_source_refusal(controller.config):
             raise RuntimeError(reason)
         # Before the controller takes the service's environment: an exported value

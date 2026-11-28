@@ -635,12 +635,17 @@ def main(argv=None):
                     journal_module.set_sync(previous)
     elif args.command in ("update", "recover"):
         from src.schedules import lease as run_lease
-        from .update import offline_update, recover
+        from .update import NotInstalled, offline_update, recover, require_service
         try:  # as the auto-update: never replace the code under an autodev run
+            # Before the lease, which creates the state directory: a checkout that is not the
+            # installation gets the refusal and no directory of its own (#592).
+            require_service(controller, args.command)
             with run_lease.hold(controller.directory):
                 result = (recover if args.command == "recover" else offline_update)(controller)
         except run_lease.LeaseBusy as error:
             result, exit_code = {"state": "refused", "error": f"{error}; try again once it ends"}, 1
+        except NotInstalled as error:
+            result, exit_code = {"state": "not_installed", "error": str(error)}, 1
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
     elif args.command == "flows-ui" and (args.revoke or args.auto):
         from .flows_ui import auto_sign_in_enabled, replace_session_key, set_auto_sign_in

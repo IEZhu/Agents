@@ -10,7 +10,7 @@ import pytest
 
 from src import self_update
 from src.daemon.state import write_json, read_json
-from src.daemon.update import offline_update, recover
+from src.daemon.update import NotInstalled, offline_update, recover, require_service
 from src.daemon.update import prepare_reindex as real_prepare_reindex
 from src.daemon.bootstrap import assert_service_safe
 from src.file_lock import file_lock
@@ -446,6 +446,55 @@ def test_service_uninstalled_during_the_build_is_left_alone(installation, monkey
     with pytest.raises(RuntimeError, match="not installed"):
         offline_update(controller)
     assert controller.stops == 0 and git(root, "rev-parse", "HEAD") == old
+
+
+def test_update_in_a_directory_without_a_service_is_refused_not_a_key_error(installation):
+    """#592: the command said `KeyError: 'installation'`; a directory nobody installed is named instead."""
+    controller, root, old, target = installation
+    (controller.directory / "service.json").unlink()
+    controller.config = {}  # as `Controller` finds the state directory of a checkout that is not installed
+    with pytest.raises(NotInstalled, match="not installed") as refused:
+        offline_update(controller)
+    assert str(controller.directory) in str(refused.value) and "--state" in str(refused.value)
+    assert controller.stops == controller.builds == 0 and git(root, "rev-parse", "HEAD") == old
+
+
+@pytest.mark.parametrize("config", [{}, None, {"port": 8765}, {"installation": ""}])
+def test_a_configuration_that_names_no_installation_is_no_service(tmp_path, config):
+    with pytest.raises(NotInstalled, match="has no service.json that names an installation") as refused:
+        require_service(SimpleNamespace(config=config, directory=tmp_path), "recover")
+    assert str(tmp_path) in str(refused.value) and "python -m src.daemon recover" in str(refused.value)
+
+
+def test_a_configuration_that_names_an_installation_is_a_service(tmp_path):
+    assert require_service(SimpleNamespace(config={"installation": str(tmp_path)}, directory=tmp_path)) is None
+
+
+@pytest.mark.parametrize("explicit_state", [True, False])
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_update_and_recover_without_a_service_refuse_and_create_nothing(tmp_path, monkeypatch, capsys,
+                                                                        command, explicit_state):
+    """#592: a checkout that is not the installation got `KeyError: 'installation'` and a state directory.
+
+    The command now says which directory has no service and what to run, exits 1 and creates nothing:
+    no run lease, no lock, whether the directory came from ``--state`` or from the checkout (here
+    ``AGENTS_SERVICE_DIR``, which `state_dir` honors first).
+    """
+    from src.daemon import control, update
+
+    def transaction(controller):
+        raise AssertionError("a directory without a service has no transaction to run")
+    monkeypatch.setattr(update, "offline_update", transaction)
+    monkeypatch.setattr(update, "recover", transaction)
+    state = tmp_path / "nobody-installed-here"
+    if not explicit_state:
+        monkeypatch.setenv("AGENTS_SERVICE_DIR", str(state))
+    assert control.main(["--state", str(state), command] if explicit_state else [command]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert refused["state"] == "not_installed"
+    assert str(state.resolve() if not explicit_state else state) in refused["error"]
+    assert f"python -m src.daemon {command}" in refused["error"] and "--state" in refused["error"]
+    assert not state.exists()
 
 
 def test_build_for_an_older_target_is_rebuilt_for_the_new_one(installation):

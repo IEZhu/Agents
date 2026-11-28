@@ -10,7 +10,7 @@ from src import executables
 from src.daemon import control
 from src.daemon.control import stop_scheduled_sync as real_stop_scheduled_sync  # before conftest's recorder
 from src.daemon.clients import ClientMigration
-from src.daemon.state import read_json
+from src.daemon.state import read_json, write_json
 from src.engine.embedding_prompts import COMPLETE, local_copy, pinned_revision
 from src.model_migration import DEFAULT_MODEL, GENERATION
 
@@ -286,6 +286,7 @@ def test_a_manual_update_never_replaces_the_code_under_an_autodev_run(tmp_path, 
     from src.daemon import update
     from src.schedules import lease
     state, held = tmp_path / "state", []
+    write_json(state / "service.json", {"installation": str(tmp_path)})  # `update` and `recover` need a service (#592)
 
     def transaction(controller):
         held.append(lease.held(controller.directory))
