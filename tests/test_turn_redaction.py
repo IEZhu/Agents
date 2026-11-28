@@ -551,7 +551,7 @@ def test_a_begin_line_without_its_end_takes_the_key_lines_after_it_only():
     ("credentials:\n  secret:\n    VALUE\nnext: kept", "credentials:\n  <secret>\n    <secret>\nnext: kept"),
     ("- name: DB_PASSWORD\n  value: VALUE\n- name: HOST\n  value: db", "- name: DB_PASSWORD\n  <secret>\n- name: HOST\n  value: db"),
     ("username,password\nadmin,VALUE\nops,OTHER\n\nkept", "username,password\n<secret>\n<secret>\n\nkept"),
-    ("| user | password |\n|---|---|\n| admin | VALUE |\n\nkept", "| user | password |\n<secret>\n<secret>\n\nkept"),
+    ("| user | password |\n|---|---|\n| admin | VALUE |\n\nkept", "| user | password |\n|---|---|\n<secret>\n\nkept"),
     # v701-4 redaction finding 1: one line was not enough for a value of two lines (a login, then
     # its password); a bare label takes the lines up to the next blank line that read as a value.
     ("Password\nVALUE\nkept", "Password\n<secret>\n<secret>"),
@@ -758,7 +758,10 @@ PROSE_MASKED = {
     "The secret sauce here is caching the parsed journal.",
     "The secret is to keep each change small.",
     "The access token is refreshed in the background.",
-    "The password field is required on the sign-up form.",
+    # Attempt 6 (v701-5 redaction F20): after a seed phrase or a passphrase no sentence exempts the line,
+    # since such a value is ordinary words by nature; "the password field" names a property and keeps it.
+    "The seed phrase must be written down on paper.",
+    "Use a strong passphrase for the backup archive.",
 }
 
 
@@ -1040,7 +1043,7 @@ def test_line_breaks_of_benign_text_stay_outside_masked_spans():
 
 @pytest.mark.parametrize("text", [
     "api_key_header = \"X-API-Key\"", "TOKEN_ID = 12", "SECRET_ID_PATH=/run/secrets/id", "password:\nusername: admin",
-    "The seed phrase must be written down on paper.", "Passwords are hashed with a slow function.",
+    "The password field is required on the sign-up form.", "Passwords are hashed with a slow function.",
     "The key point is that the hook runs after every turn.", "| key | value |\n|---|---|\n| timeout | 30 |",
     "entry 3afab3fea63f, key digest 0123", "This PR adds a password strength meter to the signup form.",
     "kind: Secret\napiVersion: v1", "The hook masks anything that looks like a password.\nNext line stays.",
@@ -1073,7 +1076,188 @@ def test_a_fenced_block_under_a_label_is_masked_to_its_bound():
     assert clean and masked.endswith("\n".join(lines[redaction.FENCE_LINES:])), masked[-200:]
 
 
-# --- The second verification of attempt 5 (#701 review, v701-5 regression) -------------------------
+# --- The verification of attempt 5 (#701 review, v701-5 redaction) ------------------------------------
+# Each class by its finding, held by shapes the verification named and by others of the same class;
+# "{v}" is where a synthetic secret goes, made at run time by ``fill``.
+
+BELOW_A_COMMAND = [
+    # F1: the value line after a command or a label line that names a secret, in any form.
+    "$ printenv DB_PASSWORD\n{v}", "$ echo $DB_PASSWORD\n{v}", "$ cat /run/secrets/db_password\n{v}",
+    "$ terraform output -raw db_password\n{v}", "$ vault kv get -field=password secret/db\n{v}",
+    "$ kubectl get secret db -o jsonpath='{{.data.password}}' | base64 -d\n{v}",
+    "dev@build:~$ op read op://Private/db/password\n{v}", "PS C:\\Users\\dev> $env:DB_PASSWORD\n{v}",
+    ">>> os.environ['DB_PASSWORD']\n'{v}'", "% heroku config:get SECRET_KEY\n{v}", "printenv DB_PASSWORD\n{v}",
+    "op read op://Private/db/password\n{v}", "echo $API_TOKEN\n{v}", "What's the wifi password?\n{v}",
+    "127.0.0.1:6379> CONFIG GET requirepass\n1) \"requirepass\"\n2) \"{v}\"",
+    "```console\n$ security find-generic-password -s registry -w\n{v}\n```",
+]
+DATABASE_TABLES = [
+    # F2: database clients' tables and aligned listings under a header that names a secret.
+    " id | login |   password\n----+-------+---------------\n  1 | admin | {v}\n(1 row)",
+    "+----+-------+----------------+\n| id | user  | password       |\n+----+-------+----------------+\n"
+    "|  1 | admin | {v} |\n+----+-------+----------------+",
+    "user        password\n----------  --------------\nadmin       {v}",
+    "NAME      PASSWORD\nadmin     {v}\nreport    {v}",
+    "+--------+--------------+\n| user   | token        |\n+========+==============+\n| ci     | {v} |\n+--------+--------------+",
+    "=====  ========\nuser   password\n=====  ========\nadmin  {v}\n=====  ========",
+    "# client  server  secret  IP addresses\nvpnuser  *  {v}  *",
+    "SERVICE   API KEY\nbilling   {v}",
+]
+MASK_TEXT = [
+    # F3: an element or a word equal to the mask's text names a secret like any other.
+    "<secret>{v}</secret>", "<secret><![CDATA[{v}]]></secret>", "<secret> = {v}", "client <secret>: {v}",
+    "<config>\n  <secret>{v}</secret>\n</config>",
+]
+PAIRS_AND_WORDS = [
+    # F4: a name and its value in neighbouring elements, and a JSON pair four lines apart.
+    "<key>Password</key>\n<string>{v}</string>", "<dt>Password</dt>\n<dd>{v}</dd>",
+    "<tr>\n  <th>Password</th>\n  <td>{v}</td>\n</tr>",
+    '{{\n  "name": "DB_PASSWORD",\n  "type": "string",\n  "scope": "prod",\n  "enabled": true,\n  "value": "{v}"\n}}',
+    # F5: plurals of strong words heading a heading, a column and a block.
+    "## Passwords\n\n{v}", "## Tokens\n{v}", "| Service | Tokens |\n|---------|--------|\n| ci | {v} |",
+    'tokens {{\n  master = "{v}"\n}}', "Secrets\n{v}",
+    # F6: a quoted comma in a row, any text in a header cell.
+    'name,password,notes\n"Smith, John",{v},ok', "id,user,password,created_at(UTC)\n1,admin,{v},2026-11-01",
+    # F7: a password option attached, after a quoted user, before the user, after user%; rar's -hp.
+    "pgcli -h db -u admin -p{v} shop", "mycli -uroot -p{v}", 'ipmitool -H bmc1 -U "admin" -P "{v}" chassis status',
+    "cqlsh -p {v} -u cassandra node1", "twine upload -p {v} -u __token__ dist/*", "rpcclient -U backup%{v} fs01",
+    "rar a -hp{v} out.rar report.csv", "schtasks /create /sc daily /ru CORP\\svc /rp {v}",
+    # F8: a password with a slash, Oracle's user/password@, query parameters, squid's login=.
+    "DATABASE_URL=postgresql://app:ab/{v}@db.internal:5432/app", "sqlplus system/{v}@//ora1:1521/ORCL",
+    "sqlplus sys/{v} as sysdba", "jdbc:oracle:thin:scott/{v}@db:1521:orcl", "exp userid=scott/{v}@prod file=x.dmp",
+    "rman target sys/{v}@prod", "https://app.example.com/callback?code={v}&state=xyz",
+    "https://app.example.com/?sid={v}", "cache_peer proxy parent 3128 0 login=user:{v}",
+    # F13: past the bounds of lines and blank lines below a label.
+    "API keys:\n" + "".join("- k%d-{v}\n" % number for number in range(10)), "Password\n\n\n\n{v}",
+    "### Admin password\n\n{v}\n{v}",
+    # F14: a sentence that says its value stands below.
+    "The new root password is below.\n{v}", "The new root password is below.\n\n```text\n{v}\n```",
+    "Password (see below)\n{v}", "I reset the admin password.\nIt is now {v}",
+    # F15: a name of one case that begins with a strong word.
+    'tokenstr := "{v}"', "secretval={v}", "passwordtext: {v}", "PASSWORDVALUE={v}", 'dbPW = "{v}"',
+    # F16: Russian words, misspellings and other words for a password or a code.
+    "код доступа: {v}", "кодовое слово: {v}", "кодовая фраза: {words}", "пин-код: {d4}", "пин: {d4}",
+    "сид-фраза: {words}", "пассворд: {v}", "кей: {v}", "секретное слово {low}", "pasword: {v}", "passsword: {v}",
+    "passowrd: {v}", "passwrod={v}", "pssword={v}", "p/w: {v}", "psw: {v}", "passw: {v}", "parol: {v}",
+    "recovery code: {v}", "backup codes: {v}", "security answer: {low}", "activation code: {v}",
+    "The door code is {d4}", "pаssword: {v}",
+    # F17: a value before its label in a here-string or into another command that reads standard input.
+    'docker login -u ci --password-stdin registry.example.com <<< "{v}"',
+    'echo "{v}" | gpg --batch --passphrase-fd 0 -d backup.tar.gpg', 'echo "{v}" | wrangler secret put API_TOKEN',
+    "printf '%s' '{v}' | gh secret set DEPLOY_PASSWORD", "echo {v} | openssl enc -aes256 -pass stdin -in x",
+    "echo -n '{v}' | ansible-vault encrypt_string --stdin-name db_password", "admin / {v} (password)",
+    # F20: after a seed phrase, a recovery phrase, a mnemonic or a passphrase the words are the value.
+    "my wallet seed phrase {words}", "the recovery phrase {words}", "mnemonic {words}", "passphrase {chain} for the vault",
+]
+
+
+@pytest.mark.parametrize("template", BELOW_A_COMMAND)
+def test_a_value_after_a_command_or_a_label_line_that_names_it_is_masked(template):
+    """v701-5 redaction F1: a joined name, a sigil, a path or a separator earlier on the line gave
+    the label line no mode that takes the next line, and a prompt line's output stayed."""
+    masked, shown = all_masked(template, 18000 + BELOW_A_COMMAND.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("template", DATABASE_TABLES)
+def test_the_rows_of_a_database_clients_table_are_masked(template):
+    """v701-5 redaction F2: psql, MySQL and reStructuredText rule lines, sqlite's column mode and an
+    aligned listing were no table to the rule."""
+    masked, shown = all_masked(template, 19000 + DATABASE_TABLES.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("template", MASK_TEXT)
+def test_an_element_named_like_the_mask_hides_no_value(template):
+    """v701-5 redaction F3: every <secret> was blanked before names were read, so an element of that
+    name kept its value; the masks are told apart by their offsets now."""
+    masked, shown = all_masked(template, 20000 + MASK_TEXT.index(template))
+    assert masked, shown
+
+
+@pytest.mark.parametrize("template", PAIRS_AND_WORDS)
+def test_the_narrower_boundaries_of_attempt_5_are_closed(template):
+    """v701-5 redaction F4 to F8, F13 to F17 and F20."""
+    masked, shown = all_masked(template, 21000 + PAIRS_AND_WORDS.index(template))
+    assert masked, shown
+
+
+B64_LINES = ["QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAx",
+             "MjM0NTY3ODlBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWmFiY2RlZmdoaWprbG1ub3BxcnN0"]
+
+
+@pytest.mark.parametrize("text,kept", [
+    ("The CSR:\n\n```\n{0}\n{1}\n```\n\nSend it to the CA.", "\n```\n\nSend it to the CA."),
+    ("{0}\n{1}\nThat was the thumbnail.", "\nThat was the thumbnail."),
+    ("-----BEGIN CERTIFICATE-----\n{0}\n{1}\n-----END CERTIFICATE-----\nDone.", "\n-----END CERTIFICATE-----\nDone."),
+    ("tls:\n  key: |\n    -----BEGIN " + MARKER + "-----\n    {0}\n    {1}\n    -----END " + MARKER + "-----\n  ok: 1",
+     "tls:\n  key: |\n    <secret>\n    <secret>\n    <secret>\n    <secret>\n  ok: 1"),
+    ("-----BEGIN " + MARKER + "-----\n  {0}\n  {1}\n-----END " + MARKER + "-----\nkept", "\n  <secret>\n  <secret>\n-----END"),
+])
+def test_a_block_of_base64_or_key_lines_keeps_its_line_breaks_and_indentation(text, kept):
+    """v701-5 redaction F9: a base64 block's span took the line break after it, so a closing fence, an
+    END line or prose joined the mask; every line of a block is masked on its own now."""
+    text = text.format(*B64_LINES)
+    masked, clean = redaction.redact(text)
+    assert clean and kept in masked and masked.count("\n") == text.count("\n"), masked
+    assert not any(line in masked for line in B64_LINES), masked
+
+
+@pytest.mark.parametrize("text,kept", [
+    ("```console\n$ tool login\nPassword:\nLogged in as dev.\n```\n\nThen run the sync.", "\n```\n\nThen run the sync."),
+    ("1. Reset the password:\n\n   ```bash\n   passwd deploy\n   ```\n\n2. Log in again.", "   ```bash"),
+    ("```bash\nsudoedit /etc/app/secrets.env   # DB_PASSWORD is added by hand\n```\n\nKeep it out of the shell history.",
+     "```\n\nKeep it out of the shell history."),
+    ("Here is the token:\n\n```\n{v}\n```\n\nRotate it monthly.", "```\n<secret>\n```\n\nRotate it monthly."),
+])
+def test_no_fence_line_is_masked(text, kept):
+    """v701-5 redaction F10: a closing fence was a value line below a label inside the block, both
+    fences of a block under a list item went with the indented lines, and a closing fence below a
+    label read as an opening one took the paragraph after it."""
+    text, _secrets = fill(text, 22000)
+    masked, clean = redaction.redact(text)
+    assert clean and kept in masked and masked.count("\n") == text.count("\n"), masked
+
+
+@pytest.mark.parametrize("text", [
+    "def check_password(user, password):\n    if not user.active:\n        return False\n    return verify(user, password)",
+    "class TokenBucket:\n    rate = 10\n    capacity = 100\n\n    def take(self):\n        return True",
+    "To rotate the token:\n- open Settings\n- choose Developer\n- click Regenerate\n\nThat is all.",
+    "The password policy changed last week. Accounts created before 2024 keep their old rules and the audit log "
+    "shows who changed what.",
+    "      Name                    Value             Type    Location\n      ----                    -----             ----"
+    "    --------\n   profile                <not set>             None    None",
+    "auth.method    password\nauth.mfa       disabled\ntoken.ttl      3600",
+    "CREATE TABLE users (\n    id            bigserial PRIMARY KEY,\n    created_at    timestamptz NOT NULL DEFAULT now()\n);",
+    '<label for="email">Password reset</label>\n<input id="email" name="email">\n<button type="submit">Sign in</button>',
+    "Password 'temporary\nThe account is locked for now.\nIt's reopened on Monday.\nSee the runbook.",
+])
+def test_lines_below_a_label_that_hold_no_value_stay(text):
+    """v701-5 redaction F11 and F18, the narrowing the owner allowed where no corpus loses masking: a
+    block of code under a def, class or brace line keeps its lines but its quoted literals, list items
+    that read as steps stay, a word naming a property (the password policy) is no label, a listing of
+    keys is no table, an element pair is the next line only, and an apostrophe closes no quote."""
+    masked, clean = redaction.redact(text)
+    lines = text.split("\n")
+    assert clean and masked.count("\n") == text.count("\n"), masked
+    kept = [line for line in lines[1:] if line in masked.split("\n")]
+    assert len(kept) >= len(lines[1:]) - 1, masked
+
+
+def test_a_code_block_under_a_label_loses_its_quoted_literals():
+    """The value a block of code holds is a literal: def get_password(): return "V" still masks it."""
+    text, secrets = fill('def get_password():\n    return "{v}"\n\nprint(get_password())', 22100)
+    masked, clean = redaction.redact(text)
+    assert clean and secrets[0] not in masked and masked.endswith("\n\nprint(get_password())"), masked
+
+
+@pytest.mark.parametrize("name,counts", [
+    ("COMPASS", False), ("BYPASS", False), ("NO_BYPASS", False), ("PROXY_BYPASS", False), ("HOTKEY", False),
+    ("MONKEY", False), ("SSHPASS", True), ("DB_PASS", True), ("MASTERKEY", True), ("PGPASSWORD", True),
+])
+def test_an_environment_name_that_is_an_everyday_word_names_no_secret(name, counts):
+    """v701-5 redaction F21: secret_name counted COMPASS, BYPASS and HOTKEY by their ending."""
+    assert redaction.secret_name(name) is counts
 
 
 def test_shared_memory_keeps_its_own_patterns_and_the_hook_its_bounded_copies():
@@ -1096,3 +1280,28 @@ def test_shared_memory_keeps_its_own_patterns_and_the_hook_its_bounded_copies():
     for sample in ("password: Tr0ub4dor&3", "postgres://app:Tr0ub4dor@db/app", "token " + jwt):
         assert any(pattern.search(sample) for _, pattern in shared.MEMORY_SECRETS) == \
             any(pattern.search(sample) for pattern in bounded.values()), sample
+
+
+KB_SHAPES = [
+    lambda size: ("key-" * (size // 4)).rstrip("-"), lambda size: ("public-key-value-" * (size // 17)).rstrip("-"),
+    lambda size: "see " + ("key." * (size // 4)).rstrip("."), lambda size: "mysql -u root \\\n" * (size // 16),
+    lambda size: "echo Tr0ub4dor3xQ | docker login -u ci --password-stdin ghcr.io\n" * (size // 64),
+    lambda size: "password-" * (size // 9) + " goes here", lambda size: "x-" * (size // 4) + "key-" * (size // 8),
+]
+
+
+@pytest.mark.parametrize("make", KB_SHAPES, ids=["kebab-key", "kebab-words", "dotted-after-a-word", "continuations",
+                                                 "piped-login", "kebab-strong-before-prose", "kebab-late-labels"])
+def test_the_attempt_5_slow_shapes_are_linear_at_one_megabyte(make):
+    """v701-5 redaction F12: a hyphen-joined name was read once per label (13.7 s at 80 kB, over 150 s
+    at 1 MB), a dotted name was sliced per label (6.7 s at 1 MB), and every line of continued client
+    lines read the fifty lines after it again (12 s at 1 MB). Each takes seconds at 1 MB now, and four
+    times the text takes at most about four times as long."""
+    small, large = make(256 * KB), make(1024 * KB)
+    started = time.monotonic()
+    redaction.redact(small)
+    middle = time.monotonic()
+    masked, clean = redaction.redact(large)
+    finished = time.monotonic()
+    assert finished - middle < SLOW_SECONDS, len(large)
+    assert finished - middle < 8 * (middle - started) + 1.0, (middle - started, finished - middle)
