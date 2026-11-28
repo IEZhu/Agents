@@ -178,7 +178,9 @@ evaluation runner registers it, or a name of your own), so a turn it logged, or 
 `journal=false`, is never written by the hook as well; under a name that is no Agents-Core
 registration a call counts only with Agents-Core's arguments (`agent_name`, `query` and
 `response_content`, or `journal`), so another server's tool of that name, such as a CRM's
-`log_interaction`, leaves the turn to the hook and withdraws no entry. The agent
+`log_interaction`, leaves the turn to the hook and withdraws no entry; one whose arguments hold
+`journal` is taken for the model's own, so the hook writes nothing for that turn and reports it as a
+refused call (exit 1), the safe side. The agent
 is the one the delivered footer names, and the descriptor is reported against it: `mismatch`
 when the footer names another agent, `unverified` with `missing=footer` when the answer has no
 footer, `unverified` and the footer's agent without a descriptor, and `unattributed` without
@@ -235,16 +237,23 @@ sometimes lost from the journal. Before anything is written, the hook masks
 - **the rest of every line after a word that names a secret**, separators and symbols included,
   whatever the value looks like, punctuation alone after a separator too. The words are
   `password`, `passwd`, `passphrase`, `secret`, `token`, `credential(s)`, `creds`, `apikey`, `pswd`,
-  `assword` (an expect script's prompt), `kennwort`, `contraseña` and the pairs `api key`, `access
-  key`, `private key`, `signing key`, `encryption key`, `master key`, `seed phrase`, `recovery
-  phrase` and `identified by`, any word ending in `password`, `passwd`, `passphrase`, `secret` or
-  `token` (`PGPASSWORD`, `clientSecret`), a word of one case that begins with one of those and goes
-  on with letters (`tokenstr`, `secretval`, `PASSWORDVALUE`; not `tokenize`, `secretary`,
-  `passwordless` or a property such as `tokentype`), a misspelling of `password` one letter away
-  (`pasword`, `passowrd`, `pssword`, `passwort`), a word that mixes Cyrillic letters into Latin ones
-  (`pаssword`), and the Russian `пароль`, `токен`, `секрет` in every form, `пассворд`, `креды`,
-  `пороль` and the pairs `код доступа`, `пин-код`, `сид-фраза`, `кодовое слово`, `кодовая фраза`
-  and `секретное слово` in their cases; in any case, in camelCase, snake_case, kebab-case or dotted
+  `assword` (an expect script's prompt), `kennwort`, `contraseña` (letters of Latin-1 and Latin
+  Extended are letters of a word) and the pairs `api key`, `access key`, `private key`, `signing
+  key`, `encryption key`, `master key`, `seed phrase`, `recovery phrase`, `recovery seed`, `backup
+  phrase`, `seed words`, `mnemonic words`, `wallet words`, `recovery words` and `identified by`, any
+  word ending in `password`, `passwd`, `passphrase`, `secret` or `token` (`PGPASSWORD`,
+  `clientSecret`), a word of one case that begins with one of those and goes on with letters
+  (`tokenstr`, `secretval`, `PASSWORDVALUE`; not `tokenize`, `secretary`, `passwordless` or a
+  property such as `tokentype`), a misspelling of `password` or `passphrase` one letter away
+  (`pasword`, `passowrd`, `pssword`, `passwort`, `passprase`), `paswrd`, `token` and `secret` with
+  two neighbouring letters swapped (`toekn`, `sercet`; a letter replaced is another word, `taken`),
+  a word that mixes Cyrillic letters into Latin ones (`pаssword`) or Latin ones into Cyrillic
+  (`Пaроль`), `пароль`, `токен` and `секрет` typed in the QWERTY layout (`gfhjkm`, `njrty`) and
+  `password`, `token` and `secret` in the ЙЦУКЕН one (`зфыыцщкв`), and the Russian `пароль`,
+  `токен`, `секрет` in every form, `пассворд`, `креды`, `пороль`, `доступы` and the pairs `код
+  доступа`, `пин-код`, `сид-фраза`, `кодовое слово`, `кодовая фраза`, `секретное слово`, `фраза
+  восстановления`, `слова восстановления`, `резервная фраза`, `ключевая фраза` and `учётные данные`
+  in their cases; in any case, in camelCase, snake_case, kebab-case or dotted
   names, after `$`, `@`, `%`, `-`, `--` or `-D`, in quotes or escaped quotes, in XML elements,
   subscripts and calls (`DB_PASSWORD=`, `$authToken =`, `-Dapi.key=`, `config["password"] =`,
   `define('DB_PASSWORD',`, `<password>`, `\"token\":`, `Пароль от базы:`), and as the start of a
@@ -253,12 +262,18 @@ sometimes lost from the journal. Before anything is written, the hook masks
   value, before a call in a dotted name ending in one (`req.SetBasicAuth(`, `crypto.createHmac(`,
   `hmac.New(`), and in a sentence when a token shaped like a value (a digit, a symbol, a random run)
   follows within three words with no sentence ending between ("the key is V", "pwd V", "ключ от
-  апи: V", "* pass — V"): `key`, `keys`, `pass`, `pwd`, `pw` (also `p/w`), `psw`, `passw`,
-  `passcode`, `psk`, `auth`, `authtok`, `authorization`, `cookie`, `bearer`, `oauth`, `otp`, `hmac`,
-  `dsn`, `mnemonic`, `parol`, `ключ`, `пасс`, `кей`, the plurals `passwords`, `secrets`, `tokens` and
-  `passphrases`, `session id`, `connection string`, a `code` or `codes` after `recovery`, `backup`,
-  `access`, `activation`, `verification`, `door`, `gate`, `alarm` or `unlock`, and `security
-  answer`, and any word of one case glued to `pass`, `passwd`, `pw`, `pwd`, `psk`, `key`, `auth`,
+  апи: V", "* pass — V"), and before a colon that ends the line after a remark in brackets or a word
+  for what holds the value (`GitHub recovery codes (keep them offline):`, `Basic auth pair:`; `pair`,
+  `value`, `string`, `data`, `details`, `info`; not `Key features:`): `key` (also `kye` in a name
+  such as `api_kye`), `keys`, `pass`, `pwd`, `pw` (also `p/w`), `psw`, `passw`, `passcode`, `psk`,
+  `auth`, `authtok`,
+  `authorization`, `cookie`, `bearer`, `oauth`, `otp`, `hmac`, `dsn`, `mnemonic`, `parol`, `ключ`,
+  `пасс`, `кей`, `мнемоника`, `учётка`, `ключ API`, `ключ доступа`, `для входа` (`Данные для
+  входа:`), the plurals `passwords`, `secrets`, `tokens` and `passphrases` (which name their values
+  as their singular does alone, at a heading's end, in a column and in a line that ends in a colon,
+  "The passwords for the demo:"), `session id`, `connection string`, a `code` or `codes` after
+  `recovery`, `backup`, `access`, `activation`, `verification`, `door`, `gate`, `alarm` or `unlock`,
+  and `security answer`, and any word of one case glued to `pass`, `passwd`, `pw`, `pwd`, `psk`, `key`, `auth`,
   `authtok`, `secret`, `token` or `sessionid` (`dbpass`, `rootpw`, `DBPWD`, `masterauth`,
   `requirepass`, `privkey`, `JSESSIONID`; not `bypass`, `compass` or `monkey`), and a last `Pw`
   after a case change (`adminPw`, `dbPW`). `pin`, `пин`, `код` and `salt` count before `=`, `:` or a
@@ -285,38 +300,62 @@ sometimes lost from the journal. Before anything is written, the hook masks
   again by the rule; below a bare label (`Password`, `Passwords`) or a line that ends in a colon after
   a word naming a secret ("The password for the server:", "Логин и пароль:"), the next non-blank
   line and those after it that read as a value (one token, a code span, a pair, or four tokens at
-  most with one shaped like a value; a list item only when its text reads so, so the steps under
-  "To rotate the token:" stay), up to a blank line or eight lines, and past the eighth line the rows
-  of the same shape as the one above (a list's items, pairs), up to 1,000; below a sentence or a
+  most with one shaped like a value; a list item when its text reads so or when any token of it is
+  shaped like a value and is no path, URL, file name, version or number, whatever its length, so
+  `- admin / V — for the web panel` goes and the steps under "To rotate the token:" stay), up to a
+  blank line or eight lines, and past the eighth line the rows of the same shape as the one above
+  (a list's items, pairs), up to 1,000; a line that is one code span (```` ```V``` ````, `` `V` ``)
+  loses its code and keeps its backticks, and opens no fence, since a backtick fence's info string
+  holds no backtick; a table's header below the label line is read as a table; below a sentence or a
   heading that ends in such a word without a colon ("Try logging in with the password", "### Admin
   passwords", "I reset the admin password."), the lines that read as a value; below a sentence whose
-  few last words point there ("The new root password is below.", "Password (see below)") and below
-  a label line that leaves its value without reading as a sentence (`printenv DB_PASSWORD`,
-  `echo $API_TOKEN`, `op read op://Private/db/password`, `What's the wifi password?`), a lone value
-  on the next line (one token shaped like a value, or a quoted string); after a line that starts
+  few last words point there ("The new root password is below.", "Password (see below)"), below a
+  label line that ends, after up to four words, in a dash, an arrow, `=`, `->`, `=>`, a remark in
+  brackets or an emoji, or in `is` or `here` ("DB password —", "Password →", "Here's the password
+  you need ->", "Password (prod)", "The password is", "your token here 👇"), and below a label line
+  that leaves its value without reading as a sentence (`printenv DB_PASSWORD`, `echo $API_TOKEN`,
+  `op read op://Private/db/password`, `What's the wifi password?`, `Update: the new password`), a
+  lone value on the next line (one token shaped like a value, or a quoted string), and a fenced block
+  on the next line or, after the pointing endings, past up to two blank lines; after a line that starts
   with a shell's or a REPL's prompt and names a secret, anywhere on the line (`$ vault kv get
   -field=password secret/db`, `PS C:\> $env:DB_PASSWORD`, `>>> os.environ["DB_PASSWORD"]`,
   `127.0.0.1:6379> CONFIG GET requirepass`), the output lines that read as a value, up to a blank
   line, a fence, the next prompt or eight lines; a fenced block first below a label, whose content goes and whose fences
   stay (forty lines at most), and never a fence that closes a block; the next line after a quoted
   field name (`name="password"`); a heredoc's body after a line that names a secret (`chpasswd
-  <<EOF`, fifty lines at most); the lines a masked line continues with trailing backslashes (fifty
-  at most), and a client's option on such a continuation line (`mysql -u root \` then `-pV`); the
+  <<EOF`), to its terminator within fifty lines and within the fenced block it stands in, and of a
+  heredoc whose terminator never comes, to its first blank or fence line; the lines a masked line
+  continues with trailing backslashes (fifty at most; a backslash that ends a Windows path,
+  `C:\Users\deploy\.ssh\`, or escapes another is no continuation), and a client's option on such a
+  continuation line (`mysql -u root \` then `-pV`); the
   value field of the same object or list item as a name field that names a secret, eight lines each
   way at most, in JSON, YAML or XML (`"key": "db_pass",` then `"value": "V"`, `<name>…Password</name>`
   then `<value>V</value>`, `- value: V` above `name: DB_PASSWORD`); after an element whose text names
-  a secret, the element on the next line whatever its tag (`<key>Password</key>` then
-  `<string>V</string>`, `<dt>`/`<dd>`, `<th>`/`<td>`); and the rows under a table's header that names
-  a secret in one of its cells, up to 1,000, its rule and border lines kept: a pipe table with or
-  without outer pipes, psql's rule of dashes joined by plus signs, a bordered MySQL or
-  reStructuredText grid, comma, semicolon or tab separated values with quoted fields read as one
+  a secret, the element on the next line whatever its tag, past a comment line (`<key>Password</key>`
+  then `<string>V</string>`, `<dt>`/`<dd>`, `<th>`/`<td>`); and the rows under a table's header that
+  names a secret in one of its cells, up to 1,000, its rule and border lines kept: a pipe table with
+  or without outer pipes, psql's rule of dashes joined by plus signs, a bordered MySQL or
+  reStructuredText grid, a box-drawing table read as the ASCII ones (DuckDB's and ClickHouse's
+  default output, ClickHouse's column names inside the top border, psql's `unicode` linestyle,
+  sqlite's `.mode box`, double-line boxes, DuckDB's row of types under the header), comma, semicolon
+  or tab separated values with quoted fields read as one
   and any text in a header cell (`"Smith, John"`, `created_at(UTC)`), columns set by blanks above a
   rule of dashes or equals signs (sqlite's column mode, a simple reStructuredText table), a header
   in capitals or title case above rows of as many columns (`NAME  PASSWORD`), and a comment of
-  column names (`# client  server  secret`). After two blank lines, and up to eight, only a line
+  column names (`# client  server  secret`); a header with a random-looking cell is a record of keys
+  and values, no header (`npm token create`). After two blank lines, and up to eight, only a line
   that reads as a value is taken. A YAML or INI sibling key below an empty key (`password:` then
   `username: admin`; not `admin:V`, which is no key) is no value of it, a key block below a label is
   the key block rule's, and no fence line is ever masked;
+- **a wallet's seed phrase by its shape**: 12 to 24 words of three to eight lowercase letters ending a
+  line, as BIP-39's words are written, where the line or the line above it (past blank lines and
+  fences) names a seed, a phrase, a mnemonic, recovery, a backup, a wallet or words (`seed`,
+  `phrase`, `mnemonic`, `words`, `recovery`, `backup`, `wallet`, `bip39`, `сид`, `фраз`, `слов`,
+  `мнемони`, `восстанов`, `резервн`) or is such a line itself: "Seed:", "the seed is", "24 words:",
+  "Фраза для восстановления доступа:", "Мнемоника кошелька:" and the second line of a phrase split
+  in two. English prose holds a word of one or two letters well within twelve words and Russian
+  prose is Cyrillic, so prose about a seed stays ("The seed is planted in spring", "seed: 42",
+  "Резервная фраза нужна для восстановления кошелька.");
 - **a quoted value** that opens after a label's separator, a blank or a client's option (`"`, `'`,
   `` ` ``, escaped quotes, `"""` and `'''`), to the end of the line it closes on, within twelve
   lines; a quote of a kind that stands an odd number of times before the separator closes the
@@ -372,7 +411,10 @@ case, none of them a verb that introduces a value (`is`, `was`, `are`, `equals`,
 it), a chain of hyphenated words or a run of letters no word is made of (five consonants in a row,
 or a pair such as `qx`): "the key point is", "auth flow works", "Reset your password from the
 account settings page." A strong word right before a property word names that property, as a
-name's last word does ("The password policy changed last week", "the token type"). After `seed
+name's last word does ("The password policy changed last week", "the token type"), unless a token
+shaped like a value follows in the same sentence within twelve words ("The password store has V as
+the root entry"). The other names of a seed phrase (`backup phrase`, `recovery seed`, `фраза
+восстановления`) keep a sentence of ordinary words after them, and their phrase goes by its shape. After `seed
 phrase`, `recovery phrase`, `mnemonic`, `passphrase`, `сид-фраза`, `кодовое слово` and `кодовая
 фраза` no sentence exempts the line, since their values are ordinary words: "The seed phrase must
 be written down on paper." loses its tail. In doubt the line is masked. The rule reads a turn's
@@ -389,7 +431,13 @@ at 1 MB), a dotted name after a word (6.7 s), continued client lines (12 s) and 
 login (5.2 s), take 2.4 to 3.1 s at 1 MB, and the piped lines 4.6 to 4.7 s, most of it the
 repository scanner's two passes, beside other sessions' work (load averages of 7 to 9); four times
 the text takes about four times as long. Of that verification's 46 hostile inputs of 1 MB none
-takes over 4.4 s, and of attempt 5's 63 none over 4.0 s.
+takes over 4.4 s, and of attempt 5's 63 none over 4.0 s. Attempt 7 reads the hints that say whether
+a line or a name may hold a word of the rule on the lowered text, grouped by their first letter,
+five to twenty times faster than one case-insensitive pattern; then, each input in a fresh process
+at load averages of 3 to 6, the attempt 6 verification's 34 hostile inputs of 1 MB take 1.4 to 4.6 s,
+32 aimed at attempt 7's classes (code lines under labels, pointer tails, remarks, seed lines, box
+tables, heredocs cut short, Windows paths, long bullets, layout slips) 1.4 to 4.6 s, the 46 at most
+4.3 s and the 63 at most 3.5 s, the slowest of them mostly the repository scanner's two passes.
 
 A text the scanner cannot clean, too large, with too many hits, or not in the time left before the
 hook's deadline, is not written: the field holds a placeholder and the entry's metadata
@@ -406,8 +454,12 @@ times; 11,776 of 30,463 characters go before (38.7%) and 10,368 after (34.0%); a
 after, 96 masked whole before and 42 after, and 36 masked lines hold no word of the rule before and
 19 after; by kind, prose 26 of 40 texts and 47% of its characters both times, code 28 of 30 and
 45% before, 33% after, Markdown answers 15 of 15 and 42% before, 33% after, structured data 15 of 15
-and 50% before, 48% after. As one text it keeps every line break and every fence line after
-attempt 6 (828 of 830 lines and 29 of 30 fence lines before). Per line, as measured at attempt 5
+and 50% before, 48% after. After attempt 7, 116 texts change and 10,413 characters go (34.2%;
+`учётные данные`, now a name of credentials, takes the rest of one sentence's line, 45 characters),
+266 lines are touched, 42 masked whole and 20 hold no word of the rule. As one text it keeps every
+line break and every fence line after attempts 6 and 7 (828 of 830 lines and 29 of 30 fence lines
+before). On the attempt 6 verification's 73 benign answers (40 English, 33 Russian), 49 change and
+3,328 of 11,432 characters go (29.1%) before attempt 7 and after it. Per line, as measured at attempt 5
 of #701: of the final verification's 79 benign strings 40 change, mostly a line of
 code or Markdown after a secret's name (`self.token = token`, `**Key:** Enter`, `Auth: OAuth 2.0`,
 `def sign(key: KeyType, ...)`), header lines named for a key (`Idempotency-Key:`,
@@ -425,14 +477,23 @@ and paths stay.
 
 What reaches the journal, measured the same way: of the attempt 4 verification's fresh corpus of
 305 secret-bearing items, 191 were masked, none in part and 114 written whole before attempt 5,
-280, none and 25 after it, and 284, none and 21 after attempt 6, all 21 with nothing naming the value
-before it (a positional argument); of a corpus of 220 secret-bearing texts written for attempt 5
-before its rules changed, and never tuned against, 190, none and 30 before, 213, none and 7 after
-attempts 5 and 6; of the attempt 5 verification's frozen corpus of 721 texts, the 864 secrets that
-something names went from 833 masked, none in part and 31 whole to 858, none and 6, and its 117
-boundary probes from 50, none and 109 to 134, one in part and 24 (the part four characters that the
-label's own `wallet` shares with the masked phrase's `walnut`), each of the 24 a shape listed below; the final verification's 141 shapes stay at 140 masked (the Ethereum key below passes). All
-are adversarial, so their shares are no field rates.
+280, none and 25 after it, 284, none and 21 after attempt 6, and 285, none and 20 after attempt 7,
+all 20 with nothing naming the value before it (a positional argument); of a corpus of 220
+secret-bearing texts written for attempt 5 before its rules changed, and never tuned against, 190,
+none and 30 before, 213, none and 7 after attempts 5, 6 and 7; of the attempt 5 verification's
+frozen corpus of 721 texts, the 864 secrets that something names went from 833 masked, none in part
+and 31 whole to 858, none and 6, the 54 positional ones from 39, none and 15 after attempt 6 to 41,
+none and 13 after attempt 7, and its
+117 boundary probes from 50, none and 109 to 134, one in part and 24 (the part four characters that
+the label's own `wallet` shares with the masked phrase's `walnut`), and to 135, none and 24 after
+attempt 7, each of the 24 a shape listed below; the final verification's 141 shapes stay at 140
+masked (the Ethereum key below passes). Of the attempt 6 verification's frozen corpus of 270
+secret-bearing texts with 309 values, 259 texts were masked, none in part and 11 written whole at
+attempt 6, and 268, none and 2 after attempt 7 (values 293, none and 16 to 307, none and 2: a French
+`mot de passe` and a sentence that points below with a long tail over 64 hex digits, both listed
+below); of its 213 boundary probes that hold a value, 108, none and 105 to 205, none and 8, each of
+the 8 a shape listed below. No item of any of these corpora masked before attempt 7 is written
+after it. All are adversarial, so their shares are no field rates.
 
 Deterministic redaction cannot catch everything, and these shapes still pass:
 
@@ -444,20 +505,36 @@ Deterministic redaction cannot catch everything, and these shapes still pass:
   app ...`, `net use Z: \\host\share /user:svc ...`, `curl -X PUT -d ... …/kv/app/db_password`), a
   value written before its label in other words than the forms above ("hunter2 is my password",
   "admin / V — password for the test box"), and a value after a sentence that names the secret
-  without pointing below, or with a paragraph between it and the value's fence;
+  without pointing below, with more than four words after the word that names it ("The generated
+  session secret is below; put it in `SESSION_SECRET` before you deploy."; a value of 64 hex digits
+  there passes as a digest too), or with a paragraph between it and the value's fence; the output of
+  a command that names a secret only in a tool's name (`secret-tool lookup service db user app`); a
+  `user:password` pair in a fence under a label that names a login only (`Login for staging:`);
 - a value after a prose-common word that a clause or more than three words stand between ("I
   rotated the key; the new one is V", "pw for the router: V", "auth for the internal dashboard V"),
   or after one ending a dotted name with nothing but a blank before the value (`nmcli connection
   modify office wifi-sec.psk V`), a field named by a single letter (`WIFI:T:WPA;S:Office;P:V;;`) or
-  an option outside both lists (`psql -W V`, `hydra -p V`, `vsce publish -p V`), and words outside
-  the lists (`serial:`, German, Spanish and French words other than `kennwort` and `contraseña`);
+  an option outside both lists (`psql -W V`, `hydra -p V`, `vsce publish -p V`), a value below a
+  prose-common word whose line ends in a colon after words other than a remark in brackets or a
+  holder's name (`Ключ от сервера:`, `Auth for the dashboard:`), and words outside the lists
+  (`serial:`, `clave:`, German, Spanish and French words other than `kennwort` and `contraseña`,
+  `mot de passe`), misspellings other than those above (`tokn`, `secet`), and slips of the keyboard
+  layout in other words;
 - a value of plain lowercase words, or of letters that read like a word, after a word that names a
   secret, inside a sentence of ordinary words with no verb that introduces it ("the token sunshine
   expires tonight", "пароль от вайфая sunshine"; a random run of ten letters passes like this about
   one time in four);
 - a name of one case that begins with a weak word (`keystring = "V"`), and a property name that
   holds a plain word, a number or a cleartext value (`X_AUTH_HEADER=` with letters only,
-  `secret_id:` with digits, `ADMIN_PASSWORD_HASH=` with a password);
+  `secret_id:` with digits, `ADMIN_PASSWORD_HASH=` or `PASSWORD_FIELD=` with a password);
+- a seed phrase written otherwise than as its words ending a line (numbered, with other marks between
+  its words, split into lines of fewer than twelve, capitalised, of words over eight letters or from
+  another language's list) where no seed phrase's label stands before it on its own line (`seed
+  phrase:`, `recovery seed:`, `Фраза восстановления:` and their kin take the rest of their line
+  whatever its shape, and from the line above a line that is no list item), and one where neither
+  its line nor the line above names a seed;
+- an HTML table whose header row and value rows each stand on one line (`<tr><th>User</th>…</tr>`,
+  then `<tr><td>…</td>…</tr>`): only elements alone on their lines are read as pairs;
 - what lies past a bound: a fence's content past its fortieth line, a heredoc's past its fiftieth,
   a table's rows past its 1,000th, a quoted value that closes more than twelve lines on, a value
   more than eight blank lines below its label, a value field more than eight lines from its name
