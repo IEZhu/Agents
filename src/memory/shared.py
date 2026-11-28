@@ -612,7 +612,12 @@ class SharedMemoryIndex:
                     return
 
     def _build_once(self, wanted: Dict[str, str]) -> bool:
-        """Embeds what ``wanted`` lacks; True when done, False when ``wanted`` changed meanwhile."""
+        """Embeds what ``wanted`` lacks; True when done, False when the next pass must start over:
+        ``wanted`` changed meanwhile, or an embedding loaded the model from another snapshot than the
+        fingerprint read at the start names (``model_fingerprint`` is the model cache's until the
+        first load). So vectors are saved under the fingerprint read after the embedding that made
+        them, and a pass that has embedded nothing yet saves nothing on a change: the cache's
+        fingerprint never prunes the loaded model's vectors."""
         model = self._fingerprint()
         store = self._vectors()
         vectors: Dict[str, np.ndarray] = store.get_embeddings(self._current(store, wanted, model))
@@ -621,11 +626,14 @@ class SharedMemoryIndex:
         for start in range(0, len(todo), EMBED_BATCH):
             with self._lock:
                 if self._wanted is not wanted:
-                    self._save(vectors, wanted, model)
+                    if start:  # a pass that embedded nothing has no progress to keep
+                        self._save(vectors, wanted, model)
                     return False
             self._yield()
             batch = todo[start:start + EMBED_BATCH]
             embedded = np.asarray(self._embed_texts([wanted[chunk_id] for chunk_id in batch]), dtype=np.float32)
+            if self._fingerprint() != model:  # another model than this pass compares and saves under
+                return False
             for chunk_id, vector in zip(batch, embedded):
                 vectors[chunk_id] = vector
             with self._lock:
@@ -668,6 +676,11 @@ class SharedMemoryIndex:
             return {}, {}
         query_vector = np.asarray(self._embed_query(query), dtype=np.float32).reshape(-1)
         query_vector = query_vector / (np.linalg.norm(query_vector) or 1.0)
+        loaded = self._fingerprint()
+        if loaded != model:  # embedding the query loaded the model from another snapshot than the cache named
+            current = self._current(store, documents, loaded)
+            if not current:
+                return {}, {}
         vectors = {chunk_id: vector for chunk_id, vector in store.get_embeddings(current).items()
                    if vector.shape == query_vector.shape}
         similarity = {}

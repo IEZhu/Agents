@@ -780,3 +780,68 @@ def test_a_scope_never_sees_the_error_of_a_failed_build(world, tmp_path):
         assert payload["mode"] == "lexical" and payload["facts"][0]["name"] == "style"
     finally:
         index.join(30)
+
+
+# --- review follow-ups (#722) ----------------------------------------------------------------------------
+
+def loads_on_first_embedding(model: FakeModel, method: str) -> None:
+    """Until ``model`` first embeds through ``method`` its fingerprint is the one the model cache names;
+    the embedding loads the model from another snapshot, whose fingerprint it has from then on."""
+    real = getattr(model, method)
+
+    def load_then_embed(texts):
+        model.fingerprint_value = "loaded"
+        return real(texts)
+
+    setattr(model, method, load_then_embed)
+
+
+def test_a_model_that_loads_another_snapshot_rebuilds_under_its_fingerprint(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(shared, "EMBED_BATCH", 100)  # one batch: the model loads while the pass's only batch embeds
+    model = FakeModel(fingerprint="from-cache")
+    loads_on_first_embedding(model, "embed_texts")
+    index = make_index(tmp_path / "index", model)
+    documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    index.refresh(documents)
+    index.join(30)
+    assert index.status()["state"] == "ready"
+    stored = index._vectors().get(list(documents))
+    assert {(meta or {}).get("model") for meta in stored.metadatas} == {"loaded"}
+    assert index.coverage(documents)["covered"] == len(documents)
+
+
+def test_a_query_whose_model_loads_another_snapshot_skips_the_old_vectors(world, tmp_path):
+    model = FakeModel(fingerprint="from-cache")
+    build(world, make_index(tmp_path / "index", model))  # every vector is stored under from-cache
+    loads_on_first_embedding(model, "embed_query")
+    querying = make_index(tmp_path / "index", model)
+    facts = list(shared.collect(world["stores"]).facts.values())
+    ranked, vectors, problem = querying.search("markdown links", facts)
+    assert vectors == {} and problem is None
+    assert ranked[0]["fact"].name == "style" and ranked[0]["semantic"] is None
+
+
+def test_a_pass_that_embedded_nothing_yet_saves_nothing(world, tmp_path):
+    """Its fingerprint is not confirmed by a load yet: a save would drop the loaded model's vectors."""
+    model = FakeModel(fingerprint="loaded")
+    build(world, make_index(tmp_path / "index", model))  # every vector is stored under loaded
+    before = model.calls
+    documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    second = {**documents, "extra:0": "a chunk that arrived as the build started"}
+    model.fingerprint_value = "from-cache"  # a new process, whose model cache names another snapshot
+    loads_on_first_embedding(model, "embed_texts")
+    real_fingerprint, changed = model.fingerprint, []
+
+    def fingerprint():
+        if threading.current_thread().name == "shared-memory-index" and not changed:
+            changed.append(True)
+            index.refresh(second)  # the documents change before the build's first pass embeds anything
+        return real_fingerprint()
+
+    model.fingerprint = fingerprint
+    index = make_index(tmp_path / "index", model)
+    index.refresh(documents)
+    index.join(30)
+    assert changed and index.status()["state"] == "ready"
+    assert index.coverage(second)["covered"] == len(second)
+    assert model.calls - before <= shared.EMBED_BATCH + 1  # the batch that loaded the model, then the new chunk
