@@ -495,10 +495,49 @@ def test_hidden_copies_leave_no_trace_in_time_or_counts(world, tmp_path):
 
 
 def test_a_root_spelled_in_another_case_still_finds_its_project(world, monkeypatch):
-    monkeypatch.setattr(shared, "_FOLD_CASE", True)
+    # A volume that ignores case: every spelling of a path opens the same directory.
+    monkeypatch.setattr(os.path, "samefile", lambda a, b: os.fspath(a).lower() == os.fspath(b).lower())
     spelled = Path(str(world["root"]).swapcase())
     facts = shared.collect(world["stores"]).facts.values()
     assert "style" in by_name(shared.select(facts, scope="project", projects=shared.project_keys(spelled)))
+
+
+def variant_project(world, tmp_path):
+    """A workspace ``gamma`` and memory kept under the project name of ``GAMMA``, its spelling in another case."""
+    root, variant = tmp_path / "work" / "gamma", tmp_path / "work" / "GAMMA"
+    root.mkdir()
+    write(world["claude"] / "projects" / native.project_name(variant) / "memory" / "variant.md",
+          note("variant", "kept under the other spelling", "Written while working in GAMMA."))
+    return root, variant
+
+
+def test_on_a_case_sensitive_volume_a_project_named_in_another_case_is_another_project(world, tmp_path, monkeypatch):
+    """#722: there /work/Foo and /work/foo are two directories, so neither sees the other's memory."""
+    root, variant = variant_project(world, tmp_path)
+    # A case-sensitive volume: a path spelled in another case is another directory, or none.
+    monkeypatch.setattr(os.path, "samefile", lambda a, b: os.fspath(a) == os.fspath(b))
+    assert "variant" not in visible(world, "project", root=root)
+    assert "variant" in visible(world, "project", root=variant)  # its own spelling matches as it always did
+
+
+def test_a_project_named_in_another_case_follows_the_real_volume(world, tmp_path):
+    """No stand-in for the file system: where case matters ``GAMMA`` is a directory of its own."""
+    root, variant = variant_project(world, tmp_path)
+    variant.mkdir(exist_ok=True)  # a second directory on a case-sensitive volume, the same one elsewhere
+    distinct = "GAMMA" in os.listdir(tmp_path / "work")
+    assert ("variant" in visible(world, "project", root=root)) is not distinct
+    assert "variant" in visible(world, "project", root=variant)
+
+
+def test_a_project_named_like_this_one_with_more_or_fewer_characters_is_another_project(world):
+    """Only the case of a name's letters may differ: a longer or shorter name is never this workspace's."""
+    own = native.project_name(world["root"])
+    for fact, project in (("extra", own + "-extra"), ("client", own + "-client-2"), ("shorter", own[:-1])):
+        write(world["claude"] / "projects" / project / "memory" / f"{fact}.md",
+              note(fact, "kept for a project with a similar name", f"Belongs to the {fact} project."))
+    shown = set(visible(world, "project"))
+    assert "style" in shown and not {"extra", "client", "shorter"} & shown
+    assert {"extra", "client", "shorter"} <= set(visible(world, "all"))
 
 
 def test_the_index_store_never_holds_note_text(world, tmp_path):
@@ -623,9 +662,17 @@ def test_a_same_size_rewrite_with_the_old_time_is_read_again(world):
 
 
 def test_a_long_description_does_not_grow_every_chunk(world):
-    write(world["own"] / "wordy.md", note("wordy", "d" * 50_000, "x " * 5_000))
+    # A paragraph cut into pieces, one only a little over the budget the title leaves, and short ones joined.
+    body = "\n\n".join(["x" * 10_000, "y" * 1_400] + ["word " * 19 + "end"] * 100)
+    write(world["own"] / "wordy.md", note("wordy", "d" * 50_000, body))
     wordy = by_name(shared.collect(world["stores"]).facts.values())["wordy"]
-    assert all(len(text) <= shared.CHUNK_CHARS + shared.TITLE_CHARS + 1 for _, text in shared.chunks(wordy))
+    pieces = shared.chunks(wordy)
+    assert all(text.startswith("wordy — ddd") for _, text in pieces)
+    assert all(len(text) <= shared.CHUNK_CHARS for _, text in pieces)  # the title counts
+    # The bodies after the title line, joined, are the note's body: nothing is lost or doubled at a cut.
+    # Only the paragraph break where one chunk ends and the next begins is not kept.
+    joined = "".join(text.split("\n", 1)[1] for _, text in pieces)
+    assert joined.replace("\n\n", "") == body.replace("\n\n", "")
 
 
 def test_a_failing_semantic_search_still_answers_lexically(world, tmp_path):
@@ -776,3 +823,86 @@ def test_a_scope_never_sees_the_error_of_a_failed_build(world, tmp_path):
         assert payload["mode"] == "lexical" and payload["facts"][0]["name"] == "style"
     finally:
         index.join(30)
+
+
+# --- review follow-ups (#722) ----------------------------------------------------------------------------
+
+def loads_on_first_embedding(model: FakeModel, method: str) -> None:
+    """Until ``model`` first embeds through ``method`` its fingerprint is the one the model cache names;
+    the embedding loads the model from another snapshot, whose fingerprint it has from then on."""
+    real = getattr(model, method)
+
+    def load_then_embed(texts):
+        model.fingerprint_value = "loaded"
+        return real(texts)
+
+    setattr(model, method, load_then_embed)
+
+
+def test_a_model_that_loads_another_snapshot_rebuilds_under_its_fingerprint(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(shared, "EMBED_BATCH", 100)  # one batch: the model loads while the pass's only batch embeds
+    model = FakeModel(fingerprint="from-cache")
+    loads_on_first_embedding(model, "embed_texts")
+    index = make_index(tmp_path / "index", model)
+    documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    index.refresh(documents)
+    index.join(30)
+    assert index.status()["state"] == "ready"
+    stored = index._vectors().get(list(documents))
+    assert {(meta or {}).get("model") for meta in stored.metadatas} == {"loaded"}
+    assert index.coverage(documents)["covered"] == len(documents)
+
+
+def test_a_query_whose_model_loads_another_snapshot_compares_only_that_snapshots_vectors(world, tmp_path):
+    from src.engine.vector_store import NumpyVectorStore
+    model = FakeModel(fingerprint="from-cache")
+    build(world, make_index(tmp_path / "index", model))  # every vector is stored under from-cache
+    facts = list(shared.collect(world["stores"]).facts.values())
+    loaded = {chunk_id for chunk_id, _ in shared.chunks(by_name(facts)["style"])}
+    # The loaded snapshot made style's vectors, as another process would have stored them.
+    store = NumpyVectorStore(shared.STORE_NAME, str(tmp_path / "index"))
+    stored = store.get(sorted(shared.documents_of(facts)))
+    embeddings = store.get_embeddings(stored.ids)
+    store.replace(ids=stored.ids, embeddings=np.asarray([embeddings[i] for i in stored.ids]),
+                  documents=stored.documents,
+                  metadatas=[{"model": "loaded" if i in loaded else "from-cache"} for i in stored.ids])
+    store.save()
+    loads_on_first_embedding(model, "embed_query")
+    querying = make_index(tmp_path / "index", model)
+    ranked, vectors, problem = querying.search("markdown links", facts)
+    assert set(vectors) == loaded and problem is None  # selected again for the loaded snapshot, and only its vectors
+    assert ranked[0]["fact"].name == "style" and ranked[0]["semantic"] is not None
+
+
+def test_a_pass_that_embedded_nothing_yet_saves_nothing(world, tmp_path):
+    """Its fingerprint is not confirmed by a load yet: a save would drop the loaded model's vectors."""
+    model = FakeModel(fingerprint="loaded")
+    build(world, make_index(tmp_path / "index", model))  # every vector is stored under loaded
+    before = model.calls
+    documents = shared.documents_of(shared.collect(world["stores"]).facts.values())
+    second = {**documents, "extra:0": "a chunk that arrived as the build started"}
+    model.fingerprint_value = "from-cache"  # a new process, whose model cache names another snapshot
+    loads_on_first_embedding(model, "embed_texts")
+    real_fingerprint, changed = model.fingerprint, []
+
+    def fingerprint():
+        if threading.current_thread().name == "shared-memory-index" and not changed:
+            changed.append(True)
+            index.refresh(second)  # the documents change before the build's first pass embeds anything
+        return real_fingerprint()
+
+    model.fingerprint = fingerprint
+    index = make_index(tmp_path / "index", model)
+    saved_under, real_save = [], index._save
+
+    def save(vectors, documents, model):  # the store on disk, which this process's cached copy can hide
+        saved_under.append(model)
+        real_save(vectors, documents, model)
+
+    index._save = save
+    index.refresh(documents)
+    index.join(30)
+    assert changed and index.status()["state"] == "ready"
+    assert saved_under == ["loaded"]  # nothing under the cache's fingerprint, which would drop the stored vectors
+    assert index.coverage(second)["covered"] == len(second)
+    assert model.calls - before <= shared.EMBED_BATCH + 1  # the batch that loaded the model, then the new chunk

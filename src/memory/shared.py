@@ -33,7 +33,6 @@ import logging
 import math
 import os
 import re
-import sys
 import threading
 import time
 from collections import Counter
@@ -287,12 +286,12 @@ def discover() -> List[native.Store]:
     return native.stores(directory)
 
 
-def project_keys(root: Optional[Path]) -> set:
+def project_keys(root: Optional[Path]) -> ProjectKeys:
     """Claude Code's project directory names for the workspace at ``root``: its own and, for a git
     worktree, its main checkout's, which Claude Code uses for every worktree of a repository."""
     if root is None:
-        return set()
-    keys = {native.project_name(root)}
+        return ProjectKeys()
+    paths = [Path(root)]
     marker = Path(root) / ".git"
     try:
         if marker.is_file():
@@ -302,13 +301,13 @@ def project_keys(root: Optional[Path]) -> set:
                 if not gitdir.is_absolute():
                     gitdir = (Path(root) / gitdir).resolve()
                 if gitdir.parent.name == "worktrees" and gitdir.parent.parent.name == ".git":
-                    keys.add(native.project_name(gitdir.parent.parent.parent))
+                    paths.append(gitdir.parent.parent.parent)
     except OSError:
         pass
-    return keys
+    return ProjectKeys(paths)
 
 
-def select(facts: Iterable[Fact], *, scope: str, projects: set, client: Optional[str] = None,
+def select(facts: Iterable[Fact], *, scope: str, projects: ProjectKeys, client: Optional[str] = None,
            memory_type: Optional[str] = None) -> List[Fact]:
     """The facts a caller in ``projects`` may see under ``scope``, newest first, each with only the
     sources it may see: a copy of a fact in another project's memory stays unnamed, and an undated
@@ -328,27 +327,62 @@ def select(facts: Iterable[Fact], *, scope: str, projects: set, client: Optional
     return chosen
 
 
-# Windows and macOS file systems usually ignore case, and a workspace root can arrive spelled with
-# another case than the one Claude Code named its project directory after.
-_FOLD_CASE = os.name == "nt" or sys.platform == "darwin"
+class ProjectKeys:
+    """Claude Code's project directory names for one workspace (``project_keys``), each with the path
+    it was made from. A name matches a key as spelled, or one it differs from only in the case of its
+    letters when that path spelled in the name's case opens the same directory. A workspace root can
+    arrive spelled in another case than the path Claude Code named its directory after, and a file
+    system that ignores case opens both spellings as one directory; on a case-sensitive one
+    ``/work/Foo`` and ``/work/foo`` are two directories, and so two projects."""
+
+    def __init__(self, paths: Iterable[Path] = ()):
+        self._paths = {native.project_name(path): str(path) for path in paths}
+        self._variants: Dict[str, bool] = {}  # names in another case, once looked up
+
+    def __iter__(self):
+        return iter(self._paths)
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+    def __contains__(self, name: object) -> bool:
+        if not isinstance(name, str):
+            return False
+        if name in self._paths:
+            return True
+        if name not in self._variants:
+            self._variants[name] = name.isascii() and any(
+                _same_directory(path, name) for key, path in self._paths.items() if key.lower() == name.lower())
+        return self._variants[name]
 
 
-def shows(project: str, scope: str, projects: set) -> bool:
+def _same_directory(path: str, name: str) -> bool:
+    """Whether ``path`` spelled with the letter case of ``name``, its project name in another case,
+    opens the same directory: the name has one character for each of the path's."""
+    spelled = "".join(theirs if mine.isascii() and mine.isalpha() else mine for mine, theirs in zip(path, name))
+    try:
+        return os.path.samefile(path, spelled)
+    except (OSError, ValueError):  # no such directory: another project, or none
+        return False
+
+
+def shows(project: str, scope: str, projects: ProjectKeys) -> bool:
     """A place of ``project`` ("" for user-level memory) shows under ``scope`` to a caller in ``projects``."""
     if scope == "all" or not project:
         return True
     if scope != "project":
         return False
-    if _FOLD_CASE:
-        return project.casefold() in {key.casefold() for key in projects}
     return project in projects
 
 
 # --- chunks and lexical search ----------------------------------------------------------------------
 
 def chunks(fact: Fact) -> List[Tuple[str, str]]:
-    """``(chunk id, text)`` of a fact: its body split at Markdown headings, then into pieces of at
-    most ``CHUNK_CHARS`` at paragraph ends. Each chunk starts with the fact's name, for context."""
+    """``(chunk id, text)`` of a fact: its body split at Markdown headings, then into pieces at
+    paragraph ends. Each chunk starts with the fact's name and description, for context, and with them
+    holds at most ``CHUNK_CHARS`` characters."""
+    title = _cut(" — ".join(filter(None, (fact.name, fact.description))), TITLE_CHARS) or ""
+    budget = CHUNK_CHARS - (len(title) + 1 if title else 0)  # what the title and its line break leave
     _, body = split_frontmatter(fact.text)
     body = body if body is not None else fact.text
     sections, current = [], []
@@ -364,22 +398,21 @@ def chunks(fact: Fact) -> List[Tuple[str, str]]:
         piece = ""
         for paragraph in re.split(r"\n\s*\n", section):
             paragraph = paragraph.strip()
-            while len(paragraph) > CHUNK_CHARS:
+            while len(paragraph) > budget:
                 if piece:
                     pieces.append(piece)
                     piece = ""
-                pieces.append(paragraph[:CHUNK_CHARS])
-                paragraph = paragraph[CHUNK_CHARS:]
+                pieces.append(paragraph[:budget])
+                paragraph = paragraph[budget:]
             if not paragraph:
                 continue
-            if piece and len(piece) + len(paragraph) + 2 > CHUNK_CHARS:
+            if piece and len(piece) + len(paragraph) + 2 > budget:
                 pieces.append(piece)
                 piece = paragraph
             else:
                 piece = f"{piece}\n\n{paragraph}" if piece else paragraph
         if piece:
             pieces.append(piece)
-    title = _cut(" — ".join(filter(None, (fact.name, fact.description))), TITLE_CHARS) or ""
     if not pieces:
         pieces = [""]
     return [(f"{fact.id}:{number}", f"{title}\n{piece}".strip() if title else piece)
@@ -610,7 +643,12 @@ class SharedMemoryIndex:
                     return
 
     def _build_once(self, wanted: Dict[str, str]) -> bool:
-        """Embeds what ``wanted`` lacks; True when done, False when ``wanted`` changed meanwhile."""
+        """Embeds what ``wanted`` lacks; True when done, False when the next pass must start over:
+        ``wanted`` changed meanwhile, or an embedding loaded the model from another snapshot than the
+        fingerprint read at the start names (``model_fingerprint`` is the model cache's until the
+        first load). So vectors are saved under the fingerprint read after the embedding that made
+        them, and a pass that has embedded nothing yet saves nothing on a change: the cache's
+        fingerprint never prunes the loaded model's vectors."""
         model = self._fingerprint()
         store = self._vectors()
         vectors: Dict[str, np.ndarray] = store.get_embeddings(self._current(store, wanted, model))
@@ -619,11 +657,14 @@ class SharedMemoryIndex:
         for start in range(0, len(todo), EMBED_BATCH):
             with self._lock:
                 if self._wanted is not wanted:
-                    self._save(vectors, wanted, model)
+                    if start:  # a pass that embedded nothing has no progress to keep
+                        self._save(vectors, wanted, model)
                     return False
             self._yield()
             batch = todo[start:start + EMBED_BATCH]
             embedded = np.asarray(self._embed_texts([wanted[chunk_id] for chunk_id in batch]), dtype=np.float32)
+            if self._fingerprint() != model:  # another model than this pass compares and saves under
+                return False
             for chunk_id, vector in zip(batch, embedded):
                 vectors[chunk_id] = vector
             with self._lock:
@@ -666,6 +707,11 @@ class SharedMemoryIndex:
             return {}, {}
         query_vector = np.asarray(self._embed_query(query), dtype=np.float32).reshape(-1)
         query_vector = query_vector / (np.linalg.norm(query_vector) or 1.0)
+        loaded = self._fingerprint()
+        if loaded != model:  # embedding the query loaded the model from another snapshot than the cache named
+            current = self._current(store, documents, loaded)
+            if not current:
+                return {}, {}
         vectors = {chunk_id: vector for chunk_id, vector in store.get_embeddings(current).items()
                    if vector.shape == query_vector.shape}
         similarity = {}
@@ -899,6 +945,6 @@ def _whole(fact: Optional[Fact], report: dict) -> dict:
 
 
 __all__ = [
-    "CLIENTS", "Collection", "FACT_ID", "Fact", "SCOPES", "SharedMemoryIndex", "Source", "bm25", "chunks",
-    "collect", "discover", "documents_of", "get_index", "project_keys", "read", "select", "tokens",
+    "CLIENTS", "Collection", "FACT_ID", "Fact", "ProjectKeys", "SCOPES", "SharedMemoryIndex", "Source", "bm25",
+    "chunks", "collect", "discover", "documents_of", "get_index", "project_keys", "read", "select", "tokens",
 ]
