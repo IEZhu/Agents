@@ -1820,4 +1820,19 @@ def test_the_command_ends_itself_before_the_clients_timeout():
     result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, capture_output=True, timeout=60,
                             env={**os.environ, "LANGFUSE_TRACING_ENABLED": "false"})
     assert result.returncode == 1 and b"turn not logged (the hook ran out of time)" in result.stderr
-    assert hook.DEADLINE_SECONDS < hook.WATCHDOG_SECONDS < 30
+    assert hook.DEADLINE_SECONDS < hook.WATCHDOG_SECONDS < hook.HARD_WATCHDOG_SECONDS < 30
+
+
+# --- The final verification's low findings (#701 review, attempt 4) -------------------------------
+
+
+def test_the_hard_watchdog_ends_a_command_whose_computation_holds_the_interpreter_lock():
+    """One regular-expression match held the interpreter lock past the 28-second timer thread, and the
+    command ran for 70 s; faulthandler's watchdog thread needs no lock."""
+    probe = ("import re; from src.memory import turn_log_hook as hook; hook._watchdog(30, 0.5); "
+             "re.match(r'(a|aa)+$', 'a' * 80 + 'b')")
+    started = time.monotonic()
+    result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, capture_output=True, timeout=120,
+                            env={**os.environ, "LANGFUSE_TRACING_ENABLED": "false"})
+    assert result.returncode == 1 and b"Timeout" in result.stderr
+    assert time.monotonic() - started < 30

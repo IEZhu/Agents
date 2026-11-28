@@ -62,6 +62,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime
+import faulthandler
 import hashlib
 import json
 import os
@@ -89,9 +90,12 @@ TRANSCRIPT_POLL_SECONDS = 0.2
 LOCK_TIMEOUT_SECONDS = 10.0
 # One deadline for a hook event, below the 30-second timeout of the documented registration: a Stop
 # that cannot finish in it reports the turn as not logged, rather than being cancelled by the client
-# with its output discarded (#701 review). ``WATCHDOG_SECONDS`` ends a command still running then.
+# with its output discarded (#701 review). ``WATCHDOG_SECONDS`` ends a command still running then;
+# ``HARD_WATCHDOG_SECONDS`` ends it from a thread that needs no interpreter lock, for the case where
+# one long computation holds the lock past the first watchdog (#701 review: 70 s on one line).
 DEADLINE_SECONDS = 25.0
 WATCHDOG_SECONDS = 28.0
+HARD_WATCHDOG_SECONDS = 29.0
 # What the journal write needs after the redaction: a turn with less time left is not written.
 WRITE_RESERVE_SECONDS = 1.0
 NOTICE_EVENT, STOP_EVENT = "UserPromptSubmit", "Stop"
@@ -712,14 +716,20 @@ def _report(error: BaseException) -> str:
     return f"turn not logged ({_reason(error)})"
 
 
-def _watchdog(seconds: float) -> threading.Timer:
+def _watchdog(seconds: float, hard_seconds: float | None = None) -> threading.Timer:
     """End the command with exit 1 and a reason once ``seconds`` pass, before the client's own
     timeout cancels it and discards its output (#701 review). Every journal change is one atomic
-    replacement or crash-safe in its order, so an exit at any moment leaves the journal readable."""
+    replacement or crash-safe in its order, so an exit at any moment leaves the journal readable.
+
+    The timer is a Python thread, which cannot run while one long computation holds the interpreter
+    lock; ``faulthandler``'s watchdog thread needs no lock and ends the process at ``hard_seconds``,
+    printing where it was (#701 review)."""
     def expire():
         sys.stderr.write("agents-core turn log: turn not logged (the hook ran out of time)\n")
         sys.stderr.flush()
         os._exit(1)
+    if hard_seconds is not None:
+        faulthandler.dump_traceback_later(hard_seconds, exit=True)
     timer = threading.Timer(seconds, expire)
     timer.daemon = True
     timer.start()
@@ -733,15 +743,17 @@ def main(argv=None, *, watchdog: bool = False) -> int:
     a prompt never fails over this hook. ``Stop`` logs the turn; when it could not, it prints the
     reason to stderr and exits 1, which Claude Code shows as a non-blocking hook error, never 2,
     which would keep the turn going. Other events, unreadable input and other arguments exit 0.
-    ``watchdog`` (the command line) also ends a run still going after ``WATCHDOG_SECONDS``.
+    ``watchdog`` (the command line) also ends a run still going after ``WATCHDOG_SECONDS``, and one
+    whose computation holds the interpreter lock after ``HARD_WATCHDOG_SECONDS``.
     """
     started = time.monotonic()
-    timer = _watchdog(WATCHDOG_SECONDS) if watchdog else None
+    timer = _watchdog(WATCHDOG_SECONDS, HARD_WATCHDOG_SECONDS) if watchdog else None
     try:
         return _main(argv, started + DEADLINE_SECONDS)
     finally:
         if timer is not None:
             timer.cancel()
+            faulthandler.cancel_dump_traceback_later()
 
 
 def _main(argv, deadline: float) -> int:
