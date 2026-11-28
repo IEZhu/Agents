@@ -1071,3 +1071,28 @@ def test_a_fenced_block_under_a_label_is_masked_to_its_bound():
     text = "Password:\n```\n" + "\n".join(lines)
     masked, clean = redaction.redact(text)
     assert clean and masked.endswith("\n".join(lines[redaction.FENCE_LINES:])), masked[-200:]
+
+
+# --- The second verification of attempt 5 (#701 review, v701-5 regression) -------------------------
+
+
+def test_shared_memory_keeps_its_own_patterns_and_the_hook_its_bounded_copies():
+    """v701-5 regression: attempt 5 bounded shared memory's patterns for the hook's speed, so
+    read_shared_memory served a JWT after a hyphen and a long labelled value that dev refuses. Shared
+    memory's patterns are dev's again; the hook reads bounded copies of three of them, and still masks
+    both shapes by its other rules."""
+    from src.memory import shared
+    jwt = "eyJ" + "a1B2c3D4e5" * 2 + "." + "f6G7h8I9j0" * 2 + "." + "k1L2m3N4o5" * 2
+    long_value = "password: " + "a" * 300 + "1"
+    for note in ("session sess-" + jwt, long_value):
+        assert any(pattern.search(note) for _, pattern in shared.MEMORY_SECRETS), note
+        masked, clean = redaction.redact(note)
+        assert clean and jwt not in masked and "a" * 300 not in masked, masked
+    names = [name for name, _ in shared.MEMORY_SECRETS]
+    assert [name for name, _ in redaction._memory_patterns()] == names
+    bounded = dict(redaction._memory_patterns())
+    for name in ("labelled_credential", "url_credential", "jwt"):
+        assert bounded[name] is not dict(shared.MEMORY_SECRETS)[name]
+    for sample in ("password: Tr0ub4dor&3", "postgres://app:Tr0ub4dor@db/app", "token " + jwt):
+        assert any(pattern.search(sample) for _, pattern in shared.MEMORY_SECRETS) == \
+            any(pattern.search(sample) for pattern in bounded.values()), sample

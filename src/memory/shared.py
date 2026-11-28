@@ -59,22 +59,16 @@ SECRET_NAME = re.compile(r"(?i)^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?
 # Credentials the way notes write them, on top of the user sync's scan, which looks for the forms
 # configuration files use. A labelled value counts only when it looks like one: at least six
 # characters without spaces, with a letter and a digit or symbol, so prose such as "the token is
-# rotated daily" stays a fact. Its ``value`` group is where the value begins, for a caller that masks
-# the value alone (the turn-log hook, #701).
+# rotated daily" stays a fact.
 MEMORY_SECRETS = (
     ("labelled_credential", re.compile(
         r"(?i)(?<![\w-])(?:password|passwd|passphrase|пароль|secret|token|api[_ -]?key|access[_ -]?key|"
         r"client[_ -]?secret)(?![\w-])[\"'`*]*\s*(?::|=|\bis\b|—|-)\s*[\"'`]?"
-        # Lookaheads bounded to 256 characters: unbounded, each label in a run without blanks read the
-        # rest of the run again (#701 review: 23.5 s for 100 kB of "token:").
-        r"(?P<value>(?=[^\s\"'`<>]{0,256}[^\W\d_])(?=[^\s\"'`<>]{0,256}[\d!@#%^&*_+=~])(?!\$\{|\{\{)"
-        r"[^\s\"'`<>]{6,})")),
-    # A scheme of 21 characters at most: unbounded, a run of dotted letters took quadratic time (#701 review).
-    ("url_credential", re.compile(r"(?i)\b[a-z][a-z0-9+.-]{0,20}://[^\s/:@]+:[^\s/@]+@")),
+        r"(?=[^\s\"'`<>]*[^\W\d_])(?=[^\s\"'`<>]*[\d!@#%^&*_+=~])(?!\$\{|\{\{)[^\s\"'`<>]{6,}")),
+    ("url_credential", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
     ("stripe_key", re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}")),
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}")),
-    # The scanner's run-start lookbehind: "\b" restarted the match at every "eyJ" inside a run (#701 review).
-    ("jwt", re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
     ("huggingface_token", re.compile(r"\bhf_[A-Za-z0-9]{30,}")),
     ("npm_token", re.compile(r"\bnpm_[A-Za-z0-9]{36}")),
     ("bearer_token", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{20,}")),

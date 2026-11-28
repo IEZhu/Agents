@@ -1485,12 +1485,34 @@ class _LineTails:
         self.until = end
 
 
+@functools.cache
+def _memory_patterns() -> tuple:
+    """Shared memory's credential patterns as the hook reads them (#701 reviews): the labelled value
+    with lookaheads bounded to 256 characters and a group where the value begins, the URL credential
+    with a scheme of 21 characters at most, and a JWT only where a run starts. Unbounded, each label
+    in a run without blanks read the rest of the run again (23.5 s for 100 kB of "token:"), and a
+    JWT match restarted at every "eyJ" inside a run. Shared memory keeps dev's forms for what it
+    serves, which also refuse a JWT after a hyphen and a labelled value whose first 257 characters
+    hold no letter or no digit; the hook masks those shapes by its other rules."""
+    from src.memory.shared import MEMORY_SECRETS
+
+    bounded = {
+        "labelled_credential": re.compile(
+            r"(?i)(?<![\w-])(?:password|passwd|passphrase|пароль|secret|token|api[_ -]?key|access[_ -]?key|"
+            r"client[_ -]?secret)(?![\w-])[\"'`*]*\s*(?::|=|\bis\b|—|-)\s*[\"'`]?"
+            r"(?P<value>(?=[^\s\"'`<>]{0,256}[^\W\d_])(?=[^\s\"'`<>]{0,256}[\d!@#%^&*_+=~])(?!\$\{|\{\{)"
+            r"[^\s\"'`<>]{6,})"),
+        "url_credential": re.compile(r"(?i)\b[a-z][a-z0-9+.-]{0,20}://[^\s/:@]+:[^\s/@]+@"),
+        "jwt": re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+    }
+    return tuple((name, bounded.get(name, pattern)) for name, pattern in MEMORY_SECRETS)
+
+
 def _secret_spans(text: str, scanner) -> list[tuple[int, int]] | None:
     """Where the detectors find a secret in ``text``; None when the scanner could not scan it
     whole (too large, too many hits). An entropy hit inside a region that ``NOT_SECRET`` names is
     no secret; token formats and known secrets always are. A labelled credential that shared memory
     or user sync finds is masked to the end of its line, as the line rule masks it."""
-    from src.memory.shared import MEMORY_SECRETS
     from src.schedules import scan
 
     exempt = _not_secret_spans(text)
@@ -1501,7 +1523,7 @@ def _secret_spans(text: str, scanner) -> list[tuple[int, int]] | None:
         if hit.kind == scan.HitKind.ENTROPY and _inside((hit.start, hit.end), exempt):
             continue
         spans.append((hit.start, hit.end))
-    for name, pattern in MEMORY_SECRETS:
+    for name, pattern in _memory_patterns():
         tails = _LineTails(text)  # one per pattern: its matches come in order
         for match in pattern.finditer(text):
             if name == "labelled_credential":
